@@ -3,7 +3,6 @@
 namespace Modules\Custody\Services;
 
 use Modules\Custody\Models\PersonalLedgerTransaction;
-use Modules\Shift\Models\CashierShiftHandover;
 
 class PersonalLedgerService
 {
@@ -107,33 +106,6 @@ class PersonalLedgerService
             'last_365_days' => now()->subDays(365),
             default => now()->subDays(30), // Default to last 30 days
         };
-    }
-
-    /**
-     * Create transaction from approved handover
-     */
-    public function createTransactionFromHandover(CashierShiftHandover $handover): PersonalLedgerTransaction
-    {
-        $cashier = $handover->cashierShift->cashier;
-
-        return PersonalLedgerTransaction::create([
-            // The approving manager physically received the cash (branch-wide
-            // approval), so the ledger entry follows them, not the addressee.
-            'branch_manager_id' => $handover->receivingBranchManagerId() ?? $handover->handover_to_id,
-            'transaction_type' => 'Total Sales',
-            'amount' => $handover->handover_amount,
-            'is_cash_in' => true,
-            'cashier_name' => $cashier->name ?? null,
-            'related_shift_id' => $handover->cashier_shift_id,
-            'related_handover_id' => $handover->id,
-            // Stamped when the manager APPROVES, not when the cashier submitted:
-            // the cash enters the manager's custody on approval, and the
-            // cashier's matching cash-OUT entry is stamped the same way. Using
-            // `handover_date` put a handover submitted yesterday and approved
-            // today on yesterday's ledger, where the daily statement
-            // (whereDate transaction_date = today) could never show it.
-            'transaction_date' => $handover->approved_at ?? now(),
-        ]);
     }
 
     /**

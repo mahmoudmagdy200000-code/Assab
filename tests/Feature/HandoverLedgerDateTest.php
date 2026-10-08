@@ -7,20 +7,20 @@ use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Custody\Models\PersonalLedgerTransaction;
+use Modules\Shift\Enums\HandoverStatus;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
+use Modules\Shift\Models\CashierShiftHandoverReceipt;
+use Modules\Shift\Models\CashierShiftHistory;
 use Modules\Shift\Models\Shift;
+use Modules\Shift\Models\ShiftHandoverStatus;
 use Modules\Shift\Services\HandoverService;
+use Modules\Shift\Services\ShiftReportRevisionService;
 use Tests\TestCase;
 
-/**
- * A cashier hands cash to the branch manager; the manager approves it the NEXT
- * day (yesterday's shift was still open). The manager's personal ledger entry
- * must be stamped at APPROVAL time — it used to carry the handover's own date,
- * so the approved cash never appeared on the daily account statement
- * (whereDate transaction_date = today) even though the approval succeeded.
- */
+/** Actual manager receipt is ledgered on confirmation time and bound to the receipt. */
 class HandoverLedgerDateTest extends TestCase
 {
     use RefreshDatabase;
@@ -51,14 +51,37 @@ class HandoverLedgerDateTest extends TestCase
             'start_time' => '08:00', 'end_time' => '16:00', 'is_active' => true,
         ]);
 
-        // Yesterday's shift, handed over yesterday, still awaiting approval.
+        // Cashier shift and request are submitted yesterday; receipt is confirmed today.
         $this->shift = CashierShift::factory()->create([
             'cashier_id' => $this->cashier->id,
             'shift_id' => $template->id,
-            'shift_date' => today()->subDay(),
+            'shift_date' => today(),
             'status' => ShiftStatus::IN_PROGRESS,
             'cash_collected' => 5000.00,
             'total_sales' => 5000.00,
+        ]);
+        $revision = app(ShiftReportRevisionService::class)->recordCashierRevision($this->shift, 'cashier', $this->cashier->id, 0);
+        $managerWorkday = BranchManagerShift::query()
+            ->where('branch_manager_id', $this->manager->id)
+            ->first();
+        if (! $managerWorkday) {
+            $managerWorkday = new BranchManagerShift([
+                'branch_manager_id' => $this->manager->id,
+                'branch_id' => $this->branch->id,
+                'shift_date' => today()->toDateString(),
+            ]);
+        }
+        $managerWorkday->fill([
+            'branch_id' => $this->branch->id,
+            'shift_date' => today()->toDateString(),
+            'status' => 'active',
+            'cash_collected' => '5000.00',
+        ])->save();
+
+        ShiftHandoverStatus::create([
+            'cashier_shift_id' => $this->shift->id,
+            'status' => HandoverStatus::PENDING,
+            'manager_approval_status' => 'pending',
         ]);
 
         $this->handover = CashierShiftHandover::create([
@@ -69,6 +92,7 @@ class HandoverLedgerDateTest extends TestCase
             'handover_date' => today()->subDay()->toDateString(),
             'handover_time' => now()->subDay(),
             'status' => 'pending',
+            'report_revision_id' => $revision->id,
         ]);
     }
 
@@ -79,25 +103,25 @@ class HandoverLedgerDateTest extends TestCase
             $this->manager->id,
             get_class($this->manager),
             null,
+            '5000.00',
         );
     }
 
-    public function test_approval_posts_the_cash_to_the_managers_ledger_dated_today(): void
+    public function test_actual_manager_confirmation_posts_receipt_linked_total_sales_credit(): void
     {
         $this->approve();
 
-        $txn = PersonalLedgerTransaction::where('related_handover_id', $this->handover->id)->first();
-        $this->assertNotNull($txn, 'approving a handover must post to the manager ledger');
-        $this->assertSame('Total Sales', $txn->transaction_type);
-        $this->assertTrue((bool) $txn->is_cash_in);
-        $this->assertSame('5000.00', (string) $txn->amount);
-        $this->assertTrue(
-            $txn->transaction_date->isToday(),
-            'the entry belongs to the day custody actually changed hands (approval), not the handover date',
-        );
+        $receipt = CashierShiftHandoverReceipt::query()->sole();
+        $ledger = PersonalLedgerTransaction::where('related_handover_id', $this->handover->id)->sole();
+        $this->assertSame('Total Sales', $ledger->transaction_type);
+        $this->assertSame('5000.00', $ledger->amount);
+        $this->assertSame($receipt->id, $ledger->receipt_id);
+        $this->assertSame($receipt->confirmed_at->toDateString(), $ledger->transaction_date->toDateString());
+        $this->assertSame($this->manager->id, $receipt->receiving_branch_manager_id);
+        $this->assertSame(1, CashierShiftHistory::where('cashier_shift_id', $this->shift->id)->where('action', 'handover_confirmed')->count());
     }
 
-    public function test_the_daily_account_statement_shows_it(): void
+    public function test_the_daily_account_statement_uses_actual_confirmation_date(): void
     {
         $this->approve();
 
@@ -125,7 +149,12 @@ class HandoverLedgerDateTest extends TestCase
     {
         $this->approve();
         $this->shift->refresh();
-        $this->approve();
+        try {
+            $this->approve();
+            $this->fail('An already-approved handover must not be approved again.');
+        } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException) {
+            $this->assertSame(1, PersonalLedgerTransaction::where('related_handover_id', $this->handover->id)->count());
+        }
 
         $this->assertSame(1, PersonalLedgerTransaction::where('related_handover_id', $this->handover->id)->count());
     }

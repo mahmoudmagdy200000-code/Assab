@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Listeners;
 
+use Illuminate\Support\Facades\DB;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Shift;
@@ -32,7 +33,18 @@ class BridgeLegacyCashierShift
 
     public function handle(ShiftEndedEvent $event): void
     {
-        $legacy = $event->shift;
+        DB::transaction(function () use ($event): void {
+            // Serializes duplicate close projections on their source aggregate.
+            $legacy = \Modules\Shift\Models\CashierShift::withoutEagerLoads()
+                ->whereKey($event->shift->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $this->bridge($legacy);
+        });
+    }
+
+    private function bridge(\Modules\Shift\Models\CashierShift $legacy): void
+    {
 
         // A live mirror row opened at shift start is FINISHED here; anything
         // already past `active|late` was closed on the dashboard → skip.

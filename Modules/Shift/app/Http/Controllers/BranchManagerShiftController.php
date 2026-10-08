@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Shift\Models\BranchManagerShift;
@@ -240,6 +241,7 @@ class BranchManagerShiftController extends BaseController
     {
         $validator = Validator::make($request->all(), [
             'handover_id' => 'required|exists:cashier_shift_handovers,id',
+            'confirmed_amount' => 'required|'.ShiftMoneyValidation::SAR,
         ]);
 
         if ($validator->fails()) {
@@ -272,7 +274,8 @@ class BranchManagerShiftController extends BaseController
                 $cashierShift,
                 $manager->id,
                 get_class($manager),
-                null
+                null,
+                (string) $request->input('confirmed_amount')
             );
 
             $handover->refresh();
@@ -292,6 +295,8 @@ class BranchManagerShiftController extends BaseController
         $validator = Validator::make($request->all(), [
             'handover_id' => 'required|exists:cashier_shift_handovers,id',
             'rejection_reason' => 'required|string|max:500',
+            'correction_reason' => 'nullable|in:input_error,actual_shortage',
+            'confirmed_amount' => 'required_with:correction_reason|'.ShiftMoneyValidation::SAR,
         ]);
 
         if ($validator->fails()) {
@@ -320,14 +325,26 @@ class BranchManagerShiftController extends BaseController
                 return $this->errorResponse('Unauthorized to reject this handover', 403);
             }
 
-            $result = $this->handoverService->rejectHandover(
-                $cashierShift,
-                $manager->id,
-                get_class($manager),
-                $request->rejection_reason,
-                [],
-                null
-            );
+            if ($request->filled('correction_reason')) {
+                $this->handoverService->rejectHandoverForAmountCorrection(
+                    $cashierShift,
+                    $manager->id,
+                    get_class($manager),
+                    $request->rejection_reason,
+                    (string) $request->input('confirmed_amount'),
+                    $request->string('correction_reason')->toString()
+                );
+                $result = ['rejection_count' => $cashierShift->fresh('handoverStatus')->handoverStatus->rejection_count, 'is_final_rejection' => false];
+            } else {
+                $result = $this->handoverService->rejectHandover(
+                    $cashierShift,
+                    $manager->id,
+                    get_class($manager),
+                    $request->rejection_reason,
+                    [],
+                    null
+                );
+            }
 
             $handoverAfter = CashierShiftHandover::find($request->handover_id);
             $handoverPayload = $handoverAfter
@@ -798,7 +815,14 @@ class BranchManagerShiftController extends BaseController
 
             // Bridge to the ASAB world: the daily close becomes the branch's
             // sales statement in the accountant's المبيعات inbox.
-            event(new \Modules\Shift\Events\DailyReportSubmittedEvent($managerShift->fresh()));
+            try {
+                event(new \Modules\Shift\Events\DailyReportSubmittedEvent($managerShift->fresh()));
+            } catch (\Throwable $exception) {
+                Log::error('Daily report bridge projection failed after commit', [
+                    'manager_shift_id' => $managerShift->id,
+                    'error' => $exception->getMessage(),
+                ]);
+            }
 
             return $this->successResponse([
                 'shift' => new BranchManagerShiftResource($managerShift),

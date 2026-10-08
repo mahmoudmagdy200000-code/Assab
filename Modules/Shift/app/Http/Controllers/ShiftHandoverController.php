@@ -230,6 +230,7 @@ class ShiftHandoverController extends Controller
             }
 
             $shiftModel = CashierShift::with(['handoverStatus', 'shift'])->findOrFail($shift);
+            $handover = CashierShiftHandover::query()->where('cashier_shift_id', $shiftModel->id)->sole();
 
             // Verify shift belongs to manager's branch
             if ($shiftModel->shift->branch_id !== $manager->branch_id) {
@@ -246,6 +247,16 @@ class ShiftHandoverController extends Controller
                 ], 404);
             }
 
+            if ($handover->handover_to_type === 'branch_manager') {
+                ShiftMoneyValidation::normalizeRepresentationNoise($request);
+                $amountValidator = Validator::make($request->all(), [
+                    'confirmed_amount' => 'required|'.ShiftMoneyValidation::SAR,
+                ]);
+                if ($amountValidator->fails()) {
+                    return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $amountValidator->errors()], 422);
+                }
+            }
+
             // if (!in_array($shiftModel->handoverStatus->manager_approval_status, ['pending', 'rejected'])) {
             //     return response()->json([
             //         'success' => false,
@@ -258,7 +269,8 @@ class ShiftHandoverController extends Controller
                 $shiftModel,
                 $manager->id,
                 get_class($manager),
-                $request->get('manager_comment')
+                $request->get('manager_comment'),
+                $request->filled('confirmed_amount') ? (string) $request->input('confirmed_amount') : null
             );
 
             return response()->json([
@@ -297,6 +309,8 @@ class ShiftHandoverController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'rejection_reason' => 'nullable|string|max:500',
+            'correction_reason' => 'nullable|in:input_error,actual_shortage',
+            'confirmed_amount' => 'required_with:correction_reason|'.ShiftMoneyValidation::SAR,
             'manager_comment' => 'nullable|string|max:500',
             'rejection_files' => 'nullable|array',
             'rejection_files.*' => 'nullable|file|mimes:pdf,png,jpeg,jpg|max:5120',
@@ -350,12 +364,23 @@ class ShiftHandoverController extends Controller
                     ], 404);
                 }
 
-                $this->handoverService->rejectHandoverByCashier(
-                    $shiftModel,
-                    $user->id,
-                    $request->rejection_reason ?? '',
-                    $request->file('rejection_files', [])
-                );
+                if ($request->filled('correction_reason')) {
+                    $this->handoverService->rejectHandoverForAmountCorrection(
+                        $shiftModel,
+                        $user->id,
+                        get_class($user),
+                        $request->rejection_reason ?? '',
+                        (string) $request->input('confirmed_amount'),
+                        $request->string('correction_reason')->toString()
+                    );
+                } else {
+                    $this->handoverService->rejectHandoverByCashier(
+                        $shiftModel,
+                        $user->id,
+                        $request->rejection_reason ?? '',
+                        $request->file('rejection_files', [])
+                    );
+                }
 
                 $fresh = $shiftModel->fresh(['handoverStatus']);
 
@@ -472,6 +497,7 @@ class ShiftHandoverController extends Controller
         ShiftMoneyValidation::normalizeRepresentationNoise($request);
         $validator = Validator::make($request->all(), [
             'handover_amount' => 'required|'.ShiftMoneyValidation::SAR,
+            'correction_reason' => 'required|in:input_error,actual_shortage',
             'handover_notes' => 'nullable|string|max:500',
         ]);
 

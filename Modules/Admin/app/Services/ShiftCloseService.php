@@ -3,6 +3,7 @@
 namespace Modules\Admin\Services;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Employee;
@@ -43,38 +44,17 @@ class ShiftCloseService
      */
     public function close(Shift $shift, array $data, AsabUser $actor, string $origin = 'mobile'): array
     {
-        // A manager's mirrored workday is display-only: its money already reaches
-        // the accountant as the branch's daily sales statement, so closing it
-        // here would review the same riyals twice and charge a phantom cash gap.
-        if ($shift->isBranchManagerShift()) {
-            throw new AsabException(
-                'SHIFT_NOT_CLOSABLE',
-                'A branch manager workday is closed from the mobile daily report, not the shift pipeline',
-                'وردية مدير الفرع تُغلق من التقرير اليومي في التطبيق، وليس من هنا',
-                422,
-                ['role' => $shift->role],
-            );
-        }
-
-        if (! in_array($shift->status, ['active', 'late'], true)) {
-            throw new AsabException(
-                'SHIFT_ALREADY_CLOSED',
-                'Shift is no longer open',
-                'تم إغلاق هذه الوردية مسبقاً',
-                409,
-                ['currentStatus' => $shift->status],
-            );
-        }
-
         $cashActual = (int) $data['cashActualHalalas'];
         $card = (int) ($data['cardTotalHalalas'] ?? 0);
         $aggregator = (int) ($data['aggregatorTotalsHalalas'] ?? 0);
-        // Server-derived expected cash: the float plus the cash portion of sales
-        // (total sales minus what was taken by card / delivery apps).
-        $expectedCash = (int) ($shift->opening_float ?? 0) + max(0, (int) $shift->sales_amount - $card - $aggregator);
-        $variance = $cashActual - $expectedCash;
 
-        return DB::transaction(function () use ($shift, $actor, $origin, $cashActual, $card, $aggregator, $expectedCash, $variance, $data) {
+        return DB::transaction(function () use ($shift, $actor, $origin, $cashActual, $card, $aggregator, $data) {
+            $shift = Shift::query()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
+            $this->assertClosable($shift);
+
+            // Derive committed financial facts from the locked, current row.
+            $expectedCash = (int) ($shift->opening_float ?? 0) + max(0, (int) $shift->sales_amount - $card - $aggregator);
+            $variance = $cashActual - $expectedCash;
             $shift->update([
                 'status' => 'pending_review',
                 'ended_at' => now(),
@@ -114,24 +94,47 @@ class ShiftCloseService
      */
     public function setVarianceAllocations(Operation $op, array $allocations, AsabUser $actor): array
     {
-        $shift = $this->shiftFor($op);
-        $target = abs((int) $shift->variance);
+        return DB::transaction(function () use ($op, $allocations, $actor): array {
+            $op = Operation::query()->whereKey($op->id)->lockForUpdate()->firstOrFail();
+            if ($op->module_key !== 'shifts') {
+                throw new AsabException('NOT_A_SHIFT_OPERATION', 'Variance allocations require a shift operation', 'تخصيص الفارق يتطلب عملية وردية', 409);
+            }
+            if (in_array($op->status, [Operation::STATUS_FINAL, Operation::STATUS_REJECTED], true)) {
+                throw new AsabException('OP_ALREADY_FINAL', 'Operation is locked and can no longer be modified', 'لا يمكن تعديل عملية مُغلقة', 409);
+            }
 
-        $rows = [];
-        $amounts = [];
-        foreach ($allocations as $a) {
-            $emp = $this->allocations->resolveEmployee($op, $a);
-            $amount = (int) $a['amountHalalas'];
-            $amounts[] = $amount;
-            $rows[] = ['employeeId' => $emp->id, 'employeeName' => $emp->name, 'amountHalalas' => $amount];
-        }
-        $this->allocations->assertSum($amounts, $target);
+            $shiftStub = $this->shiftFor($op);
+            if ($shiftStub === null) {
+                throw new AsabException('SHIFT_NOT_FOUND', 'Shift operation has no current shift', 'الوردية المرتبطة بالعملية غير موجودة', 409);
+            }
+            $shift = Shift::query()->whereKey($shiftStub->id)->lockForUpdate()->firstOrFail();
+            $target = abs((int) $shift->variance);
 
-        $payload = $op->payload ?? [];
-        $payload['varianceAllocations'] = array_map(fn ($r) => ['employeeId' => $r['employeeId'], 'amountHalalas' => $r['amountHalalas']], $rows);
-        $op->update(['payload' => $payload]);
+            $rows = [];
+            $amounts = [];
+            foreach ($allocations as $allocation) {
+                $employee = $this->allocations->resolveEmployee($op, $allocation);
+                $amount = (int) $allocation['amountHalalas'];
+                $amounts[] = $amount;
+                $rows[] = ['employeeId' => $employee->id, 'employeeName' => $employee->name, 'amountHalalas' => $amount];
+            }
+            $this->allocations->assertSum($amounts, $target);
 
-        return $rows;
+            $payload = $op->payload ?? [];
+            $payload['varianceAllocations'] = array_map(fn ($row) => ['employeeId' => $row['employeeId'], 'amountHalalas' => $row['amountHalalas']], $rows);
+            $op->update(['payload' => $payload]);
+            $op->steps()->create([
+                'stage_id' => 'allocation',
+                'action' => 'حدث المحاسب توزيع عجز الوردية',
+                'actor_user_id' => $actor->id,
+                'actor_label' => $actor->name,
+                'note' => null,
+                'meta' => ['varianceAllocations' => $payload['varianceAllocations']],
+                'occurred_at' => now(),
+            ]);
+
+            return $rows;
+        });
     }
 
     /**
@@ -141,23 +144,40 @@ class ShiftCloseService
      */
     public function onFinalApproved(Operation $op, AsabUser $actor): void
     {
-        $shift = $this->shiftFor($op);
-        if ($shift === null) {
-            return;
-        }
-
-        DB::transaction(function () use ($op, $actor, $shift) {
+        DB::transaction(function () use ($op, $actor) {
+            $lockedOperation = Operation::query()->whereKey($op->id)->lockForUpdate()->firstOrFail();
+            if ($lockedOperation->status !== Operation::STATUS_FINAL || $lockedOperation->module_key !== 'shifts') {
+                throw new AsabException('OP_NOT_FINAL', 'Shift operation is not final-approved', 'العملية ليست معتمدة نهائياً', 409);
+            }
+            $shift = $this->shiftFor($lockedOperation);
+            if ($shift === null) {
+                throw new AsabException('SHIFT_NOT_FOUND', 'Shift operation has no current shift', 'الوردية المرتبطة بالعملية غير موجودة', 409);
+            }
+            $shift = Shift::query()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
+            if ($shift->status !== 'pending_review') {
+                throw new AsabException('SHIFT_NOT_PENDING_REVIEW', 'Shift is no longer pending review', 'الوردية لم تعد بانتظار المراجعة', 409);
+            }
             $variance = (int) $shift->variance;
             if ($variance < 0) {
-                $rows = $this->resolveAllocationRows($op, $shift, abs($variance));
-                if ($rows !== []) {
-                    $this->allocations->post($op, self::CATEGORY, self::CATEGORY_LABEL_AR, $rows, $actor);
+                $rows = $this->resolveAllocationRows($lockedOperation, $shift, abs($variance));
+                if ($rows === []) {
+                    throw new AsabException('SHIFT_ALLOCATION_REQUIRED', 'A shortage requires an employee allocation', 'يتطلب العجز تخصيصاً لموظف', 409);
                 }
+                $this->allocations->post($lockedOperation, self::CATEGORY, self::CATEGORY_LABEL_AR, $rows, $actor);
             }
             $shift->update(['status' => 'closed']);
+            $shiftId = $shift->id;
+            DB::afterCommit(function () use ($shiftId): void {
+                try {
+                    $this->rt->shiftChanged(Shift::query()->findOrFail($shiftId), 'closed');
+                } catch (\Throwable $exception) {
+                    Log::error('Final-approved shift projection failed after commit', [
+                        'shift_id' => $shiftId,
+                        'error' => $exception->getMessage(),
+                    ]);
+                }
+            });
         });
-
-        $this->rt->shiftChanged($shift->fresh(), 'closed');
     }
 
     /** On rejection: reopen the shift and notify its branch manager. */
@@ -209,5 +229,28 @@ class ShiftCloseService
         $shiftId = $op->payload['shiftId'] ?? null;
 
         return $shiftId ? Shift::where('id', $shiftId)->first() : null;
+    }
+
+    private function assertClosable(Shift $shift): void
+    {
+        if ($shift->isBranchManagerShift()) {
+            throw new AsabException(
+                'SHIFT_NOT_CLOSABLE',
+                'A branch manager workday is closed from the mobile daily report, not the shift pipeline',
+                'وردية مدير الفرع تُغلق من التقرير اليومي في التطبيق، وليس من هنا',
+                422,
+                ['role' => $shift->role],
+            );
+        }
+
+        if (! in_array($shift->status, ['active', 'late'], true)) {
+            throw new AsabException(
+                'SHIFT_ALREADY_CLOSED',
+                'Shift is no longer open',
+                'تم إغلاق هذه الوردية مسبقاً',
+                409,
+                ['currentStatus' => $shift->status],
+            );
+        }
     }
 }

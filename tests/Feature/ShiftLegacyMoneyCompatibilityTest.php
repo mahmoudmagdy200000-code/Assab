@@ -181,7 +181,7 @@ class ShiftLegacyMoneyCompatibilityTest extends TestCase
 
         return [
             'record handover' => [$cashier, "/api/cashier/shifts/{$shift->id}/handover", ['next_cashier_id' => $other->id, 'handover_amount' => $amount], 'handover_amount'],
-            'edit after rejection' => [$cashier, "/api/cashier/shifts/{$shift->id}/handover/edit", ['handover_amount' => $amount], 'handover_amount'],
+            'edit after rejection' => [$cashier, "/api/cashier/shifts/{$shift->id}/handover/edit", ['handover_amount' => $amount, 'correction_reason' => 'input_error'], 'handover_amount'],
             'record variance' => [$manager, "/api/branch-manager/shifts/{$shift->id}/variance", ['responsibility_type' => 'self_and_others', 'other_cashiers' => [['cashier_id' => $other->id, 'amount' => $amount]]], 'other_cashiers.0.amount'],
             'reassign with handover' => [$manager, "/api/branch-manager/shifts/{$shift->id}/reassign-with-handover", ['new_cashier_id' => $other->id, 'handover_amount' => $amount], 'handover_amount'],
         ];

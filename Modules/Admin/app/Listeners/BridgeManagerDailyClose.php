@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Listeners;
 
+use Illuminate\Support\Facades\DB;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\BranchHierarchyLinker;
@@ -26,7 +27,19 @@ class BridgeManagerDailyClose
 
     public function handle(DailyReportSubmittedEvent $event): void
     {
-        $shift = $event->managerShift;
+        DB::transaction(function () use ($event): void {
+            // The source report row serializes this projection's duplicate check
+            // with the operation insert below.
+            $shift = \Modules\Shift\Models\BranchManagerShift::query()
+                ->whereKey($event->managerShift->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $this->bridge($shift);
+        });
+    }
+
+    private function bridge(\Modules\Shift\Models\BranchManagerShift $shift): void
+    {
 
         $alreadyBridged = Operation::where('module_key', 'sales')
             ->where('payload->managerShiftId', $shift->id)

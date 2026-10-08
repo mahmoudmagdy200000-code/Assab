@@ -40,6 +40,16 @@ class CashierShiftHandoverReceipt extends Model
         return $this->belongsTo(CashierShift::class, 'receiving_cashier_shift_id');
     }
 
+    public function receivingManagerShift(): BelongsTo
+    {
+        return $this->belongsTo(BranchManagerShift::class, 'receiving_branch_manager_shift_id');
+    }
+
+    public function receivingManager(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\BranchManagers\Models\BranchManager::class, 'receiving_branch_manager_id');
+    }
+
     public function reportRevision(): BelongsTo
     {
         return $this->belongsTo(ShiftReportRevision::class, 'report_revision_id');

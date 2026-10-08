@@ -184,80 +184,63 @@ class HandoverService
         CashierShift $shift,
         string $reviewerId,
         string $reviewerType,
-        ?string $managerComment = null
+        ?string $managerComment = null,
+        ?string $confirmedAmount = null
     ): CashierShift {
+        $handoverStub = CashierShiftHandover::query()
+            ->where('cashier_shift_id', $shift->id)
+            ->sole();
+
+        if ($handoverStub->handover_to_type === 'branch_manager') {
+            if ((string) $handoverStub->handover_to_id !== $reviewerId || $confirmedAmount === null) {
+                throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('ONLY_ADDRESSED_MANAGER_MAY_CONFIRM_RECEIPT');
+            }
+            $manager = \Modules\BranchManagers\Models\BranchManager::query()->findOrFail($reviewerId);
+            $this->receipts->confirmManagerHandover($handoverStub->id, $manager, $confirmedAmount, $managerComment);
+
+            return $shift->fresh([
+                'handoverStatus.reviewedBy', 'nextCashier', 'cashier', 'shift', 'salesBreakdown.aggregator',
+                'varianceDetails.responsibleCashier',
+            ]);
+        }
+
         DB::beginTransaction();
         try {
             $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
+            $handover = CashierShiftHandover::query()
+                ->where('cashier_shift_id', $shift->id)
+                ->lockForUpdate()
+                ->sole();
             // Ensure handoverStatus exists
-            // Use updateOrCreate to avoid duplicate entry errors
-            if (! $shift->handoverStatus) {
-                ShiftHandoverStatus::updateOrCreate(
-                    ['cashier_shift_id' => $shift->id],
-                    [
-                        'status' => HandoverStatus::PENDING,
-                        'manager_approval_status' => 'pending',
-                    ]
-                );
-                $shift->refresh();
-            }
-
-            // Check if can be approved
-            // if (!$shift->handoverStatus->canBeApproved()) {
-            //     throw new \Exception('Handover cannot be approved in current state. Status: ' . $shift->handoverStatus->manager_approval_status);
-            // }
-
-            // Approve using model method
-            $shift->handoverStatus->approve($reviewerId, $reviewerType, $managerComment);
-
-            // Mark shift as completed
-            $shift->update([
-                'status' => ShiftStatus::COMPLETED,
-            ]);
-
-            // Update CashierShiftHandover status
-            $handover = CashierShiftHandover::where('cashier_shift_id', $shift->id)->lockForUpdate()->sole();
-            if ($handover) {
-                $handover->update([
-                    'status' => 'approved',
-                    'approved_by_id' => $reviewerId,
-                    'approved_by_type' => $reviewerType,
-                    'approved_at' => now(),
+            $handoverStatus = ShiftHandoverStatus::query()
+                ->where('cashier_shift_id', $shift->id)
+                ->lockForUpdate()
+                ->first();
+            if (! $handoverStatus) {
+                $handoverStatus = ShiftHandoverStatus::create([
+                    'cashier_shift_id' => $shift->id,
+                    'status' => HandoverStatus::PENDING,
+                    'manager_approval_status' => 'pending',
                 ]);
-
-                // Preserve the legacy variance-review contract. This is a
-                // liability/variance effect, not evidence that handover cash
-                // was physically received; no receipt or handover movement is
-                // written by manager approval.
-                ShiftVarianceDetail::where('cashier_shift_id', $shift->id)
-                    ->where('responsible_cashier_id', $shift->cashier_id)
-                    ->where('responsibility_status', 'pending')
-                    ->update([
-                        'responsibility_status' => 'approved',
-                        'reviewed_by_id' => $reviewerId,
-                        'reviewed_by_type' => $reviewerType,
-                        'reviewed_at' => now(),
-                    ]);
-
-                $shiftFresh = $shift->fresh(['varianceDetails']);
-                if ($shiftFresh && $shiftFresh->varianceDetails->isNotEmpty()) {
-                    event(new \Modules\Shift\Events\VarianceRecorded($shiftFresh));
-                }
-
             }
 
-            // Record history
-            $shift->recordHistory(
-                ShiftHistoryAction::HANDOVER_APPROVED->value,
-                ['status' => HandoverStatus::PENDING->value],
-                [
-                    'status' => HandoverStatus::ACCEPTED->value,
-                    'manager_approval_status' => 'approved',
-                    'reviewed_by_id' => $reviewerId,
-                    'reviewed_by_type' => $reviewerType,
-                ],
-                $managerComment
-            );
+            if ($handover->status !== 'pending') {
+                throw new HandoverException('HANDOVER_NOT_PENDING');
+            }
+
+            // Manager review is an audit observation only. The named cashier
+            // recipient remains responsible for the confirmation receipt.
+            $history = new \Modules\Shift\Models\CashierShiftHistory;
+            $history->forceFill([
+                'cashier_shift_id' => $shift->id,
+                'action' => 'manager_handover_reviewed',
+                'performed_by' => $reviewerId,
+                'performed_by_type' => 'branch_manager',
+                'old_value' => null,
+                'new_value' => json_encode(['handover_id' => $handover->id, 'request_status' => 'pending']),
+                'notes' => $managerComment,
+                'created_at' => now(),
+            ])->save();
 
             // Reload relationships
             $shift->load([
@@ -270,9 +253,6 @@ class HandoverService
             ]);
 
             DB::commit();
-
-            // Clear branch manager shift cache so workday/current returns updated status immediately
-            $this->clearBranchManagerShiftCacheForApproval($shift, $reviewerId);
 
             return $shift;
         } catch (\Exception $e) {
@@ -503,6 +483,11 @@ class HandoverService
      */
     public function recordHandoverEdit(CashierShift $shift, array $data): CashierShift
     {
+        $correctionReason = $data['correction_reason'] ?? null;
+        if (! in_array($correctionReason, ['input_error', 'actual_shortage'], true)) {
+            throw new \InvalidArgumentException('Correction reason must be input_error or actual_shortage.');
+        }
+
         DB::beginTransaction();
         try {
             $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
@@ -510,7 +495,7 @@ class HandoverService
             if ($handover->receipt()->exists()) {
                 throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('CONFIRMED_RECEIPT_IMMUTABLE');
             }
-            $handoverStatus = $shift->handoverStatus;
+            $handoverStatus = ShiftHandoverStatus::query()->where('cashier_shift_id', $shift->id)->lockForUpdate()->firstOrFail();
 
             if (! $handoverStatus->canCashierEdit()) {
                 throw HandoverException::cannotBeEdited();
@@ -532,6 +517,21 @@ class HandoverService
             ]);
 
             $revision = $this->revisions->recordCashierRevision($shift, 'cashier', $shift->cashier_id);
+
+            $actor = auth()->user();
+            $this->writeCorrectionHistory($shift, 'handover_request_corrected', (string) ($actor?->id ?? '0'), $actor?->getMorphClass() ?? 'system', [
+                'handover_id' => $handover->id,
+                'old_requested_amount' => (string) $handover->handover_amount,
+                'new_requested_amount' => (string) $data['handover_amount'],
+                'correction_reason' => $correctionReason,
+                'old_report_revision_id' => $handover->report_revision_id,
+                'new_report_revision_id' => $revision->id,
+                'variance_amount' => (string) $variance,
+                'variance_reason' => $handover->variance_reason,
+                'variance_files' => $handover->variance_files,
+            ], $correctionReason === 'actual_shortage'
+                ? 'Actual shortage reported; source evidence preserved as submitted for later trusted evidence review.'
+                : 'Request amount corrected after identifying an input error.');
 
             // Update CashierShiftHandover
             $handover->update([
@@ -636,6 +636,88 @@ class HandoverService
             DB::rollBack();
             throw $e;
         }
+    }
+
+    /** Reject a mismatched transfer amount without deleting its request or evidence. */
+    public function rejectHandoverForAmountCorrection(
+        CashierShift $shift,
+        string $reviewerId,
+        string $reviewerType,
+        string $reason,
+        string $attemptedConfirmedAmount,
+        string $correctionReason
+    ): void {
+        if (! in_array($correctionReason, ['input_error', 'actual_shortage'], true)) {
+            throw new \InvalidArgumentException('Correction reason must be input_error or actual_shortage.');
+        }
+
+        $attemptedMinor = self::toMinorUnits($attemptedConfirmedAmount);
+        DB::transaction(function () use ($shift, $reviewerId, $reviewerType, $reason, $attemptedConfirmedAmount, $attemptedMinor, $correctionReason) {
+            $lockedShift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
+            $handover = CashierShiftHandover::query()->where('cashier_shift_id', $lockedShift->id)->lockForUpdate()->sole();
+            $status = ShiftHandoverStatus::query()->where('cashier_shift_id', $lockedShift->id)->lockForUpdate()->firstOrFail();
+
+            if ($handover->status !== 'pending' || $handover->receipt()->exists() || ! $status->canBeRejected()) {
+                throw new ConflictHttpException('HANDOVER_NOT_CORRECTABLE');
+            }
+
+            $previousAmount = (string) $handover->handover_amount;
+            if ($attemptedMinor === self::toMinorUnits($previousAmount)) {
+                throw new ConflictHttpException('HANDOVER_AMOUNT_MISMATCH_REQUIRED_FOR_CORRECTION');
+            }
+            $result = $status->reject($reviewerId, $reviewerType, $reason);
+            $handover->update([
+                'status' => $result['is_final_rejection'] ? 'rejected_final' : 'rejected',
+                'rejection_reason' => $reason,
+                'rejection_count' => $result['rejection_count'],
+            ]);
+
+            $this->writeCorrectionHistory($lockedShift, 'handover_amount_correction_rejected', $reviewerId, $reviewerType, [
+                'handover_id' => $handover->id,
+                'requested_amount' => $previousAmount,
+                'attempted_confirmed_amount' => $attemptedConfirmedAmount,
+                'correction_reason' => $correctionReason,
+                'rejection_reason' => $reason,
+                'report_revision_id' => $handover->report_revision_id,
+                'variance_amount' => (string) $handover->variance_amount,
+                'variance_reason' => $handover->variance_reason,
+                'variance_files' => $handover->variance_files,
+            ], 'Recipient rejected because the confirmed physical amount differed from the request.');
+        });
+    }
+
+    private function writeCorrectionHistory(CashierShift $shift, string $action, string $actorId, string $actorType, array $details, ?string $notes): void
+    {
+        $normalizedActorType = str_contains($actorType, 'BranchManager') || $actorType === 'branch_manager'
+            ? 'branch_manager'
+            : (str_contains($actorType, 'Cashier') || $actorType === 'cashier' ? 'cashier' : 'system');
+        $details['actor_id'] = $actorId;
+        $details['actor_type'] = $normalizedActorType;
+
+        $history = new \Modules\Shift\Models\CashierShiftHistory;
+        $history->forceFill([
+            'cashier_shift_id' => $shift->id,
+            'action' => $action,
+            // Legacy cashier_shift_history.performed_by is numeric despite
+            // cashier/manager identities being UUIDs; keep the identity in the
+            // immutable payload instead of coercing UUIDs into that column.
+            'performed_by' => 0,
+            'performed_by_type' => $normalizedActorType,
+            'old_value' => null,
+            'new_value' => $details,
+            'notes' => $notes,
+            'created_at' => now(),
+        ])->save();
+    }
+
+    private static function toMinorUnits(string $amount): int
+    {
+        if (! preg_match('/\A\d+(?:\.\d{1,2})?\z/', $amount)) {
+            throw new \InvalidArgumentException('Confirmed amount must be a nonnegative SAR value with at most two decimals.');
+        }
+        [$whole, $fraction] = array_pad(explode('.', $amount, 2), 2, '');
+
+        return ((int) $whole * 100) + (int) str_pad($fraction, 2, '0');
     }
 
     /**

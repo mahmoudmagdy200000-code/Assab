@@ -2,7 +2,9 @@
 
 namespace Tests\Feature;
 
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
@@ -13,6 +15,7 @@ use Modules\Shift\Enums\ResponsibilityType;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Enums\VarianceType;
 use Modules\Shift\Events\VarianceRecorded;
+use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\CashierShiftHandoverReceipt;
@@ -216,15 +219,18 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
 
         $listener = app(CreateCustodyLedgerEntriesForVariance::class);
         $listener->handle(new VarianceRecorded($cashierShift->fresh(['varianceDetails', 'handover'])));
+        $listener->handle(new VarianceRecorded($cashierShift->fresh(['varianceDetails', 'handover'])));
 
         $txn = CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)
             ->where('transaction_type', 'Variance')
             ->first();
         $this->assertNotNull($txn);
         $this->assertTrue($txn->is_cash_in);
+        $this->assertSame(1, CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)
+            ->where('transaction_type', 'Variance')->count());
     }
 
-    public function test_manager_handover_approval_approves_self_variance_and_writes_both_ledgers(): void
+    public function test_manager_handover_receipt_writes_sales_credit_without_finalizing_legacy_variance(): void
     {
         $branch = Branch::factory()->create();
         $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
@@ -254,6 +260,23 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
             'handover_time' => now(),
             'status' => 'pending',
         ]);
+        $revision = app(\Modules\Shift\Services\ShiftReportRevisionService::class)
+            ->recordCashierRevision($cashierShift, 'cashier', $cashier->id, 0);
+        $handover->update(['report_revision_id' => $revision->id]);
+        $managerWorkday = BranchManagerShift::query()->where('branch_manager_id', $manager->id)->first();
+        if (! $managerWorkday) {
+            $managerWorkday = new BranchManagerShift([
+                'branch_manager_id' => $manager->id,
+                'branch_id' => $branch->id,
+                'shift_date' => today()->toDateString(),
+            ]);
+        }
+        $managerWorkday->fill([
+            'branch_id' => $branch->id,
+            'shift_date' => today()->toDateString(),
+            'status' => 'active',
+            'cash_collected' => '3500.00',
+        ])->save();
 
         // Cashier declared the variance on himself at end-shift → detail stays
         // pending; nobody calls a separate responsibility-approval endpoint.
@@ -272,41 +295,105 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
             $cashierShift->fresh(['handoverStatus', 'cashier']),
             $manager->id,
             get_class($manager),
-            null
+            null,
+            '3500.00'
         );
 
-        // The manager's approval covers the cashier's own claim.
+        // Receipt confirmation does not finalize liability evidence.
         $this->assertDatabaseHas('shift_variance_details', [
             'cashier_shift_id' => $cashierShift->id,
             'responsible_cashier_id' => $cashier->id,
-            'responsibility_status' => 'approved',
+            'responsibility_status' => 'pending',
         ]);
 
-        // Manager approval preserves variance accounting, but does not prove
-        // physical transfer receipt or post a handover custody movement.
-        $this->assertDatabaseMissing('cashier_custody_transactions', [
+        $receipt = CashierShiftHandoverReceipt::query()->sole();
+        $this->assertDatabaseHas('cashier_custody_transactions', [
             'cashier_id' => $cashier->id,
             'related_shift_id' => $cashierShift->id,
             'transaction_type' => 'Handover Sent',
+            'receipt_id' => $receipt->id,
+            'amount' => '3500.00',
+            'is_cash_in' => 0,
         ]);
-        $varianceTxn = CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)
-            ->where('transaction_type', 'Variance')
-            ->first();
-        $this->assertNotNull($varianceTxn);
-        $this->assertTrue($varianceTxn->is_cash_in);
-        $this->assertEquals(1500.0, (float) $varianceTxn->amount);
-
-        // Manager ledger: the variance counterpart lands on the APPROVING manager.
         $this->assertDatabaseHas('personal_ledger_transactions', [
-            'branch_manager_id' => $manager->id,
-            'transaction_type' => 'Variance from Cashier',
-            'related_shift_id' => $cashierShift->id,
-        ]);
-        $this->assertDatabaseMissing('personal_ledger_transactions', [
             'branch_manager_id' => $manager->id,
             'transaction_type' => 'Total Sales',
             'related_handover_id' => $handover->id,
+            'receipt_id' => $receipt->id,
+            'amount' => '3500.00',
         ]);
-        $this->assertSame(0, \Modules\Shift\Models\CashierShiftHandoverReceipt::count());
+        $this->assertSame(0, CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)->where('transaction_type', 'Variance')->count());
+    }
+
+    public function test_required_manager_receipt_ledger_failure_rolls_back_receipt_and_handover_confirmation(): void
+    {
+        if (DB::getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('Failure trigger is SQLite-specific; deployment-equivalent database coverage is separate.');
+        }
+
+        $branch = Branch::factory()->create();
+        $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
+        $cashier = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);
+        $template = Shift::factory()->create(['branch_id' => $branch->id]);
+        $cashierShift = CashierShift::factory()->completed()->create([
+            'cashier_id' => $cashier->id,
+            'shift_id' => $template->id,
+            'variance' => 150,
+        ]);
+        ShiftHandoverStatus::create([
+            'cashier_shift_id' => $cashierShift->id,
+            'status' => HandoverStatus::PENDING,
+            'manager_approval_status' => 'pending',
+        ]);
+        $handover = CashierShiftHandover::create([
+            'cashier_shift_id' => $cashierShift->id,
+            'handover_to_id' => $manager->id,
+            'handover_to_type' => 'branch_manager',
+            'handover_amount' => 100,
+            'variance_amount' => 150,
+            'handover_date' => today()->toDateString(),
+            'handover_time' => now(),
+            'status' => 'pending',
+        ]);
+        $revision = app(\Modules\Shift\Services\ShiftReportRevisionService::class)
+            ->recordCashierRevision($cashierShift, 'cashier', $cashier->id, 0);
+        $handover->update(['report_revision_id' => $revision->id]);
+        $managerWorkday = BranchManagerShift::query()->where('branch_manager_id', $manager->id)->first();
+        if (! $managerWorkday) {
+            $managerWorkday = new BranchManagerShift([
+                'branch_manager_id' => $manager->id,
+                'branch_id' => $branch->id,
+                'shift_date' => today()->toDateString(),
+            ]);
+        }
+        $managerWorkday->fill([
+            'branch_id' => $branch->id,
+            'shift_date' => today()->toDateString(),
+            'status' => 'active',
+            'cash_collected' => '100.00',
+        ])->save();
+        $detail = ShiftVarianceDetail::create([
+            'cashier_shift_id' => $cashierShift->id,
+            'variance_amount' => 150,
+            'variance_type' => VarianceType::SHORT,
+            'responsibility_type' => ResponsibilityType::I_WAS_RESPONSIBLE,
+            'responsible_cashier_id' => $cashier->id,
+            'assigned_amount' => 150,
+            'reason' => 'test',
+            'responsibility_status' => 'pending',
+        ]);
+        DB::statement("CREATE TRIGGER fail_manager_total_sales BEFORE INSERT ON personal_ledger_transactions WHEN NEW.transaction_type = 'Total Sales' BEGIN SELECT RAISE(ABORT, 'injected manager ledger failure'); END");
+
+        try {
+            app(HandoverService::class)->approveHandover($cashierShift, $manager->id, get_class($manager), null, '100.00');
+            $this->fail('Required manager receipt ledger failure must abort confirmation.');
+        } catch (QueryException) {
+            $this->assertSame('pending', $handover->fresh()->status);
+            $this->assertSame('pending', $detail->fresh()->responsibility_status);
+            $this->assertSame('pending', $cashierShift->fresh()->handoverStatus->manager_approval_status);
+            $this->assertSame(0, CashierCustodyTransaction::where('transaction_type', 'Variance')->count());
+            $this->assertSame(0, \Modules\Custody\Models\PersonalLedgerTransaction::where('transaction_type', 'Variance from Cashier')->count());
+            $this->assertSame(0, CashierShiftHandoverReceipt::count());
+        }
     }
 }

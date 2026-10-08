@@ -62,12 +62,34 @@ class CashierShiftObserver
     {
         // Check if status changed to completed
         if ($shift->isDirty('status') && $shift->status->value === 'completed') {
-            event(new ShiftEndedEvent($shift, ! is_null($shift->next_cashier_id)));
+            $event = new ShiftEndedEvent($shift, ! is_null($shift->next_cashier_id));
+            $shiftId = $shift->getKey();
+            DB::afterCommit(function () use ($event, $shiftId): void {
+                try {
+                    event($event);
+                } catch (\Throwable $exception) {
+                    Log::error('Cashier shift close projection failed after commit', [
+                        'shift_id' => $shiftId,
+                        'error' => $exception->getMessage(),
+                    ]);
+                }
+            });
         }
 
         // A shift going live feeds the dashboard's «مباشر» board in real time.
         if ($shift->isDirty('status') && $shift->status->value === 'in_progress') {
-            event(new ShiftStartedEvent($shift));
+            $event = new ShiftStartedEvent($shift);
+            $shiftId = $shift->getKey();
+            DB::afterCommit(function () use ($event, $shiftId): void {
+                try {
+                    event($event);
+                } catch (\Throwable $exception) {
+                    Log::error('Cashier shift start projection failed after commit', [
+                        'shift_id' => $shiftId,
+                        'error' => $exception->getMessage(),
+                    ]);
+                }
+            });
         }
     }
 
@@ -114,11 +136,10 @@ class CashierShiftObserver
         // manager close path locks manager -> cashier, so doing the reverse
         // here could form a deadlock cycle.
         DB::afterCommit(function () use ($cashierShift, $shiftId): void {
-            $committedShift = CashierShift::query()->find($shiftId) ?? $cashierShift;
-
             try {
+                $committedShift = CashierShift::query()->find($shiftId) ?? $cashierShift;
                 $this->managerShiftListener->handle($committedShift);
-            } catch (\Exception $e) {
+            } catch (\Throwable $e) {
                 // This projection must not turn a committed financial write into
                 // a reported failure.
                 Log::error('Failed to update manager shift in observer', [

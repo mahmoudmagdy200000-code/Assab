@@ -47,30 +47,124 @@ class ShiftTransferReceiptTest extends TestCase
         $this->assertSame(0, CashierShiftHandoverReceipt::count());
     }
 
-    public function test_recipient_confirmation_records_exact_partial_amount_and_actual_shift(): void
+    public function test_recipient_confirmation_rejects_any_amount_mismatch_without_effects(): void
     {
         [$source, $recipient, $destination, $handover, $revision] = $this->handoverFixture('61.50');
 
-        $receipt = app(ShiftTransferReceiptService::class)->confirmHandover(
-            $handover->id,
-            $recipient,
-            '61.00'
-        );
+        try {
+            app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, '61.00');
+            $this->fail('A partial physical amount requires rejection and request correction first.');
+        } catch (ConflictHttpException $e) {
+            $this->assertSame('HANDOVER_AMOUNT_MISMATCH_CORRECTION_REQUIRED', $e->getMessage());
+        }
 
-        $this->assertSame($destination->id, $receipt->receiving_cashier_shift_id);
-        $this->assertSame($revision->id, $receipt->report_revision_id);
-        $this->assertSame('61.00', $receipt->confirmed_amount);
-        $this->assertSame(61.0, (float) $destination->fresh()->opening_balance);
-        $this->assertSame(2, CashierCustodyTransaction::where('receipt_id', $receipt->id)->count());
-        $this->assertSame(['61.00', '61.00'], CashierCustodyTransaction::where('receipt_id', $receipt->id)->orderBy('transaction_type')->pluck('amount')->all());
+        $this->assertSame(0, CashierShiftHandoverReceipt::count());
+        $this->assertSame(0, CashierCustodyTransaction::count());
+        $this->assertSame('pending', $handover->fresh()->status);
         $this->assertSame('61.50', $handover->fresh()->handover_amount);
-        $this->assertDatabaseHas('cashier_shift_history', [
-            'cashier_shift_id' => $destination->id,
-            'action' => 'cash_transfer_received',
-        ]);
+        $this->assertSame($revision->id, $handover->fresh()->report_revision_id);
+        $this->assertSame(0.0, (float) $destination->fresh()->opening_balance);
     }
 
-    public function test_manager_approval_does_not_create_a_receipt(): void
+    public function test_zero_confirmation_for_nonzero_request_is_a_mismatch(): void
+    {
+        [, $recipient, , $handover] = $this->handoverFixture('10.00');
+
+        try {
+            app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, '0.00');
+            $this->fail('Zero cannot confirm a nonzero request.');
+        } catch (ConflictHttpException $e) {
+            $this->assertSame('HANDOVER_AMOUNT_MISMATCH_CORRECTION_REQUIRED', $e->getMessage());
+        }
+
+        $this->assertSame(0, CashierShiftHandoverReceipt::count());
+        $this->assertSame('pending', $handover->fresh()->status);
+    }
+
+    public function test_rejected_cashier_handover_can_be_corrected_and_then_confirmed_exactly(): void
+    {
+        [$source, $recipient, $destination, $handover] = $this->handoverFixture('61.50');
+        $service = app(HandoverService::class);
+        $service->rejectHandoverForAmountCorrection($source, $recipient->id, get_class($recipient), 'Physical amount was 61.00', '61.00', 'actual_shortage');
+        $this->actingAs($source->cashier, 'sanctum');
+        $service->recordHandoverEdit($source, [
+            'handover_amount' => '61.00',
+            'handover_notes' => 'Corrected after recipient count',
+            'correction_reason' => 'actual_shortage',
+        ]);
+        $receipt = app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, '61.00', $destination->id);
+
+        $history = \Modules\Shift\Models\CashierShiftHistory::query()
+            ->where('cashier_shift_id', $source->id)
+            ->where('action', 'handover_request_corrected')
+            ->sole();
+        $this->assertSame('61.50', $history->new_value['old_requested_amount']);
+        $this->assertSame('61.00', $history->new_value['new_requested_amount']);
+        $this->assertSame('actual_shortage', $history->new_value['correction_reason']);
+        $rejectionHistory = \Modules\Shift\Models\CashierShiftHistory::query()
+            ->where('cashier_shift_id', $source->id)
+            ->where('action', 'handover_amount_correction_rejected')
+            ->sole();
+        $this->assertSame('61.00', $rejectionHistory->new_value['attempted_confirmed_amount']);
+        $this->assertSame($recipient->id, $rejectionHistory->new_value['actor_id']);
+        $this->assertNotNull($history->created_at);
+        $this->assertSame($source->cashier_id, $history->new_value['actor_id']);
+        $this->assertSame('61.00', $receipt->confirmed_amount);
+        $this->assertSame(2, CashierCustodyTransaction::where('receipt_id', $receipt->id)->count());
+    }
+
+    public function test_input_error_correction_records_old_and_new_amount_before_exact_confirmation(): void
+    {
+        [$source, $recipient, $destination, $handover] = $this->handoverFixture('61.50');
+        $service = app(HandoverService::class);
+        $service->rejectHandoverForAmountCorrection($source, $recipient->id, get_class($recipient), 'Entered amount was wrong', '61.00', 'input_error');
+        $this->actingAs($source->cashier, 'sanctum');
+        $service->recordHandoverEdit($source, [
+            'handover_amount' => '61.00',
+            'correction_reason' => 'input_error',
+        ]);
+
+        $history = \Modules\Shift\Models\CashierShiftHistory::query()
+            ->where('cashier_shift_id', $source->id)
+            ->where('action', 'handover_request_corrected')
+            ->sole();
+        $this->assertSame('61.50', $history->new_value['old_requested_amount']);
+        $this->assertSame('61.00', $history->new_value['new_requested_amount']);
+        $this->assertSame('input_error', $history->new_value['correction_reason']);
+        $this->assertSame($source->cashier_id, $history->new_value['actor_id']);
+        $receipt = app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, '61.00', $destination->id);
+        $this->assertSame('61.00', $receipt->confirmed_amount);
+    }
+
+    public function test_manager_confirmation_creates_manager_bound_receipt_and_effects(): void
+    {
+        [$branch, $manager, $sender, $source, $destination, $handover, $revision] = $this->managerHandoverFixture('61.50');
+        app(HandoverService::class)->approveHandover($source, $manager->id, get_class($manager), null, '61.50');
+
+        $receipt = CashierShiftHandoverReceipt::query()->sole();
+        $this->assertNull($receipt->receiving_cashier_shift_id);
+        $this->assertSame($manager->id, $receipt->receiving_branch_manager_id);
+        $this->assertNotNull($receipt->receiving_branch_manager_shift_id);
+        $this->assertSame($manager->id, $receipt->confirmed_by_branch_manager_id);
+        $this->assertSame($revision->id, $receipt->report_revision_id);
+        $this->assertSame('61.50', $receipt->confirmed_amount);
+        $this->assertSame('approved', $handover->fresh()->status);
+        $this->assertDatabaseHas('cashier_custody_transactions', [
+            'receipt_id' => $receipt->id,
+            'cashier_id' => $sender->id,
+            'transaction_type' => 'Handover Sent',
+            'amount' => '61.50',
+            'is_cash_in' => 0,
+        ]);
+        $ledger = PersonalLedgerTransaction::where('receipt_id', $receipt->id)->sole();
+        $this->assertSame('Total Sales', $ledger->transaction_type);
+        $this->assertSame('61.50', $ledger->amount);
+        $this->assertSame($manager->id, $ledger->branch_manager_id);
+        $this->assertSame($receipt->confirmed_at->toDateString(), $ledger->transaction_date->toDateString());
+        $this->assertSame(0, CashierCustodyTransaction::where('receipt_id', $receipt->id)->where('transaction_type', 'Handover Received')->count());
+    }
+
+    public function test_manager_review_does_not_approve_cashier_request_and_named_cashier_still_confirms(): void
     {
         [$source, $recipient, $destination, $handover] = $this->handoverFixture('10.00');
 
@@ -81,15 +175,11 @@ class ShiftTransferReceiptTest extends TestCase
             'Reviewed'
         );
 
-        $this->assertSame('approved', $handover->fresh()->status);
+        $this->assertSame('pending', $handover->fresh()->status);
         $this->assertSame(0, CashierShiftHandoverReceipt::count());
-
-        try {
-            app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, '10.00', $destination->id);
-            $this->fail('Manager approval must not be treated as recipient confirmation.');
-        } catch (ConflictHttpException $e) {
-            $this->assertSame('HANDOVER_NOT_PENDING', $e->getMessage());
-        }
+        $this->assertSame('10.00', app(ShiftTransferReceiptService::class)
+            ->confirmHandover($handover->id, $recipient, '10.00', $destination->id)->confirmed_amount);
+        $this->assertSame(1, CashierShiftHandoverReceipt::count());
     }
 
     public function test_receipt_is_immutable_and_duplicate_confirmation_cannot_create_another(): void
@@ -213,12 +303,22 @@ class ShiftTransferReceiptTest extends TestCase
         }
     }
 
-    public function test_manager_transfer_confirmation_posts_one_ledger_debit_and_recipient_credit(): void
+    public function test_manager_transfer_requires_correction_then_posts_exactly_the_corrected_amount(): void
     {
         [, $manager, $cashier, $source, $destination] = $this->managerTransferFixture();
         $service = app(ShiftTransferReceiptService::class);
         $transfer = $service->requestManagerCashTransfer($source, $cashier, $destination, '61.50', $manager);
 
+        try {
+            $service->confirmManagerCashTransfer($transfer->id, $cashier, '61.00');
+            $this->fail('Manager transfer confirmation must match the request exactly.');
+        } catch (ConflictHttpException $e) {
+            $this->assertSame('HANDOVER_AMOUNT_MISMATCH_CORRECTION_REQUIRED', $e->getMessage());
+        }
+        $this->assertSame(0, CashierShiftHandoverReceipt::count());
+
+        $service->rejectManagerCashTransfer($transfer->id, $cashier, '61.00', 'Actual cash was short by 0.50', 'actual_shortage');
+        $service->correctManagerCashTransfer($transfer->id, $manager, '61.00', 'actual_shortage');
         $receipt = $service->confirmManagerCashTransfer($transfer->id, $cashier, '61.00');
 
         $this->assertSame($destination->id, $receipt->receiving_cashier_shift_id);
@@ -226,6 +326,22 @@ class ShiftTransferReceiptTest extends TestCase
         $this->assertSame('confirmed', $transfer->fresh()->status);
         $this->assertSame('61.00', PersonalLedgerTransaction::where('receipt_id', $receipt->id)->sole()->amount);
         $this->assertSame('61.00', CashierCustodyTransaction::where('receipt_id', $receipt->id)->sole()->amount);
+        $history = \Modules\Shift\Models\CashierShiftHistory::query()
+            ->where('cashier_shift_id', $destination->id)
+            ->where('action', 'manager_transfer_request_corrected')
+            ->sole();
+        $this->assertSame('61.50', $history->new_value['old_requested_amount']);
+        $this->assertSame('61.00', $history->new_value['new_requested_amount']);
+        $this->assertSame('actual_shortage', $history->new_value['correction_reason']);
+        $rejection = \Modules\Shift\Models\CashierShiftHistory::query()
+            ->where('cashier_shift_id', $destination->id)
+            ->where('action', 'manager_transfer_amount_correction_rejected')
+            ->sole();
+        $this->assertSame('61.00', $rejection->new_value['attempted_confirmed_amount']);
+        $this->assertSame($cashier->id, $rejection->new_value['actor_id']);
+        $this->assertStringContainsString('no liability allocation inferred', $history->new_value['evidence_note']);
+        $this->assertSame($manager->id, $history->new_value['actor_id']);
+        $this->assertNotNull($history->created_at);
         $this->assertSame(0, CashierShiftHandover::count());
     }
 
@@ -237,7 +353,7 @@ class ShiftTransferReceiptTest extends TestCase
 
         [, $manager, $cashier, $source, $destination] = $this->managerTransferFixture();
         $service = app(ShiftTransferReceiptService::class);
-        $transfer = $service->requestManagerCashTransfer($source, $cashier, $destination, '61.50', $manager);
+        $transfer = $service->requestManagerCashTransfer($source, $cashier, $destination, '61.00', $manager);
         DB::statement("CREATE TRIGGER fail_manager_ledger BEFORE INSERT ON personal_ledger_transactions BEGIN SELECT RAISE(ABORT, 'injected ledger failure'); END");
 
         try {
@@ -319,5 +435,37 @@ class ShiftTransferReceiptTest extends TestCase
         ]);
 
         return [$branch, $manager, $cashier, $source, $destination];
+    }
+
+    private function managerHandoverFixture(string $amount): array
+    {
+        [$branch, $manager, $cashier, $managerWorkday, $destination] = $this->managerTransferFixture();
+        $sourceCashier = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);
+        $sourceShift = CashierShift::factory()->completed()->create([
+            'cashier_id' => $sourceCashier->id,
+            'shift_id' => $destination->shift_id,
+            'shift_date' => today(),
+        ]);
+        $sender = $sourceShift->cashier;
+        $revision = app(ShiftReportRevisionService::class)->recordCashierRevision($sourceShift, 'cashier', $sender->id, 0);
+        $managerWorkday->update(['status' => 'active', 'cash_collected' => $amount]);
+        ShiftHandoverStatus::create([
+            'cashier_shift_id' => $sourceShift->id,
+            'status' => HandoverStatus::PENDING,
+            'manager_approval_status' => 'pending',
+        ]);
+        $handover = CashierShiftHandover::create([
+            'cashier_shift_id' => $sourceShift->id,
+            'handover_to_id' => $manager->id,
+            'handover_to_type' => 'branch_manager',
+            'handover_amount' => $amount,
+            'variance_amount' => '0.00',
+            'handover_date' => today()->toDateString(),
+            'handover_time' => now(),
+            'status' => 'pending',
+            'report_revision_id' => $revision->id,
+        ]);
+
+        return [$branch, $manager, $sender, $sourceShift, $destination, $handover, $revision];
     }
 }
