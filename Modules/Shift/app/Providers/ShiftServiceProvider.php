@@ -38,6 +38,12 @@ class ShiftServiceProvider extends ServiceProvider
     {
         $this->app->register(RouteServiceProvider::class);
 
+        // S1-07 cannot infer trusted report/receipt evidence from legacy status fields.
+        $this->app->bind(
+            \Modules\Shift\Liability\LiabilityEvidenceSource::class,
+            \Modules\Shift\Liability\UnavailableLiabilityEvidence::class
+        );
+
         // Register Repositories
         $this->app->bind(
             CashierShiftRepositoryInterface::class,

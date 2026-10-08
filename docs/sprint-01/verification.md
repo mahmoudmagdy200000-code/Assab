@@ -484,3 +484,31 @@ Implemented by Claude at Mahmoud's explicit request, after Claude's independent 
 Commands (PHP 8.3.6, PHPUnit 12.4.0, SQLite in-memory): `php vendor/bin/phpunit tests/Feature/ShiftLegacyMoneyCompatibilityTest.php tests/Unit/ShiftFinancialCalculatorTest.php tests/Feature/ShiftMoneyValidationTest.php` → **OK, 62 tests / 389 assertions**. Full suite → 1292 tests, 71 errors + 2 failures; the 73 failing tests are identical by name to those at `217c2716` and `9a8e0ff` (RecurringOrder, Procurement and NFR suites); **0 new**. `./vendor/bin/pint --test` on the changed PHP files → PASS. A separate agent reviewed the diff before push (no blockers; its should-fix items are included in the follow-up).
 
 Not changed: no migration, no Dashboard or AssabAPP change, H1/H2 not implemented, S1-07 remains blocked. Open: D10 confirmation, D11 (Mohamed), D3/D9 provenance, N-03 replica count.
+
+## S1-07 APPROVE A internal implementation verification — 2026-10-08
+
+Starting SHA: `217c271659d6a5c28a52efa4e2d266577138904f`. User authorized additive schema, liability model/services and feasible tests, explicitly deferring missing real-source integration. See `schema-adr.md` and `s1-07-implementation-handoff.md`.
+
+Executed locally with portable PHP 8.4.14 and locked Composer dependencies (no composer.json/lock changes). No production migrations, external database writes, Dashboard changes or Flutter changes were made.
+
+| Check | Result | Boundary |
+|---|---|---|
+| New allocation rules + liability service/guard tests | PASS — 38 tests / 64 assertions | Actual service persistence using disposable SQLite fixture schema; actual new migration up/down. No MySQL concurrency claim. |
+| Combined S1-06 regression and S1-07 suite | PASS — 81 tests / 356 assertions | Four files below; existing S1-06 route-validation tests retain their documented authentication/reference isolation. |
+| Changed-file Pint | PASS — 14 PHP files | Only changed/new PHP files, no unrelated cleanup. |
+| Missing trusted report or daily scope provider | PASS — fail-closed conflicts, no new liability writes | Runtime provider remains unavailable; test-only evidence adapter is not registered in production. |
+| Old approval after report revision/amount or allocation change | PASS — stale/reapproval enforced | Old allocation and employee objection retained; complete report lifecycle/history remains S1-11. |
+| Company/branch/type isolation, owner-only allocation, manager-only approval/self-share | PASS | Existing identity records checked, not ID-domain guessing. |
+| Required transfer pending despite approved liability | PASS — daily guard rejects | Trusted synthetic receipt/scope source; actual source-backed membership/receipt adapter remains deferred. |
+| Real legacy/Admin route enforcement, source adapters, MySQL locks, financial posting/replay | NOT IMPLEMENTED / NOT RUN in this bounded change | S1-07 integration with S1-10/S1-11; atomic financial writers/replay with S1-08/S1-09. |
+
+Executed test command (PHP executable may be replaced by the environment's PHP 8.4):
+
+```sh
+php vendor/bin/phpunit --configuration phpunit.xml --do-not-cache-result --no-progress tests/Unit/ShiftFinancialCalculatorTest.php tests/Feature/ShiftMoneyValidationTest.php tests/Unit/ShiftAllocationRulesTest.php tests/Feature/ShiftLiabilityServiceTest.php
+php vendor/bin/pint --test Modules/Shift/app/Liability Modules/Shift/app/Models/ShiftLiabilityAllocation.php Modules/Shift/app/Models/ShiftLiabilityShare.php Modules/Shift/app/Providers/ShiftServiceProvider.php Modules/Shift/database/migrations/2026_10_08_000001_create_shift_liability_allocations.php tests/Unit/ShiftAllocationRulesTest.php tests/Feature/ShiftLiabilityServiceTest.php
+```
+
+S1-07: **INTERNAL IMPLEMENTATION READY FOR REVIEW / NOT ACCEPTED / END-TO-END INTEGRATION STILL BLOCKED**. The existing daily-submit route is not silently changed to reject all legacy workdays; the new guard is not advertised as active on it. No old approved status is promoted to confirmed receipt evidence or new liability approval. Review deployment/schema against MySQL before activating the future integration.
+
+**Integration onto the sprint branch (2026-10-08).** Commit `ea5e8d90` (`codex/s1-07-liability`, started from `217c2716`) was cherry-picked onto `sprint/01-financial-foundation` at `c18c2f23`. Only `task-register.md` and `verification.md` conflicted (documentation; both sides kept: S1-06 row from `c18c2f23`, S1-07 row from `ea5e8d90`; both verification entries). No code conflict; the S1-07 code does not use the calculator keys renamed in `c18c2f23`. After integration (PHP 8.3.6, SQLite in-memory): `ShiftLiabilityServiceTest`, `ShiftAllocationRulesTest`, `ShiftLegacyMoneyCompatibilityTest`, `ShiftFinancialCalculatorTest`, `ShiftMoneyValidationTest` → **OK, 100 tests / 453 assertions**; full suite → 1330 tests with the same 73 pre-existing failures as `217c2716`, **0 new**. This integration does not review or accept S1-07; its additive migration still needs review before S1-08 builds on it.
