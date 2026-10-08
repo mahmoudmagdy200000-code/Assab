@@ -8,6 +8,7 @@ use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\ShiftLiabilityAllocation;
+use Modules\Shift\Models\ShiftLiabilityDailyLock;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
@@ -23,6 +24,7 @@ final class ShiftLiabilityService
     {
         return DB::transaction(function () use ($shiftId, $actor, $shares, $expectedVersion, $cashierConfirmed, $reason) {
             [$shift, $report] = $this->context($shiftId);
+            $this->assertNotLockedByDailySubmit($shiftId);
             $identity = $this->actors->identity($actor, $report->companyId, $report->branchId);
             $managerCorrection = $identity['type'] === 'branch_manager';
             if (! $managerCorrection && ($identity['type'] !== 'cashier' || $identity['id'] !== $shift->cashier_id)) {
@@ -34,6 +36,11 @@ final class ShiftLiabilityService
             $previous = $this->latest($shiftId);
             if (($previous?->version ?? 0) !== $expectedVersion) {
                 throw new ConflictHttpException('STALE_ALLOCATION');
+            }
+            // Balanced or surplus: no current liability, so no allocation record (BR-11). Older
+            // shortage allocations stay as history; readiness ignores them for a nonnegative report.
+            if ($report->varianceHalalas >= 0) {
+                throw new ConflictHttpException('NO_SHORTAGE_LIABILITY');
             }
             try {
                 $shares = AllocationRules::validate($report->varianceHalalas, $shares);
@@ -73,6 +80,7 @@ final class ShiftLiabilityService
     {
         DB::transaction(function () use ($shiftId, $cashier, $version) {
             [$shift, $report] = $this->context($shiftId);
+            $this->assertNotLockedByDailySubmit($shiftId);
             $identity = $this->actors->identity($cashier, $report->companyId, $report->branchId);
             if ($identity['type'] !== 'cashier' || $identity['id'] !== $shift->cashier_id) {
                 throw new AccessDeniedHttpException('ONLY_REPORT_OWNER');
@@ -112,6 +120,7 @@ final class ShiftLiabilityService
     {
         DB::transaction(function () use ($shiftId, $manager, $version, $explicitSelfShare) {
             [, $report] = $this->context($shiftId);
+            $this->assertNotLockedByDailySubmit($shiftId);
             $identity = $this->actors->identity($manager, $report->companyId, $report->branchId);
             if ($identity['type'] !== 'branch_manager') {
                 throw new AccessDeniedHttpException('ONLY_BRANCH_MANAGER');
@@ -182,6 +191,18 @@ final class ShiftLiabilityService
         }
 
         return [$shift, $report];
+    }
+
+    /**
+     * A submitted day freezes its reports' liability until every day that locked it is reopened
+     * (DailyLiabilityGuard::releaseDay). Callers already hold the cashier-shift row lock from context(),
+     * which daily submit also takes, so a plain read is consistent and avoids MySQL gap locks.
+     */
+    private function assertNotLockedByDailySubmit(string $shiftId): void
+    {
+        if (ShiftLiabilityDailyLock::active()->where('cashier_shift_id', $shiftId)->exists()) {
+            throw new ConflictHttpException('LIABILITY_LOCKED_BY_DAILY_SUBMIT');
+        }
     }
 
     private function latest(string $shiftId): ?ShiftLiabilityAllocation

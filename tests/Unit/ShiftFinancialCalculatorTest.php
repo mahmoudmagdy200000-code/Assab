@@ -190,4 +190,40 @@ class ShiftFinancialCalculatorTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         ShiftFinancialCalculator::sarToHalalas('1.001');
     }
+
+    public function test_sales_channel_check_is_separate_from_cash_variance(): void
+    {
+        // Canonical 115 / cards 50 / apps 25: the cash-sales channel is 40.
+        $balanced = ShiftFinancialCalculator::salesChannelCheck(11500, 5000, 2500, 4000);
+        $this->assertTrue($balanced['channelsValid']);
+        $this->assertSame(4000, $balanced['derivedCashSales']);
+        $this->assertSame(0, $balanced['channelDifference']);
+
+        // A mistyped cash channel (25 instead of 40) is a channel difference of −15 …
+        $mistyped = ShiftFinancialCalculator::salesChannelCheck(11500, 5000, 2500, 2500);
+        $this->assertSame(-1500, $mistyped['channelDifference']);
+
+        // … and does not change the cash variance, which comes only from counted vs expected cash.
+        $cash = ShiftFinancialCalculator::calculate(11500, 5000, 2500, 1000, 3000);
+        $this->assertSame(-2000, $cash['variance']);
+        $this->assertSame(2000, $cash['shortage']);
+    }
+
+    public function test_non_cash_channels_cannot_exceed_gross(): void
+    {
+        $result = ShiftFinancialCalculator::salesChannelCheck(11500, 10000, 2500);
+
+        $this->assertFalse($result['channelsValid']);
+        $this->assertNull($result['channelDifference']);
+    }
+
+    public function test_app_channel_uses_customer_gross_before_commission(): void
+    {
+        // FIN-06: app sale 115 (95 after commission). The channel value is 115; commission is not an input.
+        $result = ShiftFinancialCalculator::salesChannelCheck(11500, 0, 11500, 0);
+
+        $this->assertTrue($result['channelsValid']);
+        $this->assertSame(0, $result['derivedCashSales']);
+        $this->assertSame(0, $result['channelDifference']);
+    }
 }

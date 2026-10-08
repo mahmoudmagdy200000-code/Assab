@@ -527,3 +527,20 @@ Regression coverage verifies shortage → zero and shortage → surplus readines
 | Migration | NO CHANGE | Existing S1-07 migration was reviewed, not edited or rerun against a production database. |
 
 S1-10/S1-11 evidence boundaries and fail-closed production provider remain unchanged. No HTTP route was wired, and no S1-08, S1-10, or S1-11 work was started.
+
+## S1-07 internal layer completion — 2026-10-08
+
+Implemented by Claude at Mahmoud's request on top of `a946b1f4` (developer's stale-liability fix). Mahmoud decided on 2026-10-08 to close S1-07 as an internal layer and re-sequence route integration to S1-08/S1-10/S1-11, and decided D4 = no rollout flag. This entry is implementer evidence, not independent review; acceptance remains with Mahmoud.
+
+| Item | Change | Evidence |
+|---|---|---|
+| S1-07 channel separation | `ShiftFinancialCalculator::salesChannelCheck`: cards + apps ≤ gross; derived cash channel; reported cash difference is a channel difference, never a shortage. | Unit tests: 115/50/25 → cash channel 40; mistyped 25 → difference −15 while `calculate()` variance stays −20; cards + apps > gross invalid; FIN-06 app channel 115. |
+| Audit A1 | `allocate` returns 409 `NO_SHORTAGE_LIABILITY` for a balanced/surplus report; no empty allocation record. | Fixture and real-schema tests: 0 allocation rows for surplus/zero. |
+| Audit A2 | Employee acceptance: status, timestamp, no overwrite. | Real-schema test (`EMPLOYEE_RESPONSE_ALREADY_RECORDED` on a second response). |
+| Daily-submit lock | Migration `2026_10_08_000002` (`shift_liability_daily_locks`); `DailyLiabilityGuard::lockSubmittedDay` / `releaseDay`; `allocate`/`confirm`/`approve` refused while any active lock exists; `respond` allowed (BR-10). One lock row per (report, workday) for carry-over; plain reads under the workday/cashier-shift row locks. | Real-schema tests: lock → refused commands → reopen with reason (rows kept) → manager correction → fresh approval → resubmit; carried-over report stays locked until both days are reopened; other manager refused. Fixture test: lock/release outside a transaction refused. |
+| Real-schema check | `ShiftLiabilityRealSchemaTest` resolves the services from the container on the real migrated schema (company/brand/branch, cashiers, branch manager, Admin employee). | 7 tests. |
+| Docs | D4 decision (`api-contract.md`, `money-contract.md`, `schema-adr.md`); S1-07 row and completion/re-sequencing in `task-register.md` and `s1-07-implementation-handoff.md`; stale "proposed flag" and "guard implemented in S1-07" statements corrected. | Doc diff. |
+
+Commands (PHP 8.3.6, PHPUnit 12.4.0, SQLite in-memory): S1-06 + S1-07 focused files (`ShiftLiabilityRealSchemaTest`, `ShiftLiabilityServiceTest`, `ShiftAllocationRulesTest`, `ShiftLegacyMoneyCompatibilityTest`, `ShiftFinancialCalculatorTest`, `ShiftMoneyValidationTest`) → **OK, 113 tests / 535 assertions**. Full suite → 1343 tests; the 73 failing tests are the same by name as at `217c2716` (RecurringOrder, Procurement, NFR); **0 new**. Pint `--test` on the changed PHP files → PASS. A separate agent reviewed the diff before commit; its findings (carry-over lock per workday, MySQL gap-lock-free reads, locked version read, doc corrections) are included.
+
+Not run / not claimed: MySQL locking and concurrency; any HTTP route (none uses this layer); a real `LiabilityEvidenceSource` (still `UnavailableLiabilityEvidence`). S1-08 not started.

@@ -79,6 +79,7 @@ class ShiftLiabilityServiceTest extends TestCase
             $t->uuid('branch_manager_id');
         });
         (require base_path('Modules/Shift/database/migrations/2026_10_08_000001_create_shift_liability_allocations.php'))->up();
+        (require base_path('Modules/Shift/database/migrations/2026_10_08_000002_create_shift_liability_daily_locks.php'))->up();
         $this->companyId = (string) Str::uuid();
         $this->branchId = (string) Str::uuid();
         $this->shiftId = (string) Str::uuid();
@@ -266,9 +267,15 @@ class ShiftLiabilityServiceTest extends TestCase
     {
         $this->setEvidence(500, 'r1');
         $this->ready();
-        $allocation = $this->service->allocate($this->shiftId, $this->cashier, [], 0);
-        $this->assertCount(0, $allocation->shares);
+        // Audit A1 (2026-10-08): surplus creates no allocation record at all, not even an empty one.
+        try {
+            $this->service->allocate($this->shiftId, $this->cashier, [], 0);
+            $this->fail('A surplus report must not get a liability allocation.');
+        } catch (ConflictHttpException $e) {
+            $this->assertSame('NO_SHORTAGE_LIABILITY', $e->getMessage());
+        }
         $this->ready();
+        $this->assertSame(0, ShiftLiabilityAllocation::count());
         $this->assertSame(0, DB::table('shift_liability_shares')->count());
     }
 
@@ -281,6 +288,22 @@ class ShiftLiabilityServiceTest extends TestCase
         } catch (ConflictHttpException $e) {
             $this->assertSame('LIABILITY_EVIDENCE_UNAVAILABLE', $e->getMessage());
             $this->assertSame(0, ShiftLiabilityAllocation::count());
+        }
+    }
+
+    public function test_daily_lock_and_release_require_a_transaction(): void
+    {
+        $guard = new DailyLiabilityGuard($this->source, $this->service, new ResponsibleActorResolver);
+        foreach ([
+            fn () => $guard->lockSubmittedDay($this->workdayId, $this->manager),
+            fn () => $guard->releaseDay($this->workdayId, $this->manager, 'reason'),
+        ] as $action) {
+            try {
+                $action();
+                $this->fail('Outside a transaction must be refused.');
+            } catch (\LogicException) {
+                $this->assertSame(0, DB::table('shift_liability_daily_locks')->count());
+            }
         }
     }
 

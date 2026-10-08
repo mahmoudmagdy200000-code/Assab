@@ -72,6 +72,38 @@ class ShiftFinancialCalculator
     }
 
     /**
+     * S1-07 sales-channel check, kept separate from the physical cash comparison in calculate().
+     *
+     * Cards and delivery apps are customer gross values (before commission) and together may not
+     * exceed gross sales. The cash-sales channel is derived as gross − cards − apps. A reported
+     * cash-sales figure (legacy `cash_collected`) that differs from it is a channel difference — a
+     * data-entry problem in the sales breakdown — and never a cash shortage or surplus. Shortage and
+     * surplus come only from counted cash versus expected cash.
+     *
+     * `channelDifference` = reported − derived: positive means the reported cash channel is above the
+     * derived figure. calculate() does not itself reject cards + apps > gross; a caller must refuse the
+     * report when `channelsValid` is false (S1-10 route integration).
+     *
+     * @return array{channelsValid:bool,derivedCashSales:int,channelDifference:int|null}
+     */
+    public static function salesChannelCheck(int $grossHalalas, int $cardsHalalas, int $appsHalalas, ?int $reportedCashSalesHalalas = null): array
+    {
+        foreach ([$grossHalalas, $cardsHalalas, $appsHalalas, $reportedCashSalesHalalas ?? 0] as $amount) {
+            if ($amount < 0) {
+                throw new InvalidArgumentException('Sales channel amounts must be non-negative halalas.');
+            }
+        }
+
+        $derivedCashSales = $grossHalalas - $cardsHalalas - $appsHalalas;
+
+        return [
+            'channelsValid' => $derivedCashSales >= 0,
+            'derivedCashSales' => $derivedCashSales,
+            'channelDifference' => $reportedCashSalesHalalas === null ? null : $reportedCashSalesHalalas - $derivedCashSales,
+        ];
+    }
+
+    /**
      * Convert a legacy SAR amount with at most two decimal places to halalas.
      */
     public static function sarToHalalas(string|int|float $amount): int
