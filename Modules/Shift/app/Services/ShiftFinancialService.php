@@ -33,12 +33,13 @@ class ShiftFinancialService
     public function computeFinancialSummaryFromHandovers(BranchManagerShift $shift, Collection $shiftHandovers): array
     {
         if ($shift->total_sales > 0 || $shift->cash_collected > 0 || $shift->card_payments > 0) {
-            $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($shift->total_sales ?? 0);
+            // Persisted row: show its stored split (historical evidence); derive only if none is stored.
+            $split = ShiftFinancialCalculator::persistedSalesSplitHalalas($shift->total_sales, $shift->net_sales, $shift->vat_amount);
 
             return [
                 'total_sales' => (float) ($shift->total_sales ?? 0),
-                'net_sales' => (float) $salesCalculation['net'],
-                'vat_amount' => (float) $salesCalculation['vat'],
+                'net_sales' => $split['net'] / 100,
+                'vat_amount' => $split['vat'] / 100,
                 'cash_collected' => (float) ($shift->cash_collected ?? 0),
                 'card_payments' => (float) ($shift->card_payments ?? 0),
                 'aggregator_payments' => (float) ($shift->aggregator_payments ?? 0),
@@ -51,6 +52,8 @@ class ShiftFinancialService
         $cardPayments = 0;
         $aggregatorPayments = 0;
         $totalVariance = 0;
+        $netHalalas = 0;
+        $vatHalalas = 0;
 
         foreach ($shiftHandovers as $handover) {
             $cashierShift = $handover->cashierShift;
@@ -59,11 +62,15 @@ class ShiftFinancialService
             $cardPayments += $cashierShift->card_payments ?? 0;
             $aggregatorPayments += $cashierShift->salesBreakdown?->sum('amount') ?? 0;
             $totalVariance += $handover->variance_amount ?? 0;
+
+            // Sum each cashier shift's stored split so the summary reconciles with the cashier views.
+            $split = ShiftFinancialCalculator::persistedSalesSplitHalalas($cashierShift->total_sales, $cashierShift->net_sales, $cashierShift->vat_amount);
+            $netHalalas += $split['net'];
+            $vatHalalas += $split['vat'];
         }
 
-        $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($totalSales);
-        $vatAmount = (float) $salesCalculation['vat'];
-        $netSales = (float) $salesCalculation['net'];
+        $vatAmount = $vatHalalas / 100;
+        $netSales = $netHalalas / 100;
 
         return [
             'total_sales' => (float) $totalSales,
@@ -394,6 +401,11 @@ class ShiftFinancialService
             $summary['delivery_app_payments'] += $cashierShift->salesBreakdown->sum('amount');
             $summary['total_variance'] += $handover->variance_amount ?? 0;
 
+            // Stored per-shift split in halalas, so a manager view reconciles with the cashier views.
+            $split = ShiftFinancialCalculator::persistedSalesSplitHalalas($cashierShift->total_sales, $cashierShift->net_sales, $cashierShift->vat_amount);
+            $summary['net_sales_halalas'] += $split['net'];
+            $summary['vat_amount_halalas'] += $split['vat'];
+
             return $summary;
         }, [
             'total_sales' => 0,
@@ -401,6 +413,8 @@ class ShiftFinancialService
             'card_payments' => 0,
             'delivery_app_payments' => 0,
             'total_variance' => 0,
+            'net_sales_halalas' => 0,
+            'vat_amount_halalas' => 0,
         ]);
     }
 }

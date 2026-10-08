@@ -47,6 +47,7 @@ class ShiftEndController extends Controller
      */
     public function endShiftOnly(Request $request, string $shift): JsonResponse
     {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
         $validator = Validator::make($request->all(), [
             'total_sales' => 'required|'.ShiftMoneyValidation::SAR,
             'cash_collected' => 'sometimes|'.ShiftMoneyValidation::SAR,
@@ -200,6 +201,7 @@ class ShiftEndController extends Controller
      */
     public function endShiftWithHandover(Request $request, string $shift): JsonResponse
     {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
         $validator = Validator::make($request->all(), [
             // Sales information
             'total_sales' => 'required|'.ShiftMoneyValidation::SAR,
@@ -450,6 +452,7 @@ class ShiftEndController extends Controller
      */
     public function startHandover(Request $request, string $shift): JsonResponse
     {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
         $validator = Validator::make($request->all(), [
             'handover_to_type' => 'sometimes|in:cashier,branch_manager',
             'next_cashier_id' => 'required_without_all:handover_to_type,branch_manager_id|nullable|exists:cashiers,id',
@@ -626,6 +629,7 @@ class ShiftEndController extends Controller
      */
     public function calculateSales(Request $request): JsonResponse
     {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
         $validator = Validator::make($request->all(), [
             'total_sales' => 'required|'.ShiftMoneyValidation::SAR,
         ]);

@@ -7,9 +7,8 @@ use InvalidArgumentException;
 /**
  * Shared shift arithmetic at the integer-halalas boundary.
  *
- * The current SAR columns store two decimal places. For tax extraction this
- * calculator retains the existing nearest-halalah behavior and explicitly
- * marks values needing that technical choice while D5 remains under review.
+ * D5 (approved by Mahmoud): integer-halalas arithmetic; VAT-inclusive net is
+ * rounded half-up to the halala and VAT is the residual (gross − net).
  */
 class ShiftFinancialCalculator
 {
@@ -18,7 +17,7 @@ class ShiftFinancialCalculator
      * still owned by the sender. Callers must resolve its transfer evidence;
      * a pending request alone does not establish physical presence.
      *
-     * @return array{net:int,vat:int,expected:int,reconciledCounted:int,variance:int,shortage:int,surplus:int,varianceType:string,roundingPendingD5:bool}
+     * @return array{net:int,vat:int,expected:int,reconciledCounted:int,variance:int,shortage:int,surplus:int,varianceType:string,netRounded:bool}
      */
     public static function calculate(
         int $grossHalalas,
@@ -39,17 +38,14 @@ class ShiftFinancialCalculator
         }
 
         // gross SAR / 1.15, represented in halalas, is gross * 20 / 23.
-        // Integer arithmetic avoids binary-float drift. The remainder marks
-        // cases whose final halala depends on the pending D5 rounding decision.
+        // Integer arithmetic avoids binary-float drift. A non-zero remainder
+        // means net was rounded (half-up, D5); 23 is odd, so exact ties cannot occur.
         $netWhole = intdiv($grossHalalas, 23) * 20;
         $netFractionNumerator = ($grossHalalas % 23) * 20;
         $netHalalas = $netWhole + intdiv($netFractionNumerator, 23);
         $remainder = $netFractionNumerator % 23;
-        $roundingPendingD5 = $remainder !== 0;
-        if ($roundingPendingD5 && $remainder * 2 >= 23) {
-            // This is the existing SAR DECIMAL(…,2)/request compatibility
-            // behavior, surfaced as pending instead of being treated as an
-            // approved business rule.
+        $netRounded = $remainder !== 0;
+        if ($netRounded && $remainder * 2 >= 23) {
             $netHalalas++;
         }
 
@@ -71,7 +67,7 @@ class ShiftFinancialCalculator
                 $varianceHalalas > 0 => 'surplus',
                 default => 'balanced',
             },
-            'roundingPendingD5' => $roundingPendingD5,
+            'netRounded' => $netRounded,
         ];
     }
 
@@ -108,7 +104,7 @@ class ShiftFinancialCalculator
     }
 
     /**
-     * @return array{net:string,vat:string,rounding_pending_d5:bool}
+     * @return array{net:string,vat:string,net_rounded:bool}
      */
     public static function calculateVatInclusiveSales(string|int|float $grossSar): array
     {
@@ -118,7 +114,53 @@ class ShiftFinancialCalculator
         return [
             'net' => number_format($calculation['net'] / 100, 2, '.', ''),
             'vat' => number_format($calculation['vat'] / 100, 2, '.', ''),
-            'rounding_pending_d5' => $calculation['roundingPendingD5'],
+            'net_rounded' => $calculation['netRounded'],
         ];
+    }
+
+    /**
+     * Net and VAT of an already persisted row, in halalas.
+     *
+     * Stored values are historical evidence and are returned unchanged, even when they were written
+     * by the pre-S1-06 "gross × 15%" code. Only a row without a stored split (net and VAT both zero
+     * while gross is positive) has its split derived from its own gross. Never throws for legacy
+     * negative values; correcting historical rows is an explicit, audited data operation, not a read.
+     *
+     * @return array{net:int,vat:int}
+     */
+    public static function persistedSalesSplitHalalas(mixed $grossSar, mixed $netSar, mixed $vatSar): array
+    {
+        $gross = self::storedSarToHalalas($grossSar);
+        $net = self::storedSarToHalalas($netSar);
+        $vat = self::storedSarToHalalas($vatSar);
+
+        if ($net === 0 && $vat === 0 && $gross > 0) {
+            $calculation = self::calculate($gross, 0, 0, 0, 0);
+
+            return ['net' => $calculation['net'], 'vat' => $calculation['vat']];
+        }
+
+        return ['net' => $net, 'vat' => $vat];
+    }
+
+    /**
+     * Convert a stored DECIMAL(…,2) SAR value (decimal:2 cast string, int, float or null) to signed
+     * halalas. Unlike request input, stored legacy rows may hold negative values.
+     */
+    public static function storedSarToHalalas(mixed $amount): int
+    {
+        if ($amount === null || $amount === '') {
+            return 0;
+        }
+
+        if (is_string($amount) && str_starts_with($amount, '-')) {
+            return -self::sarToHalalas(substr($amount, 1));
+        }
+
+        if ((is_int($amount) || is_float($amount)) && $amount < 0) {
+            return -self::sarToHalalas(-$amount);
+        }
+
+        return self::sarToHalalas($amount);
     }
 }

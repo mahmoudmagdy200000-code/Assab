@@ -104,6 +104,8 @@ class EndShiftRequest extends FormRequest
      */
     protected function prepareForValidation(): void
     {
+        ShiftMoneyValidation::normalizeRepresentationNoise($this);
+
         // Set default values
         if (! $this->has('cash_collected')) {
             $this->merge(['cash_collected' => 0]);

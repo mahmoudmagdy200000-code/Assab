@@ -234,12 +234,13 @@ class BranchManagerShiftResource extends JsonResource
         }
 
         if ($this->total_sales > 0 || $this->cash_collected > 0 || $this->card_payments > 0) {
-            $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($this->total_sales ?? 0);
+            // Persisted row: show its stored split (historical evidence); derive only if none is stored.
+            $split = ShiftFinancialCalculator::persistedSalesSplitHalalas($this->total_sales, $this->net_sales, $this->vat_amount);
 
             return [
                 'total_sales' => (float) ($this->total_sales ?? 0),
-                'net_sales' => (float) $salesCalculation['net'],
-                'vat_amount' => (float) $salesCalculation['vat'],
+                'net_sales' => $split['net'] / 100,
+                'vat_amount' => $split['vat'] / 100,
                 'cash_collected' => (float) ($this->cash_collected ?? 0),
                 'card_payments' => (float) ($this->card_payments ?? 0),
                 'aggregator_payments' => (float) ($this->aggregator_payments ?? 0),
@@ -256,6 +257,8 @@ class BranchManagerShiftResource extends JsonResource
         $cardPayments = 0;
         $aggregatorPayments = 0;
         $totalVariance = 0;
+        $netHalalas = 0;
+        $vatHalalas = 0;
 
         foreach ($handovers as $handover) {
             $cashierShift = $handover->cashierShift;
@@ -264,11 +267,15 @@ class BranchManagerShiftResource extends JsonResource
             $cardPayments += $cashierShift->card_payments ?? 0;
             $aggregatorPayments += $cashierShift->salesBreakdown?->sum('amount') ?? 0;
             $totalVariance += $handover->variance_amount ?? 0;
+
+            // Sum each cashier shift's stored split so the summary reconciles with the cashier views.
+            $split = ShiftFinancialCalculator::persistedSalesSplitHalalas($cashierShift->total_sales, $cashierShift->net_sales, $cashierShift->vat_amount);
+            $netHalalas += $split['net'];
+            $vatHalalas += $split['vat'];
         }
 
-        $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($totalSales);
-        $vatAmount = (float) $salesCalculation['vat'];
-        $netSales = (float) $salesCalculation['net'];
+        $vatAmount = $vatHalalas / 100;
+        $netSales = $netHalalas / 100;
 
         return [
             'total_sales' => (float) $totalSales,

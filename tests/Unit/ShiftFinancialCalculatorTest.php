@@ -85,7 +85,7 @@ class ShiftFinancialCalculatorTest extends TestCase
         $this->assertSame(2000, $result['shortage']);
         $this->assertSame(0, $result['surplus']);
         $this->assertSame('shortage', $result['varianceType']);
-        $this->assertFalse($result['roundingPendingD5']);
+        $this->assertFalse($result['netRounded']);
     }
 
     public function test_it_derives_balanced_and_surplus_results_from_signed_variance(): void
@@ -154,11 +154,35 @@ class ShiftFinancialCalculatorTest extends TestCase
         $this->assertSame('15.00', ShiftFinancialCalculator::calculateVatInclusiveSales('115.00')['vat']);
     }
 
-    public function test_fractional_tax_rounding_is_explicitly_marked_pending_d5(): void
+    public function test_fractional_tax_net_is_rounded_half_up_and_marked(): void
     {
+        // 100.00 SAR gross: net 86.9565… → 86.96 (half-up), VAT is the residual 13.04.
         $result = ShiftFinancialCalculator::calculate(10000, 0, 0, 0, 0);
 
-        $this->assertTrue($result['roundingPendingD5']);
+        $this->assertSame(8696, $result['net']);
+        $this->assertSame(1304, $result['vat']);
+        $this->assertTrue($result['netRounded']);
+    }
+
+    public function test_persisted_split_keeps_stored_historical_values(): void
+    {
+        // Pre-S1-06 row: stored VAT was 15% of gross. Reads must not silently recompute it.
+        $this->assertSame(['net' => 9775, 'vat' => 1725], ShiftFinancialCalculator::persistedSalesSplitHalalas('115.00', '97.75', '17.25'));
+        $this->assertSame(['net' => 10000, 'vat' => 1500], ShiftFinancialCalculator::persistedSalesSplitHalalas('115.00', '100.00', '15.00'));
+    }
+
+    public function test_persisted_split_derives_only_when_no_split_is_stored(): void
+    {
+        $this->assertSame(['net' => 10000, 'vat' => 1500], ShiftFinancialCalculator::persistedSalesSplitHalalas('115.00', '0.00', '0.00'));
+        $this->assertSame(['net' => 10000, 'vat' => 1500], ShiftFinancialCalculator::persistedSalesSplitHalalas(115.0, null, null));
+        $this->assertSame(['net' => 0, 'vat' => 0], ShiftFinancialCalculator::persistedSalesSplitHalalas('0.00', '0.00', '0.00'));
+    }
+
+    public function test_persisted_split_does_not_throw_for_legacy_negative_values(): void
+    {
+        $this->assertSame(['net' => 0, 'vat' => 0], ShiftFinancialCalculator::persistedSalesSplitHalalas('-5.00', '0.00', '0.00'));
+        $this->assertSame(-500, ShiftFinancialCalculator::storedSarToHalalas('-5.00'));
+        $this->assertSame(-500, ShiftFinancialCalculator::storedSarToHalalas(-5.0));
     }
 
     public function test_it_rejects_unsupported_legacy_precision(): void

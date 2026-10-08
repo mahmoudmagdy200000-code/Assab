@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Http\Controllers;
 
+use App\Support\ShiftMoneyValidation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -78,9 +79,10 @@ class ShiftHandoverController extends Controller
      */
     public function recordHandover(Request $request, string $shift): JsonResponse
     {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
         $validator = Validator::make($request->all(), [
             'next_cashier_id' => 'required|exists:cashiers,id',
-            'handover_amount' => 'required|numeric|min:0',
+            'handover_amount' => 'required|'.ShiftMoneyValidation::SAR,
             'handover_notes' => 'nullable|string|max:500',
         ]);
 
@@ -449,8 +451,9 @@ class ShiftHandoverController extends Controller
      */
     public function editHandoverAfterRejection(Request $request, string $shift): JsonResponse
     {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
         $validator = Validator::make($request->all(), [
-            'handover_amount' => 'required|numeric|min:0',
+            'handover_amount' => 'required|'.ShiftMoneyValidation::SAR,
             'handover_notes' => 'nullable|string|max:500',
         ]);
 

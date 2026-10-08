@@ -466,6 +466,7 @@ class BranchManagerShiftController extends BaseController
 
     public function endShift(Request $request): JsonResponse
     {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
         $validator = Validator::make($request->all(), [
             'handover_to' => 'nullable|exists:branch_managers,id',
             'handover_amount' => 'nullable|'.ShiftMoneyValidation::MANAGER_HANDOVER_SAR,
@@ -626,6 +627,7 @@ class BranchManagerShiftController extends BaseController
 
     public function updateFinalDailyClose(Request $request): JsonResponse
     {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
         $validator = Validator::make($request->all(), [
             'handover_to' => 'nullable|exists:branch_managers,id',
             'handover_amount' => 'nullable|'.ShiftMoneyValidation::MANAGER_HANDOVER_SAR,
@@ -954,9 +956,17 @@ class BranchManagerShiftController extends BaseController
             $cashCollected = (float) ($managerShift->cash_collected > 0 ? $managerShift->cash_collected : ($financialSummary['cash_collected'] ?? 0));
             $cardPayments = (float) ($managerShift->card_payments > 0 ? $managerShift->card_payments : ($financialSummary['card_payments'] ?? 0));
             $aggregatorPayments = (float) ($managerShift->aggregator_payments > 0 ? $managerShift->aggregator_payments : ($financialSummary['delivery_app_payments'] ?? 0));
-            $salesCalculation = \App\Support\ShiftFinancialCalculator::calculateVatInclusiveSales($totalSales);
-            $vatAmount = (float) $salesCalculation['vat'];
-            $netSales = (float) $salesCalculation['net'];
+            // Persisted manager row: its stored split. Otherwise the stored per-cashier-shift splits
+            // summed by the financial summary. Recompute only when neither exists (e.g. a stale cache entry).
+            if ($managerShift->total_sales > 0) {
+                $split = \App\Support\ShiftFinancialCalculator::persistedSalesSplitHalalas($managerShift->total_sales, $managerShift->net_sales, $managerShift->vat_amount);
+            } elseif (isset($financialSummary['net_sales_halalas'], $financialSummary['vat_amount_halalas'])) {
+                $split = ['net' => (int) $financialSummary['net_sales_halalas'], 'vat' => (int) $financialSummary['vat_amount_halalas']];
+            } else {
+                $split = \App\Support\ShiftFinancialCalculator::persistedSalesSplitHalalas($totalSales, 0, 0);
+            }
+            $vatAmount = $split['vat'] / 100;
+            $netSales = $split['net'] / 100;
             $closingBalance = (float) ($managerShift->handover_amount ?? $managerShift->closing_balance ?? 0);
             $variance = $totalSales - $closingBalance;
             $handoverStatus = $this->shiftService->normalizeHandoverStatus($managerShift->handover_status);

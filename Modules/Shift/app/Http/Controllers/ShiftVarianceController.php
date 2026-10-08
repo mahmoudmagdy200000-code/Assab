@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Http\Controllers;
 
+use App\Support\ShiftMoneyValidation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -25,15 +26,16 @@ class ShiftVarianceController extends Controller
      */
     public function recordVariance(Request $request, string $shift): JsonResponse
     {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
         $validator = Validator::make($request->all(), [
             'responsibility_type' => 'required|in:self,self_and_others,other_factors,mixed',
 
             // For self_and_others: current_cashier_amount is optional when other_cashiers is set
             // (backend computes it as: variance - sum(other_cashiers))
-            'current_cashier_amount' => 'required_if:responsibility_type,mixed|nullable|numeric|min:0',
+            'current_cashier_amount' => 'required_if:responsibility_type,mixed|nullable|'.ShiftMoneyValidation::SAR,
             'other_cashiers' => 'sometimes|array',
             'other_cashiers.*.cashier_id' => 'required_with:other_cashiers|exists:cashiers,id',
-            'other_cashiers.*.amount' => 'required_with:other_cashiers|numeric|min:0',
+            'other_cashiers.*.amount' => 'required_with:other_cashiers|'.ShiftMoneyValidation::SAR,
             'other_cashiers.*.notes' => 'nullable|string|max:255',
 
             // For other_factors and mixed (required), and optional for self_and_others
@@ -59,7 +61,7 @@ class ShiftVarianceController extends Controller
             $otherCashiers = $request->other_cashiers ?? [];
             if (empty($otherCashiers)) {
                 $v = Validator::make($request->only('current_cashier_amount'), [
-                    'current_cashier_amount' => 'required|numeric|min:0',
+                    'current_cashier_amount' => 'required|'.ShiftMoneyValidation::SAR,
                 ]);
                 if ($v->fails()) {
                     return response()->json([

@@ -2,6 +2,8 @@
 
 namespace Modules\Shift\Http\Controllers;
 
+use App\Support\ShiftFinancialCalculator;
+use App\Support\ShiftMoneyValidation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -326,19 +328,20 @@ class ReassignmentShiftController extends Controller
             ], 400);
         }
 
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
         $validator = Validator::make($request->all(), [
             'new_cashier_id' => 'required|exists:cashiers,id',
             'reason' => 'nullable|string|max:500', // غيرت من required ل nullable
-            'handover_amount' => 'required|numeric|min:0',
+            'handover_amount' => 'required|'.ShiftMoneyValidation::SAR,
             'handover_notes' => 'nullable|string|max:500',
 
-            'current_sales' => 'sometimes|numeric|min:0',
-            'cash_collected' => 'sometimes|numeric|min:0',
-            'card_payments' => 'sometimes|numeric|min:0',
+            'current_sales' => 'sometimes|'.ShiftMoneyValidation::SAR,
+            'cash_collected' => 'sometimes|'.ShiftMoneyValidation::SAR,
+            'card_payments' => 'sometimes|'.ShiftMoneyValidation::SAR,
 
             'aggregators' => 'sometimes|array',
             'aggregators.*.aggregator_id' => 'required_with:aggregators|exists:aggregators,id',
-            'aggregators.*.amount' => 'required_with:aggregators|numeric|min:0',
+            'aggregators.*.amount' => 'required_with:aggregators|'.ShiftMoneyValidation::SAR,
             'aggregators.*.notes' => 'nullable|string|max:255',
 
             'pos_receipt' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
@@ -346,11 +349,11 @@ class ReassignmentShiftController extends Controller
             // ---------- Added Variance Validation ----------
             'variance' => 'sometimes|array',
             'variance.responsibility_type' => 'required_with:variance|in:self,self_and_others,other_factors,mixed',
-            'variance.current_cashier_amount' => 'required_if:variance.responsibility_type,self_and_others,mixed|numeric|min:0',
+            'variance.current_cashier_amount' => 'required_if:variance.responsibility_type,self_and_others,mixed|'.ShiftMoneyValidation::SAR,
 
             'variance.other_cashiers' => 'sometimes|array',
             'variance.other_cashiers.*.cashier_id' => 'required_with:variance.other_cashiers|exists:cashiers,id',
-            'variance.other_cashiers.*.amount' => 'required_with:variance.other_cashiers|numeric|min:0',
+            'variance.other_cashiers.*.amount' => 'required_with:variance.other_cashiers|'.ShiftMoneyValidation::SAR,
             'variance.other_cashiers.*.notes' => 'nullable|string|max:255',
 
             'variance.reason' => 'required_if:variance.responsibility_type,other_factors,mixed|string|max:500',
@@ -510,8 +513,12 @@ class ReassignmentShiftController extends Controller
 
             // Store current sales breakdown (optional)
             if ($request->has('current_sales')) {
+                // VAT-inclusive split through the shared calculator (BR-01), as on the end-shift paths.
+                $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($request->current_sales);
                 $shiftModel->update([
                     'total_sales' => $request->current_sales,
+                    'net_sales' => $salesCalculation['net'],
+                    'vat_amount' => $salesCalculation['vat'],
                     'cash_collected' => $request->cash_collected ?? 0,
                     'card_payments' => $request->card_payments ?? 0,
                 ]);
