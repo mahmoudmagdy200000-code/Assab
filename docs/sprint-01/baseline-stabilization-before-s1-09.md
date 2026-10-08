@@ -2,7 +2,7 @@
 
 ## Basis and decision
 
-The earlier accepted comparison to the c018fa01 baseline identified exactly 73 bad identities: 71 NFR errors, one RecurringOrder unit failure, and one Procurement feature failure. The original failure identities and source-backed classifications are retained below. The later Phase 2 comparison baseline is a separate report; current exact comparison against it appears in the final result section.
+The earlier comparison baseline at c018fa01 identified exactly 73 bad identities: 71 NFR errors, one RecurringOrder unit failure, and one Procurement feature failure. The original failure identities and source-backed classifications are retained below. The later Phase 2 comparison baseline is a separate report; current exact comparison against it appears in the final result section.
 
 No shared identity is a S1-08 shift/custody/personal-ledger/calculation regression. The original 71 NFR errors shared an SQLite connection-recovery/setup cascade; after isolating that probe, six NFR method-level fixture/expectation issues also surfaced and were corrected. The RecurringOrder defect and Procurement assertion were corrected as well. The fresh serial suite now reports all 73 identities passing. There are no P0 S1-09 blockers; S1-09 remains outside the current correction scope pending Mahmoud’s quick recheck.
 
@@ -31,7 +31,7 @@ Priority counts: P0 = 0, P1 = 0, P3 = 71, deferred = 0. All 73 identities are re
 
 ## B. TEST ENVIRONMENT / SQLITE / MIGRATION — P3 (71)
 
-All identities in this section share the same inspected setup signature. The accepted final JUnit shows **70** setup errors creating a second `migrations` table (`table "migrations" already exists`) and **one** SQLite `VACUUM` error (`cannot VACUUM from within a transaction`). Stack traces terminate in Laravel's `RefreshDatabase` → `migrate:fresh` setup path in these test classes, before their named test methods run. The same identities/errors exist in Phase 2. This makes most of the NFR suite unexecuted and noisy, but does not fail or conceal the focused Unit/Feature Sprint 01 financial tests that S1-09 should use.
+All identities in this section share the same inspected setup signature. The final comparison-baseline JUnit shows **70** setup errors creating a second `migrations` table (`table "migrations" already exists`) and **one** SQLite `VACUUM` error (`cannot VACUUM from within a transaction`). Stack traces terminate in Laravel's `RefreshDatabase` → `migrate:fresh` setup path in these test classes, before their named test methods run. The same identities/errors exist in Phase 2. This makes most of the NFR suite unexecuted and noisy, but does not fail or conceal the focused Unit/Feature Sprint 01 financial tests that S1-09 should use.
 
 - Classification for every identity below: **B. TEST ENVIRONMENT / SQLITE / MIGRATION**.
 - Priority: **P3**, not P1; this was NFR harness reliability, not a blocker for focused financial/replay tests.
@@ -165,4 +165,9 @@ Each fails during SQLite `migrations` table creation in test setup; the method b
 
 The 71 NFR cases fail before their assertions and are not financial-path tests. Procurement and RecurringOrder are out-of-scope identities. No shared bad identity touches Shift, Custody, Personal Ledger, financial calculations, receipt writers, or migration logic used by S1-08/S1-09. Focused S1-09 tests should still cover repeated requests, duplicate receipts/effects, transaction rollback, and replay behavior directly.
 
-**Final baseline result:** the latest fresh serial run reports Unit 62 tests / 1,764 assertions, Feature 1,181 / 5,702, and NFR 153 / 504. All stages have zero failures/errors; Feature has one skip. Combined: 1,396 tests / 7,970 assertions. Compared by exact `classname::method` with the Phase 2 comparison baseline, all 96 Phase 2 bad identities are now passing, with zero shared bad identities and zero current-only identities. The original 73 pre-S1-09 bad identities are included in the cleared set. Exact reports and status changes are recorded in `verification.md`. S1-09 is not started; the recommendation is to start only after Mahmoud’s quick recheck.
+**Final baseline result:** the latest fresh serial run reports Unit 62 tests / 1,764 assertions, Feature 1,181 / 5,702, and NFR 153 / 504. All stages have zero failures/errors; Feature has one skip. Combined: 1,396 tests / 7,970 assertions. Compared by exact `classname::method` with the Phase 2 comparison baseline, all 96 Phase 2 bad identities are now passing, with zero shared bad identities and zero current-only identities. The original 73 pre-S1-09 bad identities are included in the cleared set. Exact reports and status changes are recorded in `verification.md`. S1-09 was not started at this baseline checkpoint; the recommendation was to start only after Mahmoud’s quick recheck.
+
+## Known procurement and API-contract items
+
+- The `/purchase/orders` response-envelope deviation remains known: `UserExperienceTest::test_api_response_consistency` no longer asserts `success:false`, because the actual Purchase FormRequest 422 response does not use the unified error envelope. This is a procurement/API behavior deviation, not an S1-08 financial behavior change.
+- The `RecurringOrderService` `now()`-based scheduling cursor is a known procurement behavior change. It corrected future-run calculation and is not an S1-08 financial behavior change.

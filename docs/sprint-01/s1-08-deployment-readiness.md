@@ -7,11 +7,16 @@ S1-08 is not authorized for deployment by this document. Run these **read-only**
 Each branch must have one uniquely assigned active manager for manager-addressed handovers. Investigate any result from either query before rollout. Manager deactivation, branch transfer, and deletion must be blocked while pending or correctable-rejected handovers addressed to that manager remain open.
 
 ```sql
-SELECT branch_id, COUNT(*) AS managers
-FROM branch_managers
-WHERE status = 'active' AND is_active = 1 AND deleted_at IS NULL
-GROUP BY branch_id
-HAVING COUNT(*) > 1;
+SELECT b.id AS branch_id, COUNT(bm.id) AS managers
+FROM branches b
+LEFT JOIN branch_managers bm
+  ON bm.branch_id = b.id
+ AND bm.status = 'active'
+ AND bm.is_active = 1
+ AND bm.deleted_at IS NULL
+WHERE b.is_active = 1
+GROUP BY b.id
+HAVING COUNT(bm.id) <> 1;
 ```
 
 ```sql
@@ -28,6 +33,7 @@ WHERE h.handover_to_type = 'branch_manager'
   )
   AND (
     bm.id IS NULL
+    OR bm.status <> 'active'
     OR bm.is_active = 0
     OR bm.deleted_at IS NOT NULL
     OR bm.branch_id <> s.branch_id
@@ -75,6 +81,7 @@ SQLite transaction tests are not row-lock or deadlock proof. A deployment-equiva
 - report close/correction racing confirmation;
 - opposing cashier-pair request orders;
 - manager deactivation, branch transfer, or delete racing addressed handover creation and manager confirmation;
+- manager close / cashier confirmation / new cashier shift creation in another branch; `lockCashierFinancialInputs` uses a date-range lock and InnoDB may lock rows from other branches;
 - zero and duplicate active-manager recipient discovery returning 200 with valid cashier choices, while omitting an ambiguous/unavailable manager;
 - an unaddressed manager attempting reject and amount correction, returning 403 `ONLY_ADDRESSED_RECIPIENT` without state or financial changes.
 
