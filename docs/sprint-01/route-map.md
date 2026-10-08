@@ -264,15 +264,15 @@ PersonalLedgerService::createTransactionFromHandover directly creates a personal
 
 ## Final handoff route dispositions — proposed, 2026-10-07
 
-This source-backed target table covers live paths in C-1. It completes dispositions in documentation only; D3 remains unresolved, and it does not prove runtime writer ownership.
+This source-backed target table covers live paths in C-1. It completes dispositions in documentation only; D3 is resolved by the approved manager-correction decision (provenance pending Mahmoud confirmation, see `api-contract.md` "Approved decision synchronization"), and it does not prove runtime writer ownership.
 
 | Route | Used by | Target behaviour | Shared service / validation | Task |
 |---|---|---|---|---|
 | `shifts/{shift}/reassign-with-handover` | AssabAPP | Report submit + handover request; explicit count, complete shortage allocation, revision 0→1, idempotency, same-branch recipient; no separate VAT/variance math. | Shared BR-01/03 calculation and report/handover validation. | S1-06 / S1-08 / S1-11 |
 | `workday/end`; `PUT workday/daily-close` | AssabAPP | Derive manager totals server-side; client variance rejected 422 or ignored per selected contract. A Branch Manager may directly correct cashier report figures without cashier approval; preserve correction history and notify the cashier. | Shared BR-01/03; report revision/authority checks. | S1-06 / S1-11 |
 | `shifts/{shift}/handover/rejection-decision`; `workday/handoffs/rejection/{shift}/decision` | AssabAPP | `approve_rejection` → 409 `INVALID_STATE`; `request_corrections` maps to correction flow. | BR-17 reject/correction state machine. | S1-11 |
-| `workday/handoffs/reject` | AssabAPP | Same contract as normal rejection. | Shared reject validation and preserved request history. | S1-11 |
-| `workday/daily-close/reopen` | AssabAPP / registered route | Reopen reuses server-derived branch/workday set and stable report identity; resubmission cannot double count. | Same set derivation, revisions, idempotent operation identity. | S1-07 |
+| `workday/handoffs/reject` | No client caller found (AssabAPP `b2453481`, Dashboard `0378530`) | Same contract as normal rejection. | Shared reject validation and preserved request history. | S1-11 |
+| `workday/daily-close/reopen` | Registered route; no client caller found (AssabAPP `b2453481`, Dashboard `0378530`) | Reopen reuses server-derived branch/workday set and stable report identity; resubmission cannot double count. | Same set derivation, revisions, idempotent operation identity. | S1-07 |
 | `shifts/{shift}/variance` | Legacy route; direct caller to confirm | Target aliases compliant allocation command or retires route; owner or same-branch manager, with all assignees in-branch. **H2 is not implemented or authorized.** | Shared allocation validation; no H2 authority granted. | S1-07 / S1-11 |
 
 The table makes every listed path’s target disposition explicit. **Writers Unambiguous is not a runtime PASS.**

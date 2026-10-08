@@ -13,7 +13,7 @@ The table below is the authoritative task status. Historical failures and their 
 | S1-03 | Select Minimal Schema and Compatibility Changes | S1-02 | Assab + shared compatibility | Ready for review; not Accepted | `schema-adr.md` corrects R01/R05/R07 and C03: legacy SAR-to-halalas conversion occurs once in the bridge; Admin remains integer halalas; report revision identity is owned by a stable report aggregate independent of handovers; request/receipt links remain optional and stable; end-only and native Admin close paths are covered. Duplicate/cardinality, operation identity, compatibility, and unrun migration/tests are explicitly gated/deferred. No code, migration, or DB changes. Review/acceptance outstanding. |
 | S1-04 | Define State, Permissions, and Revision Invariants | S1-01–S1-03 | Assab + dashboard | Ready for review; not Accepted | `state-permission-revision.md` maps source-backed AS-IS states, actors and scopes to BR-05–10,11–17,24–25 TO-BE invariants; documents revision/history expectations and the absent daily-submit shortage-liability guard. R02/R05 remain PARTIALLY RESOLVED carry-forward. Documentation only; no runtime enforcement, migration, or acceptance test was run. |
 | S1-05 | Finalize the API Blueprint and Design Review | S1-01–S1-04 | Assab + dashboard | Ready for Mahmoud design review / Not Accepted | `api-contract.md` contains one proposed technical model, concrete target API examples, liability actor routes, writer map and session blueprint. D5 rounding/precision/limits are approved; receipt-effect identity and pre-open destination remain **proposed for Mahmoud approval**. Documentation-only verification is in `verification.md`; no runtime behavior is claimed. Mahmoud acceptance is mandatory before S1-06. |
-| S1-06 | Correct and Unify Shift Calculations | S1-05 blueprint review completed | Assab | Ready for review / Not Accepted | Mahmoud approved D5; S1-06 precision validation, per-column limits, half-up net and residual VAT implemented and verified. Latest validation correction: 43 tests / 292 assertions. Lifecycle integration remains with later assigned tasks. |
+| S1-06 | Correct and Unify Shift Calculations | S1-05 blueprint review completed | Assab | Ready for review / Not Accepted | Mahmoud approved D5; S1-06 precision validation, per-column limits, half-up net and residual VAT implemented. Audit 2026-10-08 corrections (`dc73ab29`): AssabAPP representation-noise compatibility (N-01/D10), stored-split reads (N-02/N-03), reassign-with-handover VAT; focused 59 tests / 364 assertions. Lifecycle integration remains with later assigned tasks. |
 | S1-07 | Enforce Shortage Allocation and Branch Surplus | S1-04–S1-06 | Assab | Blocked before implementation; regression gate cleared | Source trace found the legacy Shift path has no independent count/opening evidence or contract-signed variance (S1-10), manager allocation identity is not representable by the cashier-only FK and no accepted ADR authorizes allocation schema changes, and existing status fields collapse employee response with manager approval. See the 2026-10-08 recovery/source-trace entry in `verification.md`. No S1-07 application logic or migration was added. |
 | S1-08 | Make Essential Financial Writes Atomic | S1-05–S1-07 | Assab | Planned | Existing boundaries recorded only |
 | S1-09 | Prevent Duplicate Effects and Unsafe Replay | S1-05,S1-08 | Assab + dashboard intent contract | Planned | No idempotency change/concurrency execution |
@@ -116,17 +116,66 @@ The original A01–A18 matrix, BR-01–BR-25 titles, and AC-01–AC-21 matrix ar
 
 ## Mahmoud final handoff mapping and status — 2026-10-07
 
-D1 applies: Execution Plan v2.0 is authoritative for scope, task numbering, and acceptance IDs; Agent Implementation Plan is an execution aid. The inspected workspace/project-docs inventory had no separate Execution Plan v2.0 mapping document. This register records mappings explicitly supplied by Mahmoud and does not invent unseen IDs. Legacy A01–A18 and AC-01–AC-21 below remain historical traceability namespaces, not v2.0 acceptance IDs; v2.0 controls any conflict. **A18 Dashboard data is outside v2.0 week 1 unless Mahmoud explicitly restores it.**
+D1 applies: Execution Plan v2.0 is authoritative for scope, task numbering, and acceptance IDs; the Agent Implementation Plan is an execution aid. The two tables below are copied from Mahmoud's Project document `Assab-D1-Plan-Authority-and-D2-Opening-Question-2026-10-07.md` §2–§3, whose definitions come from the Execution Plan v2.0 acceptance table. Legacy A01–A18 and AC-01–AC-21 remain cross-reference namespaces only. **A18 Dashboard data is outside v2.0 week 1 unless Mahmoud explicitly restores it.** *(Corrected 2026-10-08, audit N-05: the previous FIN-05/FIN-06 descriptions did not match v2.0.)*
 
-| Acceptance ID | Mapping | Status |
+**v2.0 task mapping**
+
+| v2.0 task | v2.0 definition (short) | Repo task / artifact | Note |
+|---|---|---|---|
+| S1-01 | Route → controller → service → tables map | S1-01 | Same |
+| S1-02 | Money units in DB/API/UI | S1-02 | Same |
+| S1-03 | Schema/compatibility decision, limited migration | S1-03 | Same |
+| S1-04 | Cash sales vs counted cash vs confirmed opening; field meanings | Content in S1-02 `money-contract.md` and S1-05 §4 | Repo "S1-04 states/permissions" becomes supporting design |
+| S1-05 | Request/response, errors, idempotency contract with mandated examples | S1-05 | Same |
+| S1-06 | VAT from inclusive gross; cash calculation | S1-06 | Same |
+| S1-07 | Channel validation separate from cash comparison; allocation; manager approval before daily submit; branch surplus | S1-07 | Same; daily-submit set (F3) lands here |
+| S1-08 | Atomic report + movements + audit; transfer on confirmed receipt only | S1-08 | Same |
+| S1-09 | No duplicate effect on retry/concurrency | S1-09 | Same |
+| S1-10 | Apply money-unit decision across affected paths | S1-10 | Same |
+| S1-11 | Company/branch boundaries; current-revision transitions; correction preserving history | S1-11 | v2.0 adds boundary tests (SEC-01); RX-02 belongs here |
+| S1-12 | Backend access/refresh expiry, rotation, revocation, concurrency | S1-12 | Same scope |
+| S1-13 | Dashboard refresh; keep the financial idempotency key across retries | S1-13 | Same |
+| S1-14 | **Flutter refresh, tested on the real client** | — (repo S1-14 is Dashboard data) | Blocked pending AssabAPP access; repo S1-14 out of week 1 unless added |
+| S1-15 | Run acceptance matrix, deliver evidence | S1-15 | Use v2.0 IDs |
+
+**v2.0 acceptance mapping**
+
+| v2.0 ID | Repo A-ID(s) | Note |
 |---|---|---|
-| FIN-05 | Opening = confirmed receipts; no-receipt zero; configured float distinction; manager sales-cash transfer; start-before-confirmation; 500/480 correction. | Documentation applied; review only |
-| FIN-06 | Transfer/effect identity and exact-amount regression RX-01. | Regression mapped; runtime deferred |
-| FIN-11 | Employee objection is recorded without blocking handover; manager decides liability. | Scenario added; runtime deferred |
-| MOB-01 | Legacy mobile token facts and no-refresh contract. | D7 proposed / pending Mahmoud |
-| TX-02 | Financial transfer exactness, atomic effects, duplicate prevention; RX-01. | Regression mapped; runtime deferred |
-| SEC-01 | Same-branch authorization and zero-write outsider regression; RX-02. | Regression mapped; runtime deferred |
-| AUTH-02 | Legacy mobile lifecycle regression; RX-03. | Regression mapped; runtime deferred |
+| FIN-01 | A01 | — |
+| FIN-02 | A04 (missing confirmation) | — |
+| FIN-03 | A03, A05 | — |
+| FIN-04 | A02 | — |
+| FIN-05 (expected = counted) | — | **Add** |
+| FIN-06 (app sale 115, not 95 after commission) | — | **Add** |
+| FIN-07 | A13 (round-trip) | — |
+| FIN-08 (configured 50 / confirmed 10) | A09 (settings not proof) | D2 answered: opening 10; settings never feed opening |
+| FIN-09 | A17 | — |
+| FIN-10 (12+8 / 15 only / outside branch) | A03, A04 | — |
+| FIN-11 (manager self-share; objection does not block) | A05 | Objection case not in the A-list; **add**. Full daily-submit path is week 2 per plan |
+| TX-01 | A10 | — |
+| TX-02 | A11, A13 (duplicate bridge) | — |
+| TX-03 | A12 | — |
+| TX-04 | A11, A16 | — |
+| HAND-01 | A06 | — |
+| HAND-02 | A09 | Full correction path is week 2 per plan |
+| HIST-01 | A08, A07 (history part) | A07 full flow (AC-08) is week 2 |
+| SEC-01 | A12, A04 (wrong branch) | Include RX-02 regression |
+| AUTH-01 | A15, A14 (concurrent rotate) | — |
+| AUTH-02 | A14 | Include probe D cases (refresh token used as access token; inactive user refreshing) |
+| AUTH-03 | A15 | — |
+| MOB-01 | — | **Add**; Blocked pending AssabAPP |
+| — | A18 (Dashboard data) | Not in v2.0 week 1; needs a Mahmoud scope decision |
+
+**Regression records attached to v2.0 IDs**
+
+| Regression | Defect reproduced 2026-10-07 | v2.0 ID | Status |
+|---|---|---|---|
+| RX-01 | Bridge reads the sales breakdown before it is saved → Admin app total 0 → phantom shortage auto-defaulted to the cashier on final approval and carried to payroll export | TX-02, FIN-06 | Regression mapped; runtime deferred |
+| RX-02 | `recordVariance` has no owner/branch check → cross-branch liability rows | SEC-01 | Regression mapped; runtime deferred |
+| RX-03 | Admin `/api/v1/auth/*`: no token expiry; refresh token usable as access token; inactive user can refresh | AUTH-02 | Regression mapped; runtime deferred |
+| MOB-01 | Legacy mobile token facts (C-7) and no-refresh contract | MOB-01 | D7 proposed / pending Mahmoud |
+| FIN-11 | Employee objection recorded without blocking handover; manager decides liability | FIN-11 | Scenario added; runtime deferred |
 
 S1-14 is **PROPOSED / BLOCKED PENDING MAHMOUD DECISION** if the authoritative plan requires Flutter refresh without a legacy backend refresh contract. Record mobile token lifecycle design in S1-12. This is D7 proposal, not approval. S1-06 STARTED: NO.
 

@@ -463,3 +463,24 @@ Starting state rechecked: repository `D:\claude\AssabERP\Assab`, branch `sprint/
 ### Design/ownership disposition
 
 S1-07 application changes were **not started**. The complete required behavior cannot be implemented safely on the current legacy data contract: the source variance is not the approved signed counted-cash variance, the manager share cannot satisfy the existing cashier-only foreign key, and employee response/final manager approval currently overwrite the same state. The available schema ADR explicitly remains unaccepted and does not authorize allocation schema changes. The task also forbids fabricating S1-10/S1-11 count, revision, and receipt integration. These are implementation blockers, not a new business-rule ambiguity: S1-10 must provide the source-backed signed variance; S1-11/accepted technical schema design must provide stable correction/state and cross-identity representation before the end-to-end S1-07 requirements can be met. No S1-08, S1-09, S1-10, or S1-11 implementation was started.
+
+## Audit corrections — 2026-10-08
+
+Implemented by Claude at Mahmoud's explicit request, after Claude's independent audit of `9a8e0ff..217c2716` (`Assab-Commit-Audit-9a8e0ff-to-217c2716-2026-10-08.md` in the Project). This entry is **implementer evidence, not independent review evidence**; acceptance remains with Mahmoud. Starting state: `sprint/01-financial-foundation` at `217c2716`, no later remote commits. Code commit `dc73ab29`; documentation in the following commit.
+
+| Finding | Change | Evidence |
+|---|---|---|
+| N-01 (P2) AssabAPP computed amount rejected | `ShiftMoneyValidation::normalizeRepresentationNoise` before validation on all legacy money routes; SAR rules also on reassign-with-handover, handover record/edit, record-variance. Implements D10 option (a) — **Mahmoud to confirm D10**. | `ShiftLegacyMoneyCompatibilityTest`: exact app strings `0.09999999999999432` and `1.4210854715202004e-14` through `POST /api/branch-manager/shifts/{id}/end` as the cashier (real Sanctum auth, migrated SQLite) → 200, shift `completed`, stored 115.50 / 100.43 / 15.07. `1.001`, `0.009`, `10.999`, `123.456`, `0.0015`, `1.5e-3` → 422, shift stays `in_progress`. Existing `ShiftMoneyValidationTest` (incl. `1e2` → 422) unchanged and passing. |
+| N-02 (P2) historical VAT recomputed on read | Stored split for persisted rows; derive only when none is stored; handover summaries sum stored per-shift splits in halalas (`BranchManagerShiftResource`, `ShiftFinancialService`, `getManagerFinalHandover`). | Old manager row 97.75 / 17.25 stays 97.75 / 17.25 in resource and service; summary of shifts (97.75/17.25) + (100/15) = 197.75 / 32.25. |
+| N-03 (P3) negative legacy values threw on read | `ShiftFinancialCalculator::storedSarToHalalas` accepts signed stored values; reads no longer throw. | Manager row total −5.00 renders with net/VAT 0. The replica count of negative stored totals was **not run** (no DB access). |
+| Reassign VAT (§12 of the audit) | reassign-with-handover stores the VAT-inclusive split. | Manager reassign 115.00 → stored 100.00 / 15.00. |
+| N-08.1 | `roundingPendingD5` → `netRounded`; calculator header states D5 as approved. | Calculator unit tests updated; half-up case 100.00 → 86.96 / 13.04 added. |
+| N-04 (P2) | `money-contract.md` FIN-01 vector wire forms replaced with the correct legacy (`cash_collected` 40 + `aggregators` 25) and Admin forms. | Doc diff. |
+| N-05 (P2) | v2.0 task and acceptance tables copied into `task-register.md`; FIN-05/FIN-06/RX-01/RX-03 descriptions corrected (`baseline.md`, `task-register.md`). | Doc diff. |
+| N-06 (P2) | Pending-incoming source, mismatch and post-submit rules added as **PROPOSED** (`money-contract.md`); D11 opened for Mohamed. | Doc diff. |
+| N-07 (P3) | D3/D9 provenance marked PENDING MAHMOUD CONFIRMATION; external BR file not authoritative until issued as v2.1. | Doc diff. |
+| N-08.2–8.7 | ShiftCycleFixesTest note; D6 key consistency (`cash_variance`) in examples; route-map D3 and client-caller fixes; accountant alias roles and idempotency; D5 heading; removed `openingConfirmed` flag; C-7/D7 legacy token paragraph in `api-contract.md` §11; "Writers unambiguous" qualified. | Doc diff. |
+
+Commands (PHP 8.3.6, PHPUnit 12.4.0, SQLite in-memory): `php vendor/bin/phpunit tests/Feature/ShiftLegacyMoneyCompatibilityTest.php tests/Unit/ShiftFinancialCalculatorTest.php tests/Feature/ShiftMoneyValidationTest.php` → **OK, 59 tests / 364 assertions**. Full suite → 1289 tests, 71 errors + 2 failures; the 73 failing tests are identical by name to those at `217c2716` and `9a8e0ff` (RecurringOrder, Procurement and NFR suites); **0 new**. `./vendor/bin/pint --test` on the 12 changed PHP files → PASS.
+
+Not changed: no migration, no Dashboard or AssabAPP change, H1/H2 not implemented, S1-07 remains blocked. Open: D10 confirmation, D11 (Mohamed), D3/D9 provenance, N-03 replica count.
