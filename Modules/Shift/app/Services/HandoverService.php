@@ -397,13 +397,7 @@ class HandoverService
         try {
             $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
             $handover = $this->currentHandover($shift, true);
-            if ($handover->handover_to_type === 'branch_manager') {
-                app(\Modules\BranchManagers\Services\BranchManagerService::class)
-                    ->assertAssignedActiveManager($shift->shift()->value('branch_id'), $reviewerId);
-                if ((string) $handover->handover_to_id !== (string) $reviewerId) {
-                    throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('ONLY_ASSIGNED_BRANCH_MANAGER_RECIPIENT');
-                }
-            }
+            $this->assertAddressedRecipient($handover, $shift, $reviewerId, $reviewerType);
             $handoverStatus = ShiftHandoverStatus::query()
                 ->where('cashier_shift_id', $shift->id)
                 ->lockForUpdate()
@@ -686,13 +680,7 @@ class HandoverService
             $handover = $this->currentHandover($lockedShift, true);
             $status = ShiftHandoverStatus::query()->where('cashier_shift_id', $lockedShift->id)->lockForUpdate()->firstOrFail();
 
-            if ($handover->handover_to_type === 'branch_manager') {
-                app(\Modules\BranchManagers\Services\BranchManagerService::class)
-                    ->assertAssignedActiveManager($lockedShift->shift()->value('branch_id'), $reviewerId);
-                if ((string) $handover->handover_to_id !== (string) $reviewerId) {
-                    throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('ONLY_ASSIGNED_BRANCH_MANAGER_RECIPIENT');
-                }
-            }
+            $this->assertAddressedRecipient($handover, $lockedShift, $reviewerId, $reviewerType);
 
             if ($handover->status !== 'pending' || $handover->receipt()->exists() || ! $status->canBeRejected()) {
                 throw new ConflictHttpException('HANDOVER_NOT_CORRECTABLE');
@@ -754,6 +742,30 @@ class HandoverService
         [$whole, $fraction] = array_pad(explode('.', $amount, 2), 2, '');
 
         return ((int) $whole * 100) + (int) str_pad($fraction, 2, '0');
+    }
+
+    private function assertAddressedRecipient(
+        CashierShiftHandover $handover,
+        CashierShift $shift,
+        string $reviewerId,
+        string $reviewerType
+    ): void {
+        $isManagerReviewer = $reviewerType === 'branch_manager' || str_contains($reviewerType, 'BranchManager');
+
+        if ($handover->handover_to_type !== 'branch_manager') {
+            if ($isManagerReviewer) {
+                throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('ONLY_ADDRESSED_RECIPIENT');
+            }
+
+            return;
+        }
+
+        if (! $isManagerReviewer || (string) $handover->handover_to_id !== (string) $reviewerId) {
+            throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('ONLY_ADDRESSED_RECIPIENT');
+        }
+
+        app(\Modules\BranchManagers\Services\BranchManagerService::class)
+            ->assertAssignedActiveManager($shift->shift()->value('branch_id'), $reviewerId);
     }
 
     /** The latest request is current; two concurrent pending rows are ambiguous. */

@@ -2,43 +2,43 @@
 
 ## Basis and decision
 
-Compared the accepted Phase 2 JUnit (`storage/logs/s1-08-phase2-full-suite-serial.xml`) with the accepted corrected final Unit/Feature/NFR reports by `classname::method`. The shared bad set contains exactly 73 identities: 71 NFR errors, one RecurringOrder unit failure, and one Procurement feature failure. Source and test inspection was used to classify each set; old summary counts alone were not used.
+The earlier accepted comparison to the c018fa01 baseline identified exactly 73 bad identities: 71 NFR errors, one RecurringOrder unit failure, and one Procurement feature failure. The original failure identities and source-backed classifications are retained below. The later Phase 2 comparison baseline is a separate report; current exact comparison against it appears in the final result section.
 
-No shared identity is a S1-08 shift/custody/personal-ledger/calculation regression. The 71 NFR errors fail during SQLite test database setup, before the named NFR methods execute. The two non-NFR cases are outside the Sprint 01 financial and replay paths. Accordingly there are no P0 blockers for S1-09. Recommendation: **START S1-09**, using focused replay tests and the visible-progress/JUnit runner below. The NFR harness should be stabilized as a P1 follow-up.
+No shared identity is a S1-08 shift/custody/personal-ledger/calculation regression. The original 71 NFR errors shared an SQLite connection-recovery/setup cascade; after isolating that probe, six NFR method-level fixture/expectation issues also surfaced and were corrected. The RecurringOrder defect and Procurement assertion were corrected as well. The fresh serial suite now reports all 73 identities passing. There are no P0 S1-09 blockers; S1-09 remains outside the current correction scope pending Mahmoud’s quick recheck.
 
 | Classification | Identities | Priority | Code change | Blocks S1-09? |
 |---|---:|---|---|---|
-| A. Product defect | 1 | DEFER | Separate RecurringOrder product fix | No |
-| B. Test environment / SQLite / migration | 71 | P1 | Test harness only | No |
+| A. Product defect | 1 | RESOLVED | RecurringOrder schedule cursor now uses current time; frozen-time regression added | No |
+| B. Test environment / SQLite / migration | 71 | P3 | NFR connection-recovery probe isolated from shared RefreshDatabase connection | No |
 | C. Flaky / time-sensitive | 0 | — | — | No |
 | D. Legacy or out-of-scope module | 0 | — | — | No |
-| E. Test fixture / test assumption | 1 | DEFER | Correct stale test expectation | No |
+| E. Test fixture / test assumption | 1 | RESOLVED | Stale Procurement 409 expectation aligned to the existing 422 contract; follow-on NFR fixture/expectation repairs are recorded below | No |
 | F. Tooling / configuration | 0 | — | — | No |
 
-Priority counts: P0 = 0, P1 = 71, deferred = 2. Nothing was corrected in this triage pass.
+Priority counts: P0 = 0, P1 = 0, P3 = 71, deferred = 0. All 73 identities are resolved on the current worktree. P3 denotes the low-priority NFR harness reliability issue; it was not an S1-09 blocker. During follow-on verification, the now-executing NFR methods also required behavior-preserving repairs: separate same-branch manager fixtures (D12), a missing DB facade import, a route warm-up for a timing-sensitive assertion, valid UTF-8 body validation without requiring a charset parameter, and Laravel FormRequest error-shape expectations. These did not add new identities to the original 73.
 
-## A. PRODUCT DEFECT — DEFER (1)
+## A. PRODUCT DEFECT — RESOLVED (1)
 
 ### `Tests.Unit.Modules.RecurringOrder.RecurringOrderServiceTest::test_compute_next_run_at_from_model_weekly_returns_future_date`
 
 - Observed failure: assertion that the computed date is future/today is false (`RecurringOrderServiceTest.php:35`).
 - Root cause from source: `computeNextRunAtFromModel()` uses `start_date` at start-of-day as the search cursor when `next_run_at` is null; `computeNextRunAt()` can select a configured weekday/time already elapsed since that start date. On a Wednesday run with Wednesday configured at 10:00, it can return that past Wednesday 10:00.
 - Classification: **A. PRODUCT DEFECT**; this is deterministic scheduling behavior, not a test runner or financial defect.
-- Priority: **DEFER** (RecurringOrder is outside S1-08/S1-09 and is not financial/replay infrastructure).
-- Code change required: yes, in a separately scoped RecurringOrder task; first freeze time in the unit test and agree whether scheduling means next occurrence after `now` or after `start_date`.
+- Priority: **DEFER** from S1-08/S1-09 scope; the authorized baseline hard-close pass corrected it without changing financial behavior.
+- Code change required: yes; `$after` now defaults to `now()`, and the regression freezes time and checks the next weekly run.
 - Blocks S1-09: **No**.
-- Recommended next action: create a separate RecurringOrder issue and leave its service untouched during S1-09.
+- Recommended next action: retain the focused regression; no further action before S1-09.
 
-## B. TEST ENVIRONMENT / SQLITE / MIGRATION — P1 (71)
+## B. TEST ENVIRONMENT / SQLITE / MIGRATION — P3 (71)
 
 All identities in this section share the same inspected setup signature. The accepted final JUnit shows **70** setup errors creating a second `migrations` table (`table "migrations" already exists`) and **one** SQLite `VACUUM` error (`cannot VACUUM from within a transaction`). Stack traces terminate in Laravel's `RefreshDatabase` → `migrate:fresh` setup path in these test classes, before their named test methods run. The same identities/errors exist in Phase 2. This makes most of the NFR suite unexecuted and noisy, but does not fail or conceal the focused Unit/Feature Sprint 01 financial tests that S1-09 should use.
 
 - Classification for every identity below: **B. TEST ENVIRONMENT / SQLITE / MIGRATION**.
-- Priority: **P1**; improve the NFR suite's harness before relying on its coverage as a broad NFR gate.
-- Proposed fix: isolate NFR database lifecycle from Laravel's in-memory `RefreshDatabase` transaction. Evaluate an NFR-specific disposable file-backed SQLite configuration with explicit per-class/per-run migration cleanup, and remove the nested VACUUM-in-transaction setup path. Preserve the global `phpunit.xml` financial test behavior and never point this at a developer/local database.
-- Code change required: test configuration/harness changes only; no product code change.
-- Blocks S1-09: **No**. S1-09 can proceed with focused Unit/Feature replay tests and JUnit evidence. Do not reinterpret these setup failures as passed NFR assertions.
-- Recommended next action: separately prototype an NFR-only database bootstrap and prove it on one affected class before expanding to the NFR suite. Avoid broadly changing `RefreshDatabase` or SQLite behavior for all Feature tests.
+- Priority: **P3**, not P1; this was NFR harness reliability, not a blocker for focused financial/replay tests.
+- Fix applied: `FaultToleranceTest::test_database_connection_recovery` now uses and purges a disposable SQLite connection alias instead of reconnecting Laravel's shared in-memory connection while `RefreshDatabase` owns a transaction. The NFR suite completed normally afterward; the six method-level issues listed in the same original identities were also corrected.
+- Code change required: test-only harness and assertion/fixture changes; no broad SQLite or global test-bootstrap change.
+- Blocks S1-09: **No**.
+- Recommended next action: retain the serial NFR JUnit as evidence and keep the recovery probe isolated.
 
 ### `Tests.NFR.Reliability.FaultToleranceTest` (3 identities)
 
@@ -149,20 +149,20 @@ Each fails during SQLite `migrations` table creation in test setup; the method b
 
 Each fails during SQLite `migrations` table creation in test setup; the method body is not reached.
 
-## E. TEST FIXTURE / TEST ASSUMPTION — DEFER (1)
+## E. TEST FIXTURE / TEST ASSUMPTION — RESOLVED (1)
 
 ### `Tests.Feature.ProcurementOperationsTest::test_update_order_cannot_set_final_approved`
 
 - Observed failure: test expects HTTP 409 but current route returns 422.
 - Root cause from source: `ProcurementCompanyController::transition()` intentionally rejects an attempted direct transition to final approval with `OP_STATUS_TRANSITION_FORBIDDEN` / 422. Its comment states this is a forbidden transition on a still-pending operation, not a conflict indicating an already-final record. The test's 409 expectation is stale.
 - Classification: **E. TEST FIXTURE / TEST ASSUMPTION**.
-- Priority: **DEFER** (Procurement behavior is outside S1-09 replay and financial foundation scope).
-- Code change required: test-only expectation update to 422 in the Procurement work item; no product code change indicated by this audit.
+- Priority: **DEFER** from S1-09 scope; this was a test-only contract correction.
+- Code change required: test-only expectation update to the existing 422 response; no product behavior change.
 - Blocks S1-09: **No**.
-- Recommended next action: update the expectation when that module next receives test maintenance; retain the current 422 contract meanwhile.
+- Recommended next action: retain the corrected assertion; no further action before S1-09.
 
 ## Financial / replay signal assessment
 
 The 71 NFR cases fail before their assertions and are not financial-path tests. Procurement and RecurringOrder are out-of-scope identities. No shared bad identity touches Shift, Custody, Personal Ledger, financial calculations, receipt writers, or migration logic used by S1-08/S1-09. Focused S1-09 tests should still cover repeated requests, duplicate receipts/effects, transaction rollback, and replay behavior directly.
 
-**Can the 71 NFR errors be reduced safely?** Yes, likely through an NFR-only database lifecycle fix, without changing product behavior. It is not done here: the fix affects test harness isolation, should first be proven on one NFR class, and is not a P0 prerequisite to S1-09.
+**Final baseline result:** the latest fresh serial run reports Unit 62 tests / 1,764 assertions, Feature 1,181 / 5,702, and NFR 153 / 504. All stages have zero failures/errors; Feature has one skip. Combined: 1,396 tests / 7,970 assertions. Compared by exact `classname::method` with the Phase 2 comparison baseline, all 96 Phase 2 bad identities are now passing, with zero shared bad identities and zero current-only identities. The original 73 pre-S1-09 bad identities are included in the cleared set. Exact reports and status changes are recorded in `verification.md`. S1-09 is not started; the recommendation is to start only after Mahmoud’s quick recheck.

@@ -4,6 +4,7 @@ namespace Modules\BranchManagers\Services;
 
 use Illuminate\Validation\ValidationException;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Shift\Models\CashierShiftHandover;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
@@ -49,6 +50,20 @@ class BranchManagerService
             throw ValidationException::withMessages([
                 'branch_id' => ['BRANCH_ACTIVE_MANAGER_ALREADY_ASSIGNED'],
             ]);
+        }
+    }
+
+    /** Prevent lifecycle changes from orphaning an actionable manager handover. */
+    public function assertNoOpenAddressedHandovers(BranchManager $manager): void
+    {
+        $hasOpenHandover = CashierShiftHandover::query()
+            ->forManager($manager->id)
+            ->whereIn('status', ['pending', 'rejected'])
+            ->whereDoesntHave('receipt')
+            ->exists();
+
+        if ($hasOpenHandover) {
+            throw new ConflictHttpException('MANAGER_HAS_OPEN_HANDOVERS');
         }
     }
 }

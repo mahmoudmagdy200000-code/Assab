@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\CashierShift;
@@ -611,8 +612,9 @@ class ShiftEndController extends Controller
 
             $suggestedCashierId = $nextShift?->cashier_id;
 
-            $branchManager = app(\Modules\BranchManagers\Services\BranchManagerService::class)
-                ->assignedActiveManager($shiftModel->shift->branch_id);
+            $branchManagers = BranchManager::query()->active()
+                ->byBranch($shiftModel->shift->branch_id)
+                ->orderBy('id')->limit(2)->get();
 
             $availableCashiers = $allCashiers->map(function ($cashier) use ($suggestedCashierId) {
                 return [
@@ -631,17 +633,26 @@ class ShiftEndController extends Controller
             });
 
             $recipients = $availableCashiers->toArray();
-            $recipients[] = [
-                'id' => $branchManager->id,
-                'name' => $branchManager->name.' (Branch Manager)',
-                'image' => $branchManager->image ? asset('storage/'.$branchManager->image) : null,
-                'type' => 'branch_manager',
-                'is_available' => true,
-                'disabled' => false,
-                'reason_disabled' => null,
-                'is_suggested' => false,
-                'suggestion_reason' => 'Final handover to Branch Manager',
-            ];
+            $hasBranchManager = $branchManagers->count() === 1;
+            $branchManagerReason = match ($branchManagers->count()) {
+                0 => 'BRANCH_MANAGER_RECIPIENT_UNAVAILABLE',
+                1 => null,
+                default => 'BRANCH_MANAGER_RECIPIENT_AMBIGUOUS',
+            };
+            if ($hasBranchManager) {
+                $branchManager = $branchManagers->first();
+                $recipients[] = [
+                    'id' => $branchManager->id,
+                    'name' => $branchManager->name.' (Branch Manager)',
+                    'image' => $branchManager->image ? asset('storage/'.$branchManager->image) : null,
+                    'type' => 'branch_manager',
+                    'is_available' => true,
+                    'disabled' => false,
+                    'reason_disabled' => null,
+                    'is_suggested' => false,
+                    'suggestion_reason' => 'Final handover to Branch Manager',
+                ];
+            }
 
             return response()->json([
                 'success' => true,
@@ -649,7 +660,8 @@ class ShiftEndController extends Controller
                 'data' => [
                     'recipients' => $recipients,
                     'auto_handover_enabled' => ! is_null($suggestedCashierId),
-                    'has_branch_manager' => true,
+                    'has_branch_manager' => $hasBranchManager,
+                    'reason' => $branchManagerReason,
                 ],
             ]);
         } catch (\Throwable $e) {

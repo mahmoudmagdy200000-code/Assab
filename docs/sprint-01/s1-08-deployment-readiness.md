@@ -4,12 +4,12 @@ S1-08 is not authorized for deployment by this document. Run these **read-only**
 
 ## D12 assigned manager preflight
 
-Each branch must have one uniquely assigned active manager for manager-addressed receipts and rejection. Investigate any result from either query before rollout.
+Each branch must have one uniquely assigned active manager for manager-addressed handovers. Investigate any result from either query before rollout. Manager deactivation, branch transfer, and deletion must be blocked while pending or correctable-rejected handovers addressed to that manager remain open.
 
 ```sql
 SELECT branch_id, COUNT(*) AS managers
 FROM branch_managers
-WHERE is_active = 1 AND deleted_at IS NULL
+WHERE status = 'active' AND is_active = 1 AND deleted_at IS NULL
 GROUP BY branch_id
 HAVING COUNT(*) > 1;
 ```
@@ -21,7 +21,11 @@ JOIN cashier_shifts cs ON cs.id = h.cashier_shift_id
 JOIN shifts s ON s.id = cs.shift_id
 LEFT JOIN branch_managers bm ON bm.id = h.handover_to_id
 WHERE h.handover_to_type = 'branch_manager'
-  AND h.status = 'pending'
+  AND h.status IN ('pending', 'rejected')
+  AND NOT EXISTS (
+    SELECT 1 FROM cashier_shift_handover_receipts r
+    WHERE r.cashier_shift_handover_id = h.id
+  )
   AND (
     bm.id IS NULL
     OR bm.is_active = 0
@@ -29,6 +33,25 @@ WHERE h.handover_to_type = 'branch_manager'
     OR bm.branch_id <> s.branch_id
   );
 ```
+
+Before manager deactivation, branch transfer, or deletion, check for addressed open work:
+
+```sql
+SELECT bm.id AS branch_manager_id, h.id AS handover_id, h.status, s.branch_id
+FROM branch_managers bm
+JOIN cashier_shift_handovers h
+  ON h.handover_to_type = 'branch_manager'
+ AND h.handover_to_id = bm.id
+JOIN cashier_shifts cs ON cs.id = h.cashier_shift_id
+JOIN shifts s ON s.id = cs.shift_id
+WHERE h.status IN ('pending', 'rejected')
+  AND NOT EXISTS (
+    SELECT 1 FROM cashier_shift_handover_receipts r
+    WHERE r.cashier_shift_handover_id = h.id
+  );
+```
+
+The query is read-only preflight evidence. Runtime mutation guards return `409 MANAGER_HAS_OPEN_HANDOVERS` when a manager lifecycle change would orphan these requests.
 
 ## S8-12 drain-before-deploy gate
 
@@ -44,6 +67,17 @@ The required result is **0**. A nonzero result blocks deployment; postpone until
 
 ## MySQL/MariaDB concurrency gate
 
-SQLite transaction tests are not row-lock or deadlock proof. A deployment-equivalent MySQL/MariaDB run must cover concurrent confirmation of one handover, correction racing confirmation, manager review racing recipient confirmation, close/report mutation racing confirmation, and opposing cashier-pair request orders. Verify one receipt/effect, no duplicate custody or ledger rows, no partial financial state, deterministic final state, and bounded safe handling of deadlocks. Production DDL impact for additive receipt migrations also needs review.
+SQLite transaction tests are not row-lock or deadlock proof. A deployment-equivalent MySQL/MariaDB run must cover:
+
+- two confirmations of the same request;
+- amount correction/rejection racing recipient confirmation;
+- manager review racing actual recipient confirmation;
+- report close/correction racing confirmation;
+- opposing cashier-pair request orders;
+- manager deactivation, branch transfer, or delete racing addressed handover creation and manager confirmation;
+- zero and duplicate active-manager recipient discovery returning 200 with valid cashier choices, while omitting an ambiguous/unavailable manager;
+- an unaddressed manager attempting reject and amount correction, returning 403 `ONLY_ADDRESSED_RECIPIENT` without state or financial changes.
+
+Verify one receipt/effect, no duplicate custody or ledger rows, no partial financial state, deterministic final state, lifecycle guard behavior, and bounded safe handling of deadlocks. Production DDL impact for additive receipt migrations also needs review.
 
 S8-09 additionally forbids release before S1-11 posts a self-declared shortage to the cashier personal ledger exactly once on final branch-manager liability approval. Receipt confirmation is never that posting point.

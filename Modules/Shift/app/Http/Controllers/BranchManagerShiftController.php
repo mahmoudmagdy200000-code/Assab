@@ -318,20 +318,20 @@ class BranchManagerShiftController extends BaseController
             $handover = CashierShiftHandover::with('handoverTo')->findOrFail($request->handover_id);
 
             if ($handover->handover_to_type !== 'branch_manager') {
-                return HandoverErrorResponse::domain('FORBIDDEN_SCOPE', 403);
+                return HandoverErrorResponse::domain('ONLY_ADDRESSED_RECIPIENT', 403);
             }
 
             $cashierShift = CashierShift::with(['handoverStatus', 'shift'])
                 ->findOrFail($handover->cashier_shift_id);
 
             if ($cashierShift->shift->branch_id !== $manager->branch_id) {
-                return HandoverErrorResponse::domain('FORBIDDEN_SCOPE', 403);
+                return HandoverErrorResponse::domain('ONLY_ADDRESSED_RECIPIENT', 403);
+            }
+            if ((string) $handover->handover_to_id !== (string) $manager->id) {
+                return HandoverErrorResponse::domain('ONLY_ADDRESSED_RECIPIENT', 403);
             }
             app(\Modules\BranchManagers\Services\BranchManagerService::class)
                 ->assertAssignedActiveManager($cashierShift->shift->branch_id, $manager->id);
-            if ((string) $handover->handover_to_id !== (string) $manager->id) {
-                return HandoverErrorResponse::domain('ONLY_ASSIGNED_BRANCH_MANAGER_RECIPIENT', 403);
-            }
 
             if (! $handover->canReject()) {
                 return HandoverErrorResponse::domain('HANDOVER_NOT_PENDING', 409);

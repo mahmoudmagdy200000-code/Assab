@@ -491,7 +491,7 @@ Cashier-to-cashier manager review locks `CashierShift → handover/status`, writ
 
 S1-08 remains **ready for review / not accepted**. No generic replay framework (S1-09), trusted physical count/evidence adapter (S1-10), or full immutable revision/correction subsystem, public liability routes, or daily-submit/reopen wiring (S1-11) is included. MySQL concurrency/deadlock and production DDL review remain deployment follow-ups. The focused correction history here is limited to the current transfer request correction contract.
 
-### S1-08 correction-pass decisions (local, uncommitted)
+### S1-08 correction-pass decisions — approved scope and current behavior
 
 D12 was approved by Mohamed on 2026-10-08: a branch has one uniquely assigned active manager, and only that manager may confirm or reject a manager-addressed handover. The domain guard rejects a second active assignment on create, activation, restore, or branch transfer; recipient resolution fails closed when legacy rows contain zero or multiple active assignments. No database uniqueness migration is introduced before the read-only deployed-data preflight and MySQL DDL review. Manager workday handovers and `canEnd` use the addressed manager identity. Lock orders above remain unchanged.
 

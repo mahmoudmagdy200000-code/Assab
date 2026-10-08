@@ -6,6 +6,11 @@ use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Modules\Admin\Exceptions\AsabException;
+use Modules\Admin\Models\AsabIdentityMap;
+use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Services\Credentials\BranchManagerPeer;
+use Modules\Admin\Services\ManagerBranchSyncService;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BranchManagers\Services\BranchManagerService;
@@ -21,6 +26,7 @@ use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\CashierShiftHandoverReceipt;
+use Modules\Shift\Models\CashierShiftHistory;
 use Modules\Shift\Models\Shift;
 use Modules\Shift\Models\ShiftHandoverStatus;
 use Modules\Shift\Models\ShiftReportAggregate;
@@ -257,7 +263,7 @@ class ShiftTransferReceiptTest extends TestCase
         $this->assertSame(1, CashierShiftHandoverReceipt::count());
     }
 
-    public function test_manager_route_correction_preserves_completed_report_and_prior_request(): void
+    public function test_manager_cannot_correct_a_cashier_addressed_handover(): void
     {
         [$source, , , $handover] = $this->handoverFixture('500.00');
         $manager = BranchManager::query()->findOrFail($source->cashier->created_by);
@@ -269,18 +275,13 @@ class ShiftTransferReceiptTest extends TestCase
                 'confirmed_amount' => '480.00',
             ]);
 
-        $response->assertOk()->assertJsonPath('data.rejection_details.status', 'rejected');
+        $response->assertForbidden()->assertJsonPath('code', 'ONLY_ADDRESSED_RECIPIENT');
         $this->assertSame(ShiftStatus::COMPLETED, $source->fresh()->status);
         $this->assertSame($handover->id, $handover->fresh()->id);
         $this->assertSame('500.00', $handover->fresh()->handover_amount);
-        $this->assertSame('rejected', $handover->fresh()->status);
-        $history = \Modules\Shift\Models\CashierShiftHistory::query()
-            ->where('action', 'handover_amount_correction_rejected')->sole();
-        $this->assertSame('500.00', $history->new_value['requested_amount']);
-        $this->assertSame('480.00', $history->new_value['attempted_confirmed_amount']);
-        $this->assertSame('input_error', $history->new_value['correction_reason']);
-        $this->assertSame($manager->id, $history->performed_by);
-        $this->assertTrue($source->fresh('handoverStatus')->handoverStatus->canCashierEdit());
+        $this->assertSame('pending', $handover->fresh()->status);
+        $this->assertSame(0, CashierShiftHistory::query()
+            ->where('action', 'handover_amount_correction_rejected')->count());
     }
 
     public function test_cashier_request_manager_review_response_does_not_claim_receipt(): void
@@ -399,12 +400,23 @@ class ShiftTransferReceiptTest extends TestCase
             ->postJson('/api/branch-manager/workday/handoffs/approve', [
                 'handover_id' => $handover->id, 'confirmed_amount' => '10.00',
             ])->assertStatus(403);
+        DB::table('branch_managers')->where('id', $otherManager->id)->update(['status' => 'active', 'is_active' => true]);
+        $otherManager->refresh();
         $this->actingAs($otherManager, 'sanctum')
             ->postJson('/api/branch-manager/workday/handoffs/reject', [
                 'handover_id' => $handover->id, 'rejection_reason' => 'wrong manager',
-            ])->assertStatus(403);
+            ])->assertStatus(403)->assertJsonPath('code', 'ONLY_ADDRESSED_RECIPIENT');
+        $this->actingAs($otherManager, 'sanctum')
+            ->postJson('/api/branch-manager/workday/handoffs/reject', [
+                'handover_id' => $handover->id,
+                'rejection_reason' => 'wrong manager correction',
+                'correction_reason' => 'input_error',
+                'confirmed_amount' => '9.00',
+            ])->assertStatus(403)->assertJsonPath('code', 'ONLY_ADDRESSED_RECIPIENT');
         $this->assertSame('pending', $handover->fresh()->status);
 
+        DB::table('branch_managers')->where('id', $otherManager->id)->update(['status' => 'inactive', 'is_active' => false]);
+        $otherManager->refresh();
         $source->update(['total_sales' => '10.00']);
         $this->actingAs($sender, 'sanctum')
             ->postJson("/api/cashier/shifts/{$source->id}/start-handover", [
@@ -413,6 +425,96 @@ class ShiftTransferReceiptTest extends TestCase
             ])->assertStatus(403);
         $this->assertSame(0, CashierShiftHandoverReceipt::count());
         $this->assertSame($manager->id, $handover->fresh()->handover_to_id);
+    }
+
+    public function test_manager_lifecycle_changes_are_blocked_while_addressed_handovers_are_open(): void
+    {
+        [$branch, $manager, , , , $handover] = $this->managerHandoverFixture('10.00');
+        $otherBranch = Branch::factory()->create();
+
+        foreach ([
+            fn () => $manager->deactivate(),
+            fn () => $manager->update(['branch_id' => $otherBranch->id]),
+            fn () => $manager->delete(),
+        ] as $lifecycleChange) {
+            try {
+                $lifecycleChange();
+                $this->fail('Open addressed handovers must block manager lifecycle changes.');
+            } catch (ConflictHttpException $exception) {
+                $this->assertSame('MANAGER_HAS_OPEN_HANDOVERS', $exception->getMessage());
+            }
+        }
+
+        $this->assertSame($branch->id, $manager->fresh()->branch_id);
+        $this->assertTrue((bool) $manager->fresh()->is_active);
+        $this->assertFalse($manager->fresh()->trashed());
+        $this->assertSame('pending', $handover->fresh()->status);
+
+        try {
+            app(BranchManagerPeer::class)->disable($manager);
+            $this->fail('Admin-side manager deactivation must retain the 409 domain code.');
+        } catch (AsabException $exception) {
+            $this->assertSame('MANAGER_HAS_OPEN_HANDOVERS', $exception->errorCode);
+            $this->assertSame(409, $exception->status);
+        }
+
+        $dashboardUser = AsabUser::create([
+            'name' => 'Manager account',
+            'email' => 'open-handover-manager@example.test',
+            'password' => 'secret-password',
+            'status' => 'active',
+        ]);
+        AsabIdentityMap::create([
+            'entity_type' => AsabIdentityMap::ENTITY_BRANCH_MANAGER,
+            'dashboard_type' => 'asab_user',
+            'dashboard_id' => $dashboardUser->id,
+            'legacy_type' => 'branch_manager',
+            'legacy_id' => $manager->id,
+            'match_method' => 'email',
+            'linked_at' => now(),
+        ]);
+        try {
+            app(ManagerBranchSyncService::class)->sync($dashboardUser->id, $otherBranch->id);
+            $this->fail('Admin-side manager transfer must retain the 409 domain code.');
+        } catch (AsabException $exception) {
+            $this->assertSame('MANAGER_HAS_OPEN_HANDOVERS', $exception->errorCode);
+            $this->assertSame(409, $exception->status);
+        }
+        $this->assertSame($branch->id, $manager->fresh()->branch_id);
+    }
+
+    public function test_available_recipients_keeps_cashiers_when_branch_manager_is_missing_or_ambiguous(): void
+    {
+        foreach ([0, 2] as $managerCount) {
+            $branch = Branch::factory()->create();
+            $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
+            $cashier = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);
+            $otherCashier = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);
+            $template = Shift::factory()->create(['branch_id' => $branch->id]);
+            $source = CashierShift::factory()->completed()->create([
+                'cashier_id' => $cashier->id,
+                'shift_id' => $template->id,
+                'shift_date' => today(),
+            ]);
+
+            if ($managerCount === 0) {
+                $manager->deactivate();
+                $reason = 'BRANCH_MANAGER_RECIPIENT_UNAVAILABLE';
+            } else {
+                $duplicate = BranchManager::factory()->create(['branch_id' => $branch->id, 'status' => 'inactive', 'is_active' => false]);
+                DB::table('branch_managers')->where('id', $duplicate->id)->update(['status' => 'active', 'is_active' => true]);
+                $reason = 'BRANCH_MANAGER_RECIPIENT_AMBIGUOUS';
+            }
+
+            $response = $this->actingAs($cashier, 'sanctum')
+                ->getJson("/api/cashier/shifts/{$source->id}/available-recipients")
+                ->assertOk()
+                ->assertJsonPath('data.has_branch_manager', false)
+                ->assertJsonPath('data.reason', $reason);
+
+            $this->assertContains($otherCashier->id, collect($response->json('data.recipients'))->pluck('id')->all());
+            $this->assertNotContains('branch_manager', collect($response->json('data.recipients'))->pluck('type')->all());
+        }
     }
 
     public function test_manager_receipt_requires_current_workday_with_conflict_code(): void

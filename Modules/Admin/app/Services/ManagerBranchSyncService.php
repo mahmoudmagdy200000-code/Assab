@@ -9,6 +9,7 @@ use Modules\Admin\Models\AsabIdentityMap;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BranchManagers\Services\BranchManagerService;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 /**
  * Meeting 2026-08-03 «فرع جديد وفيه بيانات قديمة»: assigning a manager to a
@@ -68,6 +69,17 @@ class ManagerBranchSyncService
                 return true;
             });
         } catch (ValidationException $e) {
+            throw $e;
+        } catch (ConflictHttpException $e) {
+            if ($e->getMessage() === 'MANAGER_HAS_OPEN_HANDOVERS') {
+                throw new AsabException(
+                    'MANAGER_HAS_OPEN_HANDOVERS',
+                    'Manager has open addressed handovers',
+                    'لدى مدير الفرع عمليات تسليم مفتوحة',
+                    409,
+                );
+            }
+
             throw $e;
         } catch (\Throwable $e) {
             $this->log->warning('manager-branch-sync: failed', [

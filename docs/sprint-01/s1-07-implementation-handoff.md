@@ -55,7 +55,7 @@ Mahmoud decided on 2026-10-08 to close S1-07 as the internal liability layer and
 
 | Owner | Work |
 |---|---|
-| S1-08 | Receipt identity linked to the receiving shift (confirmed opening = Σ confirmed receipts, D2), manager → cashier transfer command, report revision identity; atomic report + allocation in the end/submit transaction. |
+| S1-08 | Receipt identity linked to the receiving shift (confirmed opening = Σ confirmed receipts, D2), manager → cashier transfer command, minimum report revision identity, and atomic receipt/effect writes. Atomic independent-count report plus shortage allocation/evidence integration is S1-10. |
 | S1-10 | `counted_cash` on the legacy end routes and the persisted signed variance; real `LiabilityEvidenceSource` adapter replacing `UnavailableLiabilityEvidence`; enforcement without a flag per D4 (ships with a compatible AssabAPP release). |
 | S1-11 | Allocation/confirm/respond/approve routes with company/branch scope; wire `lockSubmittedDay` into `daily-close/submit` and `releaseDay` into `daily-close/reopen`; retire the legacy `recordVariance` defaults (auto current-cashier share, unassigned `other_factors` remainder, surplus responsibility rows, shared status column). |
 | S1-15 | Route-level FIN-02/03/04/05/10/11 evidence. |

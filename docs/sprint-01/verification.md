@@ -576,10 +576,10 @@ S8-01 adds exact-amount confirmation and a correction lifecycle for cashier and 
 | MySQL lock/deadlock/concurrency | NOT RUN | SQLite verifies rollback/re-read paths only; it is not deadlock-safety evidence. |
 | Changed-file Pint | PASS — 23 PHP files | Changed-file `pint --test`; formatter fixes were confined to those files. |
 | PHP syntax / whitespace | PASS — 23 PHP files; `git diff --check` PASS | PHP 8.4.26. |
-| Full PHPUnit suite | NOT CLEAN — 1,364 tests / 7,534 assertions / 75 errors / 21 failures / 1 skipped | One serial run, PHP 8.4.26 + SQLite. Errors include temp-folder/file-read limitations and NFR SQLite `migrate:fresh`/transaction incompatibility. Failures are in RecurringOrder, Procurement, exports, credential/email, and NFR-facing tests; no S1-08 receipt/transfer/close test failed. This exceeds the historical baseline count of 73 failures, and the baseline test-name list is not retained here, so zero new failures is NOT confirmed. JUnit: `storage/logs/s1-08-phase2-full-suite-serial.xml` (local run artifact). |
+| Full PHPUnit suite | HISTORICAL, SUPERSEDED — 1,364 tests / 7,534 assertions / 75 errors / 21 failures / 1 skipped | Earlier Phase 2 comparison run. At that point the exact comparison was not yet recorded here; the current post-fix comparison and reports are in “Baseline hard-close and S1-08 correction pass” below. JUnit: `storage/logs/s1-08-phase2-full-suite-serial.xml`. |
 | Migration | Phase 2: additive migration 000004 | `2026_10_08_000004_add_manager_recipient_receipt_fields.php` was added in Phase 2; no applied migration was rewritten. |
 
-S1-08 Phase 2 was committed at `569d00e77dea922c03782c001c3c26c2cd30cba9` after an exact `classname::method` comparison of its serial JUnit to the `c018fa01` baseline showed **zero new failure/error identities**. The earlier count-only caution above is historical and superseded by that comparison. Current Phase 3/4 and Mahmoud corrections are local and uncommitted; their final evidence is recorded below. S1-09 replay, S1-10 trusted count, and S1-11 public liability/full correction/daily-submit-reopen integration remain deferred.
+S1-08 Phase 2 was committed at `569d00e77dea922c03782c001c3c26c2cd30cba9` after an exact `classname::method` comparison of its serial JUnit to the `c018fa01` baseline showed **zero new failure/error identities**. The earlier count-only caution above is historical and superseded by that comparison. Phase 3/4 and Mahmoud corrections are pending recheck; their final evidence is recorded below. S1-09 replay, S1-10 trusted count, and S1-11 public liability/full correction/daily-submit-reopen integration remain deferred.
 
 ## S1-08 final Mahmoud decisions and deployment gates — 2026-10-08
 
@@ -601,8 +601,37 @@ After aligning all eight prior current-only identities with the approved D12 and
 | Feature | 1,179 | 5,680 | 0 | 1 | 1 | `storage/logs/s1-08-corrected-final-feature.xml` |
 | NFR | 153 | 315 | 71 | 0 | 0 | `storage/logs/s1-08-corrected-final-nfr.xml` |
 | Combined | 1,394 | 7,757 | 71 | 2 | 1 | Logical merge by `classname::method` |
-| Accepted Phase 2 | 1,364 | 7,534 | 75 | 21 | 1 | `storage/logs/s1-08-phase2-full-suite-serial.xml` |
+| Phase 2 comparison baseline | 1,364 | 7,534 | 75 | 21 | 1 | `storage/logs/s1-08-phase2-full-suite-serial.xml` |
 
-The exact identity comparison against the accepted Phase 2 report yields **73 shared**, **23 Phase 2 only**, and **0 current only** failing/error identities. All eight formerly current-only identities are absent from the fresh reports. There are **0 status changes** among shared identities and **0 new product regressions**. The complete names are recorded in `s1-08-final-serial-comparison.md`. The 71 current NFR errors are SQLite `migrate:fresh`/VACUUM-in-transaction environment errors, all shared with Phase 2; the Unit RecurringOrder and Feature Procurement failures are also shared baseline identities. The focused rerun of the eight corrected identities passed **48 tests / 187 assertions**.
+Historical comparison to the c018fa01 baseline recorded **73 shared**, **23 Phase 2-only**, and **0 current-only** bad identities. All eight formerly current-only identities were absent from those historical corrected reports. This comparison predates baseline hard-close; the final exact comparison against the Phase 2 comparison baseline is recorded in “Baseline hard-close and S1-08 correction pass” below.
 
 Other focused evidence: manager branch synchronization and credential tests **15 / 52 PASS**; S1-08 shift, transfer, custody, and manager batch **120 / 636 PASS** before S8-05; S1-06/S1-07 **113 / 535 PASS**; S8-05 receipt and handover batch **54 / 276 PASS**, including the new 10 SAR manager cash-out, recipient name, same receipt, cashier custody, balance decrease, old-type absence, and duplicate confirmation rejection. Changed-file Pint `--test` passed for 36 PHP files, PHP syntax passed for all 36, and `git diff --check` passed. MySQL/deployment-equivalent locking validation remains unavailable and unproven.
+
+## Baseline hard-close and S1-08 correction pass — 2026-10-08
+
+The earlier fresh serial suite was preserved before F-01/F-02/F-03 changes at `storage/logs/phpunit-serial-20261008-213009-{unit,feature,nfr}.xml`: Unit **62 / 1,764**, Feature **1,179 / 5,681 / 1 skipped**, NFR **153 / 504**; all stages had zero failures/errors. Combined: **1,394 tests / 7,949 assertions / 1 skip**. These are pre-F-correction results.
+
+The final post-correction verification ran serially with PHP 8.4.26, SQLite in-memory, visible PHPUnit progress, `--do-not-cache-result`, and fresh JUnit reports. Each stage completed once; the full NFR suite was not restarted.
+
+| Stage | Tests | Assertions | Errors | Failures | Skipped | JUnit |
+|---|---:|---:|---:|---:|---:|---|
+| Unit | 62 | 1,764 | 0 | 0 | 0 | `storage/logs/s1-08-mahmoud-final-unit.xml` |
+| Feature | 1,181 | 5,702 | 0 | 0 | 1 | `storage/logs/s1-08-mahmoud-final-feature-2.xml` |
+| NFR | 153 | 504 | 0 | 0 | 0 | `storage/logs/s1-08-mahmoud-final-nfr.xml` |
+| Combined | 1,396 | 7,970 | 0 | 0 | 1 | Logical merge by `classname::method` |
+
+Exact bad-identity comparison against `storage/logs/s1-08-phase2-full-suite-serial.xml` (the **Phase 2 comparison baseline**): **96 Phase 2-only**, **0 shared bad identities**, **0 current-only identities**, and **0 new product regressions**. All 96 previously failing/error identities now pass. This includes the original 73 baseline-hard-close identities. The preserved pre-F fresh suite was also clean; the final suite adds F-01/F-02/F-03 regression coverage.
+
+| Check | Result | Evidence |
+|---|---|---|
+| F-01/F-02/F-03 focused | PASS — 4 tests / 38 assertions | Manager lifecycle guard including 409 domain-code translation for admin deactivation/transfer, recipient discovery without a unique manager, exact addressed-manager reject/correction gate |
+| All affected files | PASS — 87 tests / 435 assertions | Receipt/transfer, handover ledger, variance custody, shift close atomicity, manager assignment/sync |
+| NFR cascade | RESOLVED | Complete NFR run: 153 tests / 504 assertions; 0 errors/failures |
+| Changed PHP syntax | PASS — 17 files | PHP 8.4.26 `-l` |
+| Changed-file Pint | PASS — 17 files | `pint --test` |
+| Whitespace | PASS | `git diff --check` |
+| MySQL concurrency | PENDING — ENVIRONMENT UNAVAILABLE | SQLite does not prove MySQL row-lock/deadlock behavior; deployment-equivalent scenarios remain in `s1-08-deployment-readiness.md` |
+
+S8-09 remains **APPROVED — DOCUMENTATION / RELEASE GATE ONLY**; S8-12 remains **APPROVED — DRAIN-BEFORE-DEPLOY**. S8-05 remains resolved. Notification delivery restoration is deferred because the current notification service methods are commented out; any restoration must run after commit and be separately tested. Atomic independent-count report plus shortage-allocation/evidence composition is S1-10 scope. D4 AssabAPP compatibility requirements, including the S8-05 English API type/Arabic UI label and F-01/F-02/F-03 response handling, are recorded in the implementation handoff and API contract.
+
+No S1-09, S1-10, or S1-11 implementation was started. These results are ready for Mahmoud quick recheck; S1-08 acceptance remains with Mahmoud.

@@ -39,6 +39,15 @@ class BranchManagerObserver
 
     public function updating(BranchManager $manager): void
     {
+        $isDeactivating = ($manager->isDirty('is_active') && ! $manager->is_active)
+            || ($manager->isDirty('status') && $manager->status !== 'active');
+        $isTransferring = $manager->isDirty('branch_id')
+            && (string) $manager->getOriginal('branch_id') !== (string) $manager->branch_id;
+
+        if ($isDeactivating || $isTransferring) {
+            app(BranchManagerService::class)->assertNoOpenAddressedHandovers($manager);
+        }
+
         if ($manager->isDirty(['branch_id', 'status', 'is_active'])) {
             app(BranchManagerService::class)->assertActiveAssignmentAvailable($manager);
         }
@@ -95,6 +104,11 @@ class BranchManagerObserver
 
         // Revoke all tokens
         $manager->tokens()->delete();
+    }
+
+    public function deleting(BranchManager $manager): void
+    {
+        app(BranchManagerService::class)->assertNoOpenAddressedHandovers($manager);
     }
 
     public function restored(BranchManager $manager): void

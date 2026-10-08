@@ -214,7 +214,7 @@ class ProcurementOperationsTest extends TestCase
 
         $this->as()->patchJson('/api/v1/company/me/procurement/orders/'.$op->id, [
             'status' => 'final-approved',
-        ])->assertStatus(409);
+        ])->assertStatus(422)->assertJsonPath('error.code', 'OP_STATUS_TRANSITION_FORBIDDEN');
     }
 
     public function test_destroy_final_approved_order_is_blocked_but_pending_deletes(): void
