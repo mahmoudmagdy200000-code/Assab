@@ -4,9 +4,12 @@ namespace Tests\Feature;
 
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Modules\Admin\Exceptions\AsabException;
+use Modules\Admin\Http\Middleware\IdempotencyKey;
 use Modules\Admin\Models\AsabIdentityMap;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Services\Credentials\BranchManagerPeer;
@@ -34,6 +37,7 @@ use Modules\Shift\Services\BranchManagerShiftService;
 use Modules\Shift\Services\HandoverService;
 use Modules\Shift\Services\ShiftReportRevisionService;
 use Modules\Shift\Services\ShiftTransferReceiptService;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Tests\TestCase;
 
@@ -204,6 +208,164 @@ class ShiftTransferReceiptTest extends TestCase
             ->assertJsonPath('code', 'STALE_REPORT_REVISION');
         $this->assertSame('pending', $handover->fresh()->status);
         $this->assertSame(0, CashierCustodyTransaction::count());
+    }
+
+    public function test_tx04_committed_receipt_snapshot_replays_after_response_path_interruption(): void
+    {
+        [$source, $recipient, $destination, $handover] = $this->handoverFixture('10.00');
+        $request = Request::create(
+            "/api/cashier/shifts/{$source->id}/handover/accept",
+            'POST',
+            [],
+            [],
+            [],
+            ['CONTENT_TYPE' => 'application/json', 'HTTP_IDEMPOTENCY_KEY' => 'tx04-receipt-key'],
+            json_encode(['confirmed_amount' => '10.00', 'receiving_shift_id' => $destination->id], JSON_THROW_ON_ERROR),
+        );
+        $route = new Route(['POST'], 'api/cashier/shifts/{shift}/handover/accept', static fn () => null);
+        $route->name('cashier.handover.accept');
+        $route->bind($request);
+        $request->setRouteResolver(static fn () => $route);
+        $request->setUserResolver(static fn () => $recipient);
+
+        try {
+            app(IdempotencyKey::class)->handle($request, function () use ($handover, $recipient, $destination): Response {
+                $original = response()->json(['success' => true, 'message' => 'Handover accepted successfully']);
+                app(ShiftTransferReceiptService::class)->confirmHandover(
+                    $handover->id,
+                    $recipient,
+                    '10.00',
+                    $destination->id,
+                    null,
+                    $original,
+                );
+
+                throw new \RuntimeException('Simulated response transport interruption after business commit.');
+            });
+            $this->fail('The simulated response interruption should escape the first delivery.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('Simulated response transport interruption after business commit.', $exception->getMessage());
+        }
+
+        // Change live report state after the original receipt commit. Replay must
+        // return the immutable snapshot, never serialize the current resource.
+        DB::transaction(fn () => app(ShiftReportRevisionService::class)->recordCashierRevision($source, 'cashier', $recipient->id));
+        $retryRequest = Request::create(
+            "/api/cashier/shifts/{$source->id}/handover/accept",
+            'POST',
+            [],
+            [],
+            [],
+            ['CONTENT_TYPE' => 'application/json', 'HTTP_IDEMPOTENCY_KEY' => 'tx04-receipt-key'],
+            json_encode(['receiving_shift_id' => $destination->id, 'confirmed_amount' => '10.00'], JSON_THROW_ON_ERROR),
+        );
+        $retryRoute = new Route(['POST'], 'api/cashier/shifts/{shift}/handover/accept', static fn () => null);
+        $retryRoute->name('cashier.handover.accept');
+        $retryRoute->bind($retryRequest);
+        $retryRequest->setRouteResolver(static fn () => $retryRoute);
+        $retryRequest->setUserResolver(static fn () => $recipient);
+
+        $executions = 0;
+        $replayed = app(IdempotencyKey::class)->handle($retryRequest, function () use (&$executions): Response {
+            $executions++;
+
+            return response()->json(['success' => true, 'message' => 'A new result must not be generated.']);
+        });
+
+        $receipt = CashierShiftHandoverReceipt::query()->where('cashier_shift_handover_id', $handover->id)->sole();
+        $this->assertSame(200, $replayed->getStatusCode());
+        $this->assertSame('{"success":true,"message":"Handover accepted successfully"}', $replayed->getContent());
+        $this->assertSame(0, $executions);
+        $this->assertSame(1, CashierShiftHandoverReceipt::where('cashier_shift_handover_id', $handover->id)->count());
+        $this->assertSame(1, CashierCustodyTransaction::where('receipt_id', $receipt->id)->where('transaction_type', 'Handover Sent')->count());
+        $this->assertSame(1, CashierCustodyTransaction::where('receipt_id', $receipt->id)->where('transaction_type', 'Handover Received')->count());
+        $this->assertSame(0, PersonalLedgerTransaction::where('receipt_id', $receipt->id)->count());
+        $this->assertSame('10.00', $destination->fresh()->opening_balance);
+        $this->assertSame(1, DB::table('asab_command_idempotency_keys')->where('status', 'completed')->count());
+    }
+
+    public function test_tx02_same_key_retry_replays_original_receipt_without_duplicate_financial_effects(): void
+    {
+        [$source, $recipient, $destination, $handover] = $this->handoverFixture('10.00');
+        $first = $this->runIdempotentReceipt($this->receiptRequest($source, $recipient, $destination, 'tx02-retry', '10.00'), $handover, $recipient, $destination, '10.00');
+        $retry = $this->runIdempotentReceipt($this->receiptRequest($source, $recipient, $destination, 'tx02-retry', '10.00'), $handover, $recipient, $destination, '10.00');
+
+        $this->assertSame(200, $retry->getStatusCode());
+        $this->assertSame($first->getContent(), $retry->getContent());
+        $this->assertReceiptEffectsExactlyOnce($handover, $destination, '10.00');
+    }
+
+    public function test_tx02_concurrent_duplicate_is_blocked_by_atomic_reservation_before_receipt_write(): void
+    {
+        [$source, $recipient, $destination, $handover] = $this->handoverFixture('10.00');
+        $request = $this->receiptRequest($source, $recipient, $destination, 'tx02-concurrent', '10.00');
+        $duplicate = $this->receiptRequest($source, $recipient, $destination, 'tx02-concurrent', '10.00');
+        $middleware = app(IdempotencyKey::class);
+        $writerExecutions = 0;
+
+        $response = $middleware->handle($request, function () use ($middleware, $duplicate, $handover, $recipient, $destination, &$writerExecutions): Response {
+            $concurrent = $middleware->handle($duplicate, function () use (&$writerExecutions): Response {
+                $writerExecutions++;
+
+                return response()->json(['duplicate' => true]);
+            });
+
+            $this->assertSame(409, $concurrent->getStatusCode());
+            $this->assertSame('IDEMPOTENCY_IN_PROGRESS', json_decode($concurrent->getContent(), true)['error']['code']);
+            $writerExecutions++;
+            $commandResponse = response()->json(['success' => true, 'message' => 'Handover accepted successfully']);
+            app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, '10.00', $destination->id, null, $commandResponse);
+
+            return $commandResponse;
+        });
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(1, $writerExecutions);
+        $this->assertReceiptEffectsExactlyOnce($handover, $destination, '10.00');
+    }
+
+    public function test_tx03_same_key_with_different_payload_is_rejected_without_second_receipt_effect(): void
+    {
+        [$source, $recipient, $destination, $handover] = $this->handoverFixture('10.00');
+        $first = $this->runIdempotentReceipt($this->receiptRequest($source, $recipient, $destination, 'tx03-payload', '10.00'), $handover, $recipient, $destination, '10.00');
+        $secondWriterCalls = 0;
+        $conflict = app(IdempotencyKey::class)->handle(
+            $this->receiptRequest($source, $recipient, $destination, 'tx03-payload', '9.00'),
+            function () use (&$secondWriterCalls): Response {
+                $secondWriterCalls++;
+
+                return response()->json(['success' => true, 'message' => 'different result']);
+            },
+        );
+
+        $this->assertSame(200, $first->getStatusCode());
+        $this->assertSame(409, $conflict->getStatusCode());
+        $this->assertSame('IDEMPOTENCY_KEY_REUSED', json_decode($conflict->getContent(), true)['error']['code']);
+        $this->assertSame(0, $secondWriterCalls);
+        $this->assertReceiptEffectsExactlyOnce($handover, $destination, '10.00');
+    }
+
+    public function test_tx03_same_key_from_another_authenticated_user_is_rejected_without_result_disclosure_or_second_effect(): void
+    {
+        [$source, $recipient, $destination, $handover] = $this->handoverFixture('10.00');
+        $first = $this->runIdempotentReceipt($this->receiptRequest($source, $recipient, $destination, 'tx03-user', '10.00'), $handover, $recipient, $destination, '10.00');
+        $otherUser = Cashier::factory()->create(['branch_id' => $recipient->branch_id, 'created_by' => $recipient->created_by]);
+        $secondWriterCalls = 0;
+        $conflict = app(IdempotencyKey::class)->handle(
+            $this->receiptRequest($source, $otherUser, $destination, 'tx03-user', '10.00'),
+            function () use (&$secondWriterCalls): Response {
+                $secondWriterCalls++;
+
+                return response()->json(['success' => true, 'message' => 'Handover accepted successfully']);
+            },
+        );
+
+        $this->assertSame(200, $first->getStatusCode());
+        $this->assertSame(409, $conflict->getStatusCode());
+        $this->assertSame('IDEMPOTENCY_KEY_REUSED', json_decode($conflict->getContent(), true)['error']['code']);
+        $this->assertStringNotContainsString('Handover accepted successfully', $conflict->getContent());
+        $this->assertSame(0, $secondWriterCalls);
+        $this->assertReceiptEffectsExactlyOnce($handover, $destination, '10.00');
     }
 
     public function test_record_handover_rejects_other_branch_recipient_before_writing_request(): void
@@ -1027,6 +1189,49 @@ class ShiftTransferReceiptTest extends TestCase
         } catch (ConflictHttpException $e) {
             $this->assertSame('INSUFFICIENT_RECORDED_SALES_CASH', $e->getMessage());
         }
+    }
+
+    private function receiptRequest(CashierShift $source, Cashier $actor, CashierShift $destination, string $key, string $amount): Request
+    {
+        $request = Request::create(
+            "/api/cashier/shifts/{$source->id}/handover/accept",
+            'POST',
+            [],
+            [],
+            [],
+            ['CONTENT_TYPE' => 'application/json', 'HTTP_IDEMPOTENCY_KEY' => $key],
+            json_encode(['confirmed_amount' => $amount, 'receiving_shift_id' => $destination->id], JSON_THROW_ON_ERROR),
+        );
+        $route = new \Illuminate\Routing\Route(['POST'], 'api/cashier/shifts/{shift}/handover/accept', static fn () => null);
+        $route->name('cashier.handover.accept');
+        $route->bind($request);
+        $request->setRouteResolver(static fn () => $route);
+        $request->setUserResolver(static fn () => $actor);
+
+        return $request;
+    }
+
+    private function runIdempotentReceipt(Request $request, CashierShiftHandover $handover, Cashier $recipient, CashierShift $destination, string $amount): Response
+    {
+        return app(IdempotencyKey::class)->handle($request, function () use ($handover, $recipient, $destination, $amount): Response {
+            $commandResponse = response()->json(['success' => true, 'message' => 'Handover accepted successfully']);
+            app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, $amount, $destination->id, null, $commandResponse);
+
+            return $commandResponse;
+        });
+    }
+
+    private function assertReceiptEffectsExactlyOnce(CashierShiftHandover $handover, CashierShift $destination, string $amount): void
+    {
+        $receipt = CashierShiftHandoverReceipt::query()->where('cashier_shift_handover_id', $handover->id)->sole();
+        $this->assertSame($amount, (string) $receipt->confirmed_amount);
+        $this->assertSame(1, CashierCustodyTransaction::where('receipt_id', $receipt->id)->where('transaction_type', 'Handover Sent')->count());
+        $this->assertSame(1, CashierCustodyTransaction::where('receipt_id', $receipt->id)->where('transaction_type', 'Handover Received')->count());
+        $this->assertSame(2, CashierCustodyTransaction::where('receipt_id', $receipt->id)->count());
+        $this->assertSame($amount, (string) CashierCustodyTransaction::where('receipt_id', $receipt->id)->where('transaction_type', 'Handover Sent')->value('amount'));
+        $this->assertSame($amount, (string) CashierCustodyTransaction::where('receipt_id', $receipt->id)->where('transaction_type', 'Handover Received')->value('amount'));
+        $this->assertSame(0, PersonalLedgerTransaction::where('receipt_id', $receipt->id)->count());
+        $this->assertSame($amount, (string) $destination->fresh()->opening_balance);
     }
 
     private function handoverFixture(string $amount, bool $includeOtherShift = false): array

@@ -19,6 +19,7 @@ use Modules\Shift\Models\ShiftHandoverStatus;
 use Modules\Shift\Models\ShiftSalesBreakdown;
 use Modules\Shift\Models\ShiftVarianceAlert;
 use Modules\Shift\Models\ShiftVarianceDetail;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 /**
@@ -589,7 +590,8 @@ class HandoverService
         string $cashierId,
         string $confirmedAmount,
         ?string $receivingShiftId = null,
-        ?string $comment = null
+        ?string $comment = null,
+        ?Response $commandResponse = null
     ): void {
         $handover = $this->currentHandover($shift);
         if ($handover->handover_to_type !== 'cashier' || (string) $handover->handover_to_id !== $cashierId) {
@@ -604,7 +606,8 @@ class HandoverService
             \Modules\Cashier\Models\Cashier::findOrFail($cashierId),
             $confirmedAmount,
             $receivingShiftId,
-            $comment
+            $comment,
+            $commandResponse
         );
         $this->clearBranchManagerShiftCachesForBranch($shift);
     }

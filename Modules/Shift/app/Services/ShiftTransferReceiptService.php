@@ -4,6 +4,7 @@ namespace Modules\Shift\Services;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Modules\Admin\Services\CommandIdempotencyContext;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Custody\Enums\TransactionType;
@@ -16,6 +17,7 @@ use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\CashierShiftHandoverReceipt;
 use Modules\Shift\Models\CashierShiftHistory;
 use Modules\Shift\Models\ShiftHandoverStatus;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
@@ -176,9 +178,14 @@ class ShiftTransferReceiptService
         Cashier $recipient,
         string $confirmedAmount,
         ?string $receivingShiftId = null,
-        ?string $comment = null
+        ?string $comment = null,
+        ?Response $commandResponse = null
     ): CashierShiftHandoverReceipt {
-        return DB::transaction(function () use ($handoverId, $recipient, $confirmedAmount, $receivingShiftId, $comment) {
+        return DB::transaction(function () use ($handoverId, $recipient, $confirmedAmount, $receivingShiftId, $comment, $commandResponse) {
+            if ($commandResponse !== null && app()->bound(CommandIdempotencyContext::class)) {
+                app(CommandIdempotencyContext::class)->lockForAuthoritativeWrite();
+            }
+
             $handoverStub = CashierShiftHandover::query()->whereKey($handoverId)->firstOrFail();
             $sourceSnapshot = CashierShift::query()->whereKey($handoverStub->cashier_shift_id)->firstOrFail();
             $destinationSnapshot = $this->resolveReceivingShift($sourceSnapshot, $recipient, $receivingShiftId);
@@ -199,7 +206,7 @@ class ShiftTransferReceiptService
 
             $this->assertReceivingShift($source, $destination, $recipient);
 
-            return $this->recordReceipt(
+            $receipt = $this->recordReceipt(
                 $handover,
                 null,
                 $source,
@@ -210,6 +217,12 @@ class ShiftTransferReceiptService
                 $comment,
                 null
             );
+
+            if ($commandResponse !== null && app()->bound(CommandIdempotencyContext::class)) {
+                app(CommandIdempotencyContext::class)->completeWithinBusinessTransaction($commandResponse);
+            }
+
+            return $receipt;
         });
     }
 

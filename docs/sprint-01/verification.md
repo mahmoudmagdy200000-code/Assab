@@ -635,3 +635,32 @@ Exact bad-identity comparison against `storage/logs/s1-08-phase2-full-suite-seri
 S8-09 remains **APPROVED — DOCUMENTATION / RELEASE GATE ONLY**; S8-12 remains **APPROVED — DRAIN-BEFORE-DEPLOY**. S8-05 remains resolved. Notification delivery restoration is deferred because S1-08 removed `Custody\Events\HandoverApproved` dispatch from `HandoverService`; if restored later, dispatch after commit from `ShiftTransferReceiptService` and do not restore the old ledger listener. Atomic independent-count report plus shortage-allocation/evidence composition is S1-10 scope. D4 AssabAPP compatibility requirements, including the S8-05 English API type/Arabic UI label and F-01/F-02/F-03 response handling, are recorded in the implementation handoff and API contract.
 
 S1-08 was accepted by Mahmoud at `8ddb90a2` (reviewer suite: 1,396 tests / 7,970 assertions / 0 failures). S1-09, S1-10, and S1-11 remain separate implementation scopes.
+
+## S1-09 idempotency acceptance evidence
+
+The TX acceptance mapping is explicit and is backed by focused application tests that use the authoritative S1-08 receipt writer and assert persisted amounts and row counts in addition to HTTP behavior:
+
+| Requirement | Exact test | Evidence asserted |
+|---|---|---|
+| TX-02 — same request/key retry | `Tests\Feature\ShiftTransferReceiptTest::test_tx02_same_key_retry_replays_original_receipt_without_duplicate_financial_effects` | Original status/body; one receipt; one sent and one received custody row at the expected amount; no personal-ledger row; destination opening balance. |
+| TX-02 — overlapping duplicate reservation | `Tests\Feature\ShiftTransferReceiptTest::test_tx02_concurrent_duplicate_is_blocked_by_atomic_reservation_before_receipt_write` | Duplicate observed while original reservation is processing returns deterministic 409; its writer callback is not run; the one authoritative receipt and expected financial row amounts remain. |
+| TX-03 — changed payload | `Tests\Feature\ShiftTransferReceiptTest::test_tx03_same_key_with_different_payload_is_rejected_without_second_receipt_effect` | Deterministic `IDEMPOTENCY_KEY_REUSED`; second writer is not called; original receipt/custody row counts and amounts remain unchanged. |
+| TX-03 — different authenticated user | `Tests\Feature\ShiftTransferReceiptTest::test_tx03_same_key_from_another_authenticated_user_is_rejected_without_result_disclosure_or_second_effect` | Deterministic rejection; first user's stored body is not disclosed; second writer is not called; original financial rows and amounts remain unchanged. |
+| TX-04 — commit then response interruption | `Tests\Feature\ShiftTransferReceiptTest::test_tx04_committed_receipt_snapshot_replays_after_response_path_interruption` | Business commit followed by simulated response interruption; retry returns the immutable original status/body after live revision changes; one receipt and expected custody rows, no duplicate ledger effect. |
+
+The TX-02 overlap test drives a duplicate request while the first command is inside its handler and after its committed reservation is visible. It verifies reservation behavior in the application test environment; production MySQL row-lock, deadlock, and range-lock validation remains a deployment gate.
+
+### Final S1-09 serial verification — 2026-10-09
+
+The authoritative final run used the established `scripts/run-serial-tests.ps1` runner in Unit → Feature → NFR order on the current S1-09 worktree using PHP 8.4.26, PHPUnit 12.4.0, SQLite in-memory, and fresh JUnit output. An initial sandbox-restricted attempt did not provide valid suite evidence: the PHP subprocess could not access the configured autoloader or write generated export files, producing environment-only failures. After confirming PHP write access with the sandbox reviewer, the final run supplied an explicit bootstrap and a temp directory inside the authorized worktree. The tracked runner and PHPUnit configuration were not changed; the successful fresh reports below supersede that restricted attempt.
+
+| Stage | Tests | Assertions | Errors | Failures | Skipped | JUnit |
+|---|---:|---:|---:|---:|---:|---|
+| Unit | 65 | 1,768 | 0 | 0 | 0 | `storage/logs/phpunit-serial-20261009-014242-unit.xml` |
+| Feature | 1,190 | 5,780 | 0 | 0 | 1 | `storage/logs/phpunit-serial-20261009-014242-feature.xml` |
+| NFR | 153 | 504 | 0 | 0 | 0 | `storage/logs/phpunit-serial-20261009-014242-nfr.xml` |
+| Combined | 1,408 | 8,052 | 0 | 0 | 1 | Distinct `classname::method` identities |
+
+Exact failing-identity comparison against the accepted S1-08 final reports (`s1-08-mahmoud-final-{unit,nfr}.xml` and `s1-08-mahmoud-final-feature-2.xml`, accepted at `8ddb90a2`; documentation follow-up HEAD `302e97c1`): **0 shared failures/errors, 0 current-only failures/errors, and 0 baseline-only failures/errors**. All 1,396 S1-08 identities remain present and clean; this worktree adds 12 passing identities (3 Unit and 9 Feature). TX-02/TX-03/TX-04 tests listed above all pass in the final Feature JUnit.
+
+MySQL was unavailable on local port 3310. Deployment gate: **MYSQL S1-09 CONCURRENCY VALIDATION PENDING — ENVIRONMENT UNAVAILABLE**. The required MySQL concurrency scenarios remain documented in `s1-08-deployment-readiness.md`; SQLite evidence does not claim MySQL lock/deadlock behavior.

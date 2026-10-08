@@ -8,23 +8,26 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Modules\Admin\Http\Middleware\IdempotencyKey;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\HandoverStatus;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Services\HandoverService;
 use Modules\Shift\Transformers\ShiftDetailResource;
+use Symfony\Component\HttpFoundation\Response;
 
 class ShiftHandoverController extends Controller
 {
     public function __construct(
-        private HandoverService $handoverService
+        private HandoverService $handoverService,
+        private IdempotencyKey $idempotency
     ) {}
 
     /**
      * Accept handover (for cashier - receiving next cashier only)
      */
-    public function acceptHandover(Request $request, string $shift): JsonResponse
+    public function acceptHandover(Request $request, string $shift): Response
     {
         ShiftMoneyValidation::normalizeRepresentationNoise($request);
         try {
@@ -47,9 +50,6 @@ class ShiftHandoverController extends Controller
 
             // Determine the actual recipient from the handover record
             $handover = $this->handoverService->currentHandover($shiftModel);
-            if ($handover->status !== 'pending') {
-                return HandoverErrorResponse::domain('HANDOVER_NOT_PENDING', 409);
-            }
             if ($handover->handover_to_type !== 'cashier') {
                 return HandoverErrorResponse::domain('ONLY_ADDRESSED_CASHIER_RECIPIENT', 403);
             }
@@ -57,18 +57,27 @@ class ShiftHandoverController extends Controller
                 return HandoverErrorResponse::domain('ONLY_ADDRESSED_CASHIER_RECIPIENT', 403);
             }
 
-            $this->handoverService->acceptHandoverByCashier(
-                $shiftModel,
-                $cashier->id,
-                (string) $request->input('confirmed_amount'),
-                $request->input('receiving_shift_id'),
-                $request->get('comment')
-            );
+            return $this->idempotency->handle($request, function (Request $commandRequest) use ($shiftModel, $cashier, $handover): Response {
+                if ($handover->status !== 'pending') {
+                    return HandoverErrorResponse::domain('HANDOVER_NOT_PENDING', 409);
+                }
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Handover accepted successfully',
-            ]);
+                $commandResponse = response()->json([
+                    'success' => true,
+                    'message' => 'Handover accepted successfully',
+                ]);
+
+                $this->handoverService->acceptHandoverByCashier(
+                    $shiftModel,
+                    $cashier->id,
+                    (string) $commandRequest->input('confirmed_amount'),
+                    $commandRequest->input('receiving_shift_id'),
+                    $commandRequest->get('comment'),
+                    $commandResponse
+                );
+
+                return $commandResponse;
+            });
         } catch (\Throwable $e) {
             return HandoverErrorResponse::from($e, 'accept');
         }
