@@ -837,6 +837,15 @@ class ShiftTransferReceiptTest extends TestCase
             ->sole();
         $this->assertSame('61.00', $rejectionHistory->new_value['attempted_confirmed_amount']);
         $this->assertSame($recipient->id, $rejectionHistory->new_value['actor_id']);
+        $evidence = \Modules\Shift\Models\ShiftTransferRejectionEvidence::query()->sole();
+        $this->assertSame($handover->id, $evidence->cashier_shift_handover_id);
+        $this->assertNull($evidence->branch_manager_cash_transfer_id);
+        $this->assertSame(6150, $evidence->requested_halalas);
+        $this->assertSame(6100, $evidence->physical_halalas);
+        $this->assertSame('cashier', $evidence->recipient_type);
+        $this->assertSame($recipient->id, $evidence->recipient_id);
+        $this->assertSame($destination->id, $evidence->receiving_cashier_shift_id);
+        $this->assertSame(0, app(\Modules\Shift\Services\ShiftCashCountService::class)->pendingIncomingHalalas($destination));
         $this->assertNotNull($history->created_at);
         $this->assertSame($source->cashier_id, $history->new_value['actor_id']);
         $this->assertSame('61.00', $receipt->confirmed_amount);
@@ -1095,6 +1104,17 @@ class ShiftTransferReceiptTest extends TestCase
             ->sole();
         $this->assertSame('61.00', $rejection->new_value['attempted_confirmed_amount']);
         $this->assertSame($cashier->id, $rejection->new_value['actor_id']);
+        $evidence = \Modules\Shift\Models\ShiftTransferRejectionEvidence::query()->sole();
+        $this->assertSame($transfer->id, $evidence->branch_manager_cash_transfer_id);
+        $this->assertNull($evidence->cashier_shift_handover_id);
+        $this->assertSame(6150, $evidence->requested_halalas);
+        $this->assertSame(6100, $evidence->physical_halalas);
+        $this->assertSame($cashier->id, $evidence->recipient_id);
+        $this->assertSame($destination->id, $evidence->receiving_cashier_shift_id);
+        $this->assertSame('actual_shortage', $evidence->correction_reason);
+        // The confirmed receipt now carries the cash; the rejection evidence is no longer pending incoming.
+        $this->assertSame(0, app(\Modules\Shift\Services\ShiftCashCountService::class)->pendingIncomingHalalas($destination));
+        $this->assertSame(6100, app(\Modules\Shift\Services\ShiftCashCountService::class)->confirmedOpeningHalalas($destination->id));
         $this->assertStringContainsString('no liability allocation inferred', $history->new_value['evidence_note']);
         $this->assertSame($manager->id, $history->new_value['actor_id']);
         $this->assertNotNull($history->created_at);

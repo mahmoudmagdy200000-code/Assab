@@ -24,7 +24,7 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 /** Sole S1-08 writer for confirmed transfer receipts and their required effects. */
 class ShiftTransferReceiptService
 {
-    public function __construct(private ShiftReportRevisionService $revisions) {}
+    public function __construct(private ShiftReportRevisionService $revisions, private ShiftCashCountService $cashCounts) {}
 
     public function requestManagerCashTransfer(
         BranchManagerShift $source,
@@ -109,6 +109,17 @@ class ShiftTransferReceiptService
             }
 
             $transfer->update(['status' => 'rejected']);
+            // D11: structured physical amount, pending incoming in the destination shift's count.
+            $this->cashCounts->recordRejectionEvidence(
+                null,
+                $transfer->id,
+                'cashier',
+                (string) $recipient->id,
+                (string) $destination->id,
+                (string) $transfer->requested_amount,
+                $attemptedConfirmedAmount,
+                $correctionReason,
+            );
             $this->writeTransferCorrectionHistory($destination, $recipient->id, 'cashier', 'manager_transfer_amount_correction_rejected', [
                 'transfer_id' => $transfer->id,
                 'requested_amount' => (string) $transfer->requested_amount,

@@ -37,7 +37,8 @@ class HandoverService
 
     public function __construct(
         private ShiftReportRevisionService $revisions,
-        private ShiftTransferReceiptService $receipts
+        private ShiftTransferReceiptService $receipts,
+        private ShiftCashCountService $cashCounts
     ) {}
 
     /**
@@ -92,12 +93,17 @@ class HandoverService
             // Updating the submitted report's handover/closing projection advances
             // its stable identity. The request is bound to this exact revision.
             $actor ??= auth()->user();
+            $previousRevision = $this->revisions->currentCashierRevision($shift);
             $revision = $this->revisions->recordCashierRevision(
                 $shift,
                 $actor instanceof BranchManager ? 'branch_manager' : 'cashier',
                 (string) ($actor?->getKey() ?? $shift->cashier_id),
-                $this->revisions->currentCashierRevision($shift)?->revision_number ?? 0
+                $previousRevision?->revision_number ?? 0
             );
+            if ($previousRevision) {
+                // Sales and the physical count are unchanged by recording the handover request.
+                $this->cashCounts->carryForward($previousRevision, $revision);
+            }
 
             // Create CashierShiftHandover request; request creation is not receipt.
             $handoverData = [
@@ -533,7 +539,11 @@ class HandoverService
                 'variance' => $variance,
             ]);
 
+            $previousRevision = $this->revisions->currentCashierRevision($shift);
             $revision = $this->revisions->recordCashierRevision($shift, 'cashier', $shift->cashier_id);
+            if ($previousRevision) {
+                $this->cashCounts->carryForward($previousRevision, $revision);
+            }
 
             $actor = auth()->user();
             $this->writeCorrectionHistory($shift, 'handover_request_corrected', (string) ($actor?->id ?? '0'), $actor?->getMorphClass() ?? 'system', [
@@ -702,6 +712,20 @@ class HandoverService
                 'rejection_reason' => $reason,
                 'rejection_count' => $result['rejection_count'],
             ]);
+
+            // D11: structured physical amount at rejection, linked to the request. It is pending
+            // incoming (sender stays responsible), never a surplus; the history JSON below is context only.
+            $isManagerRecipient = $handover->handover_to_type === 'branch_manager';
+            $this->cashCounts->recordRejectionEvidence(
+                $handover->id,
+                null,
+                $isManagerRecipient ? 'branch_manager' : 'cashier',
+                $reviewerId,
+                $isManagerRecipient ? null : $this->cashCounts->resolveReceivingShiftId($lockedShift, $reviewerId),
+                $previousAmount,
+                $attemptedConfirmedAmount,
+                $correctionReason,
+            );
 
             $this->writeCorrectionHistory($lockedShift, 'handover_amount_correction_rejected', $reviewerId, $reviewerType, [
                 'handover_id' => $handover->id,

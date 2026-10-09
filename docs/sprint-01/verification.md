@@ -840,3 +840,22 @@ The word “conversion” in Phase 1 refers only to the four shift bridge sites 
 | Procurement | `PurchaseOrderBridgeService`, `PurchaseReturnController`, `InventoryBridgeService`, `SupplierController`, `SupplierItemImportService` | Outside Sprint 1 |
 | Payroll import | `UploadController` salary import | Outside Sprint 1 |
 | Configured opening | `ShiftScheduleBridgeService` (halalas → SAR) | Shift scheduling configuration; not receipt evidence |
+
+## S1-10 Phase 2 — step 1: count and rejection-evidence persistence
+
+Status: **in progress; D6 is still PROPOSED (Mahmoud review required), so no public response key is added.**
+
+**AS-IS (before this step):** no physical count was stored; the D11 recipient-confirmed physical amount existed only inside the correction-history JSON (`attempted_confirmed_amount`).
+
+**Implemented (additive migrations, no backfill, no rewrite of legacy columns):**
+
+| Table | Unit / type | Meaning |
+|---|---|---|
+| `shift_report_cash_counts` (`2026_10_09_000001`) | integer **halalas**, unsigned except `expected_halalas`/`variance_halalas` (signed) | One immutable row per report revision: gross, cards, apps, confirmed opening, pending incoming counted, counted, expected, signed variance. **No row = count unavailable (null); it is never an implied 0.** Unique on `report_revision_id`. |
+| `shift_transfer_rejection_evidence` (`2026_10_09_000002`) | integer **halalas** | Append-only D11 evidence: request (handover or manager transfer), recipient, receiving cashier shift when unambiguous, requested vs physical amount, correction reason, `rejected_at`. |
+
+`ShiftCashCountService` is the single reader/writer. Confirmed opening = sum of `cashier_shift_handover_receipts.confirmed_amount` for the shift (D2); configured `opening_balance`, pending requests and the legacy `cash_collected`/`closing_balance`/`variance` are never inputs. Pending incoming = the latest rejection evidence per request that has no receipt yet (a confirmed request moves to the confirmed opening instead; evidence with no resolvable receiving shift is attributed to the recipient cashier's shift started before the rejection). `expected = gross − cards − apps + confirmedOpening`; `variance = (counted − pendingIncoming) − expected`, using `ShiftFinancialCalculator`.
+
+`HandoverService::rejectHandoverForAmountCorrection` and `ShiftTransferReceiptService::rejectManagerCashTransfer` now write the evidence row in the same transaction as the rejection. The existing correction-history JSON is unchanged context.
+
+**Tests (REVIEWER_EXECUTED by the implementing session):** `ShiftCashCountServiceTest` (latest-evidence-per-request, append-only) and new evidence assertions in `ShiftTransferReceiptTest` for both the cashier handover and the manager transfer paths. The routes that consume the count are the next step; this step adds no new public behaviour.
