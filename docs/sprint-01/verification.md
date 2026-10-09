@@ -1023,3 +1023,18 @@ After the same process-local environment assignments shown above, the complete c
 **Exit 0: 1522 tests / 8997 assertions / 0 failures / 0 errors / 1 skipped; elapsed 22:22.541, memory 1.87 GB.** Log: `D:/claude/AssabERP/.tools/temp/s1-10r-full-final-v2.log`. The skipped identity is `Tests\Feature\BranchFixedAssetsUploadPersistenceTest::test_a_driver_error_is_not_leaked_to_the_client`: its existing conditional skip applies because SQLite does not enforce the column length (`tests/Feature/BranchFixedAssetsUploadPersistenceTest.php:198`). This does not close any MySQL gate.
 
 No bad full-suite identity remains to classify as baseline versus newly introduced. An isolated archive of e5907558 was prepared without changing the checkout; reflection and effective PDO checks verified baseline paths and SQLite `:memory:`, and its calculator smoke test passed (23 tests / 79 assertions). A complete baseline suite was not run or claimed. Earlier interrupted pre-final runs are not final evidence. Only the two approved corrections and their evidence are submitted above e5907558; origin was verified as `https://github.com/mohameelsherbini/Assab.git`, and the sprint branch remains at `470669020e94f6cb1a45f3fe2e6fa49fc12a3b9d`.
+
+
+## S1-10 → Foundation integration — fresh evidence (2026-10-09)
+
+## Current S1-10 acceptance — 2026-10-09
+
+**S1-10 = ACCEPTED BY MAHMOUD / CLOSED. F01 = ACCEPTED. F02 = ACCEPTED.**
+Accepted S1-10 code SHA: `29b5c208055c7db34d8cb9826778dbe256cca204`.
+Authority: Mahmoud's explicit resumed-session integration instruction identifying this accepted SHA and authorizing normal integration, publication and ancestry-verified branch retirement. This supersedes historical S1-10 NOT ACCEPTED/in-progress and review-branch-only instructions; historical evidence is retained.
+
+The integration baseline is separate: merge commit `453cea89191ed5b3142ebc5c024cbe6b6c5c442d` preserves both histories. The subsequent documentation commit records acceptance without changing application code; its published Foundation SHA becomes the working baseline.
+
+Release gates remain **OPEN / NOT_RUN**: MySQL concurrency, AssabAPP integration/release, Dashboard integration/release, production MySQL rollout. S1-11 remains **NOT STARTED**; R5/R4b/R6 and other carryovers remain S1-11 work. Acceptance is not deployment approval. Fresh evidence: `s1-10-foundation-integration.md`.
+
+DEVELOPER_EXECUTED: merge tree `63e127f854267ae6451dac46b23df4541209b774`, commit `453cea89191ed5b3142ebc5c024cbe6b6c5c442d`: focused **166 tests / 1119 assertions / 0 failures / 0 errors / 0 skipped**; full **1522 tests / 8997 assertions / 0 failures / 0 errors / 1 skipped**; syntax and Pint **37/37 PHP files**; both Git diff checks passed. PHP 8.4.14 / PHPUnit 12.4.0 / ParaTest 7.14.1, four independent SQLite `:memory:` workers. Skip: `Tests\Feature\BranchFixedAssetsUploadPersistenceTest::test_a_driver_error_is_not_leaked_to_the_client` (SQLite column-length enforcement). Exact commands and source integrity: `s1-10-foundation-integration.md`. Subsequent acceptance edits are documentation-only. No MySQL/client/deployment readiness inferred.
