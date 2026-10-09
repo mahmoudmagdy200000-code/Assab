@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 32634)
-Total output lines: 831
-
 # S1-01 verification evidence
 
 ## Focused documentation audit corrections C01–C03 — 2026-10-07
@@ -395,7 +392,63 @@ Historical status at that checkpoint — superseded by Mahmoud's later D5 approv
 | task-register.md | UPDATED | Current correction status, tests and deferred ownership. |
 | verification.md | UPDATED | This executed evidence and scope audit. |
 
-**BUSINESS RULES REFERENCE UPDATED:** `D:\claude\AssabERP\project-docs\Assab-ERP-Cash-Cycle-Business-Rules-v2.0-EN.md`, outside Assab Git. BR-03 now defines pending/reconciled count with three examples; BR-07/§15 distinguish manager correction from original confirmation and define scoped required transfers. Version 2.0 and prior history are retained with a dated clarification entry. This resolves the earlier external-reference-update…2634 tokens truncated…heck; callers validate IDs only by global `exists:cashiers`; service uses floats, deletes existing detail rows, assigns current-cashier remainder, and accepts external/mixed remainder. | Requires complete branch-scoped S1-07 validation. Do not write until source variance/state ownership can be safely represented. |
+**BUSINESS RULES REFERENCE UPDATED:** `D:\claude\AssabERP\project-docs\Assab-ERP-Cash-Cycle-Business-Rules-v2.0-EN.md`, outside Assab Git. BR-03 now defines pending/reconciled count with three examples; BR-07/§15 distinguish manager correction from original confirmation and define scoped required transfers. Version 2.0 and prior history are retained with a dated clarification entry. This resolves the earlier external-reference-update note for these decisions; the external file is not part of the Assab commit.
+
+One new correction commit is intended over the published baseline. Push/remote outcome is reported after committing in the final delivery; no unexecuted push result is claimed here. **AUDIT F1–F3 CORRECTIONS COMPLETE / READY FOR REVIEW** within the pure-calculator/contract scope; runtime lifecycle acceptance remains deferred. S1-07 STARTED: NO.
+
+
+## Final targeted S1-06 validation correction — 2026-10-07
+
+PRE-GATE PASS for local checks: repository D:\claude\AssabERP\Assab, branch sprint/01-financial-foundation, HEAD f06964c18a60b2a44806fe5a8de74461d52bdaa9, clean tree and matching origin tracking; user supplied remote verification at the same SHA. Fresh ls-remote failed with getaddrinfo() thread failed to start, so live remote equality is not independently re-claimed. S1-07 not started.
+
+Source trace: registered cashier/branch-manager shifts/{shift}/end and end-with-handover → ShiftEndController inline Validator → ShiftEndService → ShiftFinancialCalculator::calculateVatInclusiveSales → sarToHalalas. Before correction numeric|min:0 admitted 1.001; the calculator rejected it and the end catch could return 500. calculate-sales uses the same service and lacked a local catch. Branch-manager workday/end and daily-close update also accept totals/breakdown sales that reach the calculator. EndShiftRequest exists separately and is now aligned without pretending it controls the registered end route.
+
+Shared request rules now check ordinary SAR decimal shape, at most two fractional digits, nonnegative amounts except signed variance, and the exact DECIMAL(12,2) / manager-handover DECIMAL(10,2) ceilings. Normal existing validation responses are 422; no broad exception masking was added. Calculator precision exceptions remain defensive. Inspection also exposed valid large JSON floats rejected solely by multiplication representation error; scale-aware machine epsilon fixes that without changing tax rounding, while large three-decimal values remain rejected.
+
+| Check | Result | Evidence |
+|---|---|---|
+| Focused calculator | PASS — 17 tests / 58 assertions | Original 15 / 54 preserved plus large valid-float/string equivalence and excess-precision rejection. |
+| Registered-route/request feature tests | PASS — 26 tests / 234 assertions | End and handover aliases reject 1.001 and other precision/shape/range failures before service; preview returns real calculation; upper valid input passes; nested aggregator/allocation/manager sales and smaller manager boundary checked. |
+| Execution totals | PASS — 43 tests / 292 assertions | Combined run: 42 / 284; subsequently added nested route case: 1 / 8, executed separately. |
+| HTTP validation failure | PASS | Actual end route 1.001 → 422 with total_sales error; mocked service expects no end/calculation calls. |
+| Valid end input | PASS past validation | Dry-run missing-shift lookup yields 404, not validation failure; no business rows written. This is not persistence/lifecycle acceptance. |
+| PHP syntax / changed-file Pint | PASS — 7 PHP files | Calculator, shared rules, two controllers, request and two test files. |
+| Whitespace / scope | PASS | git diff --check; no migrations, Dashboard, AssabAPP, H1/H2, D8, liability/daily gate or unrelated refactor. |
+
+Executed with portable PHP 8.4.26 / PHPUnit 12.4.0. Commands: php vendor/bin/phpunit --configuration phpunit.xml --do-not-cache-result --no-progress tests/Unit/ShiftFinancialCalculatorTest.php tests/Feature/ShiftMoneyValidationTest.php; then the feature file with --filter test_nested_amount_validation_on_registered_routes. Tests isolate authentication middleware; nested reference-existence checks are mocked; valid end lookup uses DB pretend, no migrations or business writes. Pint --test and php -l cover all seven changed PHP files.
+
+Audit: **V1 PASS; V2 PASS; V3 PASS; V4 PASS; V5 PASS** for request-level per-column limits from migrations (no deployed-schema inspection or aggregate/persistence certification). **F1 PASS; F2 PASS; F3 PASS** in current money/API/state documents and the external Business Rules v2.0 reference; no changes to those decisions. State-permission-revision.md and the external reference need no update. **Historical status at that checkpoint — superseded by Mahmoud's later D5 approval:** the current docs/reference search had not found an approval at that time. Half-up net / residual VAT and `roundingPendingD5` were then recorded as compatibility behavior; D5's later approved policy is stated below.
+
+S1-06 overall: **READY FOR REVIEW / NOT ACCEPTED** within this correction scope. Later integration/liability/daily-close tasks remain deferred. One new commit is intended; post-commit push outcome is reported in final delivery, without rewriting published history. S1-07 STARTED: NO.
+
+## Mahmoud D5 approval — current status
+
+Mahmoud explicitly approved D5 after the validation correction. Current status: **D5 APPROVED**. Approved policy: monetary SAR input maximum two decimal places; reject excess precision with HTTP 422 before calculation; validate each amount against actual participating DB column limits; calculate internally in integer halalas; calculate VAT-inclusive net with half-up rounding; set VAT to gross minus rounded net. Existing evidence remains: 1.001 → 422 and 43 tests / 292 assertions. F1/F2/F3 remain PASS. Historical verification entries above preserve their as-of status and are superseded by this approval. The legacy result key roundingPendingD5 is a retained name, not a pending decision. S1-07 has not started.
+
+## S1-07 regression-gate recovery and source-trace disposition — 2026-10-08
+
+Starting state rechecked: repository `D:\claude\AssabERP\Assab`, branch `sprint/01-financial-foundation`, HEAD `a210587457a761846dcbac27f19f9cee426b6a08`, clean tree before this documentation update and local tracking ref equal. Portable PHP `D:\claude\AssabERP\.tools\s1-01\php-8.4.26\php.exe` is PHP 8.4.26. `vendor/autoload.php` exists and a direct `require` prints `AUTOLOAD_OK`. PHPUnit itself reports the project autoloader as unreadable through this sandbox's Windows file-access check, so the focused run used a temporary bootstrap under `%TEMP%` that requires the same existing project autoloader; no dependency or project bootstrap was modified. PHPUnit 12.4.0 ran `tests/Unit/ShiftFinancialCalculatorTest.php` and `tests/Feature/ShiftMoneyValidationTest.php`: **43 tests / 292 assertions, PASS**. This includes actual route validation cases proving `1.001` returns 422 before service/calculator, the exact 115/50/25/10/30 vector, F1 pending-incoming before/after confirmation and no physical-arrival assumption, manager-card correction calculation, expense independence in expected cash, and surplus calculation. A direct runtime check also confirmed D5 fractional half-up behavior: gross 100 halalas → net 87, residual VAT 13. `php artisan route:list --path=variance --except-vendor` completed and showed the legacy Shift variance aliases and separate Admin accountant allocation routes.
+
+### Prior findings R01–R08
+
+| Finding | Status | Evidence / ownership |
+|---|---|---|
+| R01 — `1.001` is rejected before calculation with HTTP 422 | PASS | `ShiftMoneyValidationTest` route cases assert 422 and that the service is not called. |
+| R02 — D5 status and calculation policy | PASS | Current money/API contracts state D5 APPROVED. Older verification checkpoints are now explicitly labeled historical and superseded, without changing their as-of results. |
+| R03 — mandatory 115/50/25/10/30 vector | PASS | Calculator focused test: net 10,000, VAT 1,500, expected 5,000, variance −2,000, shortage 2,000 halalas. |
+| R04 — F1 pending incoming semantics | PASS at calculator/contract scope | Focused cases prove pending counted cash is subtracted from reconciled count, confirmed opening alone affects expected cash, confirmation does not double count, and an unarrived request has no effect. Route/source evidence remains an S1-10 integration boundary. |
+| R05 — F2 manager correction | GAP — S1-07/S1-11 | The financial calculator correction vector passes. The current branch-manager cashier-breakdown writer changes financial values without appending a correction revision, preserving the full prior/new/reason/actor/time record, or notifying through a correction-specific workflow. Do not claim lifecycle enforcement. |
+| R06 — F3 scoped daily-submit gate | GAP — S1-07, with S1-10/S1-11 evidence dependency | Contracts define the server-derived included report/transfer scope. `submitDailyReport` currently sets the submitted flag without shortage-liability or required-transfer guards. `getShiftHandovers(..., 'to_manager')` supplies a branch/date/seven-day scope, but is not a proven complete report-revision/receipt set. |
+| R07 — expense custody does not reduce cashier expected cash | PASS at calculation boundary | `ShiftFinancialCalculatorTest::test_commission_and_branch_expenses_do_not_change_expected_cash` passes; expense custody is not a calculator input. |
+| R08 — surplus is branch-only, with no employee liability or sales increase | GAP — S1-07/S1-10 | The shared calculator produces a separate positive surplus and does not change gross sales. The legacy variance service also records positive `Over` variances as responsibility rows/default cashier assignments; Admin close avoids a positive-variance debit but remains a separate workflow. Correct classification in the legacy route depends on S1-10's independent count and signed-variance integration. |
+
+**Prior-regression gate: CLEARED.** The focused S1-06 validations/calculator have no detected regression. R05/R06 and the legacy side of R08 are target implementation gaps assigned to S1-07 or explicitly deferred integration owners, not regressions introduced by S1-06. This clearance authorizes the S1-07 source/design review; it does not claim the target is implemented.
+
+### S1-07 source trace and ownership review
+
+| Path | Current behavior | Problem | S1-07 disposition |
+|---|---|---|---|
+| Legacy variance routes: `Modules/Shift/routes/api.php`; `ShiftEndController@endShiftOnly`; `ShiftVarianceController@recordVariance` | Registered cashier and branch-manager aliases call inline request validators then `VarianceCalculationService::recordVariance`. End-with-handover and end-only are separate writers. | No explicit allocation confirmation field; standalone route loads shift by ID without owner/branch check; callers validate IDs only by global `exists:cashiers`; service uses floats, deletes existing detail rows, assigns current-cashier remainder, and accepts external/mixed remainder. | Requires complete branch-scoped S1-07 validation. Do not write until source variance/state ownership can be safely represented. |
 | Variance calculation / `ShiftEndService` / `CashierShift::calculateVariance` / handover service | Legacy formula is `total_sales - (cash_collected + card_payments + apps)`; positive is treated as shortage/`SHORT`. Handover approval can then re-dispatch `VarianceRecorded`. | Does not use independent counted cash or confirmed opening from the approved equation and has opposite shortage sign. | GAP owned by S1-10 integration; do not invent count/opening evidence or reverse sign based on ambiguous legacy `cash_collected`. |
 | Allocation model and schema | `shift_variance_details.responsible_cashier_id` has a foreign key to `cashiers`; a row has one `responsibility_status` and reviewer fields. `CashierShiftHistory` is an append-only action/old/new text record. | A BranchManager identity cannot be a valid assignee in the allocation FK. Employee accept/object status and final manager approval currently write the same status; manager approval updates all rows, overwriting employee responses. | Current S1-03 schema ADR is “Ready for review; not Accepted” and does not authorize new allocation identity/state schema. No migration added. A typed identity and distinct state representation require an accepted ADR/technical decision or a proven existing mapping. |
 | Employee identity / branch scope | Legacy Shift assignees are `Cashier` identities; branch is available through `cashiers.branch_id` and the parent `Shift.branch_id`. Admin employee allocation separately scopes `Employee` by `Operation.company_id` and `branch_id`. | Cashier and Admin Employee/BranchManager IDs are distinct identity domains; arbitrary cross-domain IDs cannot be safely treated as interchangeable. | Do not infer or expose cross-company/branch identity. Any mapping must be an explicit S1-10/S1-11 integration decision. |
