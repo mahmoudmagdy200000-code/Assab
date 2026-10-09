@@ -829,3 +829,14 @@ The four corrected conversion sites are `BridgeLegacyCashierShift`, `BridgeManag
 - The S1-06 calculator owns the canonical 11,500 / 5,000 / 2,500 / 1,000 / 3,000-halalas vector (net 10,000, VAT 1,500, expected 5,000, variance −2,000). This phase does not claim the legacy HTTP count/confirmed-opening evidence path is connected.
 - D6 remains **PROPOSED — Mahmoud review required** in the latest `money-contract.md`, `schema-adr.md`, and `api-contract.md`. No additive `expected_cash`, `counted_cash`, `cash_variance`, or `cash_variance_type` response contract was approved or implemented here.
 - Independent count, confirmed opening/receipt evidence, pending-incoming/rejection amounts, persisted signed report variance and its liability evidence adapter remain Phase 2 / S1-11 integration work as assigned by the task handoff. Dashboard and Flutter were not changed.
+
+### Conversion work outside Phase 1
+
+The word “conversion” in Phase 1 refers only to the four shift bridge sites listed above. Other monetary conversions remain separately owned:
+
+| Area | Existing conversion sites | Owner |
+|---|---|---|
+| Expenses | `ExpenseBridgeService` | Week 3 |
+| Procurement | `PurchaseOrderBridgeService`, `PurchaseReturnController`, `InventoryBridgeService`, `SupplierController`, `SupplierItemImportService` | Outside Sprint 1 |
+| Payroll import | `UploadController` salary import | Outside Sprint 1 |
+| Configured opening | `ShiftScheduleBridgeService` (halalas → SAR) | Shift scheduling configuration; not receipt evidence |

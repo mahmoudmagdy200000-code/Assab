@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Http\Middleware\IdempotencyKey;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use Tests\TestCase;
 
 /** No enclosing test transaction: these cases exercise a real business commit. */
@@ -15,6 +16,7 @@ class IdempotencyCommitRecoveryTest extends TestCase
 {
     use DatabaseTruncation;
 
+    #[RunInSeparateProcess]
     public function test_commit_then_throw_keeps_key_reserved_even_after_expiry(): void
     {
         $this->assertSame(0, DB::transactionLevel());
