@@ -764,3 +764,40 @@ Scope: the empty JSON action and authorization-scope replay findings on `a387872
 - A changed scope returns HTTP 409 `IDEMPOTENCY_SCOPE_CHANGED` without running the handler, recovering a processing reservation, or disclosing the stored reply. Clients must reconcile the result under current authorization; they must NOT automatically generate another key. An unchanged/restored scope retains existing replay behavior. Multiple historical scope records for one command fail closed for reconciliation.
 - Added focused regression cases for empty JSON replay, malformed JSON, expanded/replaced scope, restored-scope replay, and expired reservations under changed scope. **Tests NOT RUN, per Mahmoud's instruction.** PHP syntax checks passed for the four changed PHP files; `git diff --check` passed. No PHPUnit, database setup, or migrations were run.
 - The separately reported unbalanced-commit/throw defensive issue, Admin after-commit recovery gap and MySQL concurrency gate remain open. This commit does not accept or close S1-09.
+
+
+## S1-09 bounded closure — 2026-10-09 (Codex)
+
+Mahmoud requested completing only the necessary S1-09 follow-ups, committing/pushing on `sprint/01-financial-foundation`, and proceeding to S1-10. He subsequently authorized affected tests. Base: `7954b4a7b72c113a198a887cfef56a08134745a9`.
+
+### Necessary corrections completed
+
+- The unbalanced-commit guard retains its commit counter across the exception boundary. A writer that commits then throws before returning cannot cause deletion of the processing reservation. A commit followed by reopening a transaction also cannot hide behind the original nesting level. Existing completed snapshots are left intact.
+- The existing idempotency middleware selects `transaction` completion for `Accountant\ShiftController@close`, covering accountant, company and branch aliases without installing duplicate middleware. Shift close, operation creation and response snapshot share one commit. Other Admin commands retain their existing mode; this is not a rewrite of all Admin workflows.
+- The previous empty JSON and mutable-authorization-scope corrections now have executed regression evidence.
+
+### Executed verification
+
+PHP 8.4.14 / PHPUnit 12.4.0 / isolated SQLite `:memory:`. An untracked bootstrap remaps the existing vendor autoloader to this exact worktree, verifies the effective memory database, and restores its bootstrap error handlers before PHPUnit begins. No developer/production database is accessed.
+
+| Files | Result |
+|---|---|
+| CanonicalRequestPayloadTest, IdempotencyKeyMiddlewareTest, ShiftCloseChainTest, ShiftCommandIdempotencyHttpTest, ShiftTransferReceiptTest | **82 tests / 499 assertions PASS**, zero failures/errors/risky/skips; `storage/logs/s109-focused.xml` |
+| IdempotencyCommitRecoveryTest (separate process, DatabaseTruncation, no outer test transaction) | **1 test / 8 assertions PASS**; real commit → exception → ten-minute retry retains processing reservation with no recovery; `storage/logs/s109-commit-recovery.xml` |
+| Combined | **83 tests / 507 assertions PASS** |
+
+The Admin regression proves same-key replay across accountant/company aliases creates one operation, and forced snapshot persistence failure rolls back the shift/operation and permits the same key to retry. Existing mobile tests cover original-response replay after commit interruption.
+
+Initial harness attempts were not acceptance evidence: bootstrapping Laravel before PHPUnit left handler warnings (fixed in the local bootstrap); the combined run hit PHP's default 128 MB limit (rerun with `-d memory_limit=-1`); using DatabaseMigrations for the real-commit probe reached an unrelated legacy SQLite `down()` index error at teardown. The probe now uses Laravel's DatabaseTruncation, avoiding a wrapping transaction and unrelated rollback DDL. The final clean runs above supersede these attempts. No product migration was modified.
+
+### Closure and retained boundaries
+
+**S1-09 development scope is closed for progression to S1-10; this is not production-readiness acceptance.** No full suite was run. MySQL row-lock/deadlock/concurrent alias verification remains an explicit deployment gate.
+
+- Keep the existing 90-day replay response retention; no new retention design.
+- Preserve optional mobile keys for current client compatibility. A request without a key has no response-replay guarantee. S1-13/client-release integration and S1-15 must verify stable client keys and explicitly settle D4 enforcement before production acceptance; no Flutter work is included here.
+- Admin **shift close** now completes atomically. Other Admin commands still use after-commit response persistence and can remain fail-closed/reserved after an interruption; do not claim universal response recovery. No general Admin replay redesign was added.
+- Correction/rejection, trusted count, responsibility and daily-submit/reopen routes retain their documented S1-10/S1-11 ownership. No S1-10 work was performed in this closure.
+- Financial calculation, allocation authority and existing S1-11 no-release gates remain unchanged.
+
+Changed-file Pint: PASS (3 PHP files). Middleware PHP syntax: PASS. `git diff --check`: PASS.

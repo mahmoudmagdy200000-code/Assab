@@ -61,6 +61,12 @@ class IdempotencyKey
             return $next($request);
         }
 
+        // All three Admin shift-close aliases already use this middleware.
+        // Select the atomic policy once; adding another route middleware would
+        // reserve the same command twice through the company role groups.
+        if ($completion === null && $request->route()?->getActionName() === \Modules\Admin\Http\Controllers\Accountant\ShiftController::class.'@close') {
+            $completion = 'transaction';
+        }
         $completion = in_array($completion, self::ATOMIC_COMPLETIONS, true) ? $completion : 'after-commit';
         $legacyEnvelope = $envelope === 'legacy';
 
@@ -271,9 +277,11 @@ class IdempotencyKey
     private function runInCommandTransaction(Request $request, Closure $next, string $identityHash, bool $legacyEnvelope): Response
     {
         $committedOutsideSnapshot = false;
+        $commits = $this->realCommitCounter();
+        $commitsBefore = $commits['commits'];
 
         try {
-            return DB::transaction(function () use ($request, $next, $identityHash, $legacyEnvelope, &$committedOutsideSnapshot) {
+            return DB::transaction(function () use ($request, $next, $identityHash, $legacyEnvelope, &$committedOutsideSnapshot, $commits, $commitsBefore) {
                 $reservation = DB::table('asab_command_idempotency_keys')
                     ->where('identity_hash', $identityHash)
                     ->lockForUpdate()
@@ -289,17 +297,16 @@ class IdempotencyKey
                 }
 
                 $level = DB::transactionLevel();
-                $commits = $this->realCommitCounter();
-                $commitsBefore = $commits['commits'];
                 $response = $next($request);
 
                 // A wrapped writer that leaves its manual transaction unbalanced
                 // must never let a savepoint "commit" pass as the command commit.
-                if (DB::transactionLevel() !== $level) {
+                if (DB::transactionLevel() !== $level || $commits['commits'] > $commitsBefore) {
                     if (DB::transactionLevel() > $level) {
                         // Undo the leaked inner level; the outer rollback follows.
                         DB::rollBack($level);
-                    } elseif ($commits['commits'] > $commitsBefore) {
+                    }
+                    if ($commits['commits'] > $commitsBefore) {
                         // An unbalanced commit really committed the command outside
                         // its snapshot: keep the key reserved so nothing re-runs it.
                         $committedOutsideSnapshot = true;
@@ -332,7 +339,9 @@ class IdempotencyKey
 
             return $rollback->response;
         } catch (Throwable $exception) {
-            if ($committedOutsideSnapshot) {
+            if ($committedOutsideSnapshot || $commits['commits'] > $commitsBefore) {
+                // Also covers a handler committing and throwing before it returns.
+                // Completed snapshots are untouched by the processing-only update.
                 $this->holdReservationWithoutRecovery($identityHash);
             } else {
                 $this->releaseFailedReservation($identityHash);

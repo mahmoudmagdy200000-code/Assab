@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
@@ -71,6 +73,47 @@ class ShiftCloseChainTest extends TestCase
             'shift_type' => 'مسائي', 'started_at' => now(), 'status' => 'active',
             'sales_amount' => $sales, 'opening_float' => $float,
         ]);
+    }
+
+    public function test_admin_close_replays_across_aliases_with_one_operation(): void
+    {
+        $shift = $this->openShift();
+        $key = (string) Str::uuid();
+        $body = ['cashActualHalalas' => 47000];
+        $first = $this->acc()->withHeader('Idempotency-Key', $key)
+            ->postJson("/api/v1/accountant/shifts/{$shift->id}/close", $body);
+        $first->assertOk();
+        $retry = $this->acc()->withHeader('Idempotency-Key', $key)
+            ->postJson("/api/v1/company/me/shifts/{$shift->id}/close", $body);
+        $retry->assertOk();
+        $this->assertSame($first->getContent(), $retry->getContent());
+        $this->assertSame(1, Operation::where('module_key', 'shifts')->count());
+        $this->assertSame('completed', DB::table('asab_command_idempotency_keys')->sole()->status);
+    }
+
+    public function test_admin_close_snapshot_failure_rolls_back_and_same_key_can_retry(): void
+    {
+        if (DB::getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('SQLite failure-injection trigger; MySQL concurrency is a separate gate.');
+        }
+        $shift = $this->openShift();
+        $key = (string) Str::uuid();
+        $body = ['cashActualHalalas' => 47000];
+        DB::statement("CREATE TRIGGER block_admin_close_snapshot BEFORE UPDATE ON asab_command_idempotency_keys WHEN NEW.status = 'completed' BEGIN SELECT RAISE(ABORT, 'snapshot unavailable'); END");
+        try {
+            $failed = $this->acc()->withHeader('Idempotency-Key', $key)
+                ->postJson("/api/v1/company/me/shifts/{$shift->id}/close", $body);
+            $failed->assertStatus(500);
+            $this->assertSame('active', $shift->fresh()->status);
+            $this->assertSame(0, Operation::where('module_key', 'shifts')->count());
+            $this->assertSame(0, DB::table('asab_command_idempotency_keys')->count());
+        } finally {
+            DB::statement('DROP TRIGGER block_admin_close_snapshot');
+        }
+        $this->acc()->withHeader('Idempotency-Key', $key)
+            ->postJson("/api/v1/company/me/shifts/{$shift->id}/close", $body)->assertOk();
+        $this->assertSame(1, Operation::where('module_key', 'shifts')->count());
+        $this->assertSame('pending_review', $shift->fresh()->status);
     }
 
     private function ops(): OperationService
