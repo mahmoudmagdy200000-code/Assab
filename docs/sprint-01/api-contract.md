@@ -561,7 +561,20 @@ The whole object is `null` when the current revision has no count; individual ke
 | `HANDOVER_CORRECTION_PENDING` | D14: a rejected request with D11 evidence is unresolved; a new request is refused — correct it through the edit path. |
 | `HANDOVER_HAS_CORRECTION_EVIDENCE` | D14: a plain reject of a request that already carries D11 evidence is refused. |
 | `BRANCH_LIABILITY_APPROVAL_PENDING` | D15 (Admin): final approval of a counted shortage shift is refused until the branch manager approves liability (S1-11). |
-| `BRANCH_ALLOCATION_AUTHORITATIVE` | D15 (Admin): the accountant variance split is refused for a counted shortage; the branch allocation is authoritative. |
-| `REASSIGNMENT_SPLIT_REQUIRED` | D16 fallback: a reassignment of a counted report cannot be accepted by the legacy accept flow. |
+| `BRANCH_ALLOCATION_AUTHORITATIVE` | Existing temporary Admin guard for counted shortages. Its blanket accountant prohibition is business-superseded; retain the runtime guard until the versioned R5 accountant correction workflow in S1-11. Not final/accepted behavior. |
+| `REASSIGNMENT_SPLIT_REQUIRED` | Financial-write protection for an unseparated legacy predecessor report only. Never a work-start gate. Started predecessors retain their report row; incoming work uses an empty independent row. See the approved addendum. |
+| `SHIFT_NO_LONGER_PENDING` | Start re-read under the cashier-shift lock finds a changed owner or a status other than `NOT_STARTED`/`REASSIGNED`; no start/history write occurs. |
+
+Bounded closure C3: reassignment accept/reject lock `cashier_shifts` first, then the relevant `shift_handover_status` row, and re-read recipient, shift status and approval before writing. Stale transitions return 409 (`HANDOVER_CONFLICT`); changed recipient identity returns 403. SQLite sequential tests are not MySQL concurrency evidence.
 
 `reassign-with-handover` called with a cashier token now returns **403** (it previously reached the transaction and returned 500). Its `pos_receipt` and `variance.supporting_files` are stored only after authorization and shift existence checks and are deleted if the request fails afterwards.
+
+## Approved bounded addendum — 2026-10-09 — Phase 2 NOT ACCEPTED
+
+See [s1-10-approved-business-rules-addendum.md](s1-10-approved-business-rules-addendum.md). The old D15/D16 meanings above are superseded where they conflict with current business rules.
+
+- Reassign-with-handover for a started predecessor returns **the incoming work/report ID** in `data.shift.id` and the predecessor ID in `data.source_cashier_shift_id`. Preserve the predecessor ID for its reports/transfers; subsequent incoming accept/start/end/handover commands use the returned incoming ID. Existing schedule identity conflicts return 409 `INCOMING_REPORT_ALREADY_EXISTS`; no report is overwritten. Compatibility/release testing remains open; no client change is made here.
+- Incoming accept/start does not confirm cash, copy opening or liability, or imply predecessor financial close. Incoming report writers recheck ownership; direct unauthorized writes return 403 `ONLY_REPORT_OWNER` / `ONLY_REPORT_BRANCH_MANAGER`. A submitted predecessor cannot be restarted as incoming work (409 `REPORT_ALREADY_SUBMITTED`). Existing stale-state/identity errors remain.
+- `shifts:auto-end-overdue` only reminds/logs; no financial completion/bridge/count/shortage/receipt.
+- `CONFIRMED_RECEIPT_IMMUTABLE` remains. Accountant versioned correction (R5, first dependency), cash-request cancellation/replacement (R4b), and confirmed linked adjustment (R6) carry over to S1-11, which has not started. R3b remains trace-only; no pendingIncoming change.
+- `MYSQL CONCURRENCY = NOT_RUN`; Phase 2 awaits Mahmoud review at the submitted SHA.

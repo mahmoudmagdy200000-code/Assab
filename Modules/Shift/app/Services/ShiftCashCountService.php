@@ -42,7 +42,7 @@ class ShiftCashCountService
      */
     public function pendingIncomingHalalas(CashierShift $shift): int
     {
-        $since = $shift->actual_start_time ?? $shift->created_at;
+        $since = $shift->actual_start_time;
         $branchId = DB::table('shifts')->where('id', $shift->shift_id)->value('branch_id');
 
         $rows = ShiftTransferRejectionEvidence::query()
@@ -95,8 +95,15 @@ class ShiftCashCountService
         if ($branchId === null || $since === null) {
             return false;
         }
-        $recipientBranch = DB::table('cashiers')->where('id', $row->recipient_id)->value('branch_id');
-        if ((string) $recipientBranch !== (string) $branchId) {
+        $sourceBranch = $row->cashier_shift_handover_id
+            ? DB::table('cashier_shift_handovers as h')
+                ->join('cashier_shifts as c', 'c.id', '=', 'h.cashier_shift_id')
+                ->join('shifts as s', 's.id', '=', 'c.shift_id')
+                ->where('h.id', $row->cashier_shift_handover_id)->value('s.branch_id')
+            : DB::table('branch_manager_cash_transfers as t')
+                ->join('branch_manager_shifts as m', 'm.id', '=', 't.branch_manager_shift_id')
+                ->where('t.id', $row->branch_manager_cash_transfer_id)->value('m.branch_id');
+        if ($sourceBranch === null || (string) $sourceBranch !== (string) $branchId) {
             return false;
         }
 
@@ -107,7 +114,13 @@ class ShiftCashCountService
             ->where('cashier_shifts.id', '!=', $shift->id)
             ->whereNotNull('cashier_shifts.actual_start_time')
             ->where('cashier_shifts.actual_start_time', '>=', $row->rejected_at)
-            ->where('cashier_shifts.actual_start_time', '<', $since)
+            ->where(function ($query) use ($since, $shift) {
+                $query->where('cashier_shifts.actual_start_time', '<', $since)
+                    ->orWhere(function ($tie) use ($since, $shift) {
+                        $tie->where('cashier_shifts.actual_start_time', $since)
+                            ->where('cashier_shifts.id', '<', $shift->id);
+                    });
+            })
             ->exists();
 
         return ! $earlier;

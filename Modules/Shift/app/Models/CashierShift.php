@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Services\CashierShiftStartService;
 
 class CashierShift extends Model
 {
@@ -184,15 +185,8 @@ class CashierShift extends Model
     // Methods
     public function startShift(): void
     {
-        $this->update([
-            'status' => ShiftStatus::IN_PROGRESS,
-            'actual_start_time' => now(),
-        ]);
-
-        $this->recordHistory('started', null, [
-            'status' => ShiftStatus::IN_PROGRESS->value,
-            'actual_start_time' => now(),
-        ]);
+        $started = app(CashierShiftStartService::class)->startShift($this);
+        $this->setRawAttributes($started->getAttributes(), true);
     }
 
     public function endShift(array $data): void
