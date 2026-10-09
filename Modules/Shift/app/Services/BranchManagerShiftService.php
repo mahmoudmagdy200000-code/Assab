@@ -597,7 +597,16 @@ class BranchManagerShiftService
         $through = $managerShift->shift_date->toDateString();
 
         $cashierShiftIds = CashierShift::query()
-            ->whereBetween('shift_date', [$from, $through])
+            ->where(function ($inputs) use ($from, $through, $managerShift) {
+                $inputs->where(function ($recent) use ($from, $through) {
+                    $recent->whereDate('shift_date', '>=', $from)->whereDate('shift_date', '<=', $through);
+                })->orWhereHas('handover', function ($carried) use ($managerShift) {
+                    // The daily close includes approved, unclosed carry-over even beyond seven days.
+                    $carried->where('handover_to_type', 'branch_manager')
+                        ->where('handover_to_id', $managerShift->branch_manager_id)
+                        ->where('status', 'approved')->whereNull('daily_closed_at');
+                });
+            })
             ->whereHas('shift', fn ($query) => $query->where('branch_id', $managerShift->branch_id))
             ->orderBy('id')
             ->lockForUpdate()
@@ -605,6 +614,12 @@ class BranchManagerShiftService
             ->pluck('id');
 
         if ($cashierShiftIds->isNotEmpty()) {
+            $reports = \Modules\Shift\Models\ShiftReportAggregate::query()
+                ->where('source_type', 'cashier_shift')->whereIn('source_id', $cashierShiftIds)
+                ->orderBy('source_id')->lockForUpdate()->get();
+            if ($reports->contains(fn ($report) => (bool) $report->fresh_count_required)) {
+                throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('PHYSICAL_RECOUNT_REQUIRED');
+            }
             CashierShiftHandover::query()
                 ->whereIn('cashier_shift_id', $cashierShiftIds)
                 ->where('handover_to_type', 'branch_manager')

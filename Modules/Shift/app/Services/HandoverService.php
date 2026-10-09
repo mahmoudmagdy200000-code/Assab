@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Custody\Models\PersonalLedgerTransaction;
 use Modules\Shift\Enums\HandoverStatus;
@@ -17,6 +18,7 @@ use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\ShiftHandoverStatus;
 use Modules\Shift\Models\ShiftSalesBreakdown;
+use Modules\Shift\Models\ShiftTransferRejectionEvidence;
 use Modules\Shift\Models\ShiftVarianceAlert;
 use Modules\Shift\Models\ShiftVarianceDetail;
 use Symfony\Component\HttpFoundation\Response;
@@ -38,7 +40,8 @@ class HandoverService
     public function __construct(
         private ShiftReportRevisionService $revisions,
         private ShiftTransferReceiptService $receipts,
-        private ShiftCashCountService $cashCounts
+        private ShiftCashCountService $cashCounts,
+        private CountedReassignmentGuard $reassignmentGuard
     ) {}
 
     /**
@@ -56,9 +59,11 @@ class HandoverService
         DB::beginTransaction();
         try {
             $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
+            $this->reassignmentGuard->assertCanContinue($shift, $actor ?? auth()->user());
             if (CashierShiftHandover::query()->where('cashier_shift_id', $shift->id)->where('status', 'pending')->exists()) {
                 throw new ConflictHttpException('HANDOVER_ALREADY_PENDING');
             }
+            $this->assertNoCorrectionPending($shift);
             $handoverToType = $data['handover_to_type'] ?? 'cashier';
             $handoverToId = $data['handover_to_id'] ?? $data['next_cashier_id'] ?? null;
 
@@ -202,7 +207,8 @@ class HandoverService
         string $reviewerId,
         string $reviewerType,
         ?string $managerComment = null,
-        ?string $confirmedAmount = null
+        ?string $confirmedAmount = null,
+        ?string $expectedAttemptId = null
     ): CashierShift {
         $handoverStub = $this->currentHandover($shift);
 
@@ -211,7 +217,7 @@ class HandoverService
                 throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('ONLY_ADDRESSED_MANAGER_MAY_CONFIRM_RECEIPT');
             }
             $manager = \Modules\BranchManagers\Models\BranchManager::query()->findOrFail($reviewerId);
-            $this->receipts->confirmManagerHandover($handoverStub->id, $manager, $confirmedAmount, $managerComment);
+            $this->receipts->confirmManagerHandover($handoverStub->id, $manager, $confirmedAmount, $managerComment, $expectedAttemptId);
             DB::afterCommit(fn () => $this->clearBranchManagerShiftCacheForApproval($shift, $reviewerId));
 
             return $shift->fresh([
@@ -340,11 +346,58 @@ class HandoverService
     }
 
     /**
+     * D14: while a request rejected for an amount correction is unresolved (it has D11 evidence and no
+     * receipt), no new request may be created for the shift. The sender corrects the same request.
+     */
+    public function assertNoCorrectionPending(CashierShift $shift): void
+    {
+        $this->revisions->assertFreshCount($shift);
+        $rejected = CashierShiftHandover::query()
+            ->where('cashier_shift_id', $shift->id)
+            ->where('status', 'rejected')
+            ->pluck('id');
+        if ($rejected->isEmpty()) {
+            return;
+        }
+        $withEvidence = ShiftTransferRejectionEvidence::query()
+            ->whereIn('cashier_shift_handover_id', $rejected)
+            ->pluck('cashier_shift_handover_id')
+            ->unique();
+        if ($withEvidence->isEmpty()) {
+            return;
+        }
+        $received = DB::table('cashier_shift_handover_receipts')
+            ->whereIn('cashier_shift_handover_id', $withEvidence)
+            ->pluck('cashier_shift_handover_id');
+        if ($withEvidence->diff($received)->isNotEmpty()) {
+            throw new ConflictHttpException('HANDOVER_CORRECTION_PENDING');
+        }
+    }
+
+    /** D14: a plain rejection must not delete a request that carries D11 evidence. */
+    private function assertNoCorrectionEvidence(?CashierShiftHandover $handover): void
+    {
+        if ($handover && ShiftTransferRejectionEvidence::query()->where('cashier_shift_handover_id', $handover->id)->exists()) {
+            throw new ConflictHttpException('HANDOVER_HAS_CORRECTION_EVIDENCE');
+        }
+    }
+
+    /**
      * After a handover rejection that allows the cashier to redo end-shift: reset shift data, strip custody, remove handover rows.
      */
     public function revertCashierShiftAfterHandoverRejection(CashierShift $shift, array $audit = []): void
     {
         $shift = $shift->fresh();
+
+        // D18: the rejected report is no longer the current report. A new revision without a count
+        // makes the liability evidence unavailable (fail closed) until the cashier re-ends the shift.
+        // Previous revisions, counts and allocations stay as immutable history.
+        $reviewerIsCashier = ($audit['reviewed_by_type'] ?? null) === \Modules\Cashier\Models\Cashier::class;
+        $this->revisions->recordCashierRevision(
+            $shift,
+            $reviewerIsCashier || ! isset($audit['reviewed_by_id']) ? 'cashier' : 'branch_manager',
+            isset($audit['reviewed_by_id']) ? (string) $audit['reviewed_by_id'] : (string) $shift->cashier_id
+        );
 
         if ($audit !== []) {
             $shift->recordHistory(
@@ -403,6 +456,8 @@ class HandoverService
         array $files = [],
         ?string $comment = null
     ): array {
+        $uploadedFiles = [];
+        $committed = false;
         DB::beginTransaction();
         try {
             $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
@@ -431,11 +486,16 @@ class HandoverService
                 throw HandoverException::cannotBeRejected($handoverStatus->manager_approval_status);
             }
 
+            $this->assertNoCorrectionEvidence($handover);
+
             $uploadedFiles = [];
             foreach ($files as $file) {
                 $filename = 'rejection_'.$shift->id.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension();
+                $uploadedFiles[] = 'handover_rejections/'.$filename;
                 $path = $file->storeAs('handover_rejections', $filename, 'public');
-                $uploadedFiles[] = $path;
+                if ($path === false) {
+                    throw new \RuntimeException('Rejection evidence upload failed.');
+                }
             }
 
             $result = $handoverStatus->reject($reviewerId, $reviewerType, $reason, $uploadedFiles, $comment);
@@ -474,6 +534,7 @@ class HandoverService
             }
 
             DB::commit();
+            $committed = true;
 
             $this->clearBranchManagerShiftCacheForApproval($shift, $reviewerId);
 
@@ -488,11 +549,27 @@ class HandoverService
             ];
         } catch (\Throwable $e) {
             DB::rollBack();
+            if (! $committed) {
+                $this->discardRejectionAttemptFiles($uploadedFiles);
+            }
             Log::error('Failed to reject handover', [
                 'shift_id' => $shift->id,
                 'error' => $e->getMessage(),
             ]);
             throw $e;
+        }
+    }
+
+    private function discardRejectionAttemptFiles(array $paths): void
+    {
+        foreach ($paths as $path) {
+            try {
+                if (! Storage::disk('public')->delete($path)) {
+                    Log::warning('Could not remove failed rejection upload', ['path' => $path]);
+                }
+            } catch (\Throwable $cleanupError) {
+                Log::warning('Failed rejection upload cleanup failed', ['path' => $path, 'error' => $cleanupError->getMessage()]);
+            }
         }
     }
 
@@ -604,7 +681,8 @@ class HandoverService
         string $confirmedAmount,
         ?string $receivingShiftId = null,
         ?string $comment = null,
-        ?Response $commandResponse = null
+        ?Response $commandResponse = null,
+        ?string $expectedAttemptId = null
     ): void {
         $handover = $this->currentHandover($shift);
         if ($handover->handover_to_type !== 'cashier' || (string) $handover->handover_to_id !== $cashierId) {
@@ -620,7 +698,8 @@ class HandoverService
             $confirmedAmount,
             $receivingShiftId,
             $comment,
-            $commandResponse
+            $commandResponse,
+            $expectedAttemptId
         );
         $this->clearBranchManagerShiftCachesForBranch($shift);
     }
@@ -634,6 +713,8 @@ class HandoverService
         string $reason,
         array $files = []
     ): void {
+        $uploadedFiles = [];
+        $committed = false;
         DB::beginTransaction();
         try {
             $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
@@ -652,12 +733,17 @@ class HandoverService
                 throw new ConflictHttpException('HANDOVER_NOT_PENDING');
             }
 
+            $this->assertNoCorrectionEvidence($handover);
+
             // Upload rejection files
             $uploadedFiles = [];
             foreach ($files as $file) {
-                $filename = 'cashier_rejection_'.$shift->id.'_'.time().'.'.$file->getClientOriginalExtension();
+                $filename = 'cashier_rejection_'.$shift->id.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension();
+                $uploadedFiles[] = 'handover_rejections/'.$filename;
                 $path = $file->storeAs('handover_rejections', $filename, 'public');
-                $uploadedFiles[] = $path;
+                if ($path === false) {
+                    throw new \RuntimeException('Rejection evidence upload failed.');
+                }
             }
 
             $this->revertCashierShiftAfterHandoverRejection($shift, [
@@ -669,10 +755,14 @@ class HandoverService
             ]);
 
             DB::commit();
+            $committed = true;
 
             $this->clearBranchManagerShiftCachesForBranch($shift->fresh(['shift']));
         } catch (\Throwable $e) {
             DB::rollBack();
+            if (! $committed) {
+                $this->discardRejectionAttemptFiles($uploadedFiles);
+            }
             throw $e;
         }
     }
@@ -684,14 +774,15 @@ class HandoverService
         string $reviewerType,
         string $reason,
         string $attemptedConfirmedAmount,
-        string $correctionReason
+        string $correctionReason,
+        ?string $expectedAttemptId = null
     ): void {
         if (! in_array($correctionReason, ['input_error', 'actual_shortage'], true)) {
             throw new \InvalidArgumentException('Correction reason must be input_error or actual_shortage.');
         }
 
         $attemptedMinor = self::toMinorUnits($attemptedConfirmedAmount);
-        DB::transaction(function () use ($shift, $reviewerId, $reviewerType, $reason, $attemptedConfirmedAmount, $attemptedMinor, $correctionReason) {
+        DB::transaction(function () use ($shift, $reviewerId, $reviewerType, $reason, $attemptedConfirmedAmount, $attemptedMinor, $correctionReason, $expectedAttemptId) {
             $lockedShift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
             $handover = $this->currentHandover($lockedShift, true);
             $status = ShiftHandoverStatus::query()->where('cashier_shift_id', $lockedShift->id)->lockForUpdate()->firstOrFail();
@@ -725,6 +816,7 @@ class HandoverService
                 $previousAmount,
                 $attemptedConfirmedAmount,
                 $correctionReason,
+                $expectedAttemptId,
             );
 
             $this->writeCorrectionHistory($lockedShift, 'handover_amount_correction_rejected', $reviewerId, $reviewerType, [
@@ -829,12 +921,21 @@ class HandoverService
     {
         DB::beginTransaction();
         try {
+            $shift = $this->lockReassignmentState($shift);
             if ($shift->status !== ShiftStatus::REASSIGNED) {
                 throw HandoverException::notInReassignedStatus();
             }
             if ($shift->cashier_id !== $cashierId) {
                 throw HandoverException::notAuthorizedForReassignment();
             }
+
+            if ($shift->handoverStatus && $shift->handoverStatus->manager_approval_status !== 'pending') {
+                throw HandoverException::reassignedShiftNotPending();
+            }
+
+            // Operational acceptance cannot transfer a predecessor report or confirm its cash.
+            $shift = app(ReassignmentReportOwnershipService::class)->separate($shift);
+            $shift = $this->lockReassignmentState($shift);
 
             // Reassign without handover: no handover record; treat as already accepted.
             if (! $shift->handoverStatus) {
@@ -897,8 +998,11 @@ class HandoverService
         string $reason,
         array $files = []
     ): CashierShift {
+        $uploadedFiles = [];
+        $committed = false;
         DB::beginTransaction();
         try {
+            $shift = $this->lockReassignmentState($shift);
             if ($shift->status !== ShiftStatus::REASSIGNED) {
                 throw HandoverException::notInReassignedStatus();
             }
@@ -917,12 +1021,16 @@ class HandoverService
 
             $uploadedFiles = [];
             foreach ($files as $file) {
+                $filename = 'reassign_reject_'.$shift->id.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension();
+                $uploadedFiles[] = 'handover_rejections/reassign/'.$filename;
                 $path = $file->storeAs(
                     'handover_rejections/reassign',
-                    'reassign_reject_'.$shift->id.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension(),
+                    $filename,
                     'public'
                 );
-                $uploadedFiles[] = $path;
+                if ($path === false) {
+                    throw new \RuntimeException('Rejection evidence upload failed.');
+                }
             }
 
             $shift->handoverStatus->update([
@@ -935,10 +1043,26 @@ class HandoverService
                 'reviewed_at' => now(),
             ]);
 
+            if (app(ReassignmentReportOwnershipService::class)->ownsIncomingReport($shift)) {
+                // Rejecting work on an independent row leaves all predecessor financial evidence intact.
+                $shift->update(['status' => ShiftStatus::CANCELED]);
+                $shift->recordHistory('reassigned_shift_rejected', null, ['rejection_reason' => $reason]);
+                DB::commit();
+                $committed = true;
+
+                return $shift->fresh(['handoverStatus.reviewedBy', 'cashier', 'shift', 'originalCashier', 'reassignedBy']);
+            }
+
             $shift->update([
                 'cashier_id' => $shift->original_cashier_id,
                 'status' => ShiftStatus::IN_PROGRESS,
             ]);
+
+            // D16/D18: the outgoing cashier's submitted report is no longer current once the shift
+            // returns to them; a revision without a count keeps the evidence fail-closed until they re-end.
+            if ($this->revisions->currentCashierRevision($shift) !== null) {
+                $this->revisions->recordCashierRevision($shift, 'cashier', (string) $cashierId);
+            }
 
             $shift->recordHistory(
                 'reassigned_shift_rejected',
@@ -955,10 +1079,14 @@ class HandoverService
             );
 
             DB::commit();
+            $committed = true;
 
             return $shift->fresh(['handoverStatus.reviewedBy', 'cashier', 'shift', 'originalCashier', 'reassignedBy']);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             DB::rollBack();
+            if (! $committed) {
+                $this->discardRejectionAttemptFiles($uploadedFiles);
+            }
             Log::error('Failed to reject reassigned shift', [
                 'shift_id' => $shift->id,
                 'cashier_id' => $cashierId,
@@ -966,6 +1094,16 @@ class HandoverService
             ]);
             throw $e;
         }
+    }
+
+    /** Both transitions lock the owner first, then its approval row; never trust a preloaded relation. */
+    private function lockReassignmentState(CashierShift $shift): CashierShift
+    {
+        $locked = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
+        $status = ShiftHandoverStatus::query()->where('cashier_shift_id', $locked->id)->lockForUpdate()->first();
+        $locked->setRelation('handoverStatus', $status);
+
+        return $locked;
     }
 
     /**

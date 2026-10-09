@@ -12,6 +12,7 @@ use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Liability\ShiftLiabilityService;
 use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Models\ShiftLiabilityAllocation;
 use Modules\Shift\Models\ShiftReportRevision;
 use Modules\Shift\Models\ShiftSalesBreakdown;
 
@@ -22,17 +23,20 @@ class ShiftEndService
         private VarianceCalculationService $varianceService,
         private ShiftReportRevisionService $revisions,
         private ShiftCashCountService $cashCounts,
-        private ShiftLiabilityService $liability
+        private ShiftLiabilityService $liability,
+        private CountedReassignmentGuard $reassignmentGuard
     ) {}
 
     public function endShiftOnly(CashierShift $shift, array $data, Model $actor): CashierShift
     {
+        $this->reassignmentGuard->assertCanContinue($shift, $actor);
         $countedHalalas = $this->parseCountedCash($data);
         $data = $this->stageExternalFiles($shift, $data);
 
         DB::beginTransaction();
         try {
             $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
+            $this->reassignmentGuard->assertCanContinue($shift, $actor);
             if ($shift->status !== ShiftStatus::IN_PROGRESS) {
                 throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('SHIFT_NO_LONGER_OPEN');
             }
@@ -109,6 +113,7 @@ class ShiftEndService
 
     public function endShiftWithHandover(CashierShift $shift, array $data, Model $actor): CashierShift
     {
+        $this->reassignmentGuard->assertCanContinue($shift, $actor);
         // Stage uploads before the outer report + handover transaction begins.
         if (($data['pos_receipt'] ?? null) instanceof UploadedFile) {
             $data['pos_receipt'] = $this->uploadPOSReceipt($data['pos_receipt'], $shift->id);
@@ -234,14 +239,27 @@ class ShiftEndService
 
         // The cashier's own submission is their confirmation; a manager submitting for the cashier
         // needs a reason and leaves the cashier confirmation pending. No ledger entry (S1-11).
-        $this->liability->allocate(
-            $shift->id,
-            $actor,
-            $shares,
-            0,
-            $actor instanceof Cashier,
-            isset($data['allocation_reason']) ? (string) $data['allocation_reason'] : null,
-        );
+        // The shift row is locked by the caller; supersede any earlier version (re-end after a rejection).
+        $latestVersion = (int) ShiftLiabilityAllocation::where('cashier_shift_id', $shift->id)->max('version');
+        try {
+            $this->liability->allocate(
+                $shift->id,
+                $actor,
+                $shares,
+                $latestVersion,
+                $actor instanceof Cashier,
+                isset($data['allocation_reason']) ? (string) $data['allocation_reason'] : null,
+            );
+        } catch (ValidationException $e) {
+            // The end-of-shift request names this field `shortage_allocations`; keep the error on that key.
+            $errors = $e->errors();
+            if (isset($errors['allocations'])) {
+                $errors['shortage_allocations'] = $errors['allocations'];
+                unset($errors['allocations']);
+                throw ValidationException::withMessages($errors);
+            }
+            throw $e;
+        }
     }
 
     private function uploadPOSReceipt($file, string $shiftId): string

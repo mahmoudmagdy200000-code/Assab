@@ -35,6 +35,7 @@ class ShiftHandoverController extends Controller
             $validator = Validator::make($request->all(), [
                 'confirmed_amount' => 'required|'.ShiftMoneyValidation::SAR,
                 'receiving_shift_id' => 'nullable|uuid|exists:cashier_shifts,id',
+                'transfer_attempt_id' => 'nullable|uuid',
                 'comment' => 'nullable|string|max:500',
             ]);
             if ($validator->fails()) {
@@ -73,7 +74,8 @@ class ShiftHandoverController extends Controller
                     (string) $commandRequest->input('confirmed_amount'),
                     $commandRequest->input('receiving_shift_id'),
                     $commandRequest->get('comment'),
-                    $commandResponse
+                    $commandResponse,
+                    $commandRequest->input('transfer_attempt_id')
                 );
 
                 return $commandResponse;
@@ -141,6 +143,9 @@ class ShiftHandoverController extends Controller
                     'message' => 'Shift must be completed before handover',
                 ], 409);
             }
+
+            // D14: a request rejected for an amount correction is corrected, never replaced.
+            $this->handoverService->assertNoCorrectionPending($shiftModel);
 
             if ($shiftModel->handoverStatus && $shiftModel->handoverStatus->manager_approval_status !== 'pending') {
                 return response()->json([
@@ -254,7 +259,8 @@ class ShiftHandoverController extends Controller
                 $manager->id,
                 get_class($manager),
                 $request->get('manager_comment'),
-                $request->filled('confirmed_amount') ? (string) $request->input('confirmed_amount') : null
+                $request->filled('confirmed_amount') ? (string) $request->input('confirmed_amount') : null,
+                $request->input('transfer_attempt_id')
             );
 
             $isManagerReceipt = $handover->handover_to_type === 'branch_manager';
@@ -350,7 +356,8 @@ class ShiftHandoverController extends Controller
                         get_class($user),
                         $request->rejection_reason ?? '',
                         (string) $request->input('confirmed_amount'),
-                        $request->string('correction_reason')->toString()
+                        $request->string('correction_reason')->toString(),
+                        $request->input('transfer_attempt_id')
                     );
                 } else {
                     $this->handoverService->rejectHandoverByCashier(
@@ -445,7 +452,8 @@ class ShiftHandoverController extends Controller
                     get_class($manager),
                     $request->rejection_reason ?? '',
                     (string) $request->input('confirmed_amount'),
-                    $request->string('correction_reason')->toString()
+                    $request->string('correction_reason')->toString(),
+                    $request->input('transfer_attempt_id')
                 );
                 $current = $shiftModel->fresh('handoverStatus')->handoverStatus;
                 $result = [

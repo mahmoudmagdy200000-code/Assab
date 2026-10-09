@@ -899,3 +899,127 @@ Status: **in progress at this step.**
 ## S1-10 Phase 2 — D6 approved and implemented
 
 Mahmoud approved the reviewer's D6 recommendations on 2026-10-09 and asked for them to be reviewed against the Dashboard and AssabAPP before implementation. Refinements made on that review: (1) the keys are grouped in a nullable `cash_reconciliation` object, because `handover_details` exists only on `end-with-handover`, and `null` for the object removes the null-vs-zero ambiguity; (2) it is attached only to single-shift responses (the resource is also used by a list; attaching there would be an N+1); (3) `confirmed_opening_cash` is added so `expected_cash` can be explained; (4) the Dashboard needs no SAR keys, but receives `cashCountState` and `pendingIncomingCountedHalalas` through `ShiftPresenter` (new nullable `asab_shifts` columns, additive migration, no backfill) so the legacy mobile projection is not read as a count. The contract is frozen in `api-contract.md` → “S1-10 Phase 2”. Client note: the app models that exist today parse `closing_balance` as `int` in one card model; the new keys are additive so no existing model changes, and the new release must parse them as `num` and accept a `null` object. Dashboard and AssabAPP source were not modified or available here: client compatibility is SOURCE_INSPECTION_ONLY from the documented models.
+
+## S1-10 Phase 2 — corrections D14–D19
+
+Base `193ea3c7`. Commits: `d131fd72` (D18 + D14 + D19, combined because the edits overlap in the same files), `c189633f` (D15), `dd2977eb` (D16 fallback + F6 lock), `776df28d` (D17 + F8 + 403 + `shortage_allocations` key). Evidence label: **REVIEWER_EXECUTED, SQLite in-memory**.
+
+| Check | Test | Result |
+|---|---|---|
+| T1 plain recipient/manager rejection voids the count; shortage re-end gives allocation v2 | `ShiftRejectionCorrectionTest` | PASS |
+| T2 plain reject after D11 evidence → 409, no writes | `ShiftRejectionCorrectionTest` | PASS |
+| T3 new request → 409 `HANDOVER_CORRECTION_PENDING`; edit path reconciles to variance 0 | `ShiftRejectionCorrectionTest` | PASS |
+| T4/T5 Admin final approval and accountant split refused for counted shortage; bulk reports per item; balanced counted shift still closes | `ShiftCashCountHttpTest` | PASS |
+| T6 preview equals `end` on FIN-01 (30/50/−20, shortage 20), no writes; balanced, surplus, missing `counted_cash` 422, manager access, foreign cashier 404 | `ShiftCashCountHttpTest` | PASS |
+| T7 detail shows `cash_reconciliation` or null (both detail routes) | `ShiftCashCountHttpTest` | PASS |
+| T8 D19 attribution (first later shift only; other branch 0) | `ShiftRejectionCorrectionTest` | PASS |
+| T9 reassignment: counted accept → 409; reject voids and re-end supersedes; no-report reassignment unaffected; ended shift 400 no writes; cashier token 403 with no file stored | `ShiftReassignHandoverCountTest`, `ShiftCashCountHttpTest` | PASS |
+
+NOT_RUN: MySQL locking/concurrency (no isolated MySQL; deploy gate). NOT_RUN: AssabAPP and Dashboard (not modified). Full-suite result is recorded in the final report of this pass.
+
+## S1-10 final bounded closure C1–C5 — developer verification (2026-10-09)
+
+**Evidence label: DEVELOPER_EXECUTED / SELF_RUN, not independent reviewer evidence.** Starting/ending HEAD is `470669020e94f6cb1a45f3fe2e6fa49fc12a3b9d` plus the unpublished correction diff on `task/s1-10-final-bounded-closure`. Actual upstream was checked with `git ls-remote upstream refs/heads/sprint/01-financial-foundation` and matched that full SHA before edits; no divergent fork history was merged. Existing untracked files were preserved, including their SHA-256 hashes. No commit, push or PR occurred. Phase 1 acceptance is unchanged; Phase 2 is not Accepted pending Mahmoud's review of the eventual correction SHA.
+
+Before edits, source inspection established C1 at `CashierShiftController::startShift/startShiftByManager` and `CashierShift::startShift` (no counted-reassignment check), C2 at `ShiftCashCountService::ownsUnattributedEvidence` (current `cashiers.branch_id`), and C3 at `HandoverService::acceptReassignedShift/rejectReassignedShift` (preloaded model/relationship inside the transaction). New negative tests demonstrated the start/end and stale-transition bypasses and wrong-branch attribution. Initial negative run: 6 tests / 9 assertions / 5 failures / 1 fixture error; the fixture error was an observer-created duplicate manager workday and was corrected by reusing the existing row. A further C2 negative run demonstrated creation time incorrectly acting as start evidence: 2 tests / 2 assertions / 2 failures. These are pre-fix evidence, not remaining failures.
+
+| Correction | Fresh focused evidence |
+|---|---|
+| C1 | Shared `CountedReassignmentGuard`; the existing model start entry delegates to `CashierShiftStartService`, which locks/re-reads before any write. Cashier/manager start, acceptance, incoming `start-handover`, and incoming financial end return `REASSIGNMENT_SPLIT_REQUIRED` without changing report/count/history/custody/liability snapshots. `start-handover` checks before request/file work and rechecks under the shift lock. End also guards an already bypassed `IN_PROGRESS` row. No-report accept/start/end/handover remains compatible. |
+| C2 | Both cashier-handover and manager-transfer source branches survive recipient moves to another company/branch. Foreign branch gets 0; first actual later source-branch shift gets the evidence once; second shift gets 0. No actual start means no unattributed evidence; equal timestamps use ascending shift ID. |
+| C3 | Both transitions lock cashier shift then approval row, re-read status/identity/approval and reject stale accept-after-reject/reject-after-accept without writes. Counted rejection remains a permitted exit that voids the count; the continuation guard intentionally does not prohibit this exit. HTTP domain conflicts/denials map to 409/403. |
+| C4 | Manager plain rejection checks correction evidence before storing files. Focused upload conflict returns 409 with no public-disk file and unchanged request. This is a bounded business-conflict fix, not a storage redesign or generic failure-cleanup claim. |
+| C5 | Register/contract/state docs record the correction and retain not-Accepted, MySQL and client release gates. |
+
+**Runtime/DB:** PHP 8.4.26, PHPUnit 12.4.0. Before tests, Laravel was bootstrapped with process-local `APP_ENV=testing`, `DB_CONNECTION=sqlite`, `DB_DATABASE=:memory:`; the effective default/database/PDO driver were `sqlite` / `:memory:` / `sqlite`. No preserved MySQL baseline schema was used.
+
+Final command, after all product edits and changed-file Pint:
+
+```powershell
+$s110Php = 'D:\claude\AssabERP\.tools\s1-01\php-8.4.26\php.exe'
+$env:APP_ENV = 'testing'
+$env:DB_CONNECTION = 'sqlite'
+$env:DB_DATABASE = ':memory:'
+& $s110Php -d memory_limit=-1 vendor/bin/phpunit --do-not-cache-result --log-junit storage/logs/s1-10-closure-final-verified.xml tests/Feature/ShiftReassignHandoverCountTest.php tests/Feature/ShiftRejectionCorrectionTest.php tests/Feature/ShiftCashCountHttpTest.php tests/Feature/ShiftCashCountServiceTest.php tests/Feature/ShiftCommandIdempotencyHttpTest.php tests/Feature/ShiftCloseChainTest.php
+```
+
+**Final result: exit 0; 78 tests / 624 assertions / 0 errors / 0 failures / 0 skipped.** JUnit is valid and ignored by Git. D14, D15, D16, D17, D18, D19, F8 and FIN-01 PASS in this batch. FIN-01 persisted and preview results agree: gross 115, cards 50, apps 25, confirmed opening 10, count 30, net 100, VAT 15, expected cash 50, variance −20, shortage 20 SAR.
+
+Earlier expanded run used the same environment/runtime and `--do-not-cache-result --log-junit storage/logs/s1-10-closure-final-focused.xml`, with the six files above plus `ShiftEndAtomicityTest.php`, `ShiftTransferReceiptTest.php`, `ShiftCycleFixesTest.php`, `tests/Unit/ShiftFinancialCalculatorTest.php` and `ShiftLiabilityServiceTest.php` (all added feature files under `tests/Feature`). The historical result was exit 0; **186 tests / 1112 assertions / 0 errors / 0 failures / 0 skipped**. This preceded final service delegation/dependency wiring and the actual-start C2 boundary; it is historical expanded coverage, not final-worktree full-suite evidence.
+
+Static checks on all ten changed/new PHP files: changed-file `vendor/bin/pint --test` PASS; `php -l` PASS for each file. `git diff --check` PASS. No schema/migration, AssabAPP or Dashboard edits; S1-11 not started. **MYSQL CONCURRENCY = NOT_RUN**: no running isolated MySQL was verified; SQLite sequential evidence does not prove row locks/deadlocks. Separate-connection accept/reject and start/reassignment races remain a deployment/review gate. AssabAPP and Dashboard integration/release gates remain open. Publication requires separate user approval to the personal fork only.
+
+### Final C1 closure follow-up (2026-10-09)
+
+The remaining bypass was the incoming cashier `POST /api/v1/cashier/shifts/{shift}/start-handover` path. The HTTP action now calls the shared `CountedReassignmentGuard` before amount/destination/request-file processing, and `HandoverService::recordHandover` rechecks the same guard after locking and re-reading the shift, before mutation or financial effects. This closes the request boundary and the locked writer boundary while preserving the no-report flow.
+
+Fresh evidence on this worktree (PHP 8.4.26, PHPUnit 12.4.0, process-local SQLite `:memory:`): regression-only command filtered to `test_incoming_cashier_cannot_start_handover_on_a_counted_reassignment` first reproduced the defect (1 test / 3 assertions; expected 409, received 200). After the fix, the counted-reassignment guard and no-report compatibility tests passed (2 tests / 16 assertions). The four directly affected feature files then passed (105 tests / 815 assertions / 0 failures / 0 errors / 0 skipped); JUnit: `D:/claude/AssabERP/.tools/temp/s1-10-c1-affected-20261009.xml`.
+
+The required expanded six-file batch was attempted, but PHPUnit stopped before test discovery: its bootstrap loader reported it could not open `D:/claude/AssabERP/Assab/vendor/autoload.php`. The same PHP runtime reported `is_readable=false` for the bootstrap/config/test paths, despite PowerShell and `file_get_contents` being able to read them. No PHPUnit result was produced; the six-file batch is BLOCKED, not passed. The broader batch and full Unit/Feature/NFR suite were **NOT_RUN** because this required targeted gate did not complete. No exact full-suite regression comparison is claimed for this follow-up.
+
+MySQL concurrency remains exactly: **MYSQL S1-10 CONCURRENCY VALIDATION PENDING — ENVIRONMENT UNAVAILABLE**. SQLite sequential tests do not prove MySQL concurrency safety.
+Current C1 closure static-check follow-up: PHP syntax checks passed for all 10 changed/new PHP files; `git diff --check` passed. Changed-file Pint was attempted with `--test` but exited nonzero when its FileHandler could not write a temporary file under the configured PHP temporary directory; therefore Pint is **BLOCKED**, not a pass, for this follow-up.
+
+## Approved rule reconciliation — final temporary review submission (2026-10-09)
+
+This section supersedes earlier C1 start-blocking expectations and earlier blocked execution results for this round. Historical evidence above is retained. Base: `470669020e94f6cb1a45f3fe2e6fa49fc12a3b9d`. Implemented scope: A1 independent work/report ownership, R1 reminder-only timeout, A3 failed-attempt file cleanup; retain C2 attribution and C3 locking. R3b is investigation only; R5/R4b/R6 are deferred, with no S1-11 implementation.
+
+Final developer-executed command (PHP 8.4.26, PHPUnit 12.4.0, process-local SQLite memory database):
+
+```powershell
+$env:APP_ENV = 'testing'
+$env:DB_CONNECTION = 'sqlite'
+$env:DB_DATABASE = ':memory:'
+& 'D:\claude\AssabERP\.tools\s1-01\php-8.4.26\php.exe' -d memory_limit=-1 vendor/bin/phpunit --do-not-cache-result --no-progress --log-junit 'D:\claude\AssabERP\.tools\temp\s1-10-approved-final.xml' tests/Feature/ShiftReassignHandoverCountTest.php tests/Feature/ShiftRejectionCorrectionTest.php tests/Feature/ShiftCashCountHttpTest.php tests/Feature/ShiftCashCountServiceTest.php tests/Feature/ShiftCommandIdempotencyHttpTest.php tests/Feature/ShiftCloseChainTest.php tests/Feature/ShiftLegacyMoneyCompatibilityTest.php tests/Unit/ShiftFinancialCalculatorTest.php
+```
+
+**Final result: exit 0; 130 tests / 888 assertions / 0 failures / 0 errors / 0 skipped; elapsed 03:18.802.** Independent start, predecessor report ownership, incoming end/report/handover, no receipt/opening before confirmation, timeout without financial close, FIN-01, D14/D17/D18, historical source-branch attribution, and failed-upload cleanup passed. New multi-hop and legacy-accept response-ID regressions also passed. Initial red regressions and subsequent green runs demonstrated the approved defects; intermediate fixture failures were corrected before this final batch.
+
+PHP syntax and changed-file Pint `--test`: PASS for all 13 changed/new PHP files. `git diff --check`: PASS. Earlier PHP readability/temp-file sandbox failures were resolved by running the authorized isolated checks outside that sandbox; they are not remaining test failures. A partial independent source review identified multi-hop ownership and discarded legacy accept return-ID defects; both were fixed and covered by regressions. The reviewer stopped before a complete review, so no full independent-review pass is claimed.
+
+**MYSQL CONCURRENCY = NOT_RUN**: no running isolated MySQL server was verified. Separate-connection concurrency remains an open gate. Full application suite = NOT_RUN in this round. AssabAPP/Dashboard compatibility and release checks = NOT_RUN; neither client was modified. SQLite tests do not establish MySQL lock/deadlock safety.
+
+Mahmoud's delivery instruction: preserve the work on `review/s1-10-rule-reconciliation`, verify personal-fork origin, then ordinary push of that branch only. Leave `sprint/01-financial-foundation` unchanged; no merge, cherry-pick or force-push. Provide the submitted SHA, commit/file list and base-to-submitted diff after publication. **Phase 2 NOT ACCEPTED** pending Mahmoud's KEEP / ADAPT / DROP decision; S1-10R and S1-11 have not started.
+
+## S1-10R F01/F02 — approved bounded correction (2026-10-09)
+
+Review base: `e5907558148f2cd3cdf5db90d5a6ab8d622a4854`, branch `review/s1-10-rule-reconciliation`. Mahmoud approved the additive operational-chain and physical-attempt/return decision after the earlier design STOP. This entry supersedes the earlier S1-10R-not-started and R3b-investigation-only statements only for the approved bounded contract in `s1-10r-operational-and-physical-return.md`. R5/R4b/R6 and full reopen orchestration remain deferred; S1-11 is not started. Phase 2 remains **NOT ACCEPTED**.
+
+### DEVELOPER_EXECUTED — final focused regression
+
+PHP 8.4.26 / PHPUnit 12.4.0, process-local SQLite `:memory:`. No production schema or data was used. This command ran after all production changes and the source review fixes; only test whitespace formatting was corrected afterward.
+
+```powershell
+$env:APP_ENV = 'testing'
+$env:DB_CONNECTION = 'sqlite'
+$env:DB_DATABASE = ':memory:'
+& 'D:\claude\AssabERP\.tools\s1-01\php-8.4.26\php.exe' -d memory_limit=-1 vendor/bin/phpunit --do-not-cache-result --no-progress --log-junit 'D:\claude\AssabERP\.tools\temp\s1-10r-focused-final-v2.xml' tests/Feature/ShiftOperationalResponsibilityTest.php tests/Feature/ShiftTransferPhysicalReturnTest.php tests/Feature/ShiftReturnFinalizationGuardTest.php tests/Feature/ShiftReassignHandoverCountTest.php tests/Feature/ShiftRejectionCorrectionTest.php tests/Feature/ShiftCashCountHttpTest.php tests/Feature/ShiftCashCountServiceTest.php tests/Feature/ShiftCommandIdempotencyHttpTest.php tests/Feature/ShiftCloseChainTest.php tests/Feature/ShiftLegacyMoneyCompatibilityTest.php tests/Feature/LiveShiftBoardTest.php tests/Feature/ManagerLiveShiftBoardTest.php tests/Unit/ShiftFinancialCalculatorTest.php
+```
+
+**Exit 0: 166 tests / 1119 assertions / 0 failures / 0 errors / 0 skipped; elapsed 02:40.806.** Covers assignment versus actual start, atomic operational transfer, predecessor report/count/shortage ownership and later financial close, projection failure/recovery, historical chain linkage, retry/stale competing starts, no financial movement at start, typed retained/initiated/confirmed returns, new attempts on redelivery, immutable historical count/revision, fresh recount, final/daily/carry-over guards, original sender authority, historical branch/company provenance, idempotency, receipt immutability, legacy NULL-attempt compatibility, R1/C2/C3/C4/FIN-01/D14/D17/D18.
+
+Negative regressions reproduced the defects before their fixes: incoming direct legacy reassignment and historical NULL-chain starts; typed rejection without the exact attempt ID; manager return crossing midnight into a submitted receiving day; latest-count timestamp ties; Admin close/final approval and manager daily submission accepting a report requiring recount; and an old approved carry-over report bypassing the recent-day daily guard. Final focused evidence above is green; initial red evidence is not a remaining failure.
+
+### SOURCE_INSPECTION_ONLY — review
+
+The source reviewer checked the bounded diff and the follow-up corrections. Reported stale typed rejection, manager receiving-workday, repeatable-read reservation/idempotency/receipt/rejection reads, and report-boundary/count issues were corrected and re-inspected. No additional concrete critical/important finding was reported within the approved scope. This is source inspection, not independent runtime or MySQL concurrency verification.
+
+### DEVELOPER_EXECUTED — static checks
+
+All 26 changed/new PHP files passed `php -l` and changed-file `vendor/bin/pint --test`; `git diff --check` passed. Two additive migrations were exercised by the SQLite tests; applied historical migrations were not rewritten. Existing unrelated untracked files were preserved and excluded from publication.
+
+### NOT_RUN — remaining gates
+
+**MYSQL CONCURRENCY = NOT_RUN.** No isolated running MySQL server was verified. Separate-connection operational-start races, receipt versus return, return reservation and repeatable-read visibility remain open; SQLite sequential tests do not prove lock ordering/deadlock or MySQL DDL safety. Production MySQL migration/rollout and AssabAPP/Dashboard integration/release checks are **NOT_RUN**. No client changes, sprint merge/cherry-pick, acceptance, deployment or S1-11 implementation are authorized by this evidence.
+
+### DEVELOPER_EXECUTED — final full suite
+
+After the same process-local environment assignments shown above, the complete configured Unit/Feature/NFR suite ran:
+
+```powershell
+& 'D:\claude\AssabERP\.tools\s1-01\php-8.4.26\php.exe' -d memory_limit=-1 vendor/bin/phpunit --do-not-cache-result --no-progress --log-junit 'D:\claude\AssabERP\.tools\temp\s1-10r-full-final-v2.xml'
+```
+
+**Exit 0: 1522 tests / 8997 assertions / 0 failures / 0 errors / 1 skipped; elapsed 22:22.541, memory 1.87 GB.** Log: `D:/claude/AssabERP/.tools/temp/s1-10r-full-final-v2.log`. The skipped identity is `Tests\Feature\BranchFixedAssetsUploadPersistenceTest::test_a_driver_error_is_not_leaked_to_the_client`: its existing conditional skip applies because SQLite does not enforce the column length (`tests/Feature/BranchFixedAssetsUploadPersistenceTest.php:198`). This does not close any MySQL gate.
+
+No bad full-suite identity remains to classify as baseline versus newly introduced. An isolated archive of e5907558 was prepared without changing the checkout; reflection and effective PDO checks verified baseline paths and SQLite `:memory:`, and its calculator smoke test passed (23 tests / 79 assertions). A complete baseline suite was not run or claimed. Earlier interrupted pre-final runs are not final evidence. Only the two approved corrections and their evidence are submitted above e5907558; origin was verified as `https://github.com/mohameelsherbini/Assab.git`, and the sprint branch remains at `470669020e94f6cb1a45f3fe2e6fa49fc12a3b9d`.

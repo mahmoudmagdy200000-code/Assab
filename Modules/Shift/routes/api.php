@@ -14,6 +14,17 @@ use Modules\Shift\Http\Controllers\ShiftHandoverController;
 use Modules\Shift\Http\Controllers\ShiftRequestsController;
 use Modules\Shift\Http\Controllers\ShiftVarianceController;
 
+// Explicit physical presentation/return facts; existing legacy request APIs retain NULL attempt identity.
+Route::middleware('auth:sanctum')->group(function () {
+    $controller = \Modules\Shift\Http\Controllers\ShiftTransferAttemptController::class;
+    Route::post('shift-transfers/{type}/{id}/present', [$controller, 'present'])->whereIn('type', ['handover', 'manager_transfer']);
+    Route::post('shift-transfer-attempts/{attempt}/returns', [$controller, 'initiate']);
+    Route::post('shift-transfer-attempts/{attempt}/reject', [$controller, 'reject']);
+    Route::post('shift-transfer-attempts/{attempt}/confirm-receipt', [$controller, 'receipt']);
+    Route::post('shift-transfer-returns/{return}/confirm', [$controller, 'confirm']);
+    Route::post('shift-reports/{shift}/recount', [$controller, 'recount']);
+});
+
 /*
 |--------------------------------------------------------------------------
 | Branch Manager - Shift Management Routes
@@ -175,6 +186,9 @@ Route::prefix('branch-manager')
                 Route::post('end', [ShiftEndController::class, 'endShiftOnly'])
                     ->name('shifts.end')
                     ->middleware('asab.idempotency:optional,transaction,legacy');
+                Route::post('cash-reconciliation/preview', [ShiftEndController::class, 'previewCashReconciliation'])
+                    ->name('shifts.cash-reconciliation.preview')
+                    ->middleware('throttle:60,1');
                 Route::post('end-with-handover', [ShiftEndController::class, 'endShiftWithHandover'])
                     ->name('shifts.end-with-handover')
                     ->middleware('asab.idempotency:optional,transaction,legacy');
@@ -360,6 +374,9 @@ Route::prefix('cashier')
         Route::post('shifts/{shift}/end', [ShiftEndController::class, 'endShiftOnly'])
             ->name('cashier.shifts.end')
             ->middleware('asab.idempotency:optional,transaction,legacy');
+        Route::post('shifts/{shift}/cash-reconciliation/preview', [ShiftEndController::class, 'previewCashReconciliation'])
+            ->name('cashier.shifts.cash-reconciliation.preview')
+            ->middleware('throttle:60,1');
         Route::post('shifts/{shift}/end-with-handover', [ShiftEndController::class, 'endShiftWithHandover'])
             ->name('cashier.shifts.end-with-handover')
             ->middleware('asab.idempotency:optional,transaction,legacy');

@@ -8,7 +8,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ResponsibilityType;
 use Modules\Shift\Enums\ShiftStatus;
@@ -395,14 +397,38 @@ class ReassignmentShiftController extends Controller
             ], 422);
         }
 
-        // Stage the upload before the financial transaction (no file I/O inside it).
+        // Authorize and confirm the shift exists BEFORE anything is written to storage (cashier tokens reach
+        // this route through the shared group; only a branch manager of the shift's branch may continue).
+        $actor = auth()->user();
+        if (! $actor instanceof BranchManager || ! $actor->branch_id) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+        $preShift = CashierShift::withoutEagerLoads()->with('shift:id,branch_id')->find($shift);
+        if (! $preShift) {
+            return response()->json(['success' => false, 'message' => 'Shift not found', 'error' => 'The specified shift does not exist'], 404);
+        }
+        if ($preShift->shift?->branch_id !== $actor->branch_id) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized: This shift does not belong to your branch'], 403);
+        }
+
+        // Stage uploads before the financial transaction (no file I/O inside it); remove them if the request fails.
         $posReceiptPath = null;
+        $stagedSupporting = [];
         if ($request->hasFile('pos_receipt')) {
             $posReceiptPath = $request->file('pos_receipt')->store('handovers/receipts', 'public');
         }
+        foreach ((array) data_get($request->allFiles(), 'variance.supporting_files', []) as $file) {
+            $stagedSupporting[] = $file->storeAs('variance/supporting-files', 'reassign_'.$shift.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension(), 'public');
+        }
+        $discardStaged = function () use (&$posReceiptPath, &$stagedSupporting): void {
+            $paths = array_filter([$posReceiptPath, ...$stagedSupporting]);
+            if ($paths !== []) {
+                Storage::disk('public')->delete($paths);
+            }
+        };
 
         try {
-            return DB::transaction(function () use ($request, $shift, $posReceiptPath) {
+            $response = DB::transaction(function () use ($request, $shift, $posReceiptPath, $stagedSupporting) {
                 $manager = auth()->user();
 
                 // Ensure the user is a branch manager
@@ -414,7 +440,7 @@ class ReassignmentShiftController extends Controller
                 }
 
                 // البحث مرة واحدة فقط
-                $shiftModel = CashierShift::with(['cashier', 'shift'])->find($shift);
+                $shiftModel = CashierShift::with(['cashier', 'shift'])->lockForUpdate()->find($shift);
 
                 if (! $shiftModel) {
                     return response()->json([
@@ -485,7 +511,11 @@ class ReassignmentShiftController extends Controller
                 }
 
                 // Store original cashier
-                $originalCashierId = $shiftModel->original_cashier_id ?? $shiftModel->cashier_id;
+                if (CashierShift::where('cashier_id', $newCashier->id)->where('shift_id', $shiftModel->shift_id)
+                    ->whereDate('shift_date', $shiftModel->shift_date)->whereKeyNot($shiftModel->id)->lockForUpdate()->exists()) {
+                    throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('INCOMING_REPORT_ALREADY_EXISTS');
+                }
+                $originalCashierId = $shiftModel->cashier_id;
                 $originalCashier = Cashier::find($originalCashierId);
 
                 if (! $originalCashier) {
@@ -496,7 +526,8 @@ class ReassignmentShiftController extends Controller
                 }
 
                 // Create handover
-                $handover = $shiftModel->handoverStatus()->create([
+                // An existing source approval/request is evidence, not the incoming work acceptance.
+                $handover = $shiftModel->handoverStatus()->firstOrCreate([], [
                     'handover_amount' => $request->handover_amount,
                     'handover_notes' => $request->handover_notes,
                     'handover_type' => 'reassignment',
@@ -546,16 +577,7 @@ class ReassignmentShiftController extends Controller
                     $varianceInput = $request->variance;
                     $responsibilityType = $this->normalizeResponsibilityType($varianceInput['responsibility_type'] ?? 'self');
 
-                    $supportingFiles = null;
-                    if (! empty($varianceInput['supporting_files']) && is_array($varianceInput['supporting_files'])) {
-                        $paths = [];
-                        foreach ($varianceInput['supporting_files'] as $file) {
-                            if (is_object($file) && method_exists($file, 'store')) {
-                                $paths[] = $file->storeAs('variance/supporting-files', 'reassign_'.$shiftModel->id.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension(), 'public');
-                            }
-                        }
-                        $supportingFiles = $paths ?: null;
-                    }
+                    $supportingFiles = $stagedSupporting ?: null;
 
                     $reason = $varianceInput['reason'] ?? $varianceInput['notes'] ?? null;
 
@@ -681,10 +703,14 @@ class ReassignmentShiftController extends Controller
                         'Shift reassigned with handover by branch manager',
                 ]);
 
+                $sourceCashierShiftId = $shiftModel->id;
+                $shiftModel = app(\Modules\Shift\Services\ReassignmentReportOwnershipService::class)->separate($shiftModel);
+
                 return response()->json([
                     'success' => true,
                     'message' => 'Shift reassigned successfully with handover',
                     'data' => [
+                        'source_cashier_shift_id' => $sourceCashierShiftId,
                         'summary' => [
                             'previous_cashier' => $originalCashier->name,
                             'next_cashier_selected' => $newCashier->name,
@@ -713,7 +739,15 @@ class ReassignmentShiftController extends Controller
                     ],
                 ]);
             });
+
+            if ($response->getStatusCode() >= 400) {
+                $discardStaged();
+            }
+
+            return $response;
         } catch (\Throwable $e) {
+            $discardStaged();
+
             return HandoverErrorResponse::from($e, 'reassign shift with handover');
         }
     }

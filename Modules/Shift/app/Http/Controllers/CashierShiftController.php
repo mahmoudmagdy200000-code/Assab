@@ -337,6 +337,8 @@ class CashierShiftController extends BaseController
                     'progress_percentage' => $progress['progress_percentage'],
                 ],
             ], 'Shift started successfully');
+        } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
+            return HandoverErrorResponse::from($e, 'start shift');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -388,13 +390,19 @@ class CashierShiftController extends BaseController
                 ->where('cashier_id', $cashier->id)
                 ->findOrFail($shift);
 
-            $this->handoverService->acceptReassignedShift($shiftModel, $cashier->id);
+            $sourceId = $shiftModel->id;
+            $shiftModel = $this->handoverService->acceptReassignedShift($shiftModel, $cashier->id);
 
             $shiftModel->loadFullRelationships();
 
             return $this->successResponse([
                 'shift' => new ShiftDetailResource($shiftModel->fresh()),
+                'source_cashier_shift_id' => $sourceId !== $shiftModel->id ? $sourceId : null,
             ], 'Shift accepted successfully. You can start it when scheduled.');
+        } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
+            return HandoverErrorResponse::from($e, 'reassign_accept');
+        } catch (\Modules\Shift\Exceptions\HandoverException $e) {
+            return HandoverErrorResponse::from($e, 'reassign_accept');
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return $this->errorResponse('Shift not found or not assigned to you.', 404);
         } catch (\InvalidArgumentException $e) {
@@ -436,6 +444,8 @@ class CashierShiftController extends BaseController
             return $this->successResponse([
                 'message' => 'Shift rejected. It has been reverted to the original cashier.',
             ], 'Reassigned shift rejected successfully');
+        } catch (\Modules\Shift\Exceptions\HandoverException $e) {
+            return HandoverErrorResponse::from($e, 'reassign_reject');
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return $this->errorResponse('Shift not found or not assigned to you.', 404);
         } catch (\InvalidArgumentException $e) {
@@ -949,6 +959,8 @@ class CashierShiftController extends BaseController
                 new ShiftDetailResource($shiftModel),
                 'Shift started successfully by branch manager'
             );
+        } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
+            return HandoverErrorResponse::from($e, 'start shift by manager');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }

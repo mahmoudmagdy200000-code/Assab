@@ -535,7 +535,7 @@ Implemented legacy-input noise normalization (N-01, D10 option (a)), stored-spli
 
 `POST …/shifts/{shift}/end`, `…/end-with-handover` (cashier and manager groups) and the manager `…/reassign-with-handover` (when `current_sales` is sent) now require `counted_cash` (SAR, ≤ 2 decimals, ≥ 0) and accept `shortage_allocations[]` (`responsible_type`, `responsible_id`, `amount` in SAR) plus `allocation_reason`. A shortage (`(counted − pending incoming) − expected < 0`) requires an allocation whose total equals it exactly, inside the shift's branch and company; balanced and surplus reports reject allocations. 422 field errors: `counted_cash`, `card_payments` (cards + apps > gross), `shortage_allocations` / `allocations`; 403 `RESPONSIBLE_ACTOR_OUT_OF_SCOPE`; 409 `LIABILITY_COMPANY_MAPPING_REQUIRED`. Retry protection is the S1-09 optional `Idempotency-Key`. The legacy `variance`/`variance_type` meaning and type are unchanged; no existing key was renamed or removed.
 
-**D6 response contract (approved by Mahmoud 2026-10-09; frozen):** single-shift responses add `cash_reconciliation` — in `data.summary` and `data.shift` of `end`, `end-with-handover`, `start-handover`, in `data.shift` of completed-shift detail and `reassign-with-handover`, and nowhere in lists:
+**D6 response contract (approved by Mahmoud 2026-10-09; frozen):** single-shift responses add `cash_reconciliation` — in `data.summary` and `data.shift` of `end` and `end-with-handover`, in `data.shift` only of `start-handover`, in `data.shift` of completed-shift detail and `reassign-with-handover`, and nowhere in lists:
 
 | Key | Type / unit | Rule |
 |---|---|---|
@@ -547,3 +547,34 @@ Implemented legacy-input noise normalization (N-01, D10 option (a)), stored-spli
 | `confirmed_opening_cash` | number, SAR | confirmed receipts only (D2) |
 
 The whole object is `null` when the current revision has no count; individual keys are never null. JSON drops a zero fraction (`30.0` → `30`), like the legacy SAR fields, so clients must parse `num`. Admin `ShiftPresenter` additionally returns `cashCountState` (`counted`/`unknown`/`null`) and `pendingIncomingCountedHalalas` (integer halalas); `unknown` marks the legacy mobile projection, which is not evidence.
+
+## S1-10 Phase 2 corrections D14–D19 (2026-10-09) — PROPOSED for Mahmoud's review, not accepted
+
+**D17 — reconciliation on shift detail and read-only preview (implemented).**
+* `cash_reconciliation` (same object and null policy as D6) is now also returned on `GET /api/{v1/}branch-manager/shifts/{shift}` and `GET …/shifts/cashiers/{shift}` (the endpoints AssabAPP reads, `CashierShiftResource`). Lists never carry it.
+* `POST /api/{v1/}cashier/shifts/{shift}/cash-reconciliation/preview` and `POST /api/{v1/}branch-manager/shifts/{shift}/cash-reconciliation/preview` — same access as `end` (`getShiftForUser`: the owning cashier, or a manager of the shift's branch; otherwise 404), `throttle:60,1`, **no idempotency middleware, no writes**. Body: `total_sales`, `card_payments`, `aggregators[]`, `counted_cash` (SAR, ≤ 2 decimals; `counted_cash` required → 422). Response `data`: `cash_reconciliation` (as D6), `shortage_to_allocate` (SAR, `0` when none) and `allocation_required` (bool). Shift must be `in_progress` (400 otherwise). It uses the same pure computation as the persisted count, so preview and `end` cannot diverge.
+* Incomplete or wrong shortage allocation on `end` / `end-with-handover` / `reassign-with-handover` is a 422 on the field **`shortage_allocations`** (previously `allocations`); the Liability service still emits code `ALLOCATION_INCOMPLETE` when evidence is checked at approval.
+
+**New error codes (all 409 unless noted; body `{success:false,message,code}`):**
+| Code | Meaning |
+|---|---|
+| `HANDOVER_CORRECTION_PENDING` | D14: a rejected request with D11 evidence is unresolved; a new request is refused — correct it through the edit path. |
+| `HANDOVER_HAS_CORRECTION_EVIDENCE` | D14: a plain reject of a request that already carries D11 evidence is refused. |
+| `BRANCH_LIABILITY_APPROVAL_PENDING` | D15 (Admin): final approval of a counted shortage shift is refused until the branch manager approves liability (S1-11). |
+| `BRANCH_ALLOCATION_AUTHORITATIVE` | Existing temporary Admin guard for counted shortages. Its blanket accountant prohibition is business-superseded; retain the runtime guard until the versioned R5 accountant correction workflow in S1-11. Not final/accepted behavior. |
+| `REASSIGNMENT_SPLIT_REQUIRED` | Financial-write protection for an unseparated legacy predecessor report only. Never a work-start gate. Started predecessors retain their report row; incoming work uses an empty independent row. See the approved addendum. |
+| `SHIFT_NO_LONGER_PENDING` | Start re-read under the cashier-shift lock finds a changed owner or a status other than `NOT_STARTED`/`REASSIGNED`; no start/history write occurs. |
+
+Bounded closure C3: reassignment accept/reject lock `cashier_shifts` first, then the relevant `shift_handover_status` row, and re-read recipient, shift status and approval before writing. Stale transitions return 409 (`HANDOVER_CONFLICT`); changed recipient identity returns 403. SQLite sequential tests are not MySQL concurrency evidence.
+
+`reassign-with-handover` called with a cashier token now returns **403** (it previously reached the transaction and returned 500). Its `pos_receipt` and `variance.supporting_files` are stored only after authorization and shift existence checks and are deleted if the request fails afterwards.
+
+## Approved bounded addendum — 2026-10-09 — Phase 2 NOT ACCEPTED
+
+See [s1-10-approved-business-rules-addendum.md](s1-10-approved-business-rules-addendum.md). The old D15/D16 meanings above are superseded where they conflict with current business rules.
+
+- Reassign-with-handover for a started predecessor returns **the incoming work/report ID** in `data.shift.id` and the predecessor ID in `data.source_cashier_shift_id`. Preserve the predecessor ID for its reports/transfers; subsequent incoming accept/start/end/handover commands use the returned incoming ID. Existing schedule identity conflicts return 409 `INCOMING_REPORT_ALREADY_EXISTS`; no report is overwritten. Compatibility/release testing remains open; no client change is made here.
+- Incoming accept/start does not confirm cash, copy opening or liability, or imply predecessor financial close. Incoming report writers recheck ownership; direct unauthorized writes return 403 `ONLY_REPORT_OWNER` / `ONLY_REPORT_BRANCH_MANAGER`. A submitted predecessor cannot be restarted as incoming work (409 `REPORT_ALREADY_SUBMITTED`). Existing stale-state/identity errors remain.
+- `shifts:auto-end-overdue` only reminds/logs; no financial completion/bridge/count/shortage/receipt.
+- `CONFIRMED_RECEIPT_IMMUTABLE` remains. Accountant versioned correction (R5, first dependency), cash-request cancellation/replacement (R4b), and confirmed linked adjustment (R6) carry over to S1-11, which has not started. R3b remains trace-only; no pendingIncoming change.
+- `MYSQL CONCURRENCY = NOT_RUN`; Phase 2 awaits Mahmoud review at the submitted SHA.
