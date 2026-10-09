@@ -414,7 +414,7 @@ class ReassignmentShiftController extends Controller
                 }
 
                 // البحث مرة واحدة فقط
-                $shiftModel = CashierShift::with(['cashier', 'shift'])->find($shift);
+                $shiftModel = CashierShift::with(['cashier', 'shift'])->lockForUpdate()->find($shift);
 
                 if (! $shiftModel) {
                     return response()->json([

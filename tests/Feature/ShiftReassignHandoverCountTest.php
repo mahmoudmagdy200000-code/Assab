@@ -184,6 +184,73 @@ class ShiftReassignHandoverCountTest extends TestCase
         $this->assertSame('completed', DB::table('asab_command_idempotency_keys')->sole()->status);
     }
 
+    /** D16 fallback: the incoming cashier cannot take over a shift that already carries the outgoing counted report. */
+    public function test_incoming_cashier_cannot_accept_a_shift_that_carries_a_counted_report(): void
+    {
+        $this->reassign($this->report())->assertOk();
+
+        $this->actingAs($this->incoming, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->shift->id}/reassign/accept")
+            ->assertStatus(409)->assertJsonPath('code', 'REASSIGNMENT_SPLIT_REQUIRED');
+
+        $this->assertSame(ShiftStatus::REASSIGNED, $this->shift->fresh()->status);
+        $this->assertSame(1, ShiftLiabilityAllocation::where('cashier_shift_id', $this->shift->id)->count(), 'the outgoing shortage allocation is untouched');
+        $this->assertNotNull(app(\Modules\Shift\Services\ShiftCashCountService::class)->currentFor($this->shift->id));
+    }
+
+    /** D16 fallback exit: rejecting returns the shift to the outgoing cashier with the rejected report voided. */
+    public function test_rejecting_the_counted_reassignment_voids_the_report_and_allows_a_shortage_re_end(): void
+    {
+        $this->reassign($this->report())->assertOk();
+
+        $this->actingAs($this->incoming, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->shift->id}/reassign/reject", [
+            'reason' => 'not ready',
+        ])->assertOk();
+
+        $shift = $this->shift->fresh();
+        $this->assertSame(ShiftStatus::IN_PROGRESS, $shift->status);
+        $this->assertSame($this->outgoing->id, $shift->cashier_id);
+        $this->assertNull(app(\Modules\Shift\Services\ShiftCashCountService::class)->reconciliation($shift->id), 'the rejected report is no longer current');
+
+        $this->actingAs($this->outgoing, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->shift->id}/end", [
+            'total_sales' => '115.00', 'cash_collected' => '40.00', 'card_payments' => '50.00',
+            'aggregators' => [['aggregator_id' => $this->aggregator->id, 'amount' => '25.00']],
+            'counted_cash' => '30.00',
+            'shortage_allocations' => [['responsible_type' => 'cashier', 'responsible_id' => $this->outgoing->id, 'amount' => '10.00']],
+        ])->assertOk();
+
+        $versions = ShiftLiabilityAllocation::where('cashier_shift_id', $shift->id)->orderBy('version')->get();
+        $this->assertCount(2, $versions);
+        $this->assertNotNull($versions[0]->superseded_at);
+        $this->assertNull($versions[1]->superseded_at);
+    }
+
+    /** D16: a reassignment without a report keeps the existing accept flow. */
+    public function test_reassignment_without_a_report_can_still_be_accepted(): void
+    {
+        $this->reassign([
+            'new_cashier_id' => $this->incoming->id, 'handover_amount' => '30.00',
+        ])->assertOk();
+        $this->assertNull(app(\Modules\Shift\Services\ShiftCashCountService::class)->currentFor($this->shift->id));
+
+        $this->actingAs($this->incoming, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->shift->id}/reassign/accept")->assertOk();
+        $this->assertSame(ShiftStatus::NOT_STARTED, $this->shift->fresh()->status);
+    }
+
+    /** F6: a shift already ended cannot be reassigned afterwards; nothing is written. */
+    public function test_reassigning_an_already_ended_shift_is_refused_without_writes(): void
+    {
+        $this->actingAs($this->outgoing, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->shift->id}/end", [
+            'total_sales' => '100.00', 'cash_collected' => '100.00', 'counted_cash' => '100.00',
+        ])->assertOk();
+        $counts = ShiftReportCashCount::count();
+
+        $this->reassign($this->report())->assertStatus(400);
+
+        $this->assertSame(ShiftStatus::COMPLETED, $this->shift->fresh()->status);
+        $this->assertSame($counts, ShiftReportCashCount::count());
+        $this->assertSame(0, ShiftLiabilityAllocation::count());
+    }
+
     public function test_a_failed_domain_response_releases_the_key_and_writes_nothing(): void
     {
         $key = (string) Str::uuid();

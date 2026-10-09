@@ -888,6 +888,14 @@ class HandoverService
                 throw HandoverException::notAuthorizedForReassignment();
             }
 
+            // D16 fallback: a shift that already carries the outgoing cashier's counted report cannot also
+            // become the incoming cashier's report (one report identity per cashier_shift). The incoming
+            // cashier may reject, which reverts the shift to the outgoing cashier. The report split into
+            // an outgoing and an incoming row is the first S1-11 item.
+            if ($this->cashCounts->currentFor($shift->id) !== null) {
+                throw new ConflictHttpException('REASSIGNMENT_SPLIT_REQUIRED');
+            }
+
             // Reassign without handover: no handover record; treat as already accepted.
             if (! $shift->handoverStatus) {
                 $shift->update(['status' => ShiftStatus::NOT_STARTED]);
@@ -991,6 +999,12 @@ class HandoverService
                 'cashier_id' => $shift->original_cashier_id,
                 'status' => ShiftStatus::IN_PROGRESS,
             ]);
+
+            // D16/D18: the outgoing cashier's submitted report is no longer current once the shift
+            // returns to them; a revision without a count keeps the evidence fail-closed until they re-end.
+            if ($this->revisions->currentCashierRevision($shift) !== null) {
+                $this->revisions->recordCashierRevision($shift, 'cashier', (string) $cashierId);
+            }
 
             $shift->recordHistory(
                 'reassigned_shift_rejected',
