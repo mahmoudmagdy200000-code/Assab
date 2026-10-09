@@ -12,6 +12,7 @@ use Modules\Admin\Services\LegacyShiftMirror;
 use Modules\Admin\Services\ShiftCloseService;
 use Modules\Branch\Models\Branch;
 use Modules\Shift\Events\ShiftEndedEvent;
+use Modules\Shift\Services\ShiftCashCountService;
 
 /**
  * SRS §13 MOB-1.6 — the two-worlds cashier bridge. When a cashier closes their
@@ -29,6 +30,7 @@ class BridgeLegacyCashierShift
         private readonly ShiftCloseService $shifts,
         private readonly BranchHierarchyLinker $branches,
         private readonly LegacyShiftMirror $mirror,
+        private readonly ShiftCashCountService $counts,
         private readonly \Psr\Log\LoggerInterface $log,
     ) {}
 
@@ -111,6 +113,16 @@ class BridgeLegacyCashierShift
             ->all();
         $aggregator = array_sum(array_column($breakdown, 'amountHalalas'));
 
+        // S1-10: the physical count of the shift's current report revision, when one exists. A shift
+        // without it (historical, auto-closed, or edited without a re-count) keeps the Phase 1 legacy
+        // projection below, labelled 'unknown': that projection is not a count and is not evidence.
+        $count = $this->counts->currentFor($legacy->id);
+        if ($count !== null) {
+            $float = $count->confirmed_opening_halalas;
+            $card = $count->cards_halalas;
+            $aggregator = $count->apps_halalas;
+        }
+
         $attributes = [
             'company_id' => $employee->company_id,
             'branch_id' => $employee->branch_id,
@@ -133,16 +145,34 @@ class BridgeLegacyCashierShift
             $shift = Shift::create($attributes + ['shift_type' => $legacy->shift?->name ?? 'مسائي']);
         }
 
-        // Preserve the existing mobile-to-Admin projection: cash_collected plus
-        // opening_balance. These legacy fields are not an independent physical
-        // count or confirmed-opening evidence and must not back LiabilityEvidenceSource.
-        // Phase 1 aligns the conversion units only; trusted count/evidence wiring is later work.
-        $this->shifts->close($shift, [
-            'cashActualHalalas' => $collected + $float,
+        $closeData = [
             'cardTotalHalalas' => $card,
             'aggregatorTotalsHalalas' => $aggregator,
             'aggregatorBreakdown' => $breakdown,
-        ], $actor, 'mobile');
+        ];
+        if ($count !== null) {
+            // Server-calculated figures from the stored count: counted cash is the drawer count, expected
+            // uses only the confirmed opening, and the variance already excludes pending incoming cash.
+            $closeData += [
+                'cashActualHalalas' => $count->counted_halalas,
+                'cashCountState' => 'counted',
+                'countEvidence' => [
+                    'expectedHalalas' => $count->expected_halalas,
+                    'varianceHalalas' => $count->variance_halalas,
+                    'pendingIncomingCountedHalalas' => $count->pending_incoming_counted_halalas,
+                ],
+            ];
+        } else {
+            // Preserve the Phase 1 mobile-to-Admin projection: cash_collected plus opening_balance. These
+            // legacy fields are not an independent physical count or confirmed-opening evidence and must
+            // not back LiabilityEvidenceSource.
+            $closeData += [
+                'cashActualHalalas' => $collected + $float,
+                'cashCountState' => 'unknown',
+            ];
+        }
+
+        $this->shifts->close($shift, $closeData, $actor, 'mobile');
     }
 
     private function systemActor(?string $companyId): ?AsabUser

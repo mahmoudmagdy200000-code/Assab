@@ -883,3 +883,28 @@ Status: **in progress; D6 still PROPOSED. No public response key was added or re
 **Known boundary (documented, not implemented here):** a manager bulk edit of a submitted cashier report (`BranchManagerShiftService::bulkUpdateCashierShifts`) advances the revision without a new count; that report then has no count evidence until the S1-11 correction flow re-counts it. A branch without `asab_company_id` cannot record a shortage allocation (409 `LIABILITY_COMPANY_MAPPING_REQUIRED`); balanced and surplus reports are unaffected.
 
 **Tests:** `ShiftCashCountHttpTest` (15 tests, real HTTP) covers FIN-01 (gross 115, cards 50, apps 25, confirmed opening 10 from a real confirmed receipt, counted 30 → net 100, VAT 15, expected 50, variance −20, shortage 20, allocation 12 + 8 with cashier confirmation, no ledger entry), missing vs explicit-0 count, over-precision/out-of-range/noise, configured opening and a pending request never counting as opening, D11 500/480 (pending incoming, no surplus, no double count) and count-below-pending rejection, incomplete/excess/missing/out-of-branch/out-of-company allocation with no partial write, balanced/surplus, injected allocation-write failure rolling back report/count/revision, same-key replay once and changed payload rejected, carry-forward across handover revisions, and a historical report without a count. Existing S1-08/S1-09 tests were updated only to send the now-required `counted_cash`.
+
+## S1-10 Phase 2 — step 3: Admin projection and reassign-with-handover
+
+Status: **in progress; D6 still PROPOSED.**
+
+**Admin bridge (`BridgeLegacyCashierShift` → `ShiftCloseService::close`):** when the legacy shift has a stored count for its CURRENT revision, `cash_actual` = `counted_halalas`, `cash_expected` = the stored `expected_halalas`, `variance` = the stored signed `variance_halalas`, and `opening_float` = the confirmed opening only. The operation payload also carries `cashCountState: 'counted'` and `pendingIncomingCountedHalalas`; pending incoming cash is excluded from the variance and is neither surplus nor the recipient's expected cash. The FIN-01 shift therefore shows counted 3000, expected 5000, variance −2000 halalas (not the 5000 the old projection derived as `cash_collected + opening`). A shift with no count (historical, auto-closed, edited without a re-count) keeps the Phase 1 projection and is labelled `cashCountState: 'unknown'`; that projection is not a count and is not liability evidence. The manager daily-close bridge is unchanged (not in Phase 2).
+
+**`reassign-with-handover` (manager route, `/api` and `/api/v1`):** now one `DB::transaction` (no manual begin/commit/rollback with leaked levels, upload staged before it) protected by the existing S1-09 middleware in `transaction` mode with the legacy envelope; no new idempotency layer. A report (`current_sales`) must carry `counted_cash` and, for a shortage, the complete `shortage_allocations` plus `allocation_reason` (the manager submits on the outgoing cashier's behalf); the report revision, count, calculation, allocation, reassignment and handover record commit together. `counted_cash` without `current_sales` is rejected; a handover with no report writes no count (unavailable, not 0). Exceptions map through `HandoverErrorResponse` (422/403/409; the 500 body no longer echoes the exception text, which is the one response-shape change). A reassigned-with-handover shift with a count is accepted as a submitted report by `CashCountLiabilityEvidence`.
+
+**Boundary for S1-11:** after the reassignment `cashier_shifts.cashier_id` is the incoming cashier (`original_cashier_id` is the outgoing one), while the shortage allocation and its pending cashier confirmation belong to the outgoing cashier's report; S1-11 must confirm against `original_cashier_id` for reassigned shifts.
+
+**Tests:** `ShiftCashCountHttpTest` (+3: counted/expected/variance in Admin, pending-incoming exclusion, `unknown` label) and `ShiftReassignHandoverCountTest` (7: one-commit count + allocation + reassignment, handover without report, count required/forbidden, incomplete or unreasoned allocation with no partial write, injected failure rolling back everything, same-key replay once and changed payload rejected, rejected command releasing its key).
+
+## S1-10 Phase 2 — D6 decision request for Mahmoud (NOT approved, NOT implemented)
+
+Until Mahmoud approves D6 no public response key is added and the API contract is not frozen. Proposed contract for approval:
+
+| Key | Unit / type | Meaning | Null |
+|---|---|---|---|
+| `counted_cash` | SAR, number with ≤ 2 decimals (same unit as the legacy shift resources) | The physical count of the current report revision | `null` = no count evidence (never 0) |
+| `expected_cash` | SAR, number | `gross − cards − apps + confirmed opening` | `null` when there is no count |
+| `cash_variance` | SAR, signed number | `(counted − pending incoming) − expected`; negative = shortage | `null` when there is no count |
+| `cash_variance_type` | `'shortage' \| 'surplus' \| 'balanced'` | Sign of `cash_variance` | `null` when there is no count |
+
+The legacy `variance` (sales − payments channels, a number) and `variance_type` (`'Short' \| 'Over' \| 'None'`) keep their AS-IS meaning and type. Candidate surfaces: `data.summary.handover_details` of `end`/`end-with-handover` and the shift detail resource. Admin/Dashboard already receives integer halalas (`cashActualHalalas`, `cashExpectedHalalas`, `varianceHalalas`) through the operation payload. Required Mahmoud answers: key names, SAR-vs-halalas on the legacy resources, whether `pending_incoming_counted` is exposed, and which resources carry the keys.

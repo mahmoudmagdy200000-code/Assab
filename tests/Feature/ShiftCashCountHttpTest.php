@@ -7,12 +7,18 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
+use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\Employee;
+use Modules\Admin\Models\Operation;
+use Modules\Admin\Models\Shift as AdminShift;
 use Modules\Aggregator\Models\Aggregator;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Custody\Models\PersonalLedgerTransaction;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Events\ShiftEndedEvent;
 use Modules\Shift\Liability\CashCountLiabilityEvidence;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
@@ -59,6 +65,11 @@ class ShiftCashCountHttpTest extends TestCase
         $this->senderShift = $this->liveShift($this->sender, '06:00:00', '14:00:00');
         $this->recipientShift = $this->liveShift($this->recipient, '14:00:00', '22:00:00');
         $this->aggregator = Aggregator::factory()->create();
+
+        $accountant = AsabUser::create(['company_id' => $company->id, 'name' => 'محاسب', 'email' => 'acc@s110.test', 'password' => 'secret-password', 'status' => 'active']);
+        AsabUserRole::create(['user_id' => $accountant->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        Employee::create(['company_id' => $company->id, 'branch_id' => $this->branch->id, 'emp_number' => '3001', 'name' => 'مستلم', 'role' => 'كاشير', 'status' => 'active'])
+            ->forceFill(['legacy_cashier_id' => $this->recipient->id])->save();
     }
 
     /** The approved FIN-01 vector: gross 115, cards 50, apps 25, confirmed opening 10, counted 30. */
@@ -374,6 +385,61 @@ class ShiftCashCountHttpTest extends TestCase
         $this->assertSame(2, ShiftReportCashCount::where('cashier_shift_id', $this->recipientShift->id)->count());
         DB::transaction(fn () => $service->approve($this->recipientShift->id, $this->manager, 1));
         $this->assertSame('approved', ShiftLiabilityAllocation::where('cashier_shift_id', $this->recipientShift->id)->sole()->manager_approval_status);
+    }
+
+    public function test_admin_projection_shows_the_real_count_expected_and_variance_not_a_sales_derivation(): void
+    {
+        $this->confirmedOpening();
+        $this->end($this->fin01Payload())->assertOk();
+
+        $admin = AdminShift::where('legacy_shift_id', $this->recipientShift->id)->firstOrFail();
+        $this->assertSame(3000, (int) $admin->cash_actual, 'the physical count, not cash sales + opening (5000)');
+        $this->assertSame(5000, (int) $admin->cash_expected);
+        $this->assertSame(-2000, (int) $admin->variance);
+        $this->assertSame(1000, (int) $admin->opening_float, 'confirmed receipts only');
+
+        $op = Operation::where('module_key', 'shifts')->where('payload->shiftId', $admin->id)->firstOrFail();
+        $this->assertSame(3000, $op->payload['cashActualHalalas']);
+        $this->assertSame(5000, $op->payload['cashExpectedHalalas']);
+        $this->assertSame(-2000, $op->payload['varianceHalalas']);
+        $this->assertSame(11500, $op->payload['salesHalalas']);
+        $this->assertSame(5000, $op->payload['cardTotalHalalas']);
+        $this->assertSame(2500, $op->payload['aggregatorTotalsHalalas']);
+        $this->assertSame('counted', $op->payload['cashCountState']);
+        $this->assertSame(0, $op->payload['pendingIncomingCountedHalalas']);
+    }
+
+    public function test_admin_projection_excludes_pending_incoming_from_the_variance(): void
+    {
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/end-with-handover", [
+            'total_sales' => '500.00', 'cash_collected' => '500.00', 'counted_cash' => '500.00',
+            'next_cashier_id' => $this->recipient->id, 'handover_amount' => '500.00',
+        ])->assertOk();
+        $this->actingAs($this->recipient, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/reject", [
+            'rejection_reason' => 'Counted 480', 'confirmed_amount' => '480.00', 'correction_reason' => 'actual_shortage',
+        ])->assertOk();
+        $this->end(['total_sales' => '100.00', 'cash_collected' => '100.00', 'counted_cash' => '580.00'])->assertOk();
+
+        $admin = AdminShift::where('legacy_shift_id', $this->recipientShift->id)->firstOrFail();
+        $op = Operation::where('module_key', 'shifts')->where('payload->shiftId', $admin->id)->firstOrFail();
+        $this->assertSame(58000, $op->payload['cashActualHalalas']);
+        $this->assertSame(10000, $op->payload['cashExpectedHalalas']);
+        $this->assertSame(0, $op->payload['varianceHalalas'], 'the 480 owned by the sender is neither surplus nor the recipient\'s expected cash');
+        $this->assertSame(48000, $op->payload['pendingIncomingCountedHalalas']);
+    }
+
+    public function test_a_shift_without_a_count_keeps_the_legacy_projection_labelled_unknown(): void
+    {
+        $template = Shift::factory()->create(['branch_id' => $this->branch->id, 'is_active' => true, 'start_time' => '23:00:00', 'end_time' => '23:30:00']);
+        $legacy = CashierShift::factory()->create(['cashier_id' => $this->recipient->id, 'shift_id' => $template->id, 'total_sales' => '115.00', 'cash_collected' => '40.00', 'card_payments' => '50.00', 'opening_balance' => '0.00']);
+
+        event(new ShiftEndedEvent($legacy, false));
+
+        $admin = AdminShift::where('legacy_shift_id', $legacy->id)->firstOrFail();
+        $op = Operation::where('module_key', 'shifts')->where('payload->shiftId', $admin->id)->firstOrFail();
+        $this->assertSame('unknown', $op->payload['cashCountState']);
+        $this->assertArrayNotHasKey('pendingIncomingCountedHalalas', $op->payload);
+        $this->assertSame(0, ShiftReportCashCount::where('cashier_shift_id', $legacy->id)->count());
     }
 
     public function test_historical_report_without_a_count_is_not_liability_evidence(): void

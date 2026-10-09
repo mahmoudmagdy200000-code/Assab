@@ -45,7 +45,8 @@ final class CashCountLiabilityEvidence implements LiabilityEvidenceSource
             // Stable across handover-only revisions; changes only when the report is re-counted.
             (string) $count->counted_revision_id,
             $count->variance_halalas,
-            $shift->status === ShiftStatus::COMPLETED,
+            // A submitted, counted report: completed, or reassigned-with-handover after its report.
+            in_array($shift->status, [ShiftStatus::COMPLETED, ShiftStatus::REASSIGNED], true),
         );
     }
 

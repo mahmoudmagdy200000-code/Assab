@@ -166,7 +166,8 @@ Route::prefix('branch-manager')
                 Route::post('reassign', [ReassignmentShiftController::class, 'reassign'])
                     ->name('shifts.reassign');
                 Route::post('reassign-with-handover', [ReassignmentShiftController::class, 'reassignWithHandover'])
-                    ->name('shifts.reassign-with-handover');
+                    ->name('shifts.reassign-with-handover')
+                    ->middleware('asab.idempotency:optional,transaction,legacy');
                 Route::get('available-cashiers', [ReassignmentShiftController::class, 'getAvailableCashiers'])
                     ->name('shifts.available-cashiers');
 

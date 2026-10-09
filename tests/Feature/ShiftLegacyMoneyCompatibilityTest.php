@@ -113,7 +113,7 @@ class ShiftLegacyMoneyCompatibilityTest extends TestCase
         $this->actingAs($manager, 'sanctum')
             ->post("/api/branch-manager/shifts/{$shift->id}/reassign-with-handover", [
                 'new_cashier_id' => $next->id, 'handover_amount' => '40.00',
-                'current_sales' => '115.00', 'cash_collected' => '40.00', 'card_payments' => '50.00',
+                'current_sales' => '115.00', 'cash_collected' => '40.00', 'card_payments' => '50.00', 'counted_cash' => '40.00',
                 'aggregators' => [['aggregator_id' => $app->id, 'amount' => '25.00']],
             ], ['Accept' => 'application/json'])
             ->assertSuccessful();

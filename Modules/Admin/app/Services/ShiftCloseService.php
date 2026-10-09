@@ -39,7 +39,7 @@ class ShiftCloseService
     /**
      * Close a shift into the review pipeline.
      *
-     * @param  array{cashActualHalalas:int, cardTotalHalalas?:int, aggregatorTotalsHalalas?:int, aggregatorBreakdown?:array<int, array{aggregator:?string, amountHalalas:int}>, notes?:string}  $data
+     * @param  array{cashActualHalalas:int, cashCountState?:string, countEvidence?:array{expectedHalalas:int, varianceHalalas:int, pendingIncomingCountedHalalas:int}, cardTotalHalalas?:int, aggregatorTotalsHalalas?:int, aggregatorBreakdown?:array<int, array{aggregator:?string, amountHalalas:int}>, notes?:string}  $data
      * @return array{shift: Shift, operation: Operation}
      */
     public function close(Shift $shift, array $data, AsabUser $actor, string $origin = 'mobile'): array
@@ -55,6 +55,13 @@ class ShiftCloseService
             // Derive committed financial facts from the locked, current row.
             $expectedCash = (int) ($shift->opening_float ?? 0) + max(0, (int) $shift->sales_amount - $card - $aggregator);
             $variance = $cashActual - $expectedCash;
+            // S1-10: a stored physical count carries its own server-calculated expected cash and variance
+            // (confirmed opening only; pending incoming cash excluded). Never recomputed from sales here.
+            $evidence = $data['countEvidence'] ?? null;
+            if (is_array($evidence)) {
+                $expectedCash = (int) $evidence['expectedHalalas'];
+                $variance = (int) $evidence['varianceHalalas'];
+            }
             $shift->update([
                 'status' => 'pending_review',
                 'ended_at' => now(),
@@ -79,7 +86,9 @@ class ShiftCloseService
                 'cashActualHalalas' => $cashActual,
                 'varianceHalalas' => $variance,
                 'legacyShiftId' => $shift->legacy_shift_id,
-            ], $actor, $shift->branch_id, (int) $shift->sales_amount, $origin);
+            ] + (isset($data['cashCountState']) ? ['cashCountState' => (string) $data['cashCountState']] : [])
+              + (is_array($evidence) ? ['pendingIncomingCountedHalalas' => (int) $evidence['pendingIncomingCountedHalalas']] : []),
+                $actor, $shift->branch_id, (int) $shift->sales_amount, $origin);
 
             return ['shift' => $shift->fresh(), 'operation' => $op];
         });

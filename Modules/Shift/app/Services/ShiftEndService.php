@@ -27,7 +27,7 @@ class ShiftEndService
 
     public function endShiftOnly(CashierShift $shift, array $data, Model $actor): CashierShift
     {
-        $countedHalalas = $this->countedHalalas($data);
+        $countedHalalas = $this->parseCountedCash($data);
         $data = $this->stageExternalFiles($shift, $data);
 
         DB::beginTransaction();
@@ -66,7 +66,7 @@ class ShiftEndService
 
             // S1-10: the independent physical count, the server calculation and (for a shortage) the
             // complete in-branch allocation commit with the report and its revision, or not at all.
-            $this->recordCountAndAllocation($shift, $revision, $countedHalalas, $data, $actor);
+            $this->recordReportCount($shift, $revision, $countedHalalas, $data, $actor);
 
             // Record History
             $shift->recordHistory('ended_without_handover', [
@@ -175,7 +175,7 @@ class ShiftEndService
     }
 
     /** counted_cash is an independent required input; absent is never an implied 0 (an explicit 0 is a count of 0). */
-    private function countedHalalas(array $data): int
+    public function parseCountedCash(array $data): int
     {
         if (! array_key_exists('counted_cash', $data) || $data['counted_cash'] === null || $data['counted_cash'] === '') {
             throw ValidationException::withMessages(['counted_cash' => 'The counted cash is required.']);
@@ -188,7 +188,11 @@ class ShiftEndService
         }
     }
 
-    private function recordCountAndAllocation(CashierShift $shift, ShiftReportRevision $revision, int $countedHalalas, array $data, Model $actor): void
+    /**
+     * The shared report-count rule: persist the calculated count for `$revision` and, for a shortage,
+     * the complete allocation. Must run inside the caller's report transaction.
+     */
+    public function recordReportCount(CashierShift $shift, ShiftReportRevision $revision, int $countedHalalas, array $data, Model $actor): void
     {
         $apps = 0;
         foreach (ShiftSalesBreakdown::where('cashier_shift_id', $shift->id)->pluck('amount') as $amount) {
