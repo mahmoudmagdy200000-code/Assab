@@ -9,6 +9,7 @@ use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Shift as AsabShift;
+use Modules\Admin\Services\LegacyShiftMirror;
 use Modules\Branch\Models\Branch;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Events\ShiftEndedEvent;
@@ -92,6 +93,18 @@ class LiveShiftBoardTest extends TestCase
         $res->assertOk();
         $this->assertSame([$mirror->id], collect($res->json('active'))->pluck('id')->all());
         $this->assertSame(1, $res->json('kpis.openNow'));
+    }
+
+    public function test_mobile_shift_mirror_converts_fractional_sar_opening_to_halalas(): void
+    {
+        $legacy = $this->legacyShift();
+        $legacy->forceFill(['opening_balance' => '123.45'])->saveQuietly();
+
+        $mirror = app(LegacyShiftMirror::class)->open($legacy->fresh());
+
+        $this->assertNotNull($mirror);
+        $this->assertSame(12345, $mirror->opening_float);
+        $this->assertSame('123.45', (string) $legacy->fresh()->opening_balance);
     }
 
     public function test_starting_twice_does_not_duplicate_the_row(): void

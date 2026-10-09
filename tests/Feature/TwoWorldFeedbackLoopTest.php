@@ -16,10 +16,13 @@ use Modules\Admin\Services\OperationService;
 use Modules\Admin\Services\ShiftCloseService;
 use Modules\Aggregator\Models\Aggregator;
 use Modules\Branch\Models\Branch;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\Expense\Models\Expense;
 use Modules\Notification\Enums\NotificationType;
 use Modules\Notification\Notifications\BaseNotification;
+use Modules\Shift\Events\DailyReportSubmittedEvent;
 use Modules\Shift\Events\ShiftEndedEvent;
+use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\ShiftSalesBreakdown;
 use Modules\Shift\Transformers\CashierShiftResource;
@@ -138,6 +141,56 @@ class TwoWorldFeedbackLoopTest extends TestCase
         $this->assertSame(30000, $op->payload['cashExpectedHalalas']);
         $this->assertSame(0, $op->payload['varianceHalalas']);
         $this->assertSame(0, (int) $shift->fresh()->variance);
+    }
+
+    public function test_legacy_shift_bridge_converts_decimal_sar_to_halalas_exactly_once(): void
+    {
+        $legacy = CashierShift::factory()->create([
+            'total_sales' => '123.45', 'cash_collected' => '40.01',
+            'card_payments' => '50.02',
+        ]);
+        $app = Aggregator::factory()->create(['name' => 'جاهز']);
+        ShiftSalesBreakdown::create(['cashier_shift_id' => $legacy->id, 'aggregator_id' => $app->id, 'amount' => '23.42']);
+        $this->cashier->forceFill(['legacy_cashier_id' => $legacy->cashier_id])->save();
+
+        event(new ShiftEndedEvent($legacy, false));
+
+        $shift = Shift::where('legacy_shift_id', $legacy->id)->firstOrFail();
+        $op = Operation::where('module_key', 'shifts')->where('payload->shiftId', $shift->id)->firstOrFail();
+
+        $this->assertSame(12345, $op->payload['salesHalalas']);
+        // The zero opening remains zero; Phase 1 does not synthesize receipt evidence.
+        $this->assertSame(0, $op->payload['openingFloatHalalas']);
+        $this->assertSame(5002, $op->payload['cardTotalHalalas']);
+        $this->assertSame(2342, $op->payload['aggregatorTotalsHalalas']);
+        $this->assertSame(4001, $op->payload['cashActualHalalas']);
+        $this->assertSame('40.01', (string) $legacy->fresh()->cash_collected);
+    }
+
+    public function test_manager_daily_close_bridge_converts_decimal_sar_and_signed_variance_exactly(): void
+    {
+        $manager = BranchManager::factory()->create(['branch_id' => $this->branch->id]);
+        $report = BranchManagerShift::create([
+            'branch_manager_id' => $manager->id,
+            'branch_id' => $this->branch->id,
+            'shift_date' => today()->toDateString(),
+            'status' => 'completed',
+            'total_sales' => '123.45',
+            'cash_collected' => '40.01',
+            'card_payments' => '50.02',
+            'aggregator_payments' => '23.42',
+            'variance' => '-0.01',
+        ]);
+
+        event(new DailyReportSubmittedEvent($report));
+
+        $op = Operation::where('module_key', 'sales')->where('payload->managerShiftId', $report->id)->firstOrFail();
+        $this->assertSame(12345, $op->payload['totalHalalas']);
+        $this->assertSame(4001, $op->payload['cashHalalas']);
+        $this->assertSame(5002, $op->payload['cardHalalas']);
+        $this->assertSame(2342, $op->payload['appsHalalas']);
+        $this->assertSame(-1, $op->payload['varianceHalalas']);
+        $this->assertSame('40.01', (string) $report->fresh()->cash_collected);
     }
 
     public function test_a_bridged_shift_with_an_opening_float_does_not_fabricate_a_shortage(): void

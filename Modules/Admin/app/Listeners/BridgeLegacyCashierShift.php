@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Listeners;
 
+use App\Support\ShiftFinancialCalculator;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Employee;
@@ -132,14 +133,10 @@ class BridgeLegacyCashierShift
             $shift = Shift::create($attributes + ['shift_type' => $legacy->shift?->name ?? 'مسائي']);
         }
 
-        // Route through the canonical close so the SHF operation + variance are
-        // derived exactly as a dashboard close would produce them. `cashActual`
-        // is the cash PHYSICALLY IN THE DRAWER — the native path aliases it from
-        // `cashInDrawer` = opening float + cash taken (Accountant\ShiftController).
-        // The mobile `cash_collected` excludes the float (its breakdown invariant
-        // is total_sales = cash + card + aggregators, EndShiftRequest), so the
-        // float must be added back; passing bare cash made expectedCash overshoot
-        // by exactly the float and charged that phantom shortage to the cashier.
+        // Preserve the existing mobile-to-Admin projection: cash_collected plus
+        // opening_balance. These legacy fields are not an independent physical
+        // count or confirmed-opening evidence and must not back LiabilityEvidenceSource.
+        // Phase 1 aligns the conversion units only; trusted count/evidence wiring is later work.
         $this->shifts->close($shift, [
             'cashActualHalalas' => $collected + $float,
             'cardTotalHalalas' => $card,
@@ -163,6 +160,6 @@ class BridgeLegacyCashierShift
 
     private function toHalalas(mixed $sar): int
     {
-        return (int) round(((float) $sar) * 100);
+        return ShiftFinancialCalculator::storedSarToHalalas($sar);
     }
 }

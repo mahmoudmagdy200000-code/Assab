@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Listeners;
 
+use App\Support\ShiftFinancialCalculator;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Operation;
@@ -115,6 +116,6 @@ class BridgeManagerDailyClose
 
     private function toHalalas(mixed $sar): int
     {
-        return (int) round(((float) $sar) * 100);
+        return ShiftFinancialCalculator::storedSarToHalalas($sar);
     }
 }
