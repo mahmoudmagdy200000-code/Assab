@@ -207,7 +207,8 @@ class HandoverService
         string $reviewerId,
         string $reviewerType,
         ?string $managerComment = null,
-        ?string $confirmedAmount = null
+        ?string $confirmedAmount = null,
+        ?string $expectedAttemptId = null
     ): CashierShift {
         $handoverStub = $this->currentHandover($shift);
 
@@ -216,7 +217,7 @@ class HandoverService
                 throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('ONLY_ADDRESSED_MANAGER_MAY_CONFIRM_RECEIPT');
             }
             $manager = \Modules\BranchManagers\Models\BranchManager::query()->findOrFail($reviewerId);
-            $this->receipts->confirmManagerHandover($handoverStub->id, $manager, $confirmedAmount, $managerComment);
+            $this->receipts->confirmManagerHandover($handoverStub->id, $manager, $confirmedAmount, $managerComment, $expectedAttemptId);
             DB::afterCommit(fn () => $this->clearBranchManagerShiftCacheForApproval($shift, $reviewerId));
 
             return $shift->fresh([
@@ -350,6 +351,7 @@ class HandoverService
      */
     public function assertNoCorrectionPending(CashierShift $shift): void
     {
+        $this->revisions->assertFreshCount($shift);
         $rejected = CashierShiftHandover::query()
             ->where('cashier_shift_id', $shift->id)
             ->where('status', 'rejected')
@@ -679,7 +681,8 @@ class HandoverService
         string $confirmedAmount,
         ?string $receivingShiftId = null,
         ?string $comment = null,
-        ?Response $commandResponse = null
+        ?Response $commandResponse = null,
+        ?string $expectedAttemptId = null
     ): void {
         $handover = $this->currentHandover($shift);
         if ($handover->handover_to_type !== 'cashier' || (string) $handover->handover_to_id !== $cashierId) {
@@ -695,7 +698,8 @@ class HandoverService
             $confirmedAmount,
             $receivingShiftId,
             $comment,
-            $commandResponse
+            $commandResponse,
+            $expectedAttemptId
         );
         $this->clearBranchManagerShiftCachesForBranch($shift);
     }
@@ -770,14 +774,15 @@ class HandoverService
         string $reviewerType,
         string $reason,
         string $attemptedConfirmedAmount,
-        string $correctionReason
+        string $correctionReason,
+        ?string $expectedAttemptId = null
     ): void {
         if (! in_array($correctionReason, ['input_error', 'actual_shortage'], true)) {
             throw new \InvalidArgumentException('Correction reason must be input_error or actual_shortage.');
         }
 
         $attemptedMinor = self::toMinorUnits($attemptedConfirmedAmount);
-        DB::transaction(function () use ($shift, $reviewerId, $reviewerType, $reason, $attemptedConfirmedAmount, $attemptedMinor, $correctionReason) {
+        DB::transaction(function () use ($shift, $reviewerId, $reviewerType, $reason, $attemptedConfirmedAmount, $attemptedMinor, $correctionReason, $expectedAttemptId) {
             $lockedShift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
             $handover = $this->currentHandover($lockedShift, true);
             $status = ShiftHandoverStatus::query()->where('cashier_shift_id', $lockedShift->id)->lockForUpdate()->firstOrFail();
@@ -811,6 +816,7 @@ class HandoverService
                 $previousAmount,
                 $attemptedConfirmedAmount,
                 $correctionReason,
+                $expectedAttemptId,
             );
 
             $this->writeCorrectionHistory($lockedShift, 'handover_amount_correction_rejected', $reviewerId, $reviewerType, [

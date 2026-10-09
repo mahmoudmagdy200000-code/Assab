@@ -980,3 +980,46 @@ PHP syntax and changed-file Pint `--test`: PASS for all 13 changed/new PHP files
 **MYSQL CONCURRENCY = NOT_RUN**: no running isolated MySQL server was verified. Separate-connection concurrency remains an open gate. Full application suite = NOT_RUN in this round. AssabAPP/Dashboard compatibility and release checks = NOT_RUN; neither client was modified. SQLite tests do not establish MySQL lock/deadlock safety.
 
 Mahmoud's delivery instruction: preserve the work on `review/s1-10-rule-reconciliation`, verify personal-fork origin, then ordinary push of that branch only. Leave `sprint/01-financial-foundation` unchanged; no merge, cherry-pick or force-push. Provide the submitted SHA, commit/file list and base-to-submitted diff after publication. **Phase 2 NOT ACCEPTED** pending Mahmoud's KEEP / ADAPT / DROP decision; S1-10R and S1-11 have not started.
+
+## S1-10R F01/F02 — approved bounded correction (2026-10-09)
+
+Review base: `e5907558148f2cd3cdf5db90d5a6ab8d622a4854`, branch `review/s1-10-rule-reconciliation`. Mahmoud approved the additive operational-chain and physical-attempt/return decision after the earlier design STOP. This entry supersedes the earlier S1-10R-not-started and R3b-investigation-only statements only for the approved bounded contract in `s1-10r-operational-and-physical-return.md`. R5/R4b/R6 and full reopen orchestration remain deferred; S1-11 is not started. Phase 2 remains **NOT ACCEPTED**.
+
+### DEVELOPER_EXECUTED — final focused regression
+
+PHP 8.4.26 / PHPUnit 12.4.0, process-local SQLite `:memory:`. No production schema or data was used. This command ran after all production changes and the source review fixes; only test whitespace formatting was corrected afterward.
+
+```powershell
+$env:APP_ENV = 'testing'
+$env:DB_CONNECTION = 'sqlite'
+$env:DB_DATABASE = ':memory:'
+& 'D:\claude\AssabERP\.tools\s1-01\php-8.4.26\php.exe' -d memory_limit=-1 vendor/bin/phpunit --do-not-cache-result --no-progress --log-junit 'D:\claude\AssabERP\.tools\temp\s1-10r-focused-final-v2.xml' tests/Feature/ShiftOperationalResponsibilityTest.php tests/Feature/ShiftTransferPhysicalReturnTest.php tests/Feature/ShiftReturnFinalizationGuardTest.php tests/Feature/ShiftReassignHandoverCountTest.php tests/Feature/ShiftRejectionCorrectionTest.php tests/Feature/ShiftCashCountHttpTest.php tests/Feature/ShiftCashCountServiceTest.php tests/Feature/ShiftCommandIdempotencyHttpTest.php tests/Feature/ShiftCloseChainTest.php tests/Feature/ShiftLegacyMoneyCompatibilityTest.php tests/Feature/LiveShiftBoardTest.php tests/Feature/ManagerLiveShiftBoardTest.php tests/Unit/ShiftFinancialCalculatorTest.php
+```
+
+**Exit 0: 166 tests / 1119 assertions / 0 failures / 0 errors / 0 skipped; elapsed 02:40.806.** Covers assignment versus actual start, atomic operational transfer, predecessor report/count/shortage ownership and later financial close, projection failure/recovery, historical chain linkage, retry/stale competing starts, no financial movement at start, typed retained/initiated/confirmed returns, new attempts on redelivery, immutable historical count/revision, fresh recount, final/daily/carry-over guards, original sender authority, historical branch/company provenance, idempotency, receipt immutability, legacy NULL-attempt compatibility, R1/C2/C3/C4/FIN-01/D14/D17/D18.
+
+Negative regressions reproduced the defects before their fixes: incoming direct legacy reassignment and historical NULL-chain starts; typed rejection without the exact attempt ID; manager return crossing midnight into a submitted receiving day; latest-count timestamp ties; Admin close/final approval and manager daily submission accepting a report requiring recount; and an old approved carry-over report bypassing the recent-day daily guard. Final focused evidence above is green; initial red evidence is not a remaining failure.
+
+### SOURCE_INSPECTION_ONLY — review
+
+The source reviewer checked the bounded diff and the follow-up corrections. Reported stale typed rejection, manager receiving-workday, repeatable-read reservation/idempotency/receipt/rejection reads, and report-boundary/count issues were corrected and re-inspected. No additional concrete critical/important finding was reported within the approved scope. This is source inspection, not independent runtime or MySQL concurrency verification.
+
+### DEVELOPER_EXECUTED — static checks
+
+All 26 changed/new PHP files passed `php -l` and changed-file `vendor/bin/pint --test`; `git diff --check` passed. Two additive migrations were exercised by the SQLite tests; applied historical migrations were not rewritten. Existing unrelated untracked files were preserved and excluded from publication.
+
+### NOT_RUN — remaining gates
+
+**MYSQL CONCURRENCY = NOT_RUN.** No isolated running MySQL server was verified. Separate-connection operational-start races, receipt versus return, return reservation and repeatable-read visibility remain open; SQLite sequential tests do not prove lock ordering/deadlock or MySQL DDL safety. Production MySQL migration/rollout and AssabAPP/Dashboard integration/release checks are **NOT_RUN**. No client changes, sprint merge/cherry-pick, acceptance, deployment or S1-11 implementation are authorized by this evidence.
+
+### DEVELOPER_EXECUTED — final full suite
+
+After the same process-local environment assignments shown above, the complete configured Unit/Feature/NFR suite ran:
+
+```powershell
+& 'D:\claude\AssabERP\.tools\s1-01\php-8.4.26\php.exe' -d memory_limit=-1 vendor/bin/phpunit --do-not-cache-result --no-progress --log-junit 'D:\claude\AssabERP\.tools\temp\s1-10r-full-final-v2.xml'
+```
+
+**Exit 0: 1522 tests / 8997 assertions / 0 failures / 0 errors / 1 skipped; elapsed 22:22.541, memory 1.87 GB.** Log: `D:/claude/AssabERP/.tools/temp/s1-10r-full-final-v2.log`. The skipped identity is `Tests\Feature\BranchFixedAssetsUploadPersistenceTest::test_a_driver_error_is_not_leaked_to_the_client`: its existing conditional skip applies because SQLite does not enforce the column length (`tests/Feature/BranchFixedAssetsUploadPersistenceTest.php:198`). This does not close any MySQL gate.
+
+No bad full-suite identity remains to classify as baseline versus newly introduced. An isolated archive of e5907558 was prepared without changing the checkout; reflection and effective PDO checks verified baseline paths and SQLite `:memory:`, and its calculator smoke test passed (23 tests / 79 assertions). A complete baseline suite was not run or claimed. Earlier interrupted pre-final runs are not final evidence. Only the two approved corrections and their evidence are submitted above e5907558; origin was verified as `https://github.com/mohameelsherbini/Assab.git`, and the sprint branch remains at `470669020e94f6cb1a45f3fe2e6fa49fc12a3b9d`.
