@@ -16,7 +16,10 @@ class CanonicalRequestPayload
         $raw = $request->getContent();
 
         if (str_contains($contentType, 'application/json') || $this->looksLikeJson($raw)) {
-            $body = $this->canonicalJson($raw);
+            // Body-less JSON actions are valid (e.g. approve/settle).
+            // Keep an explicit empty object as their canonical representation;
+            // non-empty malformed JSON must still fail parsing.
+            $body = $raw === '' ? '{}' : $this->canonicalJson($raw);
         } else {
             $body = $this->canonicalValue($request->request->all());
         }

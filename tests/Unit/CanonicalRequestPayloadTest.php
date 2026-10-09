@@ -34,6 +34,21 @@ class CanonicalRequestPayloadTest extends TestCase
         (new CanonicalRequestPayload)->hash($this->request('{"amount":1,"amount":2}'));
     }
 
+    public function test_empty_json_body_is_canonicalized_as_an_empty_object(): void
+    {
+        $hasher = new CanonicalRequestPayload;
+
+        $this->assertSame($hasher->hash($this->request('{}')), $hasher->hash($this->request('')));
+        $this->assertNotSame($hasher->hash($this->request('null')), $hasher->hash($this->request('')));
+    }
+
+    public function test_nonempty_malformed_json_is_still_rejected(): void
+    {
+        $this->expectException(RuntimeException::class);
+
+        (new CanonicalRequestPayload)->hash($this->request('{'));
+    }
+
     private function request(string $body): Request
     {
         return Request::create('/test', 'POST', [], [], [], ['CONTENT_TYPE' => 'application/json'], $body);

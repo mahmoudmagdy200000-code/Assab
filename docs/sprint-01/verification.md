@@ -753,3 +753,14 @@ The `ShiftCommandIdempotencyHttpTest` cases go through the real routes, except t
 ### Deployment note
 
 Command identities changed from `4dbffd8b` (route action instead of route name). `4dbffd8b` was never deployed, so no stored identity is affected; if it ever had been, a retry spanning the deploy would run again under the business-state guards.
+
+
+## S1-09 two-P1 correction — 2026-10-09 (Codex)
+
+Scope: the empty JSON action and authorization-scope replay findings on `a387872a` only.
+
+- Body-less requests carrying a JSON content type canonicalize to `{}`. JSON `null` remains distinct; non-empty malformed JSON still fails closed. Existing non-empty payload hashes are unchanged.
+- Before checking the stored scope fingerprint, reservations now resolve by actor type/id, key, HTTP method, command and resource parameters, under the existing per-key owner lock. Changes to company assignments, branches, brands, modules or role cannot select a new reservation. The old `identity_hash` remains the authorization snapshot fingerprint for compatibility with existing records; no migration or identity rewrite is needed.
+- A changed scope returns HTTP 409 `IDEMPOTENCY_SCOPE_CHANGED` without running the handler, recovering a processing reservation, or disclosing the stored reply. Clients must reconcile the result under current authorization; they must NOT automatically generate another key. An unchanged/restored scope retains existing replay behavior. Multiple historical scope records for one command fail closed for reconciliation.
+- Added focused regression cases for empty JSON replay, malformed JSON, expanded/replaced scope, restored-scope replay, and expired reservations under changed scope. **Tests NOT RUN, per Mahmoud's instruction.** PHP syntax checks passed for the four changed PHP files; `git diff --check` passed. No PHPUnit, database setup, or migrations were run.
+- The separately reported unbalanced-commit/throw defensive issue, Admin after-commit recovery gap and MySQL concurrency gate remain open. This commit does not accept or close S1-09.

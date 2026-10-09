@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Http\Middleware\IdempotencyKey;
+use Modules\Admin\Support\TenantContext;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
@@ -101,6 +102,78 @@ class IdempotencyKeyMiddlewareTest extends TestCase
         $this->assertSame(2, $executions);
         $this->assertSame(2, DB::table('asab_command_idempotency_keys')->count());
         $this->assertSame(1, DB::table('asab_command_idempotency_owners')->count());
+    }
+
+    public function test_empty_json_action_executes_once_and_replays(): void
+    {
+        $middleware = app(IdempotencyKey::class);
+        $actor = $this->actor('user-a', 'company-a');
+        $executions = 0;
+        $handler = function () use (&$executions): Response {
+            $executions++;
+
+            return response()->json(['approved' => true]);
+        };
+        $first = $middleware->handle($this->request('resource-1', 'empty-key', '', $actor), $handler);
+        $retry = $middleware->handle($this->request('resource-1', 'empty-key', '', $actor), $handler);
+
+        $this->assertSame(200, $first->getStatusCode());
+        $this->assertSame($first->getContent(), $retry->getContent());
+        $this->assertSame(1, $executions);
+    }
+
+    public function test_scope_changes_cannot_create_another_command_or_disclose_the_original_reply(): void
+    {
+        $middleware = app(IdempotencyKey::class);
+        $actor = $this->actor('user-a', 'company-a');
+        $tenant = app(TenantContext::class);
+        $tenant->resolved = true;
+        $tenant->companyIds = ['company-a'];
+        $tenant->branchIds = ['branch-a'];
+        $tenant->brandIds = ['brand-a'];
+        $tenant->moduleKeys = ['shifts'];
+        $tenant->roleKey = 'accountant';
+        $original = clone $tenant;
+        $executions = 0;
+        $handler = function () use (&$executions): Response {
+            $executions++;
+
+            return response()->json(['privateEffect' => 'original-result']);
+        };
+        $first = $middleware->handle($this->request('resource-1', 'scope-key', '{}', $actor), $handler);
+        $identity = DB::table('asab_command_idempotency_keys')->value('identity_hash');
+
+        foreach ([
+            'companyIds' => ['company-a', 'company-b'],
+            'branchIds' => ['branch-a', 'branch-b'],
+            'brandIds' => ['brand-a', 'brand-b'],
+            'moduleKeys' => ['shifts', 'cash'],
+            'roleKey' => 'head',
+        ] as $field => $changed) {
+            $tenant->{$field} = $changed;
+            $response = $middleware->handle($this->request('resource-1', 'scope-key', '{}', $actor), $handler);
+            $this->assertSame(409, $response->getStatusCode());
+            $this->assertSame('IDEMPOTENCY_SCOPE_CHANGED', json_decode($response->getContent(), true)['error']['code']);
+            $this->assertStringNotContainsString('original-result', $response->getContent());
+            $this->assertSame(1, DB::table('asab_command_idempotency_keys')->count());
+            $this->assertSame($identity, DB::table('asab_command_idempotency_keys')->value('identity_hash'));
+            $tenant->{$field} = $original->{$field};
+        }
+
+        $retry = $middleware->handle($this->request('resource-1', 'scope-key', '{}', $actor), $handler);
+        $this->assertSame($first->getContent(), $retry->getContent());
+        $this->assertSame(1, $executions);
+
+        // An expired processing reservation must not be recovered under a new scope.
+        DB::table('asab_command_idempotency_keys')->update([
+            'status' => 'processing',
+            'reservation_expires_at' => now()->subMinutes(10),
+        ]);
+        $tenant->branchIds = ['branch-b'];
+        $blocked = $middleware->handle($this->request('resource-1', 'scope-key', '{}', $actor), $handler, null, 'transaction');
+        $this->assertSame(409, $blocked->getStatusCode());
+        $this->assertSame('IDEMPOTENCY_SCOPE_CHANGED', json_decode($blocked->getContent(), true)['error']['code']);
+        $this->assertSame(1, $executions);
     }
 
     private function request(string $resource, string $key, string $body, GenericUser $actor): Request

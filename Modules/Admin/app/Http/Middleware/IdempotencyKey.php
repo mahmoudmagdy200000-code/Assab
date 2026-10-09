@@ -129,8 +129,28 @@ class IdempotencyKey
                 }
 
                 $table = $connection->table('asab_command_idempotency_keys');
-                $record = $table->where('identity_hash', $identityHash)->lockForUpdate()->first();
+                // Bind a command by immutable request coordinates FIRST. The owner
+                // row lock above serializes this lookup/insert for the same key.
+                // identity_hash remains the original authorization fingerprint,
+                // including for records written before this correction. A changed
+                // scope must neither create a new command nor disclose an old reply.
+                $records = (clone $table)
+                    ->where('idempotency_key', $scope['idempotency_key'])
+                    ->where('actor_type', $scope['actor_type'])
+                    ->where('actor_id', $scope['actor_id'])
+                    ->where('http_method', $scope['http_method'])
+                    ->where('command', $scope['command'])
+                    ->where('resource_scope', json_encode($scope['resource_scope'], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR))
+                    ->lockForUpdate()->get();
+                if ($records->count() > 1) {
+                    return ['response' => $this->error(409, 'IDEMPOTENCY_SCOPE_CHANGED', 'Multiple historical scopes exist for this command. Reconcile its result; it was not repeated.', $legacyEnvelope)];
+                }
+                $record = $records->first();
                 if ($record !== null) {
+                    if (! hash_equals($record->identity_hash, $identityHash)) {
+                        return ['response' => $this->error(409, 'IDEMPOTENCY_SCOPE_CHANGED', 'Authorization scope changed since this command was reserved. Reconcile its result; it was not repeated.', $legacyEnvelope)];
+                    }
+
                     if (! hash_equals($record->payload_hash, $payloadHash)) {
                         return ['response' => $this->error(409, 'IDEMPOTENCY_KEY_REUSED', 'Idempotency-Key was reused with a different payload.', $legacyEnvelope)];
                     }
