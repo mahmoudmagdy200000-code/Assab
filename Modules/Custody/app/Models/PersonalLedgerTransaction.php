@@ -22,6 +22,7 @@ class PersonalLedgerTransaction extends Model
         'related_shift_id',
         'related_handover_id',
         'related_expense_id',
+        'receipt_id',
         'transaction_date',
     ];
 
@@ -35,5 +36,10 @@ class PersonalLedgerTransaction extends Model
     public function branchManager(): BelongsTo
     {
         return $this->belongsTo(BranchManager::class);
+    }
+
+    public function receipt(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Shift\Models\CashierShiftHandoverReceipt::class, 'receipt_id');
     }
 }

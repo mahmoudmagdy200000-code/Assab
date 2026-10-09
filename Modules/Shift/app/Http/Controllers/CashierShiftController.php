@@ -395,6 +395,8 @@ class CashierShiftController extends BaseController
             return $this->successResponse([
                 'shift' => new ShiftDetailResource($shiftModel->fresh()),
             ], 'Shift accepted successfully. You can start it when scheduled.');
+        } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
+            return HandoverErrorResponse::from($e, 'reassign_accept');
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return $this->errorResponse('Shift not found or not assigned to you.', 404);
         } catch (\InvalidArgumentException $e) {

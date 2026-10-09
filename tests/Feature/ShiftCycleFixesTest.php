@@ -52,7 +52,7 @@ class ShiftCycleFixesTest extends TestCase
 
     // ── 1. the opening float ─────────────────────────────────────────────────
 
-    public function test_the_dashboards_opening_float_reaches_a_new_cashier_shift(): void
+    public function test_the_dashboards_configured_float_does_not_become_unconfirmed_cashier_opening(): void
     {
         $company = AsabCompany::create(['name' => 'Float Co', 'plan' => 'Basic', 'status' => 'active']);
         $brand = AsabBrand::create([
@@ -76,7 +76,7 @@ class ShiftCycleFixesTest extends TestCase
             'shift_date' => today()->toDateString(), 'status' => ShiftStatus::NOT_STARTED->value,
         ]);
 
-        $this->assertSame('300.00', (string) $shift->fresh()->opening_balance);
+        $this->assertSame('0.00', (string) $shift->fresh()->opening_balance);
     }
 
     public function test_a_schedule_without_a_float_still_opens_at_zero(): void

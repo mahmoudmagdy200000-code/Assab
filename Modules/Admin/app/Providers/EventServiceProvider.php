@@ -53,12 +53,9 @@ class EventServiceProvider extends ServiceProvider
             [BridgeExpenseDecisionToLegacy::class, 'handleReturnedForReview'],
         ],
 
-        // Shift close chain (ACC-6.4 / HEAD-2.5): final-approve closes the shift +
-        // posts the cash gap; reject reopens it. The two Bridge*DecisionToLegacy
-        // listeners (WS1a/WS1b) mirror the terminal decision back to the mobile
-        // world (cashier_shifts.review_status / expenses.status).
+        // Final-approval listeners are post-commit bridges/projections. The
+        // required native shift close and allocation run inside OperationService.
         OperationFinalApproved::class => [
-            [ProcessShiftOperationDecision::class, 'handleFinalApproved'],
             [BridgeShiftDecisionToLegacy::class, 'handleFinalApproved'],
             [BridgeExpenseDecisionToLegacy::class, 'handleFinalApproved'],
             [\Modules\Admin\Listeners\BridgePurchaseDecisionToLegacy::class, 'handleFinalApproved'],

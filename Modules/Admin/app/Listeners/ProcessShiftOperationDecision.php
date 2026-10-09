@@ -2,7 +2,6 @@
 
 namespace Modules\Admin\Listeners;
 
-use Modules\Admin\Events\OperationFinalApproved;
 use Modules\Admin\Events\OperationRejected;
 use Modules\Admin\Services\ShiftCloseService;
 
@@ -14,13 +13,6 @@ use Modules\Admin\Services\ShiftCloseService;
 class ProcessShiftOperationDecision
 {
     public function __construct(private readonly ShiftCloseService $shifts) {}
-
-    public function handleFinalApproved(OperationFinalApproved $event): void
-    {
-        if ($event->operation->module_key === 'shifts') {
-            $this->shifts->onFinalApproved($event->operation, $event->actor);
-        }
-    }
 
     public function handleRejected(OperationRejected $event): void
     {

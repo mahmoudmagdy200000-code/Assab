@@ -35,6 +35,7 @@ class CashierShiftHandover extends Model
         'approved_at',
         'handed_over_at',
         'daily_closed_at',
+        'report_revision_id',
     ];
 
     protected $casts = [
@@ -54,6 +55,16 @@ class CashierShiftHandover extends Model
     public function cashierShift(): BelongsTo
     {
         return $this->belongsTo(CashierShift::class, 'cashier_shift_id');
+    }
+
+    public function reportRevision(): BelongsTo
+    {
+        return $this->belongsTo(ShiftReportRevision::class, 'report_revision_id');
+    }
+
+    public function receipt(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(CashierShiftHandoverReceipt::class, 'cashier_shift_handover_id');
     }
 
     /**

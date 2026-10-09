@@ -139,6 +139,17 @@ class CashierShift extends Model
         return $this->hasMany(CashierShiftHistory::class);
     }
 
+    public function receivedHandoverReceipts(): HasMany
+    {
+        return $this->hasMany(CashierShiftHandoverReceipt::class, 'receiving_cashier_shift_id');
+    }
+
+    public function reportAggregate(): HasOne
+    {
+        return $this->hasOne(ShiftReportAggregate::class, 'source_id')
+            ->where('source_type', 'cashier_shift');
+    }
+
     // Scopes
     public function scopePending($query)
     {
