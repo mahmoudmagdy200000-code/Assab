@@ -899,3 +899,20 @@ Status: **in progress at this step.**
 ## S1-10 Phase 2 — D6 approved and implemented
 
 Mahmoud approved the reviewer's D6 recommendations on 2026-10-09 and asked for them to be reviewed against the Dashboard and AssabAPP before implementation. Refinements made on that review: (1) the keys are grouped in a nullable `cash_reconciliation` object, because `handover_details` exists only on `end-with-handover`, and `null` for the object removes the null-vs-zero ambiguity; (2) it is attached only to single-shift responses (the resource is also used by a list; attaching there would be an N+1); (3) `confirmed_opening_cash` is added so `expected_cash` can be explained; (4) the Dashboard needs no SAR keys, but receives `cashCountState` and `pendingIncomingCountedHalalas` through `ShiftPresenter` (new nullable `asab_shifts` columns, additive migration, no backfill) so the legacy mobile projection is not read as a count. The contract is frozen in `api-contract.md` → “S1-10 Phase 2”. Client note: the app models that exist today parse `closing_balance` as `int` in one card model; the new keys are additive so no existing model changes, and the new release must parse them as `num` and accept a `null` object. Dashboard and AssabAPP source were not modified or available here: client compatibility is SOURCE_INSPECTION_ONLY from the documented models.
+
+## S1-10 Phase 2 — corrections D14–D19
+
+Base `193ea3c7`. Commits: `d131fd72` (D18 + D14 + D19, combined because the edits overlap in the same files), `c189633f` (D15), `dd2977eb` (D16 fallback + F6 lock), `776df28d` (D17 + F8 + 403 + `shortage_allocations` key). Evidence label: **REVIEWER_EXECUTED, SQLite in-memory**.
+
+| Check | Test | Result |
+|---|---|---|
+| T1 plain recipient/manager rejection voids the count; shortage re-end gives allocation v2 | `ShiftRejectionCorrectionTest` | PASS |
+| T2 plain reject after D11 evidence → 409, no writes | `ShiftRejectionCorrectionTest` | PASS |
+| T3 new request → 409 `HANDOVER_CORRECTION_PENDING`; edit path reconciles to variance 0 | `ShiftRejectionCorrectionTest` | PASS |
+| T4/T5 Admin final approval and accountant split refused for counted shortage; bulk reports per item; balanced counted shift still closes | `ShiftCashCountHttpTest` | PASS |
+| T6 preview equals `end` on FIN-01 (30/50/−20, shortage 20), no writes; balanced, surplus, missing `counted_cash` 422, manager access, foreign cashier 404 | `ShiftCashCountHttpTest` | PASS |
+| T7 detail shows `cash_reconciliation` or null (both detail routes) | `ShiftCashCountHttpTest` | PASS |
+| T8 D19 attribution (first later shift only; other branch 0) | `ShiftRejectionCorrectionTest` | PASS |
+| T9 reassignment: counted accept → 409; reject voids and re-end supersedes; no-report reassignment unaffected; ended shift 400 no writes; cashier token 403 with no file stored | `ShiftReassignHandoverCountTest`, `ShiftCashCountHttpTest` | PASS |
+
+NOT_RUN: MySQL locking/concurrency (no isolated MySQL; deploy gate). NOT_RUN: AssabAPP and Dashboard (not modified). Full-suite result is recorded in the final report of this pass.
