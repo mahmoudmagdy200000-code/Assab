@@ -301,7 +301,7 @@ class BranchCompanyController extends AsabController
             // mirrored workday, which would hide the actual open register.
             $shift = Shift::cashierRole()->where('company_id', $request->user()->company_id)
                 ->when($this->branchId($request), fn ($q, $b) => $q->where('branch_id', $b))
-                ->whereIn('status', ['active', 'late'])->orderByDesc('started_at')->first();
+                ->currentlyOperational()->whereIn('status', ['active', 'late'])->orderByDesc('started_at')->first();
 
             if (! $shift) {
                 return $this->ok(null);

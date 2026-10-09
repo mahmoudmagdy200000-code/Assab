@@ -68,4 +68,18 @@ class Shift extends Model
     {
         return $this->role === self::ROLE_BRANCH_MANAGER;
     }
+
+    /** Operational visibility only; financial close eligibility retains active/late. */
+    public function scopeCurrentlyOperational($query)
+    {
+        return $query->where(function ($visible) {
+            $visible->where('asab_shifts.role', self::ROLE_BRANCH_MANAGER)
+                ->orWhereNull('asab_shifts.legacy_shift_id')
+                ->orWhereNotExists(function ($ended) {
+                    $ended->selectRaw('1')->from('cashier_shifts')
+                        ->whereColumn('cashier_shifts.id', 'asab_shifts.legacy_shift_id')
+                        ->whereNotNull('cashier_shifts.operational_ended_at');
+                });
+        });
+    }
 }

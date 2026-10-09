@@ -25,7 +25,7 @@ class ShiftSalesFeed
 
         $shift = Shift::where('company_id', $op->company_id)
             ->where('branch_id', $op->branch_id)
-            ->whereIn('status', ['active', 'late'])
+            ->currentlyOperational()->whereIn('status', ['active', 'late'])
             ->orderByDesc('started_at')
             ->first();
 

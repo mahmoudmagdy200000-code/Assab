@@ -38,6 +38,8 @@ class CashierShift extends Model
         'card_payments',
         'pos_receipt',
         'actual_start_time',
+        'operational_chain_id',
+        'operational_ended_at',
         'actual_end_time',
         'next_cashier_id',
         'handed_over_at',
@@ -62,6 +64,7 @@ class CashierShift extends Model
         'cash_collected' => 'decimal:2',
         'card_payments' => 'decimal:2',
         'actual_start_time' => 'datetime',
+        'operational_ended_at' => 'datetime',
         'actual_end_time' => 'datetime',
         'handed_over_at' => 'datetime',
         'reassigned_at' => 'datetime',
@@ -152,6 +155,12 @@ class CashierShift extends Model
     }
 
     // Scopes
+    public function scopeCurrentOperational($query)
+    {
+        return $query->whereNotNull('actual_start_time')->whereNull('operational_ended_at')
+            ->whereNull('actual_end_time')->whereNotIn('status', [ShiftStatus::COMPLETED->value, ShiftStatus::CANCELED->value]);
+    }
+
     public function scopePending($query)
     {
         return $query->where('status', ShiftStatus::NOT_STARTED->value);

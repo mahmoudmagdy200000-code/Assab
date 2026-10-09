@@ -3,6 +3,7 @@
 namespace Modules\Shift\Services;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\ShiftHandoverStatus;
@@ -38,9 +39,11 @@ final class ReassignmentReportOwnershipService
         // REASSIGNED already represents a submitted predecessor report awaiting its financial handover.
         // Do not emit COMPLETED/ShiftEndedEvent just because another cashier starts work.
         $source->update(['cashier_id' => $source->original_cashier_id,
-            'status' => $hasReport ? ShiftStatus::REASSIGNED : ShiftStatus::IN_PROGRESS]);
+            'status' => $hasReport ? ShiftStatus::REASSIGNED : ShiftStatus::IN_PROGRESS,
+            'operational_chain_id' => $source->operational_chain_id ?? (string) Str::uuid()]);
         $incoming = CashierShift::create([
             'cashier_id' => $recipientId,
+            'operational_chain_id' => $source->operational_chain_id,
             'shift_id' => $source->shift_id,
             'shift_date' => $source->shift_date,
             'status' => ShiftStatus::REASSIGNED,
