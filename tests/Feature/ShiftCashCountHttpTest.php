@@ -5,13 +5,16 @@ namespace Tests\Feature;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\Employee;
+use Modules\Admin\Models\EmployeeMovement;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\Shift as AdminShift;
+use Modules\Admin\Services\OperationService;
 use Modules\Aggregator\Models\Aggregator;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
@@ -495,6 +498,90 @@ class ShiftCashCountHttpTest extends TestCase
             $this->assertSame('LIABILITY_EVIDENCE_UNAVAILABLE', $e->getMessage());
         }
         $this->assertSame(0, ShiftReportCashCount::count());
+    }
+
+    private function headUser(): AsabUser
+    {
+        $head = AsabUser::create(['company_id' => $this->branch->asab_company_id, 'name' => 'رئيس', 'email' => 'head@s110.test', 'password' => 'secret-password', 'status' => 'active']);
+        AsabUserRole::create(['user_id' => $head->id, 'role_key' => 'head', 'scope' => 'all']);
+
+        return $head;
+    }
+
+    private function countedShortageOperation(): array
+    {
+        $this->confirmedOpening();
+        $this->end($this->fin01Payload())->assertOk();
+        $admin = AdminShift::where('legacy_shift_id', $this->recipientShift->id)->firstOrFail();
+        $op = Operation::where('module_key', 'shifts')->where('payload->shiftId', $admin->id)->firstOrFail();
+
+        return [$admin, $op];
+    }
+
+    /** D15: Head final approval cannot charge a counted legacy shortage outside the branch allocation. */
+    public function test_final_approval_of_a_counted_shortage_is_refused_and_posts_nothing(): void
+    {
+        [$admin, $op] = $this->countedShortageOperation();
+        $accountant = AsabUser::where('email', 'acc@s110.test')->firstOrFail();
+        app(OperationService::class)->approve($op, $accountant);
+
+        try {
+            app(OperationService::class)->finalApprove($op->fresh(), $this->headUser());
+            $this->fail('A counted shortage must wait for the branch liability approval.');
+        } catch (AsabException $exception) {
+            $this->assertSame('BRANCH_LIABILITY_APPROVAL_PENDING', $exception->errorCode);
+            $this->assertSame(409, $exception->status);
+        }
+
+        $this->assertSame(0, EmployeeMovement::where('ref_operation_id', $op->id)->count());
+        $this->assertSame(Operation::STATUS_APPROVED, $op->fresh()->status);
+        $this->assertSame('pending_review', $admin->fresh()->status);
+    }
+
+    /** D15: the accountant's own split is not an authority over a counted shortage. */
+    public function test_accountant_split_of_a_counted_shortage_is_refused(): void
+    {
+        [$admin, $op] = $this->countedShortageOperation();
+        $accountant = AsabUser::where('email', 'acc@s110.test')->firstOrFail();
+        $employee = Employee::where('legacy_cashier_id', $this->recipient->id)->firstOrFail();
+
+        try {
+            app(\Modules\Admin\Services\ShiftCloseService::class)->setVarianceAllocations($op, [['employeeId' => $employee->id, 'amountHalalas' => 2000]], $accountant);
+            $this->fail('The branch allocation is the only authority.');
+        } catch (AsabException $exception) {
+            $this->assertSame('BRANCH_ALLOCATION_AUTHORITATIVE', $exception->errorCode);
+        }
+        $this->assertArrayNotHasKey('varianceAllocations', $op->fresh()->payload);
+    }
+
+    /** D15: a balanced counted shift still closes normally, and one refusal does not fail the rest of a bulk. */
+    public function test_bulk_final_approval_reports_each_item_and_balanced_counted_shifts_still_close(): void
+    {
+        [, $shortageOp] = $this->countedShortageOperation();
+        $accountant = AsabUser::where('email', 'acc@s110.test')->firstOrFail();
+        $head = $this->headUser();
+
+        // A second counted, balanced shift for another cashier.
+        $third = Cashier::factory()->create(['branch_id' => $this->branch->id, 'created_by' => $this->manager->id]);
+        Employee::create(['company_id' => $this->branch->asab_company_id, 'branch_id' => $this->branch->id, 'emp_number' => '3002', 'name' => 'ثالث', 'role' => 'كاشير', 'status' => 'active'])
+            ->forceFill(['legacy_cashier_id' => $third->id])->save();
+        $thirdShift = $this->liveShift($third, '23:00:00', '23:30:00');
+        $this->actingAs($third, 'sanctum')->postJson("/api/v1/cashier/shifts/{$thirdShift->id}/end", [
+            'total_sales' => '100.00', 'cash_collected' => '100.00', 'counted_cash' => '100.00',
+        ])->assertOk();
+        $balancedAdmin = AdminShift::where('legacy_shift_id', $thirdShift->id)->first();
+        $this->assertNotNull($balancedAdmin);
+        $balancedOp = Operation::where('module_key', 'shifts')->where('payload->shiftId', $balancedAdmin->id)->firstOrFail();
+
+        $service = app(OperationService::class);
+        $service->approve($shortageOp, $accountant);
+        $service->approve($balancedOp, $accountant);
+        $result = $service->bulkFinalApprove([$shortageOp->id, $balancedOp->id], $head);
+
+        $this->assertSame([$balancedOp->public_id], $result['finalApproved']);
+        $this->assertSame([['id' => $shortageOp->id, 'code' => 'BRANCH_LIABILITY_APPROVAL_PENDING']], $result['failed']);
+        $this->assertSame('closed', $balancedAdmin->fresh()->status);
+        $this->assertSame(0, EmployeeMovement::count());
     }
 
     private function liveShift(Cashier $cashier, string $start, string $end, ?string $date = null): CashierShift
