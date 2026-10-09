@@ -6,10 +6,13 @@ use App\Support\ShiftFinancialCalculator;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use Modules\Cashier\Models\Cashier;
 use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Liability\ShiftLiabilityService;
 use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Models\ShiftReportRevision;
 use Modules\Shift\Models\ShiftSalesBreakdown;
 
 class ShiftEndService
@@ -17,11 +20,14 @@ class ShiftEndService
     public function __construct(
         private HandoverService $handoverService,
         private VarianceCalculationService $varianceService,
-        private ShiftReportRevisionService $revisions
+        private ShiftReportRevisionService $revisions,
+        private ShiftCashCountService $cashCounts,
+        private ShiftLiabilityService $liability
     ) {}
 
     public function endShiftOnly(CashierShift $shift, array $data, Model $actor): CashierShift
     {
+        $countedHalalas = $this->countedHalalas($data);
         $data = $this->stageExternalFiles($shift, $data);
 
         DB::beginTransaction();
@@ -57,6 +63,10 @@ class ShiftEndService
                 $actor instanceof Cashier ? 'cashier' : 'branch_manager',
                 (string) $actor->getKey()
             );
+
+            // S1-10: the independent physical count, the server calculation and (for a shortage) the
+            // complete in-branch allocation commit with the report and its revision, or not at all.
+            $this->recordCountAndAllocation($shift, $revision, $countedHalalas, $data, $actor);
 
             // Record History
             $shift->recordHistory('ended_without_handover', [
@@ -162,6 +172,72 @@ class ShiftEndService
             DB::rollBack();
             throw $e;
         }
+    }
+
+    /** counted_cash is an independent required input; absent is never an implied 0 (an explicit 0 is a count of 0). */
+    private function countedHalalas(array $data): int
+    {
+        if (! array_key_exists('counted_cash', $data) || $data['counted_cash'] === null || $data['counted_cash'] === '') {
+            throw ValidationException::withMessages(['counted_cash' => 'The counted cash is required.']);
+        }
+
+        try {
+            return ShiftFinancialCalculator::sarToHalalas($data['counted_cash']);
+        } catch (\InvalidArgumentException) {
+            throw ValidationException::withMessages(['counted_cash' => 'The counted cash must be a non-negative SAR amount with at most two decimals.']);
+        }
+    }
+
+    private function recordCountAndAllocation(CashierShift $shift, ShiftReportRevision $revision, int $countedHalalas, array $data, Model $actor): void
+    {
+        $apps = 0;
+        foreach (ShiftSalesBreakdown::where('cashier_shift_id', $shift->id)->pluck('amount') as $amount) {
+            $apps += ShiftFinancialCalculator::storedSarToHalalas($amount);
+        }
+
+        $count = $this->cashCounts->record(
+            $shift,
+            $revision,
+            ShiftFinancialCalculator::storedSarToHalalas($shift->total_sales),
+            ShiftFinancialCalculator::storedSarToHalalas($shift->card_payments),
+            $apps,
+            $countedHalalas,
+        );
+
+        $allocations = $data['shortage_allocations'] ?? [];
+        if ($count->variance_halalas >= 0) {
+            // Balanced or surplus: the branch owns it; no employee liability is created.
+            if ($allocations !== []) {
+                throw ValidationException::withMessages(['shortage_allocations' => 'Allocations are only accepted for a shortage.']);
+            }
+
+            return;
+        }
+
+        $shares = [];
+        foreach ($allocations as $index => $allocation) {
+            try {
+                $amount = ShiftFinancialCalculator::sarToHalalas($allocation['amount'] ?? '');
+            } catch (\InvalidArgumentException) {
+                throw ValidationException::withMessages(["shortage_allocations.$index.amount" => 'Invalid SAR amount.']);
+            }
+            $shares[] = [
+                'type' => (string) ($allocation['responsible_type'] ?? ''),
+                'id' => (string) ($allocation['responsible_id'] ?? ''),
+                'amount' => $amount,
+            ];
+        }
+
+        // The cashier's own submission is their confirmation; a manager submitting for the cashier
+        // needs a reason and leaves the cashier confirmation pending. No ledger entry (S1-11).
+        $this->liability->allocate(
+            $shift->id,
+            $actor,
+            $shares,
+            0,
+            $actor instanceof Cashier,
+            isset($data['allocation_reason']) ? (string) $data['allocation_reason'] : null,
+        );
     }
 
     private function uploadPOSReceipt($file, string $shiftId): string

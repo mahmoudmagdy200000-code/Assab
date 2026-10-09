@@ -859,3 +859,27 @@ Status: **in progress; D6 is still PROPOSED (Mahmoud review required), so no pub
 `HandoverService::rejectHandoverForAmountCorrection` and `ShiftTransferReceiptService::rejectManagerCashTransfer` now write the evidence row in the same transaction as the rejection. The existing correction-history JSON is unchanged context.
 
 **Tests (REVIEWER_EXECUTED by the implementing session):** `ShiftCashCountServiceTest` (latest-evidence-per-request, append-only) and new evidence assertions in `ShiftTransferReceiptTest` for both the cashier handover and the manager transfer paths. The routes that consume the count are the next step; this step adds no new public behaviour.
+
+## S1-10 Phase 2 — step 2: atomic report, count and shortage allocation
+
+Status: **in progress; D6 still PROPOSED. No public response key was added or renamed.**
+
+**Routes covered (cashier and manager groups, `/api` and `/api/v1`):** `end` and `end-with-handover` (the latter reuses `ShiftEndService::endShiftOnly` inside its own transaction). `start-handover` and `handover` (record) take no count: the report was already counted at `end`; they carry the stored count to the new revision (`ShiftCashCountService::carryForward`). `reassign-with-handover` and the Admin bridge are the next step.
+
+**New request fields (additive, request side only):**
+
+| Field | Unit / type | Rule |
+|---|---|---|
+| `counted_cash` | SAR, ≤ 2 decimals, `0 ≤ x ≤ 9,999,999,999.99` | **Required** (D4 — the current app without it receives 422 `counted_cash`). Missing is never 0; an explicit `0` is a real count of 0. The approved JSON representation-noise policy applies. |
+| `shortage_allocations[]` | `{responsible_type: cashier\|branch_manager\|employee, responsible_id, amount (SAR)}` | Required and exactly equal to the shortage when `variance < 0`; rejected when balanced or surplus. Actors must be in the shift's branch and company. |
+| `allocation_reason` | string ≤ 500 | Required when a branch manager submits on the cashier's behalf. |
+
+**Transaction:** the legacy report columns, sales breakdown, report revision, `shift_report_cash_counts` row, and (for a shortage) the `ShiftLiabilityService::allocate` version-1 allocation with cashier confirmation (the cashier's own submission) commit together or not at all (`ShiftEndService::endShiftOnly`; for the handover route the whole chain, including the handover request, is inside one outer transaction). No personal-ledger or custody entry for the shortage is written (S1-11, S8-09). Balanced and surplus reports create no employee liability, and a surplus never increases sales.
+
+**Calculation (integer halalas via `ShiftFinancialCalculator`):** `expected = gross − cards − apps + confirmedOpening`; `variance = (counted − pendingIncomingCounted) − expected`. `cards + apps > gross` is rejected (422 `card_payments`); `counted < pendingIncomingCounted` is rejected (422 `counted_cash`). The legacy `cash_collected` input is kept for the legacy custody entry and legacy `variance` (a sales-channel difference) and is **not** an input of the new calculation.
+
+**Evidence:** `LiabilityEvidenceSource` is now bound to `CashCountLiabilityEvidence` (report part only). It reads the stored count of the CURRENT revision; a revision without a count (historical, auto-closed, or edited without a re-count) fails closed with 409 `LIABILITY_EVIDENCE_UNAVAILABLE`. Its `revision` token is the count's `counted_revision_id`, which survives handover-only revisions and changes when the report is re-counted. `dailyClose` still throws `DAILY_SCOPE_EVIDENCE_UNAVAILABLE` (S1-11).
+
+**Known boundary (documented, not implemented here):** a manager bulk edit of a submitted cashier report (`BranchManagerShiftService::bulkUpdateCashierShifts`) advances the revision without a new count; that report then has no count evidence until the S1-11 correction flow re-counts it. A branch without `asab_company_id` cannot record a shortage allocation (409 `LIABILITY_COMPANY_MAPPING_REQUIRED`); balanced and surplus reports are unaffected.
+
+**Tests:** `ShiftCashCountHttpTest` (15 tests, real HTTP) covers FIN-01 (gross 115, cards 50, apps 25, confirmed opening 10 from a real confirmed receipt, counted 30 → net 100, VAT 15, expected 50, variance −20, shortage 20, allocation 12 + 8 with cashier confirmation, no ledger entry), missing vs explicit-0 count, over-precision/out-of-range/noise, configured opening and a pending request never counting as opening, D11 500/480 (pending incoming, no surplus, no double count) and count-below-pending rejection, incomplete/excess/missing/out-of-branch/out-of-company allocation with no partial write, balanced/surplus, injected allocation-write failure rolling back report/count/revision, same-key replay once and changed payload rejected, carry-forward across handover revisions, and a historical report without a count. Existing S1-08/S1-09 tests were updated only to send the now-required `counted_cash`.

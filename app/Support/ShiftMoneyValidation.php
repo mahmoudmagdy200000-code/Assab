@@ -27,6 +27,8 @@ final class ShiftMoneyValidation
         'current_sales',
         'cash_collected',
         'card_payments',
+        'counted_cash',
+        'shortage_allocations.*.amount',
         'aggregator_payments',
         'handover_amount',
         'confirmed_amount',

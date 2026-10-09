@@ -32,7 +32,7 @@ class ShiftCommandIdempotencyHttpTest extends TestCase
         $cashier = $this->cashierFor($template);
         $shift = $this->liveShift($cashier, $template);
         $key = (string) Str::uuid();
-        $payload = ['total_sales' => '80.00', 'cash_collected' => '80.00'];
+        $payload = ['total_sales' => '80.00', 'cash_collected' => '80.00', 'counted_cash' => '80.00'];
 
         $first = $this->withKey($key)->actingAs($cashier, 'sanctum')->postJson("/api/v1/cashier/shifts/{$shift->id}/end", $payload);
         $retry = $this->withKey($key)->actingAs($cashier, 'sanctum')->postJson("/api/v1/cashier/shifts/{$shift->id}/end", $payload);
@@ -56,7 +56,7 @@ class ShiftCommandIdempotencyHttpTest extends TestCase
         $cashier = $this->cashierFor($template);
         $shift = $this->liveShift($cashier, $template);
         $endKey = (string) Str::uuid();
-        $payload = ['total_sales' => '200.00', 'cash_collected' => '200.00', 'handover_to_type' => 'branch_manager', 'handover_amount' => '200.00'];
+        $payload = ['total_sales' => '200.00', 'cash_collected' => '200.00', 'counted_cash' => '200.00', 'handover_to_type' => 'branch_manager', 'handover_amount' => '200.00'];
 
         $end = $this->withKey($endKey)->actingAs($cashier, 'sanctum')->postJson("/api/v1/cashier/shifts/{$shift->id}/end-with-handover", $payload);
         $endRetry = $this->withKey($endKey)->actingAs($cashier, 'sanctum')->postJson("/api/v1/cashier/shifts/{$shift->id}/end-with-handover", $payload);
@@ -106,9 +106,9 @@ class ShiftCommandIdempotencyHttpTest extends TestCase
         $key = (string) Str::uuid();
 
         $this->withKey($key)->actingAs($cashier, 'sanctum')
-            ->postJson("/api/v1/cashier/shifts/{$shift->id}/end", ['total_sales' => '100.00', 'cash_collected' => '100.00'])->assertOk();
+            ->postJson("/api/v1/cashier/shifts/{$shift->id}/end", ['total_sales' => '100.00', 'cash_collected' => '100.00', 'counted_cash' => '100.00'])->assertOk();
         $conflict = $this->withKey($key)->actingAs($cashier, 'sanctum')
-            ->postJson("/api/v1/cashier/shifts/{$shift->id}/end", ['total_sales' => '90.00', 'cash_collected' => '90.00']);
+            ->postJson("/api/v1/cashier/shifts/{$shift->id}/end", ['total_sales' => '90.00', 'cash_collected' => '90.00', 'counted_cash' => '90.00']);
 
         $conflict->assertStatus(409)
             ->assertJsonPath('success', false)
@@ -126,7 +126,7 @@ class ShiftCommandIdempotencyHttpTest extends TestCase
         $firstShift = $this->liveShift($first, $template);
         $otherShift = $this->liveShift($other, Shift::factory()->create(['branch_id' => $template->branch_id, 'is_active' => true, 'start_time' => '16:00:00', 'end_time' => '23:00:00']));
         $key = (string) Str::uuid();
-        $payload = ['total_sales' => '40.00', 'cash_collected' => '40.00'];
+        $payload = ['total_sales' => '40.00', 'cash_collected' => '40.00', 'counted_cash' => '40.00'];
 
         $this->withKey($key)->actingAs($first, 'sanctum')->postJson("/api/v1/cashier/shifts/{$firstShift->id}/end", $payload)->assertOk();
         $conflict = $this->withKey($key)->actingAs($other, 'sanctum')->postJson("/api/v1/cashier/shifts/{$otherShift->id}/end", $payload);
@@ -145,7 +145,7 @@ class ShiftCommandIdempotencyHttpTest extends TestCase
         $cashier = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $creator->id]);
         $shift = $this->liveShift($cashier, $template);
         $key = (string) Str::uuid();
-        $payload = ['total_sales' => '70.00', 'cash_collected' => '70.00', 'handover_to_type' => 'branch_manager', 'handover_amount' => '70.00'];
+        $payload = ['total_sales' => '70.00', 'cash_collected' => '70.00', 'counted_cash' => '70.00', 'handover_to_type' => 'branch_manager', 'handover_amount' => '70.00'];
 
         $failed = $this->withKey($key)->actingAs($cashier, 'sanctum')->postJson("/api/v1/cashier/shifts/{$shift->id}/end-with-handover", $payload);
 
@@ -172,7 +172,7 @@ class ShiftCommandIdempotencyHttpTest extends TestCase
         $source = $this->liveShift($sender, $template);
         $destination = $this->liveShift($recipient, Shift::factory()->create(['branch_id' => $branch->id, 'is_active' => true, 'start_time' => '16:00:00', 'end_time' => '23:00:00']));
         $this->actingAs($sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$source->id}/end-with-handover", [
-            'total_sales' => '100.00', 'cash_collected' => '100.00', 'next_cashier_id' => $recipient->id, 'handover_amount' => '100.00',
+            'total_sales' => '100.00', 'cash_collected' => '100.00', 'counted_cash' => '100.00', 'next_cashier_id' => $recipient->id, 'handover_amount' => '100.00',
         ])->assertOk();
 
         $key = (string) Str::uuid();
@@ -227,7 +227,7 @@ class ShiftCommandIdempotencyHttpTest extends TestCase
         $cashier = $this->cashierFor($template);
         $shift = $this->liveShift($cashier, $template);
         $key = (string) Str::uuid();
-        $payload = ['total_sales' => '60.00', 'cash_collected' => '60.00'];
+        $payload = ['total_sales' => '60.00', 'cash_collected' => '60.00', 'counted_cash' => '60.00'];
         DB::statement("CREATE TRIGGER block_idempotency_completion BEFORE UPDATE ON asab_command_idempotency_keys WHEN NEW.status = 'completed' BEGIN SELECT RAISE(ABORT, 'forced completion failure'); END");
 
         $failed = $this->withKey($key)->actingAs($cashier, 'sanctum')->postJson("/api/v1/cashier/shifts/{$shift->id}/end", $payload);
@@ -252,7 +252,7 @@ class ShiftCommandIdempotencyHttpTest extends TestCase
         $cashier = $this->cashierFor($template);
         $shift = $this->liveShift($cashier, $template);
         $key = (string) Str::uuid();
-        $payload = ['total_sales' => '55.00', 'cash_collected' => '55.00'];
+        $payload = ['total_sales' => '55.00', 'cash_collected' => '55.00', 'counted_cash' => '55.00'];
         $fired = false;
         CashierShift::updated(function () use (&$fired): void {
             if (! $fired) {
@@ -287,7 +287,7 @@ class ShiftCommandIdempotencyHttpTest extends TestCase
         foreach (['start-handover' => $template, 'handover' => $late] as $route => $shiftTemplate) {
             $shift = $this->liveShift($sender, $shiftTemplate);
             $this->flushHeaders();
-            $this->actingAs($sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$shift->id}/end", ['total_sales' => '30.00', 'cash_collected' => '30.00'])->assertOk();
+            $this->actingAs($sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$shift->id}/end", ['total_sales' => '30.00', 'cash_collected' => '30.00', 'counted_cash' => '30.00'])->assertOk();
 
             $key = (string) Str::uuid();
             $body = ['next_cashier_id' => $recipient->id, 'handover_amount' => '30.00'];

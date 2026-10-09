@@ -70,7 +70,7 @@ class ShiftMoneyValidationTest extends TestCase
 
         // Dry-run the missing-shift lookup: 404 proves validation passed, without business writes.
         DB::connection()->pretend(function () use ($amount) {
-            $this->postJson('/api/v1/cashier/shifts/missing/end', ['total_sales' => $amount])
+            $this->postJson('/api/v1/cashier/shifts/missing/end', ['total_sales' => $amount, 'counted_cash' => '0.00'])
                 ->assertNotFound();
         });
     }

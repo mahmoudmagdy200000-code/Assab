@@ -41,7 +41,7 @@ class ShiftEndAtomicityTest extends TestCase
         DB::statement("CREATE TRIGGER fail_close_custody BEFORE INSERT ON cashier_custody_transactions WHEN NEW.transaction_type = 'Total Sales' BEGIN SELECT RAISE(ABORT, 'injected custody failure'); END");
 
         try {
-            app(ShiftEndService::class)->endShiftOnly($shift, ['total_sales' => 100, 'cash_collected' => 100], $cashier);
+            app(ShiftEndService::class)->endShiftOnly($shift, ['total_sales' => 100, 'cash_collected' => 100, 'counted_cash' => 100], $cashier);
             $this->fail('The required close custody write must fail.');
         } catch (QueryException) {
             $this->assertSame(ShiftStatus::IN_PROGRESS, $shift->fresh()->status);
@@ -59,7 +59,7 @@ class ShiftEndAtomicityTest extends TestCase
         DB::statement("CREATE TRIGGER fail_close_audit BEFORE INSERT ON cashier_shift_history WHEN NEW.action = 'ended_without_handover' BEGIN SELECT RAISE(ABORT, 'injected audit failure'); END");
 
         try {
-            app(ShiftEndService::class)->endShiftOnly($shift, ['total_sales' => 100, 'cash_collected' => 100], $cashier);
+            app(ShiftEndService::class)->endShiftOnly($shift, ['total_sales' => 100, 'cash_collected' => 100, 'counted_cash' => 100], $cashier);
             $this->fail('The required close audit write must fail.');
         } catch (QueryException) {
             $this->assertSame(ShiftStatus::IN_PROGRESS, $shift->fresh()->status);

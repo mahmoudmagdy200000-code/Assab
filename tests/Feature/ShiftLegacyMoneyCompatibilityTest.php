@@ -45,7 +45,7 @@ class ShiftLegacyMoneyCompatibilityTest extends TestCase
     private function appEndPayload(Aggregator $app, string $currentCashierAmount): array
     {
         return [
-            'total_sales' => '115.5', 'cash_collected' => '40.1', 'card_payments' => '50.2',
+            'total_sales' => '115.5', 'cash_collected' => '40.1', 'card_payments' => '50.2', 'counted_cash' => '40.2',
             'aggregators' => [['aggregator_id' => $app->id, 'amount' => '25.1']],
             'variance' => ['responsibility_type' => 'self', 'current_cashier_amount' => $currentCashierAmount],
         ];
