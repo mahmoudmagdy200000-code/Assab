@@ -84,6 +84,8 @@ SQLite transaction tests are not row-lock or deadlock proof. A deployment-equiva
 - manager close / cashier confirmation / new cashier shift creation in another branch; `lockCashierFinancialInputs` uses a date-range lock and InnoDB may lock rows from other branches;
 - zero and duplicate active-manager recipient discovery returning 200 with valid cashier choices, while omitting an ambiguous/unavailable manager;
 - an unaddressed manager attempting reject and amount correction, returning 403 `ONLY_ADDRESSED_RECIPIENT` without state or financial changes.
+- S1-09: two same-key requests on the same command, including one on `/api` and one on `/api/v1`, returning one effect and one replayed response;
+- S1-09 `transaction` mode: reservation lock plus business locks (reservation → workday → cashier shifts → request) under deadlock, including nested manual transactions, where MySQL rolls back the whole transaction rather than the savepoint.
 
 Verify one receipt/effect, no duplicate custody or ledger rows, no partial financial state, deterministic final state, lifecycle guard behavior, and bounded safe handling of deadlocks. Production DDL impact for additive receipt migrations also needs review.
 

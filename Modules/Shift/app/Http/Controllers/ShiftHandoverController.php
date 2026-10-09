@@ -77,7 +77,7 @@ class ShiftHandoverController extends Controller
                 );
 
                 return $commandResponse;
-            });
+            }, null, 'writer', 'legacy');
         } catch (\Throwable $e) {
             return HandoverErrorResponse::from($e, 'accept');
         }

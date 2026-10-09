@@ -169,5 +169,5 @@ The 71 NFR cases fail before their assertions and are not financial-path tests. 
 
 ## Known procurement and API-contract items
 
-- The `/purchase/orders` response-envelope deviation remains known: `UserExperienceTest::test_api_response_consistency` no longer asserts `success:false`, because the actual Purchase FormRequest 422 response does not use the unified error envelope. This is a procurement/API behavior deviation, not an S1-08 financial behavior change.
+- The `/purchase/orders` response-envelope deviation remains known: `UserExperienceTest::test_data_validation_feedback` no longer asserts `success:false`, because the actual Purchase FormRequest 422 response does not use the unified error envelope. This is a procurement/API behavior deviation, not an S1-08 financial behavior change.
 - The `RecurringOrderService` `now()`-based scheduling cursor is a known procurement behavior change. It corrected future-run calculation and is not an S1-08 financial behavior change.

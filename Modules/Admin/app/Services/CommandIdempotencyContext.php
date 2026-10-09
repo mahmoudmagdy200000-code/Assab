@@ -9,6 +9,9 @@ use Symfony\Component\HttpFoundation\Response;
 /** Request-scoped reservation handle used by an authoritative writer transaction. */
 class CommandIdempotencyContext
 {
+    /** Replay snapshots stay available for this many days (api-contract §9). */
+    public const RESPONSE_TTL_DAYS = 90;
+
     public function __construct(private readonly string $identityHash) {}
 
     /** Serialize recovery with the authoritative writer before its effects begin. */
@@ -42,9 +45,9 @@ class CommandIdempotencyContext
                 'status' => 'completed',
                 'response_status' => $response->getStatusCode(),
                 'response_body' => $response->getContent(),
-                'response_headers' => json_encode($this->replayableHeaders($response), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+                'response_headers' => json_encode(self::replayableHeaders($response), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
                 'completed_at' => $completedAt,
-                'response_expires_at' => $completedAt->copy()->addHours(24),
+                'response_expires_at' => $completedAt->copy()->addDays(self::RESPONSE_TTL_DAYS),
                 'updated_at' => $completedAt,
             ]);
 
@@ -53,7 +56,7 @@ class CommandIdempotencyContext
         }
     }
 
-    private function replayableHeaders(Response $response): array
+    public static function replayableHeaders(Response $response): array
     {
         $headers = [];
         foreach (['content-type', 'cache-control', 'content-disposition'] as $name) {

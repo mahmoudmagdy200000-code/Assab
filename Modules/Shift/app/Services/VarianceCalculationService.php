@@ -69,7 +69,7 @@ class VarianceCalculationService
             DB::commit();
 
             // Custody ledger entries are created only after responsibility is approved (VarianceRecorded from controllers / handover approval).
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('Variance recording failed', [
                 'shift_id' => $shift->id,

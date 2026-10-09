@@ -146,22 +146,25 @@ class HandoverService
 
             DB::commit();
 
-            // Clear cache for branch manager shift so workday/current shows new handover immediately
+            // Clear cache for branch manager shift so workday/current shows new handover immediately.
+            // After commit: an enclosing command transaction must not let a poll re-cache stale data.
             if ($handoverToType === 'branch_manager' && $handoverToId) {
-                try {
-                    $branchManagerShift = BranchManagerShift::where('branch_manager_id', $handoverToId)
-                        ->whereDate('shift_date', $handover->handover_date ?? $shift->shift_date)
-                        ->first();
+                DB::afterCommit(function () use ($handoverToId, $handover, $shift): void {
+                    try {
+                        $branchManagerShift = BranchManagerShift::where('branch_manager_id', $handoverToId)
+                            ->whereDate('shift_date', $handover->handover_date ?? $shift->shift_date)
+                            ->first();
 
-                    if ($branchManagerShift) {
-                        app(BranchManagerShiftService::class)->clearShiftCaches($branchManagerShift);
+                        if ($branchManagerShift) {
+                            app(BranchManagerShiftService::class)->clearShiftCaches($branchManagerShift);
+                        }
+                    } catch (\Throwable $e) {
+                        Log::warning('Failed to clear cache after handover', [
+                            'error' => $e->getMessage(),
+                            'handover_id' => $handover->id,
+                        ]);
                     }
-                } catch (\Throwable $e) {
-                    Log::warning('Failed to clear cache after handover', [
-                        'error' => $e->getMessage(),
-                        'handover_id' => $handover->id,
-                    ]);
-                }
+                });
             }
 
             Log::info('Handover recorded successfully', [
@@ -203,7 +206,7 @@ class HandoverService
             }
             $manager = \Modules\BranchManagers\Models\BranchManager::query()->findOrFail($reviewerId);
             $this->receipts->confirmManagerHandover($handoverStub->id, $manager, $confirmedAmount, $managerComment);
-            $this->clearBranchManagerShiftCacheForApproval($shift, $reviewerId);
+            DB::afterCommit(fn () => $this->clearBranchManagerShiftCacheForApproval($shift, $reviewerId));
 
             return $shift->fresh([
                 'handoverStatus.reviewedBy', 'nextCashier', 'cashier', 'shift', 'salesBreakdown.aggregator',
@@ -297,7 +300,7 @@ class HandoverService
                     $service->clearShiftCaches($forShiftDate);
                 }
             }
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::warning('Failed to clear branch manager shift cache after approval', [
                 'shift_id' => $shift->id,
                 'reviewer_id' => $reviewerId,

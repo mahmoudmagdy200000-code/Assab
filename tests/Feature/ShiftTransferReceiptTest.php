@@ -241,7 +241,7 @@ class ShiftTransferReceiptTest extends TestCase
                 );
 
                 throw new \RuntimeException('Simulated response transport interruption after business commit.');
-            });
+            }, null, 'writer', 'legacy');
             $this->fail('The simulated response interruption should escape the first delivery.');
         } catch (\RuntimeException $exception) {
             $this->assertSame('Simulated response transport interruption after business commit.', $exception->getMessage());
@@ -270,7 +270,7 @@ class ShiftTransferReceiptTest extends TestCase
             $executions++;
 
             return response()->json(['success' => true, 'message' => 'A new result must not be generated.']);
-        });
+        }, null, 'writer', 'legacy');
 
         $receipt = CashierShiftHandoverReceipt::query()->where('cashier_shift_handover_id', $handover->id)->sole();
         $this->assertSame(200, $replayed->getStatusCode());
@@ -308,16 +308,16 @@ class ShiftTransferReceiptTest extends TestCase
                 $writerExecutions++;
 
                 return response()->json(['duplicate' => true]);
-            });
+            }, null, 'writer', 'legacy');
 
             $this->assertSame(409, $concurrent->getStatusCode());
-            $this->assertSame('IDEMPOTENCY_IN_PROGRESS', json_decode($concurrent->getContent(), true)['error']['code']);
+            $this->assertSame('IDEMPOTENCY_IN_PROGRESS', json_decode($concurrent->getContent(), true)['code']);
             $writerExecutions++;
             $commandResponse = response()->json(['success' => true, 'message' => 'Handover accepted successfully']);
             app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, '10.00', $destination->id, null, $commandResponse);
 
             return $commandResponse;
-        });
+        }, null, 'writer', 'legacy');
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertSame(1, $writerExecutions);
@@ -336,11 +336,14 @@ class ShiftTransferReceiptTest extends TestCase
 
                 return response()->json(['success' => true, 'message' => 'different result']);
             },
+            null,
+            'writer',
+            'legacy',
         );
 
         $this->assertSame(200, $first->getStatusCode());
         $this->assertSame(409, $conflict->getStatusCode());
-        $this->assertSame('IDEMPOTENCY_KEY_REUSED', json_decode($conflict->getContent(), true)['error']['code']);
+        $this->assertSame('IDEMPOTENCY_KEY_REUSED', json_decode($conflict->getContent(), true)['code']);
         $this->assertSame(0, $secondWriterCalls);
         $this->assertReceiptEffectsExactlyOnce($handover, $destination, '10.00');
     }
@@ -358,11 +361,14 @@ class ShiftTransferReceiptTest extends TestCase
 
                 return response()->json(['success' => true, 'message' => 'Handover accepted successfully']);
             },
+            null,
+            'writer',
+            'legacy',
         );
 
         $this->assertSame(200, $first->getStatusCode());
         $this->assertSame(409, $conflict->getStatusCode());
-        $this->assertSame('IDEMPOTENCY_KEY_REUSED', json_decode($conflict->getContent(), true)['error']['code']);
+        $this->assertSame('IDEMPOTENCY_KEY_REUSED', json_decode($conflict->getContent(), true)['code']);
         $this->assertStringNotContainsString('Handover accepted successfully', $conflict->getContent());
         $this->assertSame(0, $secondWriterCalls);
         $this->assertReceiptEffectsExactlyOnce($handover, $destination, '10.00');
@@ -1218,7 +1224,7 @@ class ShiftTransferReceiptTest extends TestCase
             app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, $amount, $destination->id, null, $commandResponse);
 
             return $commandResponse;
-        });
+        }, null, 'writer', 'legacy');
     }
 
     private function assertReceiptEffectsExactlyOnce(CashierShiftHandover $handover, CashierShift $destination, string $amount): void

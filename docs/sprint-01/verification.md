@@ -664,3 +664,92 @@ The authoritative final run used the established `scripts/run-serial-tests.ps1` 
 Exact failing-identity comparison against the accepted S1-08 final reports (`s1-08-mahmoud-final-{unit,nfr}.xml` and `s1-08-mahmoud-final-feature-2.xml`, accepted at `8ddb90a2`; documentation follow-up HEAD `302e97c1`): **0 shared failures/errors, 0 current-only failures/errors, and 0 baseline-only failures/errors**. All 1,396 S1-08 identities remain present and clean; this worktree adds 12 passing identities (3 Unit and 9 Feature). TX-02/TX-03/TX-04 tests listed above all pass in the final Feature JUnit.
 
 MySQL was unavailable on local port 3310. Deployment gate: **MYSQL S1-09 CONCURRENCY VALIDATION PENDING — ENVIRONMENT UNAVAILABLE**. The required MySQL concurrency scenarios remain documented in `s1-08-deployment-readiness.md`; SQLite evidence does not claim MySQL lock/deadlock behavior.
+
+## S1-09 correction pass — 2026-10-09
+
+Corrections to `4dbffd8b` after the reviewer audit (findings S9-01…S9-06). Status: **Ready for Mahmoud review / Not Accepted.**
+
+### Replay modes
+
+`asab.idempotency:{requireKey},{completion},{envelope}`:
+
+- `after-commit` (default, Admin routes): the replay snapshot is written after the command returns. A crash between the business commit and the snapshot leaves the key reserved; it fails closed and is never re-executed.
+- `writer`: the authoritative writer completes the reservation inside its own business transaction (`CommandIdempotencyContext`).
+- `transaction`: the middleware runs the command inside one transaction, re-locks the reservation first, and writes the snapshot in the same commit.
+
+With `writer` and `transaction`, a reservation that is still `processing` proves that nothing was committed. A failed attempt (non-2xx or exception) therefore releases the key and rolls back, and an expired reservation may be recovered. Recovery no longer depends on the route name. The command identity is the handler action, so the `/api/...` and `/api/v1/...` aliases of one command share one identity.
+
+Other behavior:
+- `envelope=legacy` returns `{success:false,message:CODE,code:CODE,detail}` on the mobile routes.
+- `IDEMPOTENCY_IN_PROGRESS` carries `Retry-After: 2`.
+- Replay snapshots are kept for **90 days** (api-contract §9); command identities are kept permanently.
+- The MySQL deadlock SQLSTATE `40001` is now recognized during reservation.
+- In `transaction` mode, a wrapped command that leaves its manual transaction unbalanced is rejected, so a savepoint can never pass as the command commit. A leaked inner level is rolled back and the key released (a non-2xx controller response is returned as is). If an unbalanced commit really committed the command (Laravel's `committing` event, which fires only at the real PDO commit), the key stays reserved with no expiry recovery, so the command can never run again under that key.
+- Workday cache invalidation after a handover request or a manager receipt now runs after commit (`DB::afterCommit`), so a poll cannot re-cache pre-commit data.
+- `VarianceCalculationService::recordVariance` now rolls back on any `Throwable`, not only `Exception`.
+
+### Route coverage (both `/api` and `/api/v1` aliases)
+
+| Route | Handler | Replay |
+|---|---|---|
+| Cashier `shifts/{shift}/handover/accept` | `ShiftHandoverController@acceptHandover` | `writer` |
+| Manager `shifts/{shift}/handover/approve` | `ShiftHandoverController@approveHandover` | `transaction` |
+| Manager `workday/handoffs/approve` | `BranchManagerShiftController@approveHandoff` | `transaction` |
+| Cashier and manager `shifts/{shift}/end` | `ShiftEndController@endShiftOnly` | `transaction` |
+| Cashier and manager `shifts/{shift}/end-with-handover` | `ShiftEndController@endShiftWithHandover` | `transaction` |
+| Cashier and manager `shifts/{shift}/start-handover` | `ShiftEndController@startHandover` | `transaction`. With a key, the request and its variance recording now share one commit. |
+| Cashier and manager `shifts/{shift}/handover` (record) | `ShiftHandoverController@recordHandover` | `transaction` |
+| All other `asab.idempotency` routes (Admin and Dashboard: `admin/*`, `company/*`, `company/me/*` role groups, `/api/v1/operations/*` bulk/final-approve/return, `erp/batches*`, `accountant/shifts/{id}/close`, …) | Admin controllers | `after-commit` |
+
+Not covered by request replay (business-state guard only), with owner:
+
+| Route | Owner | Reason |
+|---|---|---|
+| Manager `shifts/{shift}/reassign-with-handover` | S1-10 | Manual nested transaction with several rollback paths; reworked with counted cash. |
+| `handover/reject`, `handover/edit`, `workday/handoffs/reject`, rejection-decision routes | S1-11 | Correction and rejection rework. |
+| `workday/end`, `daily-close/submit`, `daily-close/reopen` | S1-11 | Daily submit and reopen. |
+| Responsibility approve/reject: `branch-manager/shifts/{shift}/responsibility/approve|reject`, `cashier/my-shifts/{shift}/responsibility/approve|reject` (fire `VarianceRecorded` → custody ledger entries); `shifts/{shift}/variance` | S1-11 | Liability allocation and approval routes. |
+| `shifts/{shift}/reassign`, `reassign/accept`, `reassign/reject`; `cashier/shifts/{shift}/start`, `start-by-manager`; `workday/start`; `PUT workday/daily-close` | S1-10 / S1-11 | Shift lifecycle and daily close; reworked with counted cash and daily submit. |
+| Custody module routes | Week 3 | Expense and custody cycle. |
+| `/api/v1/operations/{id}/approve`, `reject`, `correction`; accountant `shifts/{id}/variance-allocations` | — | Existing routes without middleware; unchanged in S1-09. |
+
+### TX acceptance mapping
+
+| Requirement | Tests |
+|---|---|
+| TX-02 retry | `ShiftCommandIdempotencyHttpTest::test_tx02_tx04_end_only_replays_original_response_without_second_report_effect`; `…::test_tx02_end_with_handover_and_manager_receipt_routes_replay_exactly_once`; `ShiftTransferReceiptTest::test_tx02_same_key_retry_replays_original_receipt_without_duplicate_financial_effects` |
+| TX-02 overlap | `ShiftCommandIdempotencyHttpTest::test_in_progress_duplicate_returns_retry_after_in_the_legacy_envelope`; `ShiftTransferReceiptTest::test_tx02_concurrent_duplicate_is_blocked_by_atomic_reservation_before_receipt_write` |
+| TX-03 payload | `ShiftCommandIdempotencyHttpTest::test_tx03_changed_payload_is_rejected_in_the_legacy_envelope_without_effect`; `ShiftTransferReceiptTest::test_tx03_same_key_with_different_payload_is_rejected_without_second_receipt_effect` |
+| TX-03 actor | `ShiftCommandIdempotencyHttpTest::test_tx03_key_of_another_actor_is_rejected_without_disclosure_or_effect`; `ShiftTransferReceiptTest::test_tx03_same_key_from_another_authenticated_user_is_rejected_without_result_disclosure_or_second_effect` |
+| TX-02 other routes | `ShiftCommandIdempotencyHttpTest::test_tx02_start_handover_and_record_handover_replay_exactly_once` |
+| TX-04 | `ShiftCommandIdempotencyHttpTest::test_tx04_failure_after_commit_replays_the_committed_snapshot_once` (an exception after the business commit; the retry returns the stored snapshot once); `…::test_tx02_tx04_end_only_replays_original_response_without_second_report_effect` (retry after the report closed); `ShiftTransferReceiptTest::test_tx04_committed_receipt_snapshot_replays_after_response_path_interruption` |
+| Same-commit snapshot | `ShiftCommandIdempotencyHttpTest::test_snapshot_failure_rolls_back_the_command_in_the_same_commit` (a forced snapshot failure rolls back the report and releases the key) |
+| Failure release | `ShiftCommandIdempotencyHttpTest::test_failed_transactional_command_rolls_back_and_releases_its_key`; `…::test_writer_mode_domain_error_releases_key_on_both_aliases_and_replays_across_them` |
+
+The `ShiftCommandIdempotencyHttpTest` cases go through the real routes, except the overlap test, which calls the middleware directly with a test route. The `ShiftTransferReceiptTest` TX cases call the middleware directly in the production `writer` mode with the legacy envelope. Mutation checks were run: removing the route middleware fails the end-route tests; removing the writer release fails the alias test; switching the shift routes to `after-commit` fails the same-commit and after-commit-failure tests.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| S1-09 and affected files (CanonicalRequestPayload, IdempotencyKeyMiddleware, ShiftTransferReceipt, ShiftCommandIdempotencyHttp, ShiftLegacyMoneyCompatibility, ShiftMoneyValidation, ShiftCloseChain, Shifts, AccountantBrandScope, ShiftHandoverVarianceCustody, HandoverLedgerDate, BranchWorkdayWindow, ShiftEndAtomicity, RouteCacheable) | PASS — 171 tests / 986 assertions, PHP 8.3.6, SQLite |
+| Changed PHP syntax, Pint `--test`, `git diff --check` | PASS |
+| Unbalanced-transaction probes (temporary, `DatabaseMigrations`, not committed) | An extra real commit inside `end`: 500, key held `processing` with no expiry; a retry 10 minutes later returns `IDEMPOTENCY_IN_PROGRESS`, with no re-run. A leaked `beginTransaction` with a domain 409: the controller's 409 is returned, the shift stays `in_progress`, the key is released, and the level returns to 0. |
+| Full suite | NOT RUN in this pass (scope: S1-09 tests only) |
+| MySQL concurrency | NOT RUN — deployment gate |
+
+### Pending Mahmoud decisions
+
+- **D4:** `Idempotency-Key` stays optional on the mobile routes. D4 says new required fields are enforced as soon as each is implemented. Either enforce it, or record an exception until the AssabAPP release. Without a key, the S1-08 business-state guards and unique receipt effects still prevent a duplicate financial effect, but there is no replay of the original response.
+- **Retention:** 90 days follows api-contract §9. Shorten only by decision.
+- **Admin financial close:** it still completes after commit. Contract §10 asks for the same commit; deferred.
+
+### Added to the MySQL gate
+
+- `transaction` mode holds the reservation row lock together with the business locks. The lock order is reservation → workday → cashier shifts → request.
+- Nested manual transactions under the outer command transaction must be validated on deadlock, because MySQL rolls back the whole transaction, not the savepoint.
+- Concurrent same-key requests must be verified on both aliases. Pass criterion: on MySQL, a concurrent duplicate in `transaction` mode waits on the reservation row lock held by the original for the whole command, then replays the original response; if the wait exceeds `innodb_lock_wait_timeout` it returns `IDEMPOTENCY_IN_PROGRESS`. It never runs the command a second time.
+
+### Deployment note
+
+Command identities changed from `4dbffd8b` (route action instead of route name). `4dbffd8b` was never deployed, so no stored identity is affected; if it ever had been, a retry spanning the deploy would run again under the business-state guards.

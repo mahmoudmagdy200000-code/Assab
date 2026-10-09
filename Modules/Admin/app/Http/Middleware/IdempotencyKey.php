@@ -3,11 +3,14 @@
 namespace Modules\Admin\Http\Middleware;
 
 use Closure;
+use Illuminate\Database\Events\TransactionCommitting;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Modules\Admin\Exceptions\IdempotencyRollbackResponse;
 use Modules\Admin\Models\IdempotencyKey as LegacyIdempotencyKey;
 use Modules\Admin\Services\CanonicalRequestPayload;
 use Modules\Admin\Services\CommandIdempotencyContext;
@@ -15,64 +18,96 @@ use Modules\Admin\Support\TenantContext;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
-/** Reserves scoped command identities without wrapping authoritative writers in a transaction. */
+/**
+ * Reserves scoped command identities before a command runs.
+ *
+ * Route parameters: `asab.idempotency:{requireKey},{completion},{envelope}`.
+ *
+ * - requireKey: `required` rejects a missing key; anything else leaves it optional.
+ * - completion:
+ *   - `after-commit` (default): the replay snapshot is written after the command
+ *     returns. A failure between the business commit and the snapshot leaves the
+ *     key reserved (fail-closed, never re-executed).
+ *   - `writer`: the command's authoritative writer completes the reservation
+ *     inside its own business transaction (CommandIdempotencyContext).
+ *   - `transaction`: this middleware runs the command inside one transaction and
+ *     writes the snapshot in that same commit.
+ *   With `writer` and `transaction` a reservation still `processing` proves no
+ *   business commit happened, so a failed attempt releases it and an expired one
+ *   may be recovered.
+ * - envelope: `legacy` returns the mobile `{success,message,code}` error family;
+ *   anything else returns the Admin `{error:{code,message},requestId}` family.
+ */
 class IdempotencyKey
 {
-    private const RESPONSE_TTL_HOURS = 24;
-
     private const RESERVATION_TTL_MINUTES = 5;
+
+    private const RETRY_AFTER_SECONDS = 2;
+
+    private const ATOMIC_COMPLETIONS = ['writer', 'transaction'];
+
+    private const COMMIT_COUNTER = 'asab.idempotency.commit-counter';
 
     public function __construct(private readonly CanonicalRequestPayload $payloadHasher) {}
 
-    public function handle(Request $request, Closure $next, ?string $requireKey = null): Response
-    {
+    public function handle(
+        Request $request,
+        Closure $next,
+        ?string $requireKey = null,
+        ?string $completion = null,
+        ?string $envelope = null
+    ): Response {
         if (in_array($request->method(), ['GET', 'HEAD', 'OPTIONS'], true)) {
             return $next($request);
         }
 
+        $completion = in_array($completion, self::ATOMIC_COMPLETIONS, true) ? $completion : 'after-commit';
+        $legacyEnvelope = $envelope === 'legacy';
+
         $key = $request->header('Idempotency-Key');
         if ($key === null || $key === '') {
             return $requireKey === 'required'
-                ? $this->error(422, 'IDEMPOTENCY_KEY_REQUIRED', 'Idempotency-Key is required.')
+                ? $this->error(422, 'IDEMPOTENCY_KEY_REQUIRED', 'Idempotency-Key is required.', $legacyEnvelope)
                 : $next($request);
         }
 
         if (! is_string($key) || strlen($key) > 100 || trim($key) !== $key || preg_match('/[\x00-\x1F\x7F]/', $key)) {
-            return $this->error(422, 'IDEMPOTENCY_KEY_INVALID', 'Idempotency-Key is invalid.');
+            return $this->error(422, 'IDEMPOTENCY_KEY_INVALID', 'Idempotency-Key is invalid.', $legacyEnvelope);
         }
 
         if ($requireKey === 'required' && ! Str::isUuid($key)) {
-            return $this->error(422, 'IDEMPOTENCY_KEY_INVALID', 'Idempotency-Key must be a UUID.');
+            return $this->error(422, 'IDEMPOTENCY_KEY_INVALID', 'Idempotency-Key must be a UUID.', $legacyEnvelope);
         }
 
         $actor = $request->user();
         if ($actor === null || ! method_exists($actor, 'getAuthIdentifier')) {
-            return $this->error(401, 'UNAUTHENTICATED', 'Authentication is required before replay lookup.');
+            return $this->error(401, 'UNAUTHENTICATED', 'Authentication is required before replay lookup.', $legacyEnvelope);
         }
 
         try {
             $scope = $this->identityScope($request, $actor, $key);
             $payloadHash = $this->payloadHasher->hash($request);
         } catch (Throwable) {
-            return $this->error(422, 'IDEMPOTENCY_PAYLOAD_INVALID', 'The request payload cannot be canonicalized.');
+            return $this->error(422, 'IDEMPOTENCY_PAYLOAD_INVALID', 'The request payload cannot be canonicalized.', $legacyEnvelope);
         }
 
         $legacy = LegacyIdempotencyKey::query()->where('key', $key)->first();
         if ($legacy !== null) {
             if ((string) $legacy->user_id !== (string) $actor->getAuthIdentifier()) {
-                return $this->error(409, 'IDEMPOTENCY_KEY_REUSED', 'Idempotency-Key is already bound to another authenticated user.');
+                return $this->error(409, 'IDEMPOTENCY_KEY_REUSED', 'Idempotency-Key is already bound to another authenticated user.', $legacyEnvelope);
             }
 
             if ($legacy->method === strtoupper($request->method()) && $legacy->path === $request->path()) {
-                return $this->error(409, 'IDEMPOTENCY_KEY_REUSED', 'This legacy key has no safe request-scope evidence. Use a new key.');
+                return $this->error(409, 'IDEMPOTENCY_KEY_REUSED', 'This legacy key has no safe request-scope evidence. Use a new key.', $legacyEnvelope);
             }
         }
 
         $identityHash = hash('sha256', json_encode($scope, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
         $keyHash = hash('sha256', $key);
+        $atomic = $completion !== 'after-commit';
 
         try {
-            $reservation = DB::transaction(function () use ($scope, $identityHash, $keyHash, $payloadHash) {
+            $reservation = DB::transaction(function () use ($scope, $identityHash, $keyHash, $payloadHash, $atomic, $legacyEnvelope) {
                 $connection = DB::connection();
                 $owners = $connection->table('asab_command_idempotency_owners');
                 $owner = $owners->where('key_hash', $keyHash)->lockForUpdate()->first();
@@ -90,24 +125,25 @@ class IdempotencyKey
                 }
 
                 if ($owner === null || $owner->actor_type !== $scope['actor_type'] || (string) $owner->actor_id !== $scope['actor_id']) {
-                    return ['response' => $this->error(409, 'IDEMPOTENCY_KEY_REUSED', 'Idempotency-Key is already bound to another authenticated user.')];
+                    return ['response' => $this->error(409, 'IDEMPOTENCY_KEY_REUSED', 'Idempotency-Key is already bound to another authenticated user.', $legacyEnvelope)];
                 }
 
                 $table = $connection->table('asab_command_idempotency_keys');
                 $record = $table->where('identity_hash', $identityHash)->lockForUpdate()->first();
                 if ($record !== null) {
                     if (! hash_equals($record->payload_hash, $payloadHash)) {
-                        return ['response' => $this->error(409, 'IDEMPOTENCY_KEY_REUSED', 'Idempotency-Key was reused with a different payload.')];
+                        return ['response' => $this->error(409, 'IDEMPOTENCY_KEY_REUSED', 'Idempotency-Key was reused with a different payload.', $legacyEnvelope)];
                     }
 
                     if ($record->status === 'completed') {
-                        return ['response' => $this->replayOrExpired($record)];
+                        return ['response' => $this->replayOrExpired($record, $legacyEnvelope)];
                     }
 
-                    // Only the cashier receipt command has atomic writer-boundary
-                    // completion, so an expired reservation can be safely recovered.
-                    // Its writer locks this row in the same transaction as the effects.
-                    if ($this->supportsWriterCompletion($scope['command'])
+                    // With atomic completion a still-processing reservation proves
+                    // the business commit did not happen, so an expired one is
+                    // safely recoverable. The authoritative transaction re-locks
+                    // this row before any effect.
+                    if ($atomic
                         && $record->reservation_expires_at !== null
                         && now()->greaterThanOrEqualTo($record->reservation_expires_at)) {
                         $now = now();
@@ -119,7 +155,7 @@ class IdempotencyKey
                         return ['identity_hash' => $identityHash];
                     }
 
-                    return ['response' => $this->error(409, 'IDEMPOTENCY_IN_PROGRESS', 'The command is reserved or requires command-specific recovery. It was not repeated.')];
+                    return ['response' => $this->inProgress('The command is reserved or requires command-specific recovery. It was not repeated.', $legacyEnvelope)];
                 }
 
                 $now = now();
@@ -142,14 +178,14 @@ class IdempotencyKey
                 ]);
 
                 if ($inserted !== 1) {
-                    return ['response' => $this->error(409, 'IDEMPOTENCY_IN_PROGRESS', 'A matching command reservation already exists. The command was not repeated.')];
+                    return ['response' => $this->inProgress('A matching command reservation already exists. The command was not repeated.', $legacyEnvelope)];
                 }
 
                 return ['identity_hash' => $identityHash];
             });
         } catch (QueryException $exception) {
             if ($this->isLockWaitTimeout($exception)) {
-                return $this->error(409, 'IDEMPOTENCY_IN_PROGRESS', 'A matching command reservation is being created. Retry with the same key.');
+                return $this->inProgress('A matching command reservation is being created. Retry with the same key.', $legacyEnvelope);
             }
 
             throw $exception;
@@ -159,52 +195,182 @@ class IdempotencyKey
             return $reservation['response'];
         }
 
+        $identityHash = $reservation['identity_hash'];
+
+        if ($completion === 'transaction') {
+            return $this->runInCommandTransaction($request, $next, $identityHash, $legacyEnvelope);
+        }
+
         // The reservation transaction is committed before invoking the command.
-        // S1-08 retains ownership of all business transaction boundaries and after-commit work.
-        $context = new CommandIdempotencyContext($reservation['identity_hash']);
+        $context = new CommandIdempotencyContext($identityHash);
         app()->instance(CommandIdempotencyContext::class, $context);
         try {
             $response = $next($request);
+        } catch (Throwable $exception) {
+            if ($atomic) {
+                // Writer completion is atomic: a reservation still processing
+                // here means nothing was committed, so the key may be retried.
+                $this->releaseFailedReservation($identityHash);
+            }
+
+            throw $exception;
         } finally {
             app()->forgetInstance(CommandIdempotencyContext::class);
         }
 
-        $durable = DB::table('asab_command_idempotency_keys')->where('identity_hash', $reservation['identity_hash'])->first();
+        $durable = DB::table('asab_command_idempotency_keys')->where('identity_hash', $identityHash)->first();
         if ($durable?->status === 'completed') {
-            return $this->replayOrExpired($durable);
+            return $this->replayOrExpired($durable, $legacyEnvelope);
         }
 
-        if ($response->getStatusCode() < 200 || $response->getStatusCode() >= 300 || ! is_string($response->getContent())) {
-            if ($response->getStatusCode() < 500) {
-                $this->releaseFailedReservation($reservation['identity_hash']);
+        if (! $this->isReplayable($response)) {
+            if ($atomic || $response->getStatusCode() < 500) {
+                $this->releaseFailedReservation($identityHash);
             }
 
             return $response;
         }
 
         try {
-            $completedAt = now();
-            DB::table('asab_command_idempotency_keys')->where('identity_hash', $reservation['identity_hash'])
+            DB::table('asab_command_idempotency_keys')->where('identity_hash', $identityHash)
                 ->where('status', 'processing')
-                ->update([
-                    'status' => 'completed',
-                    'response_status' => $response->getStatusCode(),
-                    'response_body' => $response->getContent(),
-                    'response_headers' => json_encode($this->replayableHeaders($response), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
-                    'completed_at' => $completedAt,
-                    'response_expires_at' => $completedAt->copy()->addHours(self::RESPONSE_TTL_HOURS),
-                    'updated_at' => $completedAt,
-                ]);
+                ->update($this->completionColumns($response));
         } catch (Throwable $exception) {
             // The durable processing reservation makes retries fail closed. Do not
             // replace an already successful command response with a persistence error.
             Log::error('Idempotency response snapshot persistence failed after command completion', [
-                'identity_hash' => $reservation['identity_hash'],
+                'identity_hash' => $identityHash,
                 'error' => $exception->getMessage(),
             ]);
         }
 
         return $response;
+    }
+
+    /** Run the command and write its replay snapshot in one business commit. */
+    private function runInCommandTransaction(Request $request, Closure $next, string $identityHash, bool $legacyEnvelope): Response
+    {
+        $committedOutsideSnapshot = false;
+
+        try {
+            return DB::transaction(function () use ($request, $next, $identityHash, $legacyEnvelope, &$committedOutsideSnapshot) {
+                $reservation = DB::table('asab_command_idempotency_keys')
+                    ->where('identity_hash', $identityHash)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($reservation === null) {
+                    return $this->inProgress('The command reservation is no longer available. It was not repeated.', $legacyEnvelope);
+                }
+
+                if ($reservation->status === 'completed') {
+                    // A recovering duplicate waited behind the original commit.
+                    return $this->replayOrExpired($reservation, $legacyEnvelope);
+                }
+
+                $level = DB::transactionLevel();
+                $commits = $this->realCommitCounter();
+                $commitsBefore = $commits['commits'];
+                $response = $next($request);
+
+                // A wrapped writer that leaves its manual transaction unbalanced
+                // must never let a savepoint "commit" pass as the command commit.
+                if (DB::transactionLevel() !== $level) {
+                    if (DB::transactionLevel() > $level) {
+                        // Undo the leaked inner level; the outer rollback follows.
+                        DB::rollBack($level);
+                    } elseif ($commits['commits'] > $commitsBefore) {
+                        // An unbalanced commit really committed the command outside
+                        // its snapshot: keep the key reserved so nothing re-runs it.
+                        $committedOutsideSnapshot = true;
+                    }
+
+                    if (! $committedOutsideSnapshot && ! $this->isReplayable($response)) {
+                        throw new IdempotencyRollbackResponse($response);
+                    }
+
+                    throw new \LogicException('An idempotent command left its database transaction unbalanced.');
+                }
+
+                if (! $this->isReplayable($response)) {
+                    throw new IdempotencyRollbackResponse($response);
+                }
+
+                $updated = DB::table('asab_command_idempotency_keys')
+                    ->where('identity_hash', $identityHash)
+                    ->where('status', 'processing')
+                    ->update($this->completionColumns($response));
+
+                if ($updated !== 1) {
+                    throw new \LogicException('The idempotency reservation could not be completed inside the command transaction.');
+                }
+
+                return $response;
+            });
+        } catch (IdempotencyRollbackResponse $rollback) {
+            $this->releaseFailedReservation($identityHash);
+
+            return $rollback->response;
+        } catch (Throwable $exception) {
+            if ($committedOutsideSnapshot) {
+                $this->holdReservationWithoutRecovery($identityHash);
+            } else {
+                $this->releaseFailedReservation($identityHash);
+            }
+
+            throw $exception;
+        }
+    }
+
+    /** Counts real PDO commits (Laravel fires `committing` only at level 1). */
+    private function realCommitCounter(): \ArrayObject
+    {
+        if (! app()->bound(self::COMMIT_COUNTER)) {
+            $counter = new \ArrayObject(['commits' => 0]);
+            app()->instance(self::COMMIT_COUNTER, $counter);
+            Event::listen(TransactionCommitting::class, static function () use ($counter): void {
+                $counter['commits']++;
+            });
+        }
+
+        return app(self::COMMIT_COUNTER);
+    }
+
+    /** Fail closed: the command may have committed, so the key must never be re-run. */
+    private function holdReservationWithoutRecovery(string $identityHash): void
+    {
+        try {
+            DB::table('asab_command_idempotency_keys')->where('identity_hash', $identityHash)
+                ->where('status', 'processing')
+                ->update(['reservation_expires_at' => null, 'updated_at' => now()]);
+        } catch (Throwable $exception) {
+            Log::error('Idempotency reservation could not be held after an unbalanced command commit', [
+                'identity_hash' => $identityHash,
+                'error' => $exception->getMessage(),
+            ]);
+        }
+    }
+
+    private function isReplayable(Response $response): bool
+    {
+        return $response->getStatusCode() >= 200
+            && $response->getStatusCode() < 300
+            && is_string($response->getContent());
+    }
+
+    private function completionColumns(Response $response): array
+    {
+        $completedAt = now();
+
+        return [
+            'status' => 'completed',
+            'response_status' => $response->getStatusCode(),
+            'response_body' => $response->getContent(),
+            'response_headers' => json_encode(CommandIdempotencyContext::replayableHeaders($response), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+            'completed_at' => $completedAt,
+            'response_expires_at' => $completedAt->copy()->addDays(CommandIdempotencyContext::RESPONSE_TTL_DAYS),
+            'updated_at' => $completedAt,
+        ];
     }
 
     private function releaseFailedReservation(string $identityHash): void
@@ -262,9 +428,6 @@ class IdempotencyKey
             }
         }
 
-        $command = $route?->getName()
-            ?: (($route?->getActionName() ?? 'unknown').'@'.($route?->uri() ?? $request->path()));
-
         return [
             'company_scope' => $companyIds,
             'actor_type' => get_class($actor),
@@ -275,16 +438,32 @@ class IdempotencyKey
                 ...$authorizationScope,
             ],
             'http_method' => strtoupper($request->method()),
-            'command' => $command,
+            'command' => $this->commandIdentity($request),
             'resource_scope' => $resources,
             'idempotency_key' => $key,
         ];
     }
 
-    private function replayOrExpired(object $record): Response
+    /**
+     * The command is the handler, so `/api/...` and `/api/v1/...` aliases of one
+     * command share a single identity. Closure routes fall back to name or URI.
+     */
+    private function commandIdentity(Request $request): string
+    {
+        $route = $request->route();
+        $action = $route?->getActionName();
+        if (is_string($action) && $action !== '' && $action !== 'Closure') {
+            return $action;
+        }
+
+        return $route?->getName()
+            ?: (($route?->uri() ?? $request->path()));
+    }
+
+    private function replayOrExpired(object $record, bool $legacyEnvelope): Response
     {
         if ($record->response_body === null || $record->response_status === null || ($record->response_expires_at !== null && now()->greaterThanOrEqualTo($record->response_expires_at))) {
-            return $this->error(409, 'IDEMPOTENCY_RESPONSE_EXPIRED', 'The command already completed, but its response snapshot has expired. The command was not repeated.');
+            return $this->error(409, 'IDEMPOTENCY_RESPONSE_EXPIRED', 'The command already completed, but its response snapshot has expired. The command was not repeated.', $legacyEnvelope);
         }
 
         $headers = $record->response_headers ?? [];
@@ -295,20 +474,25 @@ class IdempotencyKey
         return response($record->response_body, (int) $record->response_status, $headers);
     }
 
-    private function replayableHeaders(Response $response): array
+    private function inProgress(string $message, bool $legacyEnvelope): Response
     {
-        $headers = [];
-        foreach (['content-type', 'cache-control', 'content-disposition'] as $name) {
-            if ($response->headers->has($name)) {
-                $headers[$name] = $response->headers->all($name);
-            }
-        }
+        $response = $this->error(409, 'IDEMPOTENCY_IN_PROGRESS', $message, $legacyEnvelope);
+        $response->headers->set('Retry-After', (string) self::RETRY_AFTER_SECONDS);
 
-        return $headers;
+        return $response;
     }
 
-    private function error(int $status, string $code, string $message): Response
+    private function error(int $status, string $code, string $message, bool $legacyEnvelope = false): Response
     {
+        if ($legacyEnvelope) {
+            return response()->json([
+                'success' => false,
+                'message' => $code,
+                'code' => $code,
+                'detail' => $message,
+            ], $status);
+        }
+
         return response()->json([
             'error' => [
                 'code' => $code,
@@ -323,11 +507,7 @@ class IdempotencyKey
         $sqlState = $exception->errorInfo[0] ?? null;
         $driverCode = (int) ($exception->errorInfo[1] ?? 0);
 
-        return $sqlState === 'HY000' && in_array($driverCode, [1205, 1213], true);
-    }
-
-    private function supportsWriterCompletion(string $command): bool
-    {
-        return $command === 'cashier.handover.accept';
+        // MySQL: 1205 lock wait timeout (HY000), 1213 deadlock (40001).
+        return in_array($sqlState, ['HY000', '40001'], true) && in_array($driverCode, [1205, 1213], true);
     }
 }
