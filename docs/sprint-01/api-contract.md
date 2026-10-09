@@ -531,6 +531,19 @@ F1/F2/F3 contract review: PASS; no pending-transfer route wiring, liability work
 
 Implemented legacy-input noise normalization (N-01, D10 option (a)), stored-split reads (N-02/N-03) and reassign-with-handover VAT are described in `money-contract.md` "Audit corrections — 2026-10-08". Wire shapes are unchanged: success/error envelopes and existing keys are as before. Requests whose only difference from a valid amount is binary representation noise are now accepted instead of returning 422. Reassign-with-handover, handover record, handover edit-after-rejection and record-variance now apply the D5 SAR rules, so they newly return 422 for a real third decimal or an amount above the column limit. D10 is PENDING MAHMOUD CONFIRMATION.
 
-## S1-10 Phase 2 — request-side fields now enforced (D4); response keys still D6-PROPOSED
+## S1-10 Phase 2 — request-side fields now enforced (D4); response contract D6-APPROVED
 
-`POST …/shifts/{shift}/end`, `…/end-with-handover` (cashier and manager groups) and the manager `…/reassign-with-handover` (when `current_sales` is sent) now require `counted_cash` (SAR, ≤ 2 decimals, ≥ 0) and accept `shortage_allocations[]` (`responsible_type`, `responsible_id`, `amount` in SAR) plus `allocation_reason`. A shortage (`(counted − pending incoming) − expected < 0`) requires an allocation whose total equals it exactly, inside the shift's branch and company; balanced and surplus reports reject allocations. 422 field errors: `counted_cash`, `card_payments` (cards + apps > gross), `shortage_allocations` / `allocations`; 403 `RESPONSIBLE_ACTOR_OUT_OF_SCOPE`; 409 `LIABILITY_COMPANY_MAPPING_REQUIRED`. Retry protection is the S1-09 optional `Idempotency-Key`. No response key was added or renamed; the legacy `variance`/`variance_type` meaning is unchanged. See `verification.md` → “S1-10 Phase 2” for the D6 decision request.
+`POST …/shifts/{shift}/end`, `…/end-with-handover` (cashier and manager groups) and the manager `…/reassign-with-handover` (when `current_sales` is sent) now require `counted_cash` (SAR, ≤ 2 decimals, ≥ 0) and accept `shortage_allocations[]` (`responsible_type`, `responsible_id`, `amount` in SAR) plus `allocation_reason`. A shortage (`(counted − pending incoming) − expected < 0`) requires an allocation whose total equals it exactly, inside the shift's branch and company; balanced and surplus reports reject allocations. 422 field errors: `counted_cash`, `card_payments` (cards + apps > gross), `shortage_allocations` / `allocations`; 403 `RESPONSIBLE_ACTOR_OUT_OF_SCOPE`; 409 `LIABILITY_COMPANY_MAPPING_REQUIRED`. Retry protection is the S1-09 optional `Idempotency-Key`. The legacy `variance`/`variance_type` meaning and type are unchanged; no existing key was renamed or removed.
+
+**D6 response contract (approved by Mahmoud 2026-10-09; frozen):** single-shift responses add `cash_reconciliation` — in `data.summary` and `data.shift` of `end`, `end-with-handover`, `start-handover`, in `data.shift` of completed-shift detail and `reassign-with-handover`, and nowhere in lists:
+
+| Key | Type / unit | Rule |
+|---|---|---|
+| `counted_cash` | JSON number, SAR | physical count of the current revision |
+| `expected_cash` | number, SAR | `gross − cards − apps + confirmed opening` |
+| `cash_variance` | signed number, SAR | `(counted − pending incoming) − expected`; negative = shortage |
+| `cash_variance_type` | `"shortage"` \| `"surplus"` \| `"balanced"` | sign of `cash_variance` (not the legacy `Short/Over/None`) |
+| `pending_incoming_cash` | number, SAR | D11 cash counted but still owned by the sender |
+| `confirmed_opening_cash` | number, SAR | confirmed receipts only (D2) |
+
+The whole object is `null` when the current revision has no count; individual keys are never null. JSON drops a zero fraction (`30.0` → `30`), like the legacy SAR fields, so clients must parse `num`. Admin `ShiftPresenter` additionally returns `cashCountState` (`counted`/`unknown`/`null`) and `pendingIncomingCountedHalalas` (integer halalas); `unknown` marks the legacy mobile projection, which is not evidence.

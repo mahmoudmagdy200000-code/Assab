@@ -15,6 +15,7 @@ use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Enums\VarianceType;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\ShiftVarianceDetail;
+use Modules\Shift\Services\ShiftCashCountService;
 use Modules\Shift\Services\ShiftEndService;
 use Modules\Shift\Services\ShiftNotificationService;
 use Modules\Shift\Services\ShiftReportRevisionService;
@@ -699,7 +700,7 @@ class ReassignmentShiftController extends Controller
                                 'handover_status' => 'pending_acceptance',
                             ],
                         ],
-                        'shift' => new ShiftDetailResource($shiftModel->fresh([
+                        'shift' => new ShiftDetailResource(app(ShiftCashCountService::class)->attachReconciliation($shiftModel->fresh([
                             'cashier',
                             'shift',
                             'nextCashier',
@@ -708,7 +709,7 @@ class ReassignmentShiftController extends Controller
                             'handoverStatus',
                             'salesBreakdown.aggregator',
                             'varianceDetails.responsibleCashier',
-                        ])),
+                        ]))),
                     ],
                 ]);
             });

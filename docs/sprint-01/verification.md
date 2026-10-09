@@ -843,7 +843,7 @@ The word “conversion” in Phase 1 refers only to the four shift bridge sites 
 
 ## S1-10 Phase 2 — step 1: count and rejection-evidence persistence
 
-Status: **in progress; D6 is still PROPOSED (Mahmoud review required), so no public response key is added.**
+Status: **in progress at this step; D6 was approved later (see “D6 approved and implemented”).**
 
 **AS-IS (before this step):** no physical count was stored; the D11 recipient-confirmed physical amount existed only inside the correction-history JSON (`attempted_confirmed_amount`).
 
@@ -862,7 +862,7 @@ Status: **in progress; D6 is still PROPOSED (Mahmoud review required), so no pub
 
 ## S1-10 Phase 2 — step 2: atomic report, count and shortage allocation
 
-Status: **in progress; D6 still PROPOSED. No public response key was added or renamed.**
+Status: **in progress at this step; response keys were added in the D6 step below.**
 
 **Routes covered (cashier and manager groups, `/api` and `/api/v1`):** `end` and `end-with-handover` (the latter reuses `ShiftEndService::endShiftOnly` inside its own transaction). `start-handover` and `handover` (record) take no count: the report was already counted at `end`; they carry the stored count to the new revision (`ShiftCashCountService::carryForward`). `reassign-with-handover` and the Admin bridge are the next step.
 
@@ -886,7 +886,7 @@ Status: **in progress; D6 still PROPOSED. No public response key was added or re
 
 ## S1-10 Phase 2 — step 3: Admin projection and reassign-with-handover
 
-Status: **in progress; D6 still PROPOSED.**
+Status: **in progress at this step.**
 
 **Admin bridge (`BridgeLegacyCashierShift` → `ShiftCloseService::close`):** when the legacy shift has a stored count for its CURRENT revision, `cash_actual` = `counted_halalas`, `cash_expected` = the stored `expected_halalas`, `variance` = the stored signed `variance_halalas`, and `opening_float` = the confirmed opening only. The operation payload also carries `cashCountState: 'counted'` and `pendingIncomingCountedHalalas`; pending incoming cash is excluded from the variance and is neither surplus nor the recipient's expected cash. The FIN-01 shift therefore shows counted 3000, expected 5000, variance −2000 halalas (not the 5000 the old projection derived as `cash_collected + opening`). A shift with no count (historical, auto-closed, edited without a re-count) keeps the Phase 1 projection and is labelled `cashCountState: 'unknown'`; that projection is not a count and is not liability evidence. The manager daily-close bridge is unchanged (not in Phase 2).
 
@@ -896,15 +896,6 @@ Status: **in progress; D6 still PROPOSED.**
 
 **Tests:** `ShiftCashCountHttpTest` (+3: counted/expected/variance in Admin, pending-incoming exclusion, `unknown` label) and `ShiftReassignHandoverCountTest` (7: one-commit count + allocation + reassignment, handover without report, count required/forbidden, incomplete or unreasoned allocation with no partial write, injected failure rolling back everything, same-key replay once and changed payload rejected, rejected command releasing its key).
 
-## S1-10 Phase 2 — D6 decision request for Mahmoud (NOT approved, NOT implemented)
+## S1-10 Phase 2 — D6 approved and implemented
 
-Until Mahmoud approves D6 no public response key is added and the API contract is not frozen. Proposed contract for approval:
-
-| Key | Unit / type | Meaning | Null |
-|---|---|---|---|
-| `counted_cash` | SAR, number with ≤ 2 decimals (same unit as the legacy shift resources) | The physical count of the current report revision | `null` = no count evidence (never 0) |
-| `expected_cash` | SAR, number | `gross − cards − apps + confirmed opening` | `null` when there is no count |
-| `cash_variance` | SAR, signed number | `(counted − pending incoming) − expected`; negative = shortage | `null` when there is no count |
-| `cash_variance_type` | `'shortage' \| 'surplus' \| 'balanced'` | Sign of `cash_variance` | `null` when there is no count |
-
-The legacy `variance` (sales − payments channels, a number) and `variance_type` (`'Short' \| 'Over' \| 'None'`) keep their AS-IS meaning and type. Candidate surfaces: `data.summary.handover_details` of `end`/`end-with-handover` and the shift detail resource. Admin/Dashboard already receives integer halalas (`cashActualHalalas`, `cashExpectedHalalas`, `varianceHalalas`) through the operation payload. Required Mahmoud answers: key names, SAR-vs-halalas on the legacy resources, whether `pending_incoming_counted` is exposed, and which resources carry the keys.
+Mahmoud approved the reviewer's D6 recommendations on 2026-10-09 and asked for them to be reviewed against the Dashboard and AssabAPP before implementation. Refinements made on that review: (1) the keys are grouped in a nullable `cash_reconciliation` object, because `handover_details` exists only on `end-with-handover`, and `null` for the object removes the null-vs-zero ambiguity; (2) it is attached only to single-shift responses (the resource is also used by a list; attaching there would be an N+1); (3) `confirmed_opening_cash` is added so `expected_cash` can be explained; (4) the Dashboard needs no SAR keys, but receives `cashCountState` and `pendingIncomingCountedHalalas` through `ShiftPresenter` (new nullable `asab_shifts` columns, additive migration, no backfill) so the legacy mobile projection is not read as a count. The contract is frozen in `api-contract.md` → “S1-10 Phase 2”. Client note: the app models that exist today parse `closing_balance` as `int` in one card model; the new keys are additive so no existing model changes, and the new release must parse them as `num` and accept a `null` object. Dashboard and AssabAPP source were not modified or available here: client compatibility is SOURCE_INSPECTION_ONLY from the documented models.

@@ -122,7 +122,17 @@ class ShiftCashCountHttpTest extends TestCase
         $this->confirmedOpening();
         $ledgerBefore = PersonalLedgerTransaction::count();
 
-        $this->end($this->fin01Payload())->assertOk();
+        $response = $this->end($this->fin01Payload())->assertOk();
+
+        $expectedBlock = [
+            'counted_cash' => 30.0, 'expected_cash' => 50.0, 'cash_variance' => -20.0, 'cash_variance_type' => 'shortage',
+            'pending_incoming_cash' => 0.0, 'confirmed_opening_cash' => 10.0,
+        ];
+        // JSON drops the zero fraction (30.0 -> 30), exactly like the legacy SAR fields: clients parse `num`.
+        $this->assertEquals($expectedBlock, $response->json('data.summary.cash_reconciliation'));
+        $this->assertEquals($expectedBlock, $response->json('data.shift.cash_reconciliation'));
+        $this->assertSame('shortage', $response->json('data.shift.cash_reconciliation.cash_variance_type'));
+        $this->assertNull($response->json('data.summary.variance'), 'the legacy variance fields keep their own place and meaning');
 
         $shift = $this->recipientShift->fresh();
         $this->assertSame(ShiftStatus::COMPLETED, $shift->status);
@@ -440,6 +450,37 @@ class ShiftCashCountHttpTest extends TestCase
         $this->assertSame('unknown', $op->payload['cashCountState']);
         $this->assertArrayNotHasKey('pendingIncomingCountedHalalas', $op->payload);
         $this->assertSame(0, ShiftReportCashCount::where('cashier_shift_id', $legacy->id)->count());
+    }
+
+    public function test_reconciliation_is_null_without_a_count_and_absent_from_lists(): void
+    {
+        $this->assertNull(app(\Modules\Shift\Services\ShiftCashCountService::class)->reconciliation($this->recipientShift->id));
+        $resource = (new \Modules\Shift\Transformers\ShiftDetailResource($this->recipientShift->fresh()))->resolve(request());
+        $this->assertArrayNotHasKey('cash_reconciliation', $resource, 'a response that did not attach it (lists) never queries or carries it');
+
+        $attached = app(\Modules\Shift\Services\ShiftCashCountService::class)->attachReconciliation($this->recipientShift->fresh());
+        $resource = (new \Modules\Shift\Transformers\ShiftDetailResource($attached))->resolve(request());
+        $this->assertArrayHasKey('cash_reconciliation', $resource);
+        $this->assertNull($resource['cash_reconciliation'], 'no count evidence is null, never a zero count');
+    }
+
+    public function test_admin_presenter_exposes_count_state_and_pending_incoming_in_halalas(): void
+    {
+        $this->confirmedOpening();
+        $this->end($this->fin01Payload())->assertOk();
+        $admin = AdminShift::where('legacy_shift_id', $this->recipientShift->id)->firstOrFail();
+        $presented = app(\Modules\Admin\Services\ShiftPresenter::class)->present($admin);
+        $this->assertSame('counted', $presented['cashCountState']);
+        $this->assertSame(0, $presented['pendingIncomingCountedHalalas']);
+        $this->assertSame(3000, $presented['cashActualHalalas']);
+        $this->assertSame(-2000, $presented['varianceHalalas']);
+
+        $template = Shift::factory()->create(['branch_id' => $this->branch->id, 'is_active' => true, 'start_time' => '23:00:00', 'end_time' => '23:30:00']);
+        $legacy = CashierShift::factory()->create(['cashier_id' => $this->recipient->id, 'shift_id' => $template->id, 'total_sales' => '115.00', 'cash_collected' => '40.00', 'card_payments' => '50.00']);
+        event(new ShiftEndedEvent($legacy, false));
+        $unknown = app(\Modules\Admin\Services\ShiftPresenter::class)->present(AdminShift::where('legacy_shift_id', $legacy->id)->firstOrFail());
+        $this->assertSame('unknown', $unknown['cashCountState']);
+        $this->assertNull($unknown['pendingIncomingCountedHalalas']);
     }
 
     public function test_historical_report_without_a_count_is_not_liability_evidence(): void

@@ -13,6 +13,7 @@ use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Services\HandoverService;
+use Modules\Shift\Services\ShiftCashCountService;
 use Modules\Shift\Services\ShiftEndService;
 use Modules\Shift\Services\VarianceCalculationService;
 use Modules\Shift\Transformers\ShiftDetailResource;
@@ -31,7 +32,8 @@ class ShiftEndController extends Controller
     public function __construct(
         private ShiftEndService $shiftEndService,
         private HandoverService $handoverService,
-        private VarianceCalculationService $varianceService
+        private VarianceCalculationService $varianceService,
+        private ShiftCashCountService $cashCounts
     ) {}
 
     /**
@@ -139,6 +141,7 @@ class ShiftEndController extends Controller
 
             // Reload shift with relationships
             $updatedShift = $updatedShift->fresh()->loadFullRelationships();
+            $this->cashCounts->attachReconciliation($updatedShift);
 
             // Get variance if exists
             $variance = null;
@@ -165,6 +168,7 @@ class ShiftEndController extends Controller
                             'delivery_apps' => (float) $updatedShift->salesBreakdown->sum('amount'),
                         ],
                         'opening_balance' => (float) ($updatedShift->opening_balance ?? 0),
+                        'cash_reconciliation' => $updatedShift->getRelation('cashReconciliation'),
                         'handover_status' => 'pending',
                     ],
                     'next_actions' => [
@@ -355,6 +359,7 @@ class ShiftEndController extends Controller
                 'handoverStatus',
                 'varianceDetails.responsibleCashier',
             ])->findOrFail($updatedShift->id);
+            $this->cashCounts->attachReconciliation($updatedShift);
 
             // Get variance if exists
             $variance = null;
@@ -389,6 +394,7 @@ class ShiftEndController extends Controller
                             'card_payments' => (float) ($updatedShift->card_payments ?? 0),
                             'delivery_apps' => (float) $updatedShift->salesBreakdown->sum('amount'),
                         ],
+                        'cash_reconciliation' => $updatedShift->getRelation('cashReconciliation'),
                         'handover_details' => [
                             'handover_amount' => (float) $request->handover_amount,
                             'variance' => (float) $varianceAmount,
@@ -534,6 +540,7 @@ class ShiftEndController extends Controller
             // Get handover status from the created handover
             $handoverStatus = 'pending';
             $freshShift = $updatedShift->fresh()->loadFullRelationships();
+            $this->cashCounts->attachReconciliation($freshShift);
             if ($freshShift->handoverStatus) {
                 $handoverStatus = $this->normalizeHandoverStatus($freshShift->handoverStatus->manager_approval_status ?? 'pending');
             }

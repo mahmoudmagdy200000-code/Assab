@@ -213,6 +213,40 @@ class ShiftCashCountService
         ]);
     }
 
+    /**
+     * Client-facing reconciliation of the CURRENT revision's count, in SAR (the unit of the legacy shift
+     * resources). `null` means there is no count evidence; it is never a zero count. Every amount is an
+     * exact integer-halalas value divided by 100 at this single boundary.
+     *
+     * @return array{counted_cash:float,expected_cash:float,cash_variance:float,cash_variance_type:string,pending_incoming_cash:float,confirmed_opening_cash:float}|null
+     */
+    public function reconciliation(string $cashierShiftId): ?array
+    {
+        $count = $this->currentFor($cashierShiftId);
+        if ($count === null) {
+            return null;
+        }
+
+        return [
+            'counted_cash' => $count->counted_halalas / 100,
+            'expected_cash' => $count->expected_halalas / 100,
+            'cash_variance' => $count->variance_halalas / 100,
+            'cash_variance_type' => match (true) {
+                $count->variance_halalas < 0 => 'shortage',
+                $count->variance_halalas > 0 => 'surplus',
+                default => 'balanced',
+            },
+            'pending_incoming_cash' => $count->pending_incoming_counted_halalas / 100,
+            'confirmed_opening_cash' => $count->confirmed_opening_halalas / 100,
+        ];
+    }
+
+    /** Mark a single-shift response as carrying the reconciliation (lists never do: no N+1). */
+    public function attachReconciliation(CashierShift $shift): CashierShift
+    {
+        return $shift->setRelation('cashReconciliation', $this->reconciliation($shift->id));
+    }
+
     /** The recipient cashier's single open shift in the same branch and date, else null (ambiguous or none). */
     public function resolveReceivingShiftId(CashierShift $source, string $recipientCashierId): ?string
     {

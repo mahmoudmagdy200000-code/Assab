@@ -69,6 +69,8 @@ class ShiftCloseService
                 'cash_expected' => $expectedCash,
                 'variance' => $variance,
                 'notes' => $data['notes'] ?? null,
+                'cash_count_state' => $data['cashCountState'] ?? null,
+                'pending_incoming_counted' => is_array($evidence) ? (int) $evidence['pendingIncomingCountedHalalas'] : null,
             ]);
 
             $op = $this->factory->createFromUpload('shifts', [

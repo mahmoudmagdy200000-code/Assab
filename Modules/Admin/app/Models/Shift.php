@@ -29,6 +29,7 @@ class Shift extends Model
         'cashier_employee_id', 'cashier_name', 'role', 'shift_type', 'shift_no',
         'started_at', 'ended_at', 'status', 'orders_count', 'sales_amount',
         'opening_float', 'cash_expected', 'cash_actual', 'variance', 'notes', 'legacy_shift_id',
+        'cash_count_state', 'pending_incoming_counted',
     ];
 
     /**
@@ -50,6 +51,7 @@ class Shift extends Model
         'cash_expected' => 'integer',
         'cash_actual' => 'integer',
         'variance' => 'integer',
+        'pending_incoming_counted' => 'integer',
     ];
 
     /**
