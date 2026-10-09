@@ -595,4 +595,89 @@ class ShiftCashCountHttpTest extends TestCase
 
         return $shift->fresh();
     }
+
+    public function test_preview_equals_end_for_fin01_and_writes_nothing(): void
+    {
+        $this->confirmedOpening();
+        $payload = $this->fin01Payload();
+        $before = [DB::table('shift_report_cash_counts')->count(), DB::table('shift_liability_allocations')->count(), DB::table('shift_report_revisions')->count()];
+        $previewPayload = collect($payload)->only(['total_sales', 'card_payments', 'aggregators', 'counted_cash'])->all();
+
+        $preview = $this->actingAs($this->recipient, 'sanctum')
+            ->postJson("/api/v1/cashier/shifts/{$this->recipientShift->id}/cash-reconciliation/preview", $previewPayload)->assertOk();
+
+        $this->assertSame($before, [DB::table('shift_report_cash_counts')->count(), DB::table('shift_liability_allocations')->count(), DB::table('shift_report_revisions')->count()]);
+        $this->assertSame(ShiftStatus::IN_PROGRESS, $this->recipientShift->fresh()->status);
+        $this->assertEquals(20.0, $preview->json('data.shortage_to_allocate'));
+        $this->assertTrue($preview->json('data.allocation_required'));
+
+        $end = $this->end($payload)->assertOk();
+        $this->assertEquals($end->json('data.summary.cash_reconciliation'), $preview->json('data.cash_reconciliation'));
+        $this->assertEquals(50.0, $preview->json('data.cash_reconciliation.expected_cash'));
+        $this->assertEquals(-20.0, $preview->json('data.cash_reconciliation.cash_variance'));
+    }
+
+    public function test_preview_balanced_surplus_and_missing_count_and_manager_access(): void
+    {
+        $this->confirmedOpening();
+        $url = "/api/v1/cashier/shifts/{$this->recipientShift->id}/cash-reconciliation/preview";
+        $base = ['total_sales' => '115.00', 'card_payments' => '50.00', 'aggregators' => [['aggregator_id' => $this->aggregator->id, 'amount' => '25.00']]];
+
+        $balanced = $this->actingAs($this->recipient, 'sanctum')->postJson($url, $base + ['counted_cash' => '50.00'])->assertOk();
+        $this->assertSame('balanced', $balanced->json('data.cash_reconciliation.cash_variance_type'));
+        $this->assertFalse($balanced->json('data.allocation_required'));
+        $this->assertEquals(0, $balanced->json('data.shortage_to_allocate'));
+
+        $surplus = $this->actingAs($this->recipient, 'sanctum')->postJson($url, $base + ['counted_cash' => '55.00'])->assertOk();
+        $this->assertSame('surplus', $surplus->json('data.cash_reconciliation.cash_variance_type'));
+        $this->assertFalse($surplus->json('data.allocation_required'));
+
+        $this->actingAs($this->recipient, 'sanctum')->postJson($url, $base)->assertUnprocessable()->assertJsonValidationErrors('counted_cash');
+
+        $this->actingAs($this->manager, 'sanctum')
+            ->postJson("/api/v1/branch-manager/shifts/{$this->recipientShift->id}/cash-reconciliation/preview", $base + ['counted_cash' => '30.00'])
+            ->assertOk()->assertJsonPath('data.allocation_required', true);
+
+        // Another cashier never previews a shift that is not theirs.
+        $this->actingAs($this->sender, 'sanctum')->postJson($url, $base + ['counted_cash' => '30.00'])->assertNotFound();
+    }
+
+    public function test_shift_detail_exposes_reconciliation_or_null(): void
+    {
+        $this->confirmedOpening();
+        $detail = fn () => $this->actingAs($this->manager, 'sanctum')->getJson("/api/v1/branch-manager/shifts/cashiers/{$this->recipientShift->id}")->assertOk();
+
+        $this->assertTrue(array_key_exists('cash_reconciliation', $detail()->json('data')));
+        $this->assertNull($detail()->json('data.cash_reconciliation'));
+
+        $this->end($this->fin01Payload())->assertOk();
+        $block = $detail()->json('data.cash_reconciliation');
+        $this->assertEquals(-20.0, $block['cash_variance']);
+        $this->assertEquals(50.0, $block['expected_cash']);
+        $this->assertSame('shortage', $block['cash_variance_type']);
+        $this->actingAs($this->manager, 'sanctum')->getJson("/api/v1/branch-manager/shifts/{$this->recipientShift->id}")
+            ->assertOk()->assertJsonPath('data.cash_reconciliation.cash_variance_type', 'shortage');
+    }
+
+    public function test_incomplete_allocation_error_is_on_shortage_allocations_key(): void
+    {
+        $this->confirmedOpening();
+        $this->end($this->fin01Payload(['shortage_allocations' => [
+            ['responsible_type' => 'cashier', 'responsible_id' => $this->recipient->id, 'amount' => '5.00'],
+        ]]))->assertUnprocessable()->assertJsonValidationErrors('shortage_allocations');
+        $this->assertNothingWritten();
+    }
+
+    public function test_cashier_token_on_reassign_with_handover_is_403_and_stores_no_file(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $target = Cashier::factory()->create(['branch_id' => $this->branch->id, 'created_by' => $this->manager->id]);
+
+        $this->actingAs($this->sender, 'sanctum')->post("/api/v1/branch-manager/shifts/{$this->senderShift->id}/reassign-with-handover", [
+            'new_cashier_id' => $target->id, 'handover_amount' => '5.00',
+            'pos_receipt' => \Illuminate\Http\UploadedFile::fake()->image('r.png'),
+        ], ['Accept' => 'application/json'])->assertForbidden();
+
+        $this->assertSame([], \Illuminate\Support\Facades\Storage::disk('public')->allFiles());
+    }
 }

@@ -114,23 +114,12 @@ class ShiftCashCountService
     }
 
     /**
-     * Calculate and persist the count for the revision just recorded. Must run inside the report
-     * transaction, after the revision and the sales channels are written.
+     * The pure calculation shared by the persisted count and the read-only preview. It writes nothing.
      *
-     * @param  int  $grossHalalas  VAT-inclusive gross sales as persisted
+     * @return array{0:int,1:int,2:array<string,mixed>} confirmed opening, pending incoming, calculator result (halalas)
      */
-    public function record(
-        CashierShift $shift,
-        ShiftReportRevision $revision,
-        int $grossHalalas,
-        int $cardsHalalas,
-        int $appsHalalas,
-        int $countedHalalas,
-    ): ShiftReportCashCount {
-        if (DB::transactionLevel() === 0) {
-            throw new \LogicException('A cash count must be recorded inside the report transaction.');
-        }
-
+    private function compute(CashierShift $shift, int $grossHalalas, int $cardsHalalas, int $appsHalalas, int $countedHalalas): array
+    {
         $channels = ShiftFinancialCalculator::salesChannelCheck($grossHalalas, $cardsHalalas, $appsHalalas);
         if (! $channels['channelsValid']) {
             throw ValidationException::withMessages([
@@ -148,6 +137,58 @@ class ShiftCashCountService
                 'counted_cash' => 'The counted cash cannot be less than the cash already counted for pending incoming transfers.',
             ]);
         }
+
+        return [$opening, $pending, $result];
+    }
+
+    /**
+     * Read-only preview of what ending the shift with these figures would calculate. Same calculation as
+     * `record`, nothing persisted. Amounts are SAR (halalas ÷ 100 at this boundary), as in `reconciliation`.
+     *
+     * @return array{cash_reconciliation:array<string,mixed>,shortage_to_allocate:float,allocation_required:bool}
+     */
+    public function preview(CashierShift $shift, int $grossHalalas, int $cardsHalalas, int $appsHalalas, int $countedHalalas): array
+    {
+        [$opening, $pending, $result] = $this->compute($shift, $grossHalalas, $cardsHalalas, $appsHalalas, $countedHalalas);
+        $variance = (int) $result['variance'];
+
+        return [
+            'cash_reconciliation' => [
+                'counted_cash' => $countedHalalas / 100,
+                'expected_cash' => $result['expected'] / 100,
+                'cash_variance' => $variance / 100,
+                'cash_variance_type' => match (true) {
+                    $variance < 0 => 'shortage',
+                    $variance > 0 => 'surplus',
+                    default => 'balanced',
+                },
+                'pending_incoming_cash' => $pending / 100,
+                'confirmed_opening_cash' => $opening / 100,
+            ],
+            'shortage_to_allocate' => $variance < 0 ? -$variance / 100 : 0.0,
+            'allocation_required' => $variance < 0,
+        ];
+    }
+
+    /**
+     * Calculate and persist the count for the revision just recorded. Must run inside the report
+     * transaction, after the revision and the sales channels are written.
+     *
+     * @param  int  $grossHalalas  VAT-inclusive gross sales as persisted
+     */
+    public function record(
+        CashierShift $shift,
+        ShiftReportRevision $revision,
+        int $grossHalalas,
+        int $cardsHalalas,
+        int $appsHalalas,
+        int $countedHalalas,
+    ): ShiftReportCashCount {
+        if (DB::transactionLevel() === 0) {
+            throw new \LogicException('A cash count must be recorded inside the report transaction.');
+        }
+
+        [$opening, $pending, $result] = $this->compute($shift, $grossHalalas, $cardsHalalas, $appsHalalas, $countedHalalas);
 
         return ShiftReportCashCount::create([
             'report_revision_id' => $revision->id,

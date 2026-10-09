@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Http\Controllers;
 
+use App\Support\ShiftFinancialCalculator;
 use App\Support\ShiftMoneyValidation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -184,6 +185,59 @@ class ShiftEndController extends Controller
             ], 404);
         } catch (\Throwable $e) {
             return HandoverErrorResponse::from($e, 'end shift only');
+        }
+    }
+
+    /**
+     * S1-10 D17: read-only preview of the server calculation for the figures the user is about to submit.
+     * Same permission and same calculation as `end`; writes nothing and carries no idempotency key.
+     */
+    public function previewCashReconciliation(Request $request, string $shift): JsonResponse
+    {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
+        $validator = Validator::make($request->all(), [
+            'total_sales' => 'required|'.ShiftMoneyValidation::SAR,
+            'card_payments' => 'sometimes|'.ShiftMoneyValidation::SAR,
+            'counted_cash' => 'required|'.ShiftMoneyValidation::SAR,
+            'aggregators' => 'sometimes|array',
+            'aggregators.*.aggregator_id' => 'required_with:aggregators|exists:aggregators,id',
+            'aggregators.*.amount' => 'required_with:aggregators|'.ShiftMoneyValidation::SAR,
+        ]);
+        $validator->after(function (\Illuminate\Validation\Validator $v) use ($request) {
+            $this->validateUniqueAggregators($v, $request->input('aggregators', []));
+        });
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+
+        try {
+            $shiftModel = $this->getShiftForUser($shift, auth()->user());
+            if (! $shiftModel) {
+                return response()->json(['success' => false, 'message' => 'Shift not found or you do not have access to it'], 404);
+            }
+            if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
+                return response()->json(['success' => false, 'message' => 'This shift is not in progress. Current status: '.$shiftModel->status->value], 400);
+            }
+
+            $countedHalalas = $this->shiftEndService->parseCountedCash($request->all());
+            $apps = 0;
+            foreach ($request->input('aggregators', []) as $aggregator) {
+                $apps += ShiftFinancialCalculator::sarToHalalas($aggregator['amount']);
+            }
+
+            $preview = $this->cashCounts->preview(
+                $shiftModel,
+                ShiftFinancialCalculator::sarToHalalas($request->input('total_sales')),
+                ShiftFinancialCalculator::sarToHalalas($request->input('card_payments', 0)),
+                $apps,
+                $countedHalalas,
+            );
+
+            return response()->json(['success' => true, 'data' => $preview]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $e->errors()], 422);
+        } catch (\Throwable $e) {
+            return HandoverErrorResponse::from($e, 'preview cash reconciliation');
         }
     }
 
