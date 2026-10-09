@@ -43,6 +43,7 @@ class ShiftCashCountService
     public function pendingIncomingHalalas(CashierShift $shift): int
     {
         $since = $shift->actual_start_time ?? $shift->created_at;
+        $branchId = DB::table('shifts')->where('id', $shift->shift_id)->value('branch_id');
 
         $rows = ShiftTransferRejectionEvidence::query()
             ->where(function ($query) use ($shift, $since) {
@@ -52,13 +53,16 @@ class ShiftCashCountService
                             ->where('recipient_type', 'cashier')
                             ->where('recipient_id', $shift->cashier_id);
                         if ($since !== null) {
-                            $unattributed->where('rejected_at', '>=', $since);
+                            // D19: only a shift that started at or after the rejection can own it.
+                            $unattributed->where('rejected_at', '<=', $since);
                         }
                     });
             })
             ->orderBy('rejected_at')
             ->orderBy('created_at')
-            ->get();
+            ->get()
+            ->filter(fn ($row) => $row->receiving_cashier_shift_id !== null
+                || $this->ownsUnattributedEvidence($shift, $row, $branchId, $since));
 
         $latest = [];
         foreach ($rows as $row) {
@@ -80,6 +84,33 @@ class ShiftCashCountService
         }
 
         return $total;
+    }
+
+    /**
+     * D19: evidence recorded with no receiving shift belongs to exactly one shift: the recipient's first
+     * shift in the same branch that started at or after the rejection. It is never subtracted twice.
+     */
+    private function ownsUnattributedEvidence(CashierShift $shift, ShiftTransferRejectionEvidence $row, mixed $branchId, mixed $since): bool
+    {
+        if ($branchId === null || $since === null) {
+            return false;
+        }
+        $recipientBranch = DB::table('cashiers')->where('id', $row->recipient_id)->value('branch_id');
+        if ((string) $recipientBranch !== (string) $branchId) {
+            return false;
+        }
+
+        $earlier = DB::table('cashier_shifts')
+            ->join('shifts', 'shifts.id', '=', 'cashier_shifts.shift_id')
+            ->where('cashier_shifts.cashier_id', $row->recipient_id)
+            ->where('shifts.branch_id', $branchId)
+            ->where('cashier_shifts.id', '!=', $shift->id)
+            ->whereNotNull('cashier_shifts.actual_start_time')
+            ->where('cashier_shifts.actual_start_time', '>=', $row->rejected_at)
+            ->where('cashier_shifts.actual_start_time', '<', $since)
+            ->exists();
+
+        return ! $earlier;
     }
 
     /**

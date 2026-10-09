@@ -12,6 +12,7 @@ use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Liability\ShiftLiabilityService;
 use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Models\ShiftLiabilityAllocation;
 use Modules\Shift\Models\ShiftReportRevision;
 use Modules\Shift\Models\ShiftSalesBreakdown;
 
@@ -234,11 +235,13 @@ class ShiftEndService
 
         // The cashier's own submission is their confirmation; a manager submitting for the cashier
         // needs a reason and leaves the cashier confirmation pending. No ledger entry (S1-11).
+        // The shift row is locked by the caller; supersede any earlier version (re-end after a rejection).
+        $latestVersion = (int) ShiftLiabilityAllocation::where('cashier_shift_id', $shift->id)->max('version');
         $this->liability->allocate(
             $shift->id,
             $actor,
             $shares,
-            0,
+            $latestVersion,
             $actor instanceof Cashier,
             isset($data['allocation_reason']) ? (string) $data['allocation_reason'] : null,
         );

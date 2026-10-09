@@ -17,6 +17,7 @@ use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\ShiftHandoverStatus;
 use Modules\Shift\Models\ShiftSalesBreakdown;
+use Modules\Shift\Models\ShiftTransferRejectionEvidence;
 use Modules\Shift\Models\ShiftVarianceAlert;
 use Modules\Shift\Models\ShiftVarianceDetail;
 use Symfony\Component\HttpFoundation\Response;
@@ -59,6 +60,7 @@ class HandoverService
             if (CashierShiftHandover::query()->where('cashier_shift_id', $shift->id)->where('status', 'pending')->exists()) {
                 throw new ConflictHttpException('HANDOVER_ALREADY_PENDING');
             }
+            $this->assertNoCorrectionPending($shift);
             $handoverToType = $data['handover_to_type'] ?? 'cashier';
             $handoverToId = $data['handover_to_id'] ?? $data['next_cashier_id'] ?? null;
 
@@ -340,11 +342,57 @@ class HandoverService
     }
 
     /**
+     * D14: while a request rejected for an amount correction is unresolved (it has D11 evidence and no
+     * receipt), no new request may be created for the shift. The sender corrects the same request.
+     */
+    public function assertNoCorrectionPending(CashierShift $shift): void
+    {
+        $rejected = CashierShiftHandover::query()
+            ->where('cashier_shift_id', $shift->id)
+            ->where('status', 'rejected')
+            ->pluck('id');
+        if ($rejected->isEmpty()) {
+            return;
+        }
+        $withEvidence = ShiftTransferRejectionEvidence::query()
+            ->whereIn('cashier_shift_handover_id', $rejected)
+            ->pluck('cashier_shift_handover_id')
+            ->unique();
+        if ($withEvidence->isEmpty()) {
+            return;
+        }
+        $received = DB::table('cashier_shift_handover_receipts')
+            ->whereIn('cashier_shift_handover_id', $withEvidence)
+            ->pluck('cashier_shift_handover_id');
+        if ($withEvidence->diff($received)->isNotEmpty()) {
+            throw new ConflictHttpException('HANDOVER_CORRECTION_PENDING');
+        }
+    }
+
+    /** D14: a plain rejection must not delete a request that carries D11 evidence. */
+    private function assertNoCorrectionEvidence(?CashierShiftHandover $handover): void
+    {
+        if ($handover && ShiftTransferRejectionEvidence::query()->where('cashier_shift_handover_id', $handover->id)->exists()) {
+            throw new ConflictHttpException('HANDOVER_HAS_CORRECTION_EVIDENCE');
+        }
+    }
+
+    /**
      * After a handover rejection that allows the cashier to redo end-shift: reset shift data, strip custody, remove handover rows.
      */
     public function revertCashierShiftAfterHandoverRejection(CashierShift $shift, array $audit = []): void
     {
         $shift = $shift->fresh();
+
+        // D18: the rejected report is no longer the current report. A new revision without a count
+        // makes the liability evidence unavailable (fail closed) until the cashier re-ends the shift.
+        // Previous revisions, counts and allocations stay as immutable history.
+        $reviewerIsCashier = ($audit['reviewed_by_type'] ?? null) === \Modules\Cashier\Models\Cashier::class;
+        $this->revisions->recordCashierRevision(
+            $shift,
+            $reviewerIsCashier || ! isset($audit['reviewed_by_id']) ? 'cashier' : 'branch_manager',
+            isset($audit['reviewed_by_id']) ? (string) $audit['reviewed_by_id'] : (string) $shift->cashier_id
+        );
 
         if ($audit !== []) {
             $shift->recordHistory(
@@ -437,6 +485,8 @@ class HandoverService
                 $path = $file->storeAs('handover_rejections', $filename, 'public');
                 $uploadedFiles[] = $path;
             }
+
+            $this->assertNoCorrectionEvidence($handover);
 
             $result = $handoverStatus->reject($reviewerId, $reviewerType, $reason, $uploadedFiles, $comment);
 
@@ -651,6 +701,8 @@ class HandoverService
             if ($handover->status !== 'pending' || ! $handoverStatus?->canBeAcceptedByCashier()) {
                 throw new ConflictHttpException('HANDOVER_NOT_PENDING');
             }
+
+            $this->assertNoCorrectionEvidence($handover);
 
             // Upload rejection files
             $uploadedFiles = [];
