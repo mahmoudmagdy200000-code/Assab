@@ -110,6 +110,17 @@ class BranchManagerShift extends Model
         return $this->belongsTo(Branch::class);
     }
 
+    public function cashTransfers(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(BranchManagerCashTransfer::class, 'branch_manager_shift_id');
+    }
+
+    public function reportAggregate(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(ShiftReportAggregate::class, 'source_id')
+            ->where('source_type', 'branch_manager_shift');
+    }
+
     public function nextManager(): BelongsTo
     {
         return $this->belongsTo(BranchManager::class, 'next_manager_id');
@@ -162,13 +173,13 @@ class BranchManagerShift extends Model
 
     /**
      * Cashier handovers belonging to this manager shift's workday.
-     * Branch-scoped: any manager of the branch covers the whole workday, so
-     * handovers addressed to any branch manager of this branch count here.
+     * Only requests addressed to this assigned manager belong to this workday.
      */
     public function cashierHandovers()
     {
         return CashierShiftHandover::query()
             ->where('handover_to_type', 'branch_manager')
+            ->where('handover_to_id', $this->branch_manager_id)
             ->whereHas('cashierShift', function ($query) {
                 $query->whereDate('shift_date', $this->shift_date)
                     ->whereHas('shift', function ($q) {
@@ -205,7 +216,7 @@ class BranchManagerShift extends Model
             return false;
         }
 
-        // Any handover already sent to this branch's managers that is still pending must be resolved first.
+        // A handover addressed to this manager must be resolved first.
         // Cashiers who ended their shift without a handover (endShiftOnly) create no record here,
         // so they do not block the manager from ending the workday.
         $pendingHandovers = $this->cashierHandovers()
@@ -216,7 +227,7 @@ class BranchManagerShift extends Model
             return false;
         }
 
-        // Any handover that was sent to this branch's managers must not be in a rejected state
+        // A handover addressed to this manager must not be in a rejected state
         // (rejected_final means manager permanently rejected and it was not resolved).
         $rejectedFinalHandovers = $this->cashierHandovers()
             ->where('status', 'rejected_final')

@@ -479,7 +479,7 @@ Route::prefix('v1')->group(function () {
                 // Shifts (§6.3.9)
                 Route::get('shifts/live', [ShiftController::class, 'live']);
                 Route::get('shifts/history', [ShiftController::class, 'history']);
-                Route::post('shifts/{id}/close', [ShiftController::class, 'close']);
+                Route::post('shifts/{id}/close', [ShiftController::class, 'close'])->middleware('asab.idempotency');
                 // ACC-6.4 accountant's split of the cash gap before head approval.
                 Route::post('shifts/{id}/variance-allocations', [ShiftController::class, 'varianceAllocations']);
 
@@ -728,10 +728,10 @@ Route::prefix('v1')->group(function () {
              | All under /company/me/*, tenant-scoped. Reuse existing controllers
              | where the logic is identical; new Company controllers for new logic.
              */
-            Route::prefix('company/me')->middleware(['asab.tenant', 'asab.idempotency', 'asab.audit'])->group(function () {
+            Route::prefix('company/me')->middleware(['asab.tenant', 'asab.audit'])->group(function () {
 
                 // Head (§5.2)
-                Route::middleware('asab.role:head')->group(function () {
+                Route::middleware(['asab.role:head', 'asab.idempotency'])->group(function () {
                     Route::get('head/dashboard', [HeadCompanyController::class, 'dashboard']);
                     Route::get('head/accountants/performance', [HeadCompanyController::class, 'accountantsPerformance']);
                     Route::get('head/movements/recent', [HeadCompanyController::class, 'movementsRecent']);
@@ -749,7 +749,7 @@ Route::prefix('v1')->group(function () {
                 });
 
                 // Accountant (§5.3)
-                Route::middleware('asab.role:accountant')->group(function () {
+                Route::middleware(['asab.role:accountant', 'asab.idempotency'])->group(function () {
                     Route::get('accountant/dashboard', [AccountantCompanyController::class, 'dashboard']);
                     // ACC-1.1 sales KPI cards + ACC-1.2 day pills («n مطلوبة — m مكتملة · k ناقصة»).
                     Route::get('sales/kpis', [AccountantCompanyController::class, 'salesKpis']);
@@ -882,14 +882,14 @@ Route::prefix('v1')->group(function () {
                  | It was missing entirely, so the accountant could approve but
                  | never reject from the portal.
                  */
-                Route::middleware('asab.role:accountant,head')->group(function () {
+                Route::middleware(['asab.role:accountant,head', 'asab.idempotency'])->group(function () {
                     Route::post('operations/{id}/reject', [OperationController::class, 'reject']);
                     Route::post('operations/{id}/request-clarification', [OperationController::class, 'requestClarification']);
                 });
 
                 // Cash custody (§5.3 ACC-8 + §5.2 HEAD-4) — the head OWNS تعزيز العهدة,
                 // so this block admits both accountant and head on the company surface.
-                Route::middleware('asab.role:accountant,head')->group(function () {
+                Route::middleware(['asab.role:accountant,head', 'asab.idempotency'])->group(function () {
                     Route::get('cash-custody/export', [CompanyExportController::class, 'cashCustody']);
                     Route::get('cash-custody', [CashCustodyController::class, 'index']);
                     Route::get('cash-custody/{id}/transactions', [AccountantCompanyController::class, 'cashTransactions']);
@@ -903,7 +903,7 @@ Route::prefix('v1')->group(function () {
                 });
 
                 // Branch Manager (§5.4)
-                Route::middleware('asab.role:branch')->prefix('branch')->group(function () {
+                Route::middleware(['asab.role:branch', 'asab.idempotency'])->prefix('branch')->group(function () {
                     Route::get('overview', [BranchDashboardController::class, 'overview']);
                     Route::get('upload/status', [BranchDashboardController::class, 'uploadStatus']);
                     Route::post('upload/sign-attachment', [UploadController::class, 'presignedUrl']);
@@ -929,7 +929,7 @@ Route::prefix('v1')->group(function () {
                 });
 
                 // Procurement (§5.5)
-                Route::middleware('asab.role:procurement')->prefix('procurement')->group(function () {
+                Route::middleware(['asab.role:procurement', 'asab.idempotency'])->prefix('procurement')->group(function () {
                     Route::get('overview', [ProcurementController::class, 'overview']);
                     Route::get('orders/grouped', [ProcurementCompanyController::class, 'grouped']);
                     Route::get('orders/sent', [ProcurementCompanyController::class, 'sent']);
@@ -971,14 +971,14 @@ Route::prefix('v1')->group(function () {
                 });
 
                 // Suppliers — read for all roles; write for procurement/company-admin; rate for procurement/branch
-                Route::middleware('asab.role:company-admin,head,accountant,branch,procurement')->group(function () {
+                Route::middleware(['asab.role:company-admin,head,accountant,branch,procurement', 'asab.idempotency'])->group(function () {
                     Route::get('suppliers/export', [CompanyExportController::class, 'suppliersExport']);
                     Route::get('suppliers', [ProcurementController::class, 'suppliers']);
                     // Alias: the procurement SPA naturally calls it under its own prefix.
                     Route::get('procurement/suppliers', [ProcurementController::class, 'suppliers']);
                     Route::get('procurement/suppliers/export', [CompanyExportController::class, 'suppliersExport']);
                 });
-                Route::middleware('asab.role:procurement,company-admin')->group(function () {
+                Route::middleware(['asab.role:procurement,company-admin', 'asab.idempotency'])->group(function () {
                     Route::post('suppliers', [ProcurementCompanyController::class, 'storeSupplier']);
                     Route::patch('suppliers/{id}', [ProcurementCompanyController::class, 'updateSupplier']);
                     Route::post('suppliers/{id}/toggle-active', [ProcurementCompanyController::class, 'toggleSupplier']);
@@ -988,13 +988,13 @@ Route::prefix('v1')->group(function () {
                     Route::patch('procurement/suppliers/{id}', [ProcurementCompanyController::class, 'updateSupplier']);
                     Route::post('procurement/suppliers/{id}/toggle-active', [ProcurementCompanyController::class, 'toggleSupplier']);
                 });
-                Route::middleware('asab.role:procurement,branch')->group(function () {
+                Route::middleware(['asab.role:procurement,branch', 'asab.idempotency'])->group(function () {
                     Route::post('suppliers/{id}/ratings', [ProcurementCompanyController::class, 'rateSupplier']);
                     Route::post('procurement/suppliers/{id}/ratings', [ProcurementCompanyController::class, 'rateSupplier']);
                 });
 
                 // Cross-cutting (§7) — any company role
-                Route::middleware('asab.role:company-admin,head,accountant,branch,procurement')->group(function () {
+                Route::middleware(['asab.role:company-admin,head,accountant,branch,procurement', 'asab.idempotency'])->group(function () {
                     Route::get('notifications', [NotificationController::class, 'index']);
                     Route::patch('notifications/{id}/read', [NotificationController::class, 'markRead']);
                     Route::post('notifications/mark-all-read', [NotificationController::class, 'markAllRead']);
@@ -1021,7 +1021,7 @@ Route::prefix('v1')->group(function () {
                 });
 
                 // Audit log — company-admin (full) + head (read-only)
-                Route::middleware('asab.role:company-admin,head')->get('audit-logs', [CrossController::class, 'auditLogs']);
+                Route::middleware(['asab.role:company-admin,head', 'asab.idempotency'])->get('audit-logs', [CrossController::class, 'auditLogs']);
             });
 
             // Per-user UI preferences + cross-cutting (§7 / §11)

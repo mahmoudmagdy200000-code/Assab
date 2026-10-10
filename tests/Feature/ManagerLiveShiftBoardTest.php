@@ -81,7 +81,9 @@ class ManagerLiveShiftBoardTest extends TestCase
 
     public function test_a_started_manager_shift_appears_on_the_live_board(): void
     {
-        $shift = $this->start($this->managerShift());
+        $shift = $this->managerShift();
+        $shift->forceFill(['opening_balance' => '123.45'])->saveQuietly();
+        $shift = $this->start($shift);
 
         $mirror = AsabShift::withoutGlobalScopes()->where('legacy_shift_id', $shift->id)->first();
         $this->assertNotNull($mirror);
@@ -89,7 +91,7 @@ class ManagerLiveShiftBoardTest extends TestCase
         $this->assertSame(AsabShift::ROLE_BRANCH_MANAGER, $mirror->role);
         $this->assertSame($this->branch->id, $mirror->branch_id);
         $this->assertSame($this->company->id, $mirror->company_id);
-        $this->assertSame(50000, $mirror->opening_float);
+        $this->assertSame(12345, $mirror->opening_float);
         // Display-only: the branch's sales belong to the cashier rows.
         $this->assertSame(0, $mirror->sales_amount);
 
