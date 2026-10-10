@@ -129,6 +129,7 @@ class ShiftEndService
             if (! empty($data['variance']) && $shift->hasVariance()) {
                 $this->varianceService->recordVariance($shift, $data['variance']);
             } else {
+                $this->snapshots->preserveVarianceReviews($shift);
                 \Modules\Shift\Models\ShiftVarianceDetail::where('cashier_shift_id', $shift->id)->delete();
             }
 

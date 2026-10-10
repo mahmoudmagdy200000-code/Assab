@@ -343,6 +343,7 @@ class ShiftVarianceController extends Controller
                     'reviewed_by_type' => get_class($cashier),
                     'reviewed_at' => now(),
                 ]);
+                app(\Modules\Shift\Services\ShiftReportRevisionSnapshotService::class)->preserveVarianceReviews($shiftModel);
                 event(new \Modules\Shift\Events\VarianceRecorded($shiftModel->fresh(['varianceDetails', 'handover'])));
 
                 return response()->json([
@@ -418,6 +419,7 @@ class ShiftVarianceController extends Controller
                 'reviewed_by_type' => get_class($cashier),
                 'reviewed_at' => now(),
             ]);
+            app(\Modules\Shift\Services\ShiftReportRevisionSnapshotService::class)->preserveVarianceReviews($shiftModel);
 
             return response()->json([
                 'success' => true,
@@ -483,6 +485,7 @@ class ShiftVarianceController extends Controller
                         'reviewed_at' => now(),
                     ]);
                 $shiftModel->recordHistory('responsibility_approved', ['responsibility_status' => $currentStatus], ['responsibility_status' => 'approved', 'reviewed_by_id' => $manager->id]);
+                app(\Modules\Shift\Services\ShiftReportRevisionSnapshotService::class)->preserveVarianceReviews($shiftModel);
                 event(new \Modules\Shift\Events\VarianceRecorded($shiftModel->fresh(['varianceDetails', 'handover'])));
 
                 return response()->json([
@@ -578,6 +581,7 @@ class ShiftVarianceController extends Controller
                     'reviewed_by_id' => $manager->id,
                 ]
             );
+            app(\Modules\Shift\Services\ShiftReportRevisionSnapshotService::class)->preserveVarianceReviews($shiftModel);
 
             return response()->json([
                 'success' => true,

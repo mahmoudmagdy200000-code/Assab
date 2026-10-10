@@ -38,7 +38,8 @@ class HandoverService
         private ShiftTransferReceiptService $receipts,
         private ShiftCashCountService $cashCounts,
         private CountedReassignmentGuard $reassignmentGuard,
-        private ShiftReportRevisionSnapshotService $snapshots
+        private ShiftReportRevisionSnapshotService $snapshots,
+        private VarianceCalculationService $varianceService
     ) {}
 
     /**
@@ -70,8 +71,17 @@ class HandoverService
                 if ($existingHandover->handover_to_type !== $handoverToType || (string) $existingHandover->handover_to_id !== (string) $handoverToId) {
                     throw new ConflictHttpException('HANDOVER_RECIPIENT_CHANGE_REQUIRES_REPLACEMENT');
                 }
-                if ($existingHandover->status === 'pending' && ! $shift->histories()->whereIn('action', ['handover_rejected_shift_reverted', 'handover_amount_correction_rejected', 'handover_edited_after_rejection'])->exists()) {
-                    throw new ConflictHttpException('HANDOVER_ALREADY_PENDING');
+                if ($existingHandover->status === 'pending') {
+                    $latestRejection = $shift->history()
+                        ->whereIn('action', ['handover_rejected_shift_reverted', 'handover_amount_correction_rejected'])
+                        ->latest('id')
+                        ->first();
+                    $isCurrentlyAwaitingCorrection = $latestRejection
+                        && ! $shift->history()->where('id', '>', $latestRejection->id)->whereIn('action', ['handover_edited_after_rejection', 'handover_recorded'])->exists();
+
+                    if (! $isCurrentlyAwaitingCorrection) {
+                        throw new ConflictHttpException('HANDOVER_ALREADY_PENDING');
+                    }
                 }
                 if ($existingHandover->receipt()->exists()) {
                     throw new ConflictHttpException('CONFIRMED_RECEIPT_IMMUTABLE');
@@ -123,7 +133,10 @@ class HandoverService
                 // Sales and the physical count are unchanged by recording the handover request.
                 $this->cashCounts->carryForward($previousRevision, $revision);
             }
-            $this->snapshots->createSnapshotIfMissing($revision, $shift);
+
+            if (! empty($data['variance']) && $shift->hasVariance()) {
+                $this->varianceService->recordVariance($shift, $data['variance']);
+            }
 
             // Create CashierShiftHandover request; request creation is not receipt.
             $handoverData = [
@@ -151,6 +164,12 @@ class HandoverService
             } else {
                 $handover = CashierShiftHandover::create($handoverData);
             }
+
+            if ($handover->report_revision_id !== $revision->id) {
+                $handover->update(['report_revision_id' => $revision->id]);
+            }
+
+            $this->snapshots->createSnapshotIfMissing($revision, $shift);
 
             // Create or update ShiftHandoverStatus for approval tracking
             // Use updateOrCreate to avoid duplicate entry errors
@@ -416,6 +435,11 @@ class HandoverService
     {
         $shift = $shift->fresh();
 
+        $previousRevision = $this->revisions->currentCashierRevision($shift);
+        if ($previousRevision) {
+            $this->snapshots->createSnapshotIfMissing($previousRevision, $shift);
+        }
+
         // D18: the rejected report is no longer the current report. A new revision without a count
         // makes the liability evidence unavailable (fail closed) until the cashier re-ends the shift.
         // Previous revisions, counts and allocations stay as immutable history.
@@ -604,6 +628,9 @@ class HandoverService
             ]);
 
             $previousRevision = $this->revisions->currentCashierRevision($shift);
+            if ($previousRevision) {
+                $this->snapshots->createSnapshotIfMissing($previousRevision, $shift);
+            }
             $revision = $this->revisions->recordCashierRevision($shift, 'cashier', $shift->cashier_id);
             if ($previousRevision) {
                 $this->cashCounts->carryForward($previousRevision, $revision);
@@ -632,6 +659,8 @@ class HandoverService
                 'status' => 'pending',
                 'report_revision_id' => $revision->id,
             ]);
+
+            $this->snapshots->createSnapshotIfMissing($revision, $shift);
 
             // Mark as edited using model method
             $handoverStatus->markAsEdited();
@@ -808,6 +837,12 @@ class HandoverService
             if ($expectedAttemptId === null && $attemptedMinor === self::toMinorUnits($previousAmount)) {
                 throw new ConflictHttpException('HANDOVER_AMOUNT_MISMATCH_REQUIRED_FOR_CORRECTION');
             }
+
+            $previousRevision = $this->revisions->currentCashierRevision($lockedShift);
+            if ($previousRevision) {
+                $this->snapshots->createSnapshotIfMissing($previousRevision, $lockedShift);
+            }
+
             $result = $status->reject($reviewerId, $reviewerType, $reason);
             $handover->update([
                 'status' => 'rejected',

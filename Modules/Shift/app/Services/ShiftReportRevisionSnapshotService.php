@@ -11,6 +11,7 @@ use Modules\Shift\Models\ShiftReportRevision;
 use Modules\Shift\Models\ShiftReportRevisionSnapshot;
 use Modules\Shift\Models\ShiftSalesBreakdown;
 use Modules\Shift\Models\ShiftVarianceDetail;
+use Modules\Shift\Models\ShiftVarianceReviewEvidence;
 
 class ShiftReportRevisionSnapshotService
 {
@@ -55,9 +56,24 @@ class ShiftReportRevisionSnapshotService
                     'assigned_amount_halalas' => (int) round((float) $item->assigned_amount * 100),
                     'reason' => $item->reason,
                     'supporting_files' => $item->supporting_files,
-                    'is_approved' => (bool) $item->is_approved,
-                    'approved_by_id' => $item->approved_by_id,
-                    'approved_at' => $item->approved_at?->toIso8601String(),
+                    'responsibility_status' => $item->responsibility_status ?? 'pending',
+                    'reviewed_by_id' => $item->reviewed_by_id,
+                    'reviewed_by_type' => $item->reviewed_by_type,
+                    'reviewed_at' => $item->reviewed_at?->toIso8601String(),
+                    'rejection_reason' => $item->rejection_reason,
+                ])
+                ->values()
+                ->toArray();
+
+            $varianceReviews = ShiftVarianceReviewEvidence::where('report_revision_id', $revision->id)
+                ->get()
+                ->map(fn ($item) => [
+                    'id' => $item->id,
+                    'shift_variance_detail_id' => $item->shift_variance_detail_id,
+                    'responsibility_status' => $item->responsibility_status,
+                    'reviewed_by_id' => $item->reviewed_by_id,
+                    'reviewed_by_type' => $item->reviewed_by_type,
+                    'reviewed_at' => $item->reviewed_at?->toIso8601String(),
                     'rejection_reason' => $item->rejection_reason,
                 ])
                 ->values()
@@ -84,8 +100,10 @@ class ShiftReportRevisionSnapshotService
                 'card_payments_halalas' => (int) round((float) $shift->card_payments * 100),
                 'variance' => (string) $shift->variance,
                 'variance_halalas' => (int) round((float) $shift->variance * 100),
+                'pos_receipt' => $shift->pos_receipt,
                 'sales_breakdown' => $salesBreakdown,
                 'variance_details' => $varianceDetails,
+                'variance_reviews' => $varianceReviews,
                 'cash_count' => $cashCount ? [
                     'counted_halalas' => $cashCount->counted_halalas,
                     'expected_halalas' => $cashCount->expected_halalas,
@@ -122,5 +140,58 @@ class ShiftReportRevisionSnapshotService
             'snapshot_data' => $snapshotData,
             'created_at' => now(),
         ]);
+    }
+
+    /**
+     * Preserves review and approval evidence of variance responsibility for the given revision
+     * before current projection details are modified or purged.
+     */
+    public function preserveVarianceReviews(CashierShift $shift, ?ShiftReportRevision $revision = null): void
+    {
+        $revision ??= app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($shift);
+        if (! $revision) {
+            return;
+        }
+
+        $reviewedDetails = ShiftVarianceDetail::where('cashier_shift_id', $shift->id)
+            ->where(function ($q) {
+                $q->whereNotNull('reviewed_at')
+                    ->orWhereIn('responsibility_status', ['approved', 'rejected']);
+            })
+            ->get();
+
+        foreach ($reviewedDetails as $detail) {
+            ShiftVarianceReviewEvidence::firstOrCreate([
+                'report_revision_id' => $revision->id,
+                'cashier_shift_id' => $shift->id,
+                'shift_variance_detail_id' => $detail->id,
+            ], [
+                'responsibility_status' => $detail->responsibility_status ?? 'pending',
+                'reviewed_by_id' => (string) $detail->reviewed_by_id,
+                'reviewed_by_type' => (string) $detail->reviewed_by_type,
+                'reviewed_at' => $detail->reviewed_at ?? now(),
+                'rejection_reason' => $detail->rejection_reason,
+                'created_at' => now(),
+            ]);
+
+            $shift->recordHistory(
+                'variance_responsibility_review_preserved',
+                [
+                    'responsibility_status' => 'pending',
+                ],
+                [
+                    'report_revision_id' => $revision->id,
+                    'revision_number' => $revision->revision_number,
+                    'variance_detail_id' => $detail->id,
+                    'responsibility_status' => $detail->responsibility_status,
+                    'reviewed_by_id' => (string) $detail->reviewed_by_id,
+                    'reviewed_by_type' => (string) $detail->reviewed_by_type,
+                    'reviewed_at' => $detail->reviewed_at?->toIso8601String() ?? now()->toIso8601String(),
+                    'rejection_reason' => $detail->rejection_reason,
+                    'assigned_amount' => (string) $detail->assigned_amount,
+                    'responsible_cashier_id' => $detail->responsible_cashier_id,
+                ]
+            );
+        }
     }
 }

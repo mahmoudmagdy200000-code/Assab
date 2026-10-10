@@ -13,7 +13,8 @@ use Modules\Shift\Models\ShiftVarianceDetail;
 class VarianceCalculationService
 {
     public function __construct(
-        private ShiftNotificationService $notificationService
+        private ShiftNotificationService $notificationService,
+        private ShiftReportRevisionSnapshotService $snapshots
     ) {}
 
     public function recordVariance(CashierShift $shift, array $varianceData): void
@@ -29,6 +30,9 @@ class VarianceCalculationService
             $shift->update([
                 'variance' => $shift->calculateVariance(),
             ]);
+
+            // Preserve any reviewed evidence for the previous revision before purging current projection
+            $this->snapshots->preserveVarianceReviews($shift);
 
             // Purge old projection rows so removed assignees or responsibility types are excluded from current sum
             ShiftVarianceDetail::where('cashier_shift_id', $shift->id)->delete();
@@ -87,6 +91,11 @@ class VarianceCalculationService
         array $data = []
     ): void {
         $reason = $data['reason'] ?? $data['notes'] ?? null;
+        $supportingFiles = null;
+        if (! empty($data['supporting_files'])) {
+            $supportingFiles = $this->uploadSupportingFiles($data['supporting_files'], $shift->id);
+        }
+
         ShiftVarianceDetail::create([
             'cashier_shift_id' => $shift->id,
             'responsibility_type' => ResponsibilityType::I_WAS_RESPONSIBLE,
@@ -95,7 +104,7 @@ class VarianceCalculationService
             'variance_type' => $type,
             'assigned_amount' => $amount,
             'reason' => $reason,
-            'supporting_files' => null,
+            'supporting_files' => $supportingFiles,
         ]);
     }
 

@@ -579,20 +579,20 @@ class ShiftEndController extends Controller
                 'handover_notes' => $request->handover_notes,
             ];
 
-            // Handle variance files
-            if ($request->hasFile('variance.supporting_files')) {
-                $handoverData['variance_files'] = $request->file('variance.supporting_files');
-            }
-            if ($request->has('variance.reason')) {
-                $handoverData['variance_reason'] = $request->input('variance.reason');
+            // Handle variance
+            if ($request->has('variance')) {
+                $varianceData = $request->input('variance');
+                if ($request->hasFile('variance.supporting_files')) {
+                    $varianceData['supporting_files'] = $request->file('variance.supporting_files');
+                    $handoverData['variance_files'] = $request->file('variance.supporting_files');
+                }
+                if ($request->has('variance.reason')) {
+                    $handoverData['variance_reason'] = $request->input('variance.reason');
+                }
+                $handoverData['variance'] = $varianceData;
             }
 
             $updatedShift = $this->handoverService->recordHandover($shiftModel, $handoverData, $user);
-
-            // Record variance if provided
-            if ($request->has('variance') && $updatedShift->hasVariance()) {
-                $this->varianceService->recordVariance($updatedShift, $request->variance);
-            }
 
             // Calculate variance using the correct formula:
             // Variance = Total Sales - (Cash Collected + Card Payments + Delivery Apps)
