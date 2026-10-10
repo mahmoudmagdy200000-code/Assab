@@ -293,6 +293,7 @@ class BranchManagerShiftService
 
         switch ($handoverType) {
             case 'to_manager':
+            case 'to_branch_manager':
                 $query->where('handover_to_type', 'branch_manager')
                     ->where('handover_to_id', $managerShift->branch_manager_id)
                     ->where(function ($q) use ($managerShift) {
@@ -315,7 +316,7 @@ class BranchManagerShiftService
                                     ->whereDate('handover_date', '>=', $sevenDaysAgo)
                                     ->whereDate('handover_date', '<', $shiftDate)
                                     ->where(function ($sq) {
-                                        $sq->whereNotIn('status', ['approved', 'rejected_final'])
+                                        $sq->where('status', '!=', 'approved')
                                             ->orWhere(function ($aq) {
                                                 $aq->where('status', 'approved')
                                                     ->whereNull('daily_closed_at');

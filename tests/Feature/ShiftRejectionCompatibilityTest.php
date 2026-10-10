@@ -12,6 +12,7 @@ use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\HandoverStatus;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\BranchManagerCashTransfer;
+use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\Shift;
@@ -286,5 +287,140 @@ class ShiftRejectionCompatibilityTest extends TestCase
 
         $transfer->superseded_at = now();
         $this->assertTrue($transfer->isSuperseded());
+    }
+
+    /**
+     * Test 5: Manager plain rejection preserves handover, status, and financial rows without destruction (Codex Audit Item 1).
+     */
+    public function test_manager_rejection_preserves_handover_status_and_financial_rows(): void
+    {
+        // End shift with handover to branch manager
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/end-with-handover", [
+            'total_sales' => '500.00',
+            'cash_collected' => '500.00',
+            'counted_cash' => '500.00',
+            'handover_to_type' => 'branch_manager',
+            'handover_amount' => '500.00',
+        ])->assertOk();
+
+        // Branch manager rejects handover
+        $this->actingAs($this->manager, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$this->senderShift->id}/handover/reject", [
+            'rejection_reason' => 'Discrepancy in notes',
+        ])->assertOk();
+
+        // 1. Shift handover row must survive with status 'rejected'
+        $handover = CashierShiftHandover::where('cashier_shift_id', $this->senderShift->id)->first();
+        $this->assertNotNull($handover, 'Handover record must NOT be deleted upon manager rejection');
+        $this->assertSame('rejected', $handover->status);
+        $this->assertSame(1, $handover->rejection_count);
+
+        // 2. Shift handover status row must survive with manager_approval_status 'rejected'
+        $status = ShiftHandoverStatus::where('cashier_shift_id', $this->senderShift->id)->first();
+        $this->assertNotNull($status, 'Handover status record must NOT be deleted upon manager rejection');
+        $this->assertSame('rejected', $status->manager_approval_status);
+        $this->assertSame(1, $status->rejection_count);
+        $this->assertTrue($status->canCashierEdit());
+
+        // 3. Shift financial amounts must NOT be zeroed
+        $shiftFresh = $this->senderShift->fresh();
+        $this->assertSame('500.00', (string) $shiftFresh->total_sales, 'total_sales must NOT be zeroed out');
+        $this->assertSame('500.00', (string) $shiftFresh->cash_collected, 'cash_collected must NOT be zeroed out');
+        $this->assertSame(ShiftStatus::IN_PROGRESS, $shiftFresh->status);
+    }
+
+    /**
+     * Test 6: Legacy rejected_final requests from prior days are included in manager workday list (Codex Audit Item 2).
+     */
+    public function test_prior_day_legacy_rejected_final_is_included_in_manager_workday_list(): void
+    {
+        $managerShift = BranchManagerShift::where('branch_manager_id', $this->manager->id)->whereDate('shift_date', today())->first()
+            ?? BranchManagerShift::create([
+                'branch_manager_id' => $this->manager->id,
+                'branch_id' => $this->branch->id,
+                'shift_date' => today()->toDateString(),
+                'status' => 'open',
+            ]);
+
+        // Create a prior-day (2 days ago) cashier shift and handover with legacy 'rejected_final'
+        $priorTemplate = Shift::factory()->create([
+            'branch_id' => $this->branch->id,
+            'is_active' => true,
+        ]);
+        $priorCashierShift = CashierShift::create([
+            'cashier_id' => $this->sender->id,
+            'shift_id' => $priorTemplate->id,
+            'shift_date' => today()->subDays(2)->toDateString(),
+            'status' => ShiftStatus::COMPLETED->value,
+            'total_sales' => '300.00',
+            'cash_collected' => '300.00',
+        ]);
+
+        $priorHandover = CashierShiftHandover::create([
+            'cashier_shift_id' => $priorCashierShift->id,
+            'handover_to_id' => $this->manager->id,
+            'handover_to_type' => 'branch_manager',
+            'handover_amount' => '300.00',
+            'variance_amount' => '0.00',
+            'handover_date' => today()->subDays(2)->toDateString(),
+            'handover_time' => now()->subDays(2),
+            'status' => 'rejected_final',
+            'rejection_count' => 2,
+            'rejection_reason' => 'Legacy rejection from two days ago',
+        ]);
+
+        $service = app(\Modules\Shift\Services\BranchManagerShiftService::class);
+        $handovers = $service->getShiftHandovers($managerShift, 'to_manager', true);
+
+        $this->assertTrue(
+            $handovers->contains('id', $priorHandover->id),
+            'Prior-day legacy rejected_final handover must be included in manager workday handovers list'
+        );
+    }
+
+    /**
+     * Test 7: Rejection details endpoint advertises correct capabilities under BR-17 (Codex Audit Item 3).
+     */
+    public function test_rejection_details_advertises_correct_capabilities_under_br17(): void
+    {
+        ShiftHandoverStatus::create([
+            'cashier_shift_id' => $this->senderShift->id,
+            'status' => HandoverStatus::REJECTED,
+            'manager_approval_status' => 'rejected',
+            'rejection_count' => 2,
+            'rejection_reason' => 'Second rejection',
+            'reviewed_by_id' => $this->manager->id,
+            'reviewed_by_type' => get_class($this->manager),
+            'reviewed_at' => now(),
+        ]);
+
+        CashierShiftHandover::create([
+            'cashier_shift_id' => $this->senderShift->id,
+            'handover_to_id' => $this->manager->id,
+            'handover_to_type' => 'branch_manager',
+            'handover_amount' => '500.00',
+            'variance_amount' => '0.00',
+            'handover_date' => today()->toDateString(),
+            'handover_time' => now(),
+            'status' => 'rejected',
+            'rejection_count' => 2,
+        ]);
+
+        // Branch Manager endpoint
+        $resBM = $this->actingAs($this->manager, 'sanctum')->getJson(
+            "/api/v1/branch-manager/shifts/{$this->senderShift->id}/handover/rejection-details"
+        )->assertOk();
+
+        $this->assertFalse($resBM->json('data.can_approve_rejection'), 'can_approve_rejection must be false');
+        $this->assertTrue($resBM->json('data.can_request_corrections'), 'can_request_corrections must be true');
+        $this->assertFalse($resBM->json('data.rejection_details.is_final_rejection'), 'is_final_rejection must be false');
+
+        // Section C workday endpoint (BranchManagerShiftController@getRejectionDetails)
+        $resWorkday = $this->actingAs($this->manager, 'sanctum')->getJson(
+            "/api/v1/branch-manager/workday/handoffs/rejection/{$this->senderShift->id}"
+        )->assertOk();
+
+        $this->assertFalse($resWorkday->json('data.can_approve_rejection'), 'can_approve_rejection must be false in workday route');
+        $this->assertTrue($resWorkday->json('data.can_request_corrections'), 'can_request_corrections must be true in workday route');
+        $this->assertFalse($resWorkday->json('data.rejection_details.is_final_rejection'), 'is_final_rejection must be false in workday route');
     }
 }

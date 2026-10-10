@@ -1058,7 +1058,7 @@ class ShiftHandoverController extends Controller
                         'shift_id' => $shiftModel->id,
                         'rejection_reason' => $handoverStatus->rejection_reason,
                         'rejection_count' => $handoverStatus->rejection_count,
-                        'is_final_rejection' => $handoverStatus->isPermanentlyRejected(),
+                        'is_final_rejection' => false,
                         'rejection_files' => $handoverStatus->rejection_file_urls,
                         'first_rejected_at' => $handoverStatus->first_rejected_at?->format('Y-m-d H:i:s'),
                         'second_rejected_at' => $handoverStatus->second_rejected_at?->format('Y-m-d H:i:s'),
@@ -1066,8 +1066,8 @@ class ShiftHandoverController extends Controller
                         'reviewed_by' => $handoverStatus->reviewedBy?->name,
                         'reviewed_at' => $handoverStatus->reviewed_at?->format('Y-m-d H:i:s'),
                     ],
-                    'can_approve_rejection' => ! $handoverStatus->isPermanentlyRejected(),
-                    'can_request_corrections' => $handoverStatus->rejection_count === 1,
+                    'can_approve_rejection' => false,
+                    'can_request_corrections' => true,
                 ],
             ]);
         } catch (\Exception $e) {

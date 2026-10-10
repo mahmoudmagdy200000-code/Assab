@@ -403,7 +403,7 @@ class BranchManagerShiftController extends BaseController
             $shiftModel = CashierShift::select(['id', 'cashier_id', 'shift_id'])
                 ->with([
                     'cashier:id,name',
-                    'handoverStatus:id,cashier_shift_id,rejection_reason,rejection_count,rejection_file_urls,first_rejected_at,second_rejected_at,manager_comment,reviewed_by_id,reviewed_by_type,reviewed_at',
+                    'handoverStatus:id,cashier_shift_id,manager_approval_status,rejection_reason,rejection_count,rejection_file_urls,first_rejected_at,second_rejected_at,manager_comment,reviewed_by_id,reviewed_by_type,reviewed_at',
                     'handoverStatus.reviewedBy:id,name',
                     'shift:id,name,branch_id',
                 ])

@@ -8,7 +8,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Modules\BranchManagers\Models\BranchManager;
-use Modules\Custody\Models\PersonalLedgerTransaction;
 use Modules\Shift\Enums\HandoverStatus;
 use Modules\Shift\Enums\ShiftHistoryAction;
 use Modules\Shift\Enums\ShiftStatus;
@@ -17,10 +16,7 @@ use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\ShiftHandoverStatus;
-use Modules\Shift\Models\ShiftSalesBreakdown;
 use Modules\Shift\Models\ShiftTransferRejectionEvidence;
-use Modules\Shift\Models\ShiftVarianceAlert;
-use Modules\Shift\Models\ShiftVarianceDetail;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
@@ -409,35 +405,8 @@ class HandoverService
             );
         }
 
-        app(\Modules\Custody\Services\CashierCustodyService::class)
-            ->deleteTransactionsForCashierShift($shift->id);
-
-        PersonalLedgerTransaction::where('related_shift_id', $shift->id)
-            ->where('transaction_type', 'Variance from Cashier')
-            ->delete();
-
-        ShiftSalesBreakdown::where('cashier_shift_id', $shift->id)->delete();
-        ShiftVarianceAlert::where('cashier_shift_id', $shift->id)->delete();
-        ShiftVarianceDetail::where('cashier_shift_id', $shift->id)->delete();
-
-        CashierShiftHandover::where('cashier_shift_id', $shift->id)->delete();
-        ShiftHandoverStatus::where('cashier_shift_id', $shift->id)->delete();
-
         $shift->update([
             'status' => ShiftStatus::IN_PROGRESS,
-            'total_sales' => 0,
-            'net_sales' => 0,
-            'vat_amount' => 0,
-            'cash_collected' => 0,
-            'card_payments' => 0,
-            'pos_receipt' => null,
-            'closing_balance' => 0,
-            'expected_balance' => 0,
-            'variance' => 0,
-            'handed_over_at' => null,
-            'handover_notes' => null,
-            'next_cashier_id' => null,
-            'actual_end_time' => null,
         ]);
     }
 
@@ -728,6 +697,24 @@ class HandoverService
                 if ($path === false) {
                     throw new \RuntimeException('Rejection evidence upload failed.');
                 }
+            }
+
+            $rejectionResult = null;
+            if ($handoverStatus) {
+                $rejectionResult = $handoverStatus->reject(
+                    $cashierId,
+                    \Modules\Cashier\Models\Cashier::class,
+                    $reason,
+                    $uploadedFiles
+                );
+            }
+
+            if ($handover) {
+                $handover->update([
+                    'status' => 'rejected',
+                    'rejection_reason' => $reason,
+                    'rejection_count' => $rejectionResult['rejection_count'] ?? 1,
+                ]);
             }
 
             $this->revertCashierShiftAfterHandoverRejection($shift, [
