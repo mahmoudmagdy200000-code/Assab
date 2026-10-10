@@ -23,17 +23,20 @@ class ShiftEndService
         private VarianceCalculationService $varianceService,
         private ShiftReportRevisionService $revisions,
         private ShiftCashCountService $cashCounts,
-        private ShiftLiabilityService $liability
+        private ShiftLiabilityService $liability,
+        private CountedReassignmentGuard $reassignmentGuard
     ) {}
 
     public function endShiftOnly(CashierShift $shift, array $data, Model $actor): CashierShift
     {
+        $this->reassignmentGuard->assertCanContinue($shift, $actor);
         $countedHalalas = $this->parseCountedCash($data);
         $data = $this->stageExternalFiles($shift, $data);
 
         DB::beginTransaction();
         try {
             $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
+            $this->reassignmentGuard->assertCanContinue($shift, $actor);
             if ($shift->status !== ShiftStatus::IN_PROGRESS) {
                 throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('SHIFT_NO_LONGER_OPEN');
             }
@@ -110,6 +113,7 @@ class ShiftEndService
 
     public function endShiftWithHandover(CashierShift $shift, array $data, Model $actor): CashierShift
     {
+        $this->reassignmentGuard->assertCanContinue($shift, $actor);
         // Stage uploads before the outer report + handover transaction begins.
         if (($data['pos_receipt'] ?? null) instanceof UploadedFile) {
             $data['pos_receipt'] = $this->uploadPOSReceipt($data['pos_receipt'], $shift->id);

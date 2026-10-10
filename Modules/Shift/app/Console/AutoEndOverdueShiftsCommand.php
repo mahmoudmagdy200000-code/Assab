@@ -12,23 +12,12 @@ use Modules\Notification\Notifications\BaseNotification;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\CashierShift;
 
-/**
- * Hourly guard for a till left running (bootstrap/app.php).
- *
- * It used to notify `$shift->shift->branch->manager` with a
- * `ShiftAutoEndedNotification` — but `branches.manager` is a NAME STRING, not a
- * relation, and that notification class does not exist. Both raise an `Error`,
- * which `catch (\Exception)` does not catch: the command aborted on the FIRST
- * overdue shift (already flipped to `completed` and bridged to the dashboard by
- * then) and every later one was left running until the next hour repeated the
- * same crash. The manager is a `branch_managers` row; notifying is best-effort
- * and never decides whether the till gets closed.
- */
+/** Hourly overdue reminder. Elapsed time is never report submission or financial closure. */
 class AutoEndOverdueShiftsCommand extends Command
 {
     protected $signature = 'shifts:auto-end-overdue';
 
-    protected $description = 'Automatically end shifts that are overdue';
+    protected $description = 'Notify managers about overdue shifts without financially closing them';
 
     public function handle(): int
     {
@@ -48,15 +37,9 @@ class AutoEndOverdueShiftsCommand extends Command
 
         foreach ($overdueShifts as $shift) {
             try {
-                // Auto-end the shift with a note
-                $shift->update([
-                    'status' => ShiftStatus::COMPLETED,
-                    'actual_end_time' => now(),
-                    'handover_notes' => 'Auto-ended by system due to overtime',
-                ]);
-
-                // Log the action
-                Log::warning('Shift auto-ended', [
+                // Timeout is an operational reminder. Only a submitted report may complete the shift.
+                // No status/end time write: that would dispatch the financial ShiftEndedEvent/bridge.
+                Log::warning('Shift overdue; financial report remains open', [
                     'shift_id' => $shift->id,
                     'cashier_id' => $shift->cashier_id,
                     'duration_hours' => $shift->actual_start_time->diffInHours(now()),
@@ -64,13 +47,13 @@ class AutoEndOverdueShiftsCommand extends Command
 
                 $this->notifyManagers($shift);
 
-                $this->info("Shift ID {$shift->id} auto-ended successfully.");
+                $this->info("Shift ID {$shift->id} is overdue; report remains open.");
 
             } catch (\Throwable $e) {
                 // \Throwable, not \Exception: an Error here used to abort the
                 // whole run and leave every later till open.
-                $this->error("Failed to auto-end shift ID {$shift->id}: {$e->getMessage()}");
-                Log::error('Shift auto-end failed', ['shift_id' => $shift->id, 'error' => $e->getMessage()]);
+                $this->error("Failed to process overdue shift ID {$shift->id}: {$e->getMessage()}");
+                Log::error('Overdue shift reminder failed', ['shift_id' => $shift->id, 'error' => $e->getMessage()]);
             }
         }
 
@@ -79,7 +62,7 @@ class AutoEndOverdueShiftsCommand extends Command
         return Command::SUCCESS;
     }
 
-    /** Best-effort in-app notice to the branch's managers. Never fails the close. */
+    /** Best-effort in-app overdue notice. No financial transition. */
     private function notifyManagers(CashierShift $shift): void
     {
         try {
@@ -94,7 +77,7 @@ class AutoEndOverdueShiftsCommand extends Command
                     [
                         'shift_id' => $shift->id,
                         'cashier_id' => $shift->cashier_id,
-                        'reason' => 'auto_ended_overtime',
+                        'reason' => 'overdue_report_open',
                     ],
                     NotificationPriority::HIGH,
                     [NotificationChannel::IN_APP->value],

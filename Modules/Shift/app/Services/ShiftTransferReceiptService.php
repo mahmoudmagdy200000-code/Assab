@@ -98,12 +98,12 @@ class ShiftTransferReceiptService
         });
     }
 
-    public function rejectManagerCashTransfer(string $transferId, Cashier $recipient, string $attemptedConfirmedAmount, string $reason, string $correctionReason): BranchManagerCashTransfer
+    public function rejectManagerCashTransfer(string $transferId, Cashier $recipient, string $attemptedConfirmedAmount, string $reason, string $correctionReason, ?string $expectedAttemptId = null): BranchManagerCashTransfer
     {
         $this->assertCorrectionReason($correctionReason);
         $attemptedMinor = self::toMinorUnits($attemptedConfirmedAmount);
 
-        return DB::transaction(function () use ($transferId, $recipient, $attemptedConfirmedAmount, $attemptedMinor, $reason, $correctionReason) {
+        return DB::transaction(function () use ($transferId, $recipient, $attemptedConfirmedAmount, $attemptedMinor, $reason, $correctionReason, $expectedAttemptId) {
             $stub = BranchManagerCashTransfer::query()->whereKey($transferId)->firstOrFail();
             $source = BranchManagerShift::query()->whereKey($stub->branch_manager_shift_id)->lockForUpdate()->firstOrFail();
             $destination = CashierShift::withoutEagerLoads()->whereKey($stub->destination_cashier_shift_id)->lockForUpdate()->firstOrFail();
@@ -131,6 +131,7 @@ class ShiftTransferReceiptService
                 (string) $transfer->requested_amount,
                 $attemptedConfirmedAmount,
                 $correctionReason,
+                $expectedAttemptId,
             );
             $this->writeTransferCorrectionHistory($destination, $recipient->id, 'cashier', 'manager_transfer_amount_correction_rejected', [
                 'transfer_id' => $transfer->id,
@@ -202,9 +203,10 @@ class ShiftTransferReceiptService
         string $confirmedAmount,
         ?string $receivingShiftId = null,
         ?string $comment = null,
-        ?Response $commandResponse = null
+        ?Response $commandResponse = null,
+        ?string $expectedAttemptId = null
     ): CashierShiftHandoverReceipt {
-        return DB::transaction(function () use ($handoverId, $recipient, $confirmedAmount, $receivingShiftId, $comment, $commandResponse) {
+        return DB::transaction(function () use ($handoverId, $recipient, $confirmedAmount, $receivingShiftId, $comment, $commandResponse, $expectedAttemptId) {
             if ($commandResponse !== null && app()->bound(CommandIdempotencyContext::class)) {
                 app(CommandIdempotencyContext::class)->lockForAuthoritativeWrite();
             }
@@ -238,7 +240,8 @@ class ShiftTransferReceiptService
                 $revision->id,
                 $confirmedAmount,
                 $comment,
-                null
+                null,
+                $expectedAttemptId
             );
 
             if ($commandResponse !== null && app()->bound(CommandIdempotencyContext::class)) {
@@ -254,9 +257,10 @@ class ShiftTransferReceiptService
         string $handoverId,
         BranchManager $recipient,
         string $confirmedAmount,
-        ?string $comment = null
+        ?string $comment = null,
+        ?string $expectedAttemptId = null
     ): CashierShiftHandoverReceipt {
-        return DB::transaction(function () use ($handoverId, $recipient, $confirmedAmount, $comment) {
+        return DB::transaction(function () use ($handoverId, $recipient, $confirmedAmount, $comment, $expectedAttemptId) {
             $stub = CashierShiftHandover::query()->whereKey($handoverId)->firstOrFail();
             $sourceSnapshot = CashierShift::withoutEagerLoads()->whereKey($stub->cashier_shift_id)->firstOrFail();
             $branchId = $sourceSnapshot->shift()->value('branch_id');
@@ -301,7 +305,8 @@ class ShiftTransferReceiptService
                 $revision->id,
                 $confirmedAmount,
                 $comment,
-                $managerWorkday
+                $managerWorkday,
+                $expectedAttemptId
             );
         });
     }
@@ -309,9 +314,10 @@ class ShiftTransferReceiptService
     public function confirmManagerCashTransfer(
         string $transferId,
         Cashier $recipient,
-        string $confirmedAmount
+        string $confirmedAmount,
+        ?string $expectedAttemptId = null
     ): CashierShiftHandoverReceipt {
-        return DB::transaction(function () use ($transferId, $recipient, $confirmedAmount) {
+        return DB::transaction(function () use ($transferId, $recipient, $confirmedAmount, $expectedAttemptId) {
             $stub = BranchManagerCashTransfer::query()->whereKey($transferId)->firstOrFail();
             $source = BranchManagerShift::query()->whereKey($stub->branch_manager_shift_id)->lockForUpdate()->firstOrFail();
             $destination = CashierShift::query()->whereKey($stub->destination_cashier_shift_id)->lockForUpdate()->firstOrFail();
@@ -345,7 +351,8 @@ class ShiftTransferReceiptService
                 $transfer->report_revision_id,
                 $confirmedAmount,
                 null,
-                null
+                null,
+                $expectedAttemptId
             );
         });
     }
@@ -359,11 +366,17 @@ class ShiftTransferReceiptService
         string $revisionId,
         string $confirmedAmount,
         ?string $comment,
-        ?BranchManagerShift $managerDestination
+        ?BranchManagerShift $managerDestination,
+        ?string $expectedAttemptId = null
     ): CashierShiftHandoverReceipt {
         if (($handover === null) === ($managerTransfer === null)) {
             throw new \LogicException('Receipt requires exactly one transfer source.');
         }
+
+        if ($source instanceof CashierShift) {
+            $this->revisions->assertFreshCount($source);
+        }
+        $attempt = app(ShiftTransferAttemptService::class)->assertReceivable($handover ?? $managerTransfer, $expectedAttemptId);
 
         $confirmedMinor = self::toMinorUnits($confirmedAmount);
         $requestedMinor = self::toMinorUnits((string) ($handover?->handover_amount ?? $managerTransfer?->requested_amount));
@@ -375,6 +388,7 @@ class ShiftTransferReceiptService
         }
 
         $receipt = CashierShiftHandoverReceipt::create([
+            'transfer_attempt_id' => $attempt?->id,
             'cashier_shift_handover_id' => $handover?->id,
             'branch_manager_cash_transfer_id' => $managerTransfer?->id,
             'receiving_cashier_shift_id' => $destination?->id,

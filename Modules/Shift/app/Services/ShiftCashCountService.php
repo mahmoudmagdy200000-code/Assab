@@ -28,6 +28,7 @@ class ShiftCashCountService
         $total = 0;
         foreach (DB::table('cashier_shift_handover_receipts')
             ->where('receiving_cashier_shift_id', $cashierShiftId)
+            ->when(DB::transactionLevel() > 0, fn ($q) => $q->lockForUpdate())
             ->pluck('confirmed_amount') as $amount) {
             $total += ShiftFinancialCalculator::storedSarToHalalas($amount);
         }
@@ -42,7 +43,7 @@ class ShiftCashCountService
      */
     public function pendingIncomingHalalas(CashierShift $shift): int
     {
-        $since = $shift->actual_start_time ?? $shift->created_at;
+        $since = $shift->actual_start_time;
         $branchId = DB::table('shifts')->where('id', $shift->shift_id)->value('branch_id');
 
         $rows = ShiftTransferRejectionEvidence::query()
@@ -60,24 +61,36 @@ class ShiftCashCountService
             })
             ->orderBy('rejected_at')
             ->orderBy('created_at')
+            ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())
             ->get()
             ->filter(fn ($row) => $row->receiving_cashier_shift_id !== null
                 || $this->ownsUnattributedEvidence($shift, $row, $branchId, $since));
 
         $latest = [];
         foreach ($rows as $row) {
-            $key = $row->cashier_shift_handover_id
+            $key = $row->transfer_attempt_id ? 'a:'.$row->transfer_attempt_id : ($row->cashier_shift_handover_id
                 ? 'h:'.$row->cashier_shift_handover_id
-                : 't:'.$row->branch_manager_cash_transfer_id;
+                : 't:'.$row->branch_manager_cash_transfer_id);
             $latest[$key] = $row;
         }
 
         $total = 0;
         foreach ($latest as $row) {
+            if ($row->transfer_attempt_id) {
+                $confirmed = DB::table('cashier_shift_handover_receipts')->where('transfer_attempt_id', $row->transfer_attempt_id)
+                    ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())->first(['id']) !== null;
+                if (! $confirmed) {
+                    $returned = (int) DB::table('shift_transfer_returns')->where('transfer_attempt_id', $row->transfer_attempt_id)->whereNotNull('sender_confirmed_at')
+                        ->when(DB::transactionLevel() > 0, fn ($q) => $q->lockForUpdate())->get(['returned_halalas'])->sum('returned_halalas');
+                    $total += max(0, $row->physical_halalas - $returned);
+                }
+
+                continue;
+            }
             $confirmed = DB::table('cashier_shift_handover_receipts')
                 ->when($row->cashier_shift_handover_id, fn ($q) => $q->where('cashier_shift_handover_id', $row->cashier_shift_handover_id))
                 ->when($row->branch_manager_cash_transfer_id, fn ($q) => $q->where('branch_manager_cash_transfer_id', $row->branch_manager_cash_transfer_id))
-                ->exists();
+                ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())->first(['id']) !== null;
             if (! $confirmed) {
                 $total += $row->physical_halalas;
             }
@@ -95,8 +108,17 @@ class ShiftCashCountService
         if ($branchId === null || $since === null) {
             return false;
         }
-        $recipientBranch = DB::table('cashiers')->where('id', $row->recipient_id)->value('branch_id');
-        if ((string) $recipientBranch !== (string) $branchId) {
+        $sourceBranch = $row->transfer_attempt_id
+            ? DB::table('shift_transfer_attempts')->where('id', $row->transfer_attempt_id)->value('source_branch_id')
+            : ($row->cashier_shift_handover_id
+            ? DB::table('cashier_shift_handovers as h')
+                ->join('cashier_shifts as c', 'c.id', '=', 'h.cashier_shift_id')
+                ->join('shifts as s', 's.id', '=', 'c.shift_id')
+                ->where('h.id', $row->cashier_shift_handover_id)->value('s.branch_id')
+            : DB::table('branch_manager_cash_transfers as t')
+                ->join('branch_manager_shifts as m', 'm.id', '=', 't.branch_manager_shift_id')
+                ->where('t.id', $row->branch_manager_cash_transfer_id)->value('m.branch_id'));
+        if ($sourceBranch === null || (string) $sourceBranch !== (string) $branchId) {
             return false;
         }
 
@@ -107,7 +129,13 @@ class ShiftCashCountService
             ->where('cashier_shifts.id', '!=', $shift->id)
             ->whereNotNull('cashier_shifts.actual_start_time')
             ->where('cashier_shifts.actual_start_time', '>=', $row->rejected_at)
-            ->where('cashier_shifts.actual_start_time', '<', $since)
+            ->where(function ($query) use ($since, $shift) {
+                $query->where('cashier_shifts.actual_start_time', '<', $since)
+                    ->orWhere(function ($tie) use ($since, $shift) {
+                        $tie->where('cashier_shifts.actual_start_time', $since)
+                            ->where('cashier_shifts.id', '<', $shift->id);
+                    });
+            })
             ->exists();
 
         return ! $earlier;
@@ -190,7 +218,7 @@ class ShiftCashCountService
 
         [$opening, $pending, $result] = $this->compute($shift, $grossHalalas, $cardsHalalas, $appsHalalas, $countedHalalas);
 
-        return ShiftReportCashCount::create([
+        $count = ShiftReportCashCount::create([
             'report_revision_id' => $revision->id,
             'counted_revision_id' => $revision->id,
             'cashier_shift_id' => $shift->id,
@@ -203,6 +231,9 @@ class ShiftCashCountService
             'expected_halalas' => $result['expected'],
             'variance_halalas' => $result['variance'],
         ]);
+        DB::table('shift_report_aggregates')->where('id', $revision->report_aggregate_id)->update(['fresh_count_required' => false]);
+
+        return $count;
     }
 
     /**
@@ -212,6 +243,9 @@ class ShiftCashCountService
      */
     public function carryForward(ShiftReportRevision $from, ShiftReportRevision $to): ?ShiftReportCashCount
     {
+        if (DB::table('shift_report_aggregates')->where('id', $from->report_aggregate_id)->lockForUpdate()->value('fresh_count_required')) {
+            throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('PHYSICAL_RECOUNT_REQUIRED');
+        }
         $count = ShiftReportCashCount::query()->where('report_revision_id', $from->id)->first();
         if ($count === null) {
             return null;
@@ -264,6 +298,7 @@ class ShiftCashCountService
         string $requestedSar,
         string $physicalSar,
         string $correctionReason,
+        ?string $expectedAttemptId = null,
     ): ShiftTransferRejectionEvidence {
         if (DB::transactionLevel() === 0) {
             throw new \LogicException('Rejection evidence must be recorded inside the rejection transaction.');
@@ -272,7 +307,23 @@ class ShiftCashCountService
             throw new \LogicException('Rejection evidence requires exactly one transfer request.');
         }
 
+        $request = $handoverId
+            ? \Modules\Shift\Models\CashierShiftHandover::whereKey($handoverId)->lockForUpdate()->firstOrFail()
+            : \Modules\Shift\Models\BranchManagerCashTransfer::whereKey($managerTransferId)->lockForUpdate()->firstOrFail();
+        $attemptId = $request->current_transfer_attempt_id;
+        if ($attemptId) {
+            $attempt = \Modules\Shift\Models\ShiftTransferAttempt::whereKey($attemptId)->lockForUpdate()->firstOrFail();
+            if ((string) $attempt->recipient_id !== (string) $recipientId || $attempt->recipient_type !== $recipientType
+                || (string) $expectedAttemptId !== (string) $attemptId
+                || (string) $attempt->report_revision_id !== (string) $request->report_revision_id
+                || ShiftTransferRejectionEvidence::where('transfer_attempt_id', $attemptId)->exists()) {
+                throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('STALE_TRANSFER_ATTEMPT');
+            }
+            $receivingCashierShiftId = $attempt->receiving_cashier_shift_id ?? $receivingCashierShiftId;
+        }
+
         return ShiftTransferRejectionEvidence::create([
+            'transfer_attempt_id' => $attemptId,
             'cashier_shift_handover_id' => $handoverId,
             'branch_manager_cash_transfer_id' => $managerTransferId,
             'recipient_type' => $recipientType,
