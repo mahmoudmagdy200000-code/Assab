@@ -144,8 +144,8 @@ class HandoverDetailResource extends JsonResource
         return [
             'rejection_reason' => $this->rejection_reason,
             'rejection_count' => $this->rejection_count,
-            'is_final_rejection' => $this->status === 'rejected_final',
-            'can_edit' => $this->status === 'rejected' && $this->rejection_count < 2,
+            'is_final_rejection' => false,
+            'can_edit' => in_array($this->status, ['rejected', 'rejected_final']),
             'first_rejected_at' => $this->first_rejected_at?->format('Y-m-d H:i:s'),
             'second_rejected_at' => $this->second_rejected_at?->format('Y-m-d H:i:s'),
         ];

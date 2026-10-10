@@ -36,6 +36,13 @@ class CashierShiftHandover extends Model
         'handed_over_at',
         'daily_closed_at',
         'report_revision_id',
+        'superseded_at',
+        'supersedes_id',
+        'cancelled_at',
+        'cancelled_by_type',
+        'cancelled_by_id',
+        'cancellation_reason',
+        'replacement_request_id',
     ];
 
     protected $casts = [
@@ -49,6 +56,8 @@ class CashierShiftHandover extends Model
         'approved_at' => 'datetime',
         'handed_over_at' => 'datetime',
         'daily_closed_at' => 'datetime',
+        'superseded_at' => 'datetime',
+        'cancelled_at' => 'datetime',
     ];
 
     // Relationships
@@ -65,6 +74,16 @@ class CashierShiftHandover extends Model
     public function receipt(): \Illuminate\Database\Eloquent\Relations\HasOne
     {
         return $this->hasOne(CashierShiftHandoverReceipt::class, 'cashier_shift_handover_id');
+    }
+
+    public function supersedes(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'supersedes_id');
+    }
+
+    public function replacementRequest(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'replacement_request_id');
     }
 
     /**
@@ -169,17 +188,31 @@ class CashierShiftHandover extends Model
 
     public function isFinalRejection(): bool
     {
-        return $this->status === 'rejected_final';
+        return false;
+    }
+
+    public function isCancelled(): bool
+    {
+        return $this->cancelled_at !== null;
+    }
+
+    public function isSuperseded(): bool
+    {
+        return $this->superseded_at !== null;
     }
 
     public function canApprove(): bool
     {
-        return $this->isPending();
+        return $this->isPending() && ! $this->isCancelled() && ! $this->isSuperseded();
     }
 
     public function canReject(): bool
     {
-        return $this->isPending() || ($this->status === 'rejected' && $this->rejection_count < 2);
+        if ($this->isCancelled() || $this->isSuperseded()) {
+            return false;
+        }
+
+        return $this->isPending() || in_array($this->status, ['rejected', 'rejected_final']);
     }
 
     /**

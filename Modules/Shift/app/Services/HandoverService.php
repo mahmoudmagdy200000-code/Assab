@@ -502,36 +502,20 @@ class HandoverService
 
             if ($handover) {
                 $handover->update([
-                    'status' => $result['is_final_rejection'] ? 'rejected_final' : 'rejected',
+                    'status' => 'rejected',
                     'rejection_reason' => $reason,
                     'rejection_count' => $result['rejection_count'],
                 ]);
             }
 
-            if (! $result['is_final_rejection']) {
-                $this->revertCashierShiftAfterHandoverRejection($shift->fresh(), [
-                    'rejection_reason' => $reason,
-                    'manager_comment' => $comment,
-                    'reviewed_by_id' => $reviewerId,
-                    'reviewed_by_type' => $reviewerType,
-                    'rejection_files' => $uploadedFiles,
-                    'source' => 'branch_manager_reject',
-                ]);
-            } else {
-                $shift->recordHistory(
-                    ShiftHistoryAction::HANDOVER_REJECTED->value,
-                    ['status' => $handoverStatus->status->value],
-                    [
-                        'status' => HandoverStatus::REJECTED->value,
-                        'manager_approval_status' => 'rejected_final',
-                        'reviewed_by_id' => $reviewerId,
-                        'reviewed_by_type' => $reviewerType,
-                        'rejection_reason' => $reason,
-                        'rejection_count' => $result['rejection_count'],
-                        'is_final_rejection' => true,
-                    ]
-                );
-            }
+            $this->revertCashierShiftAfterHandoverRejection($shift->fresh(), [
+                'rejection_reason' => $reason,
+                'manager_comment' => $comment,
+                'reviewed_by_id' => $reviewerId,
+                'reviewed_by_type' => $reviewerType,
+                'rejection_files' => $uploadedFiles,
+                'source' => 'branch_manager_reject',
+            ]);
 
             DB::commit();
             $committed = true;
@@ -540,10 +524,10 @@ class HandoverService
 
             return [
                 'shift_id' => $shift->id,
-                'handover_status' => $result['is_final_rejection'] ? 'rejected_final' : 'reverted',
+                'handover_status' => 'reverted',
                 'rejection_count' => $result['rejection_count'],
-                'is_final_rejection' => $result['is_final_rejection'],
-                'can_cashier_edit' => $result['can_cashier_edit'],
+                'is_final_rejection' => false,
+                'can_cashier_edit' => true,
                 'rejection_reason' => $reason,
                 'rejected_at' => now()->format(self::DATETIME_FORMAT),
             ];
@@ -592,7 +576,7 @@ class HandoverService
             if ($handover->receipt()->exists()) {
                 throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('CONFIRMED_RECEIPT_IMMUTABLE');
             }
-            if ($handover->status !== 'rejected') {
+            if (! in_array($handover->status, ['rejected', 'rejected_final'])) {
                 throw new ConflictHttpException('HANDOVER_NOT_CORRECTABLE');
             }
             $handoverStatus = ShiftHandoverStatus::query()->where('cashier_shift_id', $shift->id)->lockForUpdate()->firstOrFail();
@@ -799,7 +783,7 @@ class HandoverService
             }
             $result = $status->reject($reviewerId, $reviewerType, $reason);
             $handover->update([
-                'status' => $result['is_final_rejection'] ? 'rejected_final' : 'rejected',
+                'status' => 'rejected',
                 'rejection_reason' => $reason,
                 'rejection_count' => $result['rejection_count'],
             ]);

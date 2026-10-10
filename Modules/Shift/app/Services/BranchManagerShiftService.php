@@ -792,8 +792,7 @@ class BranchManagerShiftService
         return $handoverStatus
             && $handoverStatus->manager_comment
             && $handoverStatus->reviewed_at
-            && ! $handoverStatus->isPermanentlyRejected()
-            && $handoverStatus->manager_approval_status === 'rejected';
+            && in_array($handoverStatus->manager_approval_status, ['rejected', 'rejected_final']);
     }
 
     /**

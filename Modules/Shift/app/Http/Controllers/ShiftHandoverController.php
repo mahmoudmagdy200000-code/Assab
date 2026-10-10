@@ -12,7 +12,6 @@ use Modules\Admin\Http\Middleware\IdempotencyKey;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\HandoverStatus;
 use Modules\Shift\Models\CashierShift;
-use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Services\HandoverService;
 use Modules\Shift\Transformers\ShiftDetailResource;
 use Symfony\Component\HttpFoundation\Response;
@@ -562,9 +561,7 @@ class ShiftHandoverController extends Controller
                         'edited_at' => $updatedShift->handoverStatus->edited_at->format('Y-m-d H:i:s'),
                         'status' => 'pending',
                     ],
-                    'warning' => $updatedShift->handoverStatus->rejection_count === 1
-                        ? 'This is your last chance. One more rejection will be permanent.'
-                        : null,
+                    'warning' => null,
                 ],
             ]);
         } catch (\Throwable $e) {
@@ -835,13 +832,8 @@ class ShiftHandoverController extends Controller
             return null;
         }
 
-        // If permanently rejected, it's not a correction request
-        if ($handoverStatus->isPermanentlyRejected()) {
-            return null;
-        }
-
-        // If status is rejected and manager_comment exists, it's a correction request
-        if ($handoverStatus->manager_approval_status === 'rejected') {
+        // If status is rejected (or legacy rejected_final) and manager_comment exists, it's a correction request
+        if (in_array($handoverStatus->manager_approval_status, ['rejected', 'rejected_final'])) {
             return [
                 'requested_by' => $handoverStatus->reviewedBy?->name ?? 'N/A',
                 'requested_by_id' => $handoverStatus->reviewed_by_id,
@@ -1151,57 +1143,15 @@ class ShiftHandoverController extends Controller
                 ], 400);
             }
 
-            if ($handoverStatus->isPermanentlyRejected()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'This rejection is already final and cannot be modified',
-                ], 400);
-            }
-
             $decision = $requestData['decision'] ?? $request->decision;
             $comment = $requestData['manager_comment'] ?? $request->manager_comment;
 
             if ($decision === 'approve_rejection') {
-                // Approve rejection = make it final (2nd rejection)
-                if ($handoverStatus->rejection_count >= 2) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Rejection is already final',
-                    ], 400);
-                }
-
-                // Make it final rejection
-                $handoverStatus->update([
-                    'manager_approval_status' => 'rejected_final',
-                    'rejection_count' => 2,
-                    'second_rejected_at' => now(),
-                    'manager_comment' => $comment,
-                    'reviewed_by_id' => $manager->id,
-                    'reviewed_by_type' => get_class($manager),
-                    'reviewed_at' => now(),
-                ]);
-
-                // Update CashierShiftHandover status
-                CashierShiftHandover::where('cashier_shift_id', $shiftModel->id)
-                    ->update([
-                        'status' => 'rejected_final',
-                        'rejection_count' => 2,
-                    ]);
-
                 return response()->json([
-                    'success' => true,
-                    'message' => 'Rejection approved and finalized. Cashier cannot edit anymore.',
-                    'data' => [
-                        'decision' => 'approve_rejection',
-                        'rejection_details' => [
-                            'cashier_name' => $shiftModel->cashier->name,
-                            'rejection_count' => 2,
-                            'is_final_rejection' => true,
-                            'manager_comment' => $comment,
-                            'processed_at' => now()->format('Y-m-d H:i:s'),
-                        ],
-                    ],
-                ]);
+                    'success' => false,
+                    'message' => 'INVALID_STATE: approve_rejection is retired under BR-17',
+                    'code' => 'INVALID_STATE',
+                ], 409);
             } else {
                 // Request corrections = add comment, keep as rejected (cashier can edit)
                 $handoverStatus->update([

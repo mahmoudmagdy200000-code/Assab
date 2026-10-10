@@ -438,8 +438,8 @@ class BranchManagerShiftController extends BaseController
                     'reviewed_by' => $handoverStatus->reviewedBy?->name,
                     'reviewed_at' => $handoverStatus->reviewed_at?->format(self::DATETIME_FORMAT),
                 ],
-                'can_approve_rejection' => ! $handoverStatus->isPermanentlyRejected(),
-                'can_request_corrections' => $handoverStatus->rejection_count === 1,
+                'can_approve_rejection' => false,
+                'can_request_corrections' => true,
             ], 'Rejection details retrieved successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
@@ -484,10 +484,6 @@ class BranchManagerShiftController extends BaseController
 
             if (! $handoverStatus->isManagerRejected()) {
                 return $this->errorResponse('This handover is not rejected', 400);
-            }
-
-            if ($handoverStatus->isPermanentlyRejected()) {
-                return $this->errorResponse('This rejection is already final and cannot be modified', 400);
             }
 
             $decision = $requestData['decision'] ?? $request->decision;
@@ -1137,34 +1133,7 @@ class BranchManagerShiftController extends BaseController
      */
     private function applyApproveRejection($handoverStatus, CashierShift $shiftModel, ?string $comment, BranchManager $manager): JsonResponse
     {
-        if ($handoverStatus->rejection_count >= 2) {
-            return $this->errorResponse('Rejection is already final', 400);
-        }
-
-        $handoverStatus->update([
-            'manager_approval_status' => 'rejected_final',
-            'rejection_count' => 2,
-            'second_rejected_at' => now(),
-            'manager_comment' => $comment,
-            'reviewed_by_id' => $manager->id,
-            'reviewed_by_type' => get_class($manager),
-            'reviewed_at' => now(),
-        ]);
-
-        CashierShiftHandover::where('cashier_shift_id', $shiftModel->id)
-            ->update(['status' => 'rejected_final', 'rejection_count' => 2]);
-
-        return $this->successResponse([
-            'decision' => 'approve_rejection',
-            'message' => 'Rejection approved and finalized. Cashier cannot edit anymore.',
-            'rejection_details' => [
-                'cashier_name' => $shiftModel->cashier->name,
-                'rejection_count' => 2,
-                'is_final_rejection' => true,
-                'manager_comment' => $comment,
-                'processed_at' => now()->format(self::DATETIME_FORMAT),
-            ],
-        ], 'Rejection approved successfully');
+        return $this->errorResponse('INVALID_STATE: approve_rejection is retired under BR-17', 409);
     }
 
     /**
