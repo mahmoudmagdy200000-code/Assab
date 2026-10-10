@@ -314,7 +314,7 @@ class RecurringOrderService
             'start_date' => $this->formatDateForCompute($model->start_date),
             'end_date' => $this->formatDateForCompute($model->end_date),
         ];
-        $after = $model->next_run_at ?? ($model->start_date ? Carbon::parse($model->start_date)->startOfDay() : null);
+        $after = $model->next_run_at ?? now();
 
         return $this->computeNextRunAt($data, $after);
     }

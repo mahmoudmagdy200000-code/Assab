@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Services;
 
+use App\Support\ShiftFinancialCalculator;
 use Modules\Admin\Models\AsabIdentityMap;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Shift;
@@ -178,6 +179,6 @@ class LegacyManagerShiftMirror
 
     private function toHalalas(mixed $sar): int
     {
-        return (int) round(((float) $sar) * 100);
+        return ShiftFinancialCalculator::storedSarToHalalas($sar);
     }
 }

@@ -5,6 +5,7 @@ namespace Tests\NFR\Security;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Hash;
+use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Tests\TestCase;
 
@@ -34,11 +35,13 @@ class ApplicationSecurityTest extends TestCase
         $manager1 = BranchManager::factory()->create([
             'email' => 'access1@assab.com',
             'password' => Hash::make('password123'),
+            'branch_id' => Branch::factory()->create()->id,
         ]);
 
         $manager2 = BranchManager::factory()->create([
             'email' => 'access2@assab.com',
             'password' => Hash::make('password123'),
+            'branch_id' => Branch::factory()->create()->id,
         ]);
 
         // Manager1 should not access Manager2's data
