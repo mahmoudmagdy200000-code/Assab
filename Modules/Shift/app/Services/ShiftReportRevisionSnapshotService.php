@@ -1,0 +1,126 @@
+<?php
+
+namespace Modules\Shift\Services;
+
+use Modules\Shift\Models\BranchManagerShift;
+use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Models\CashierShiftHandover;
+use Modules\Shift\Models\ShiftLiabilityAllocation;
+use Modules\Shift\Models\ShiftReportCashCount;
+use Modules\Shift\Models\ShiftReportRevision;
+use Modules\Shift\Models\ShiftReportRevisionSnapshot;
+use Modules\Shift\Models\ShiftSalesBreakdown;
+use Modules\Shift\Models\ShiftVarianceDetail;
+
+class ShiftReportRevisionSnapshotService
+{
+    /**
+     * Creates an immutable snapshot for a given report revision if one does not already exist.
+     */
+    public function createSnapshotIfMissing(
+        ShiftReportRevision $revision,
+        CashierShift|BranchManagerShift $shift
+    ): ?ShiftReportRevisionSnapshot {
+        $existing = ShiftReportRevisionSnapshot::where('report_revision_id', $revision->id)->first();
+        if ($existing) {
+            return $existing;
+        }
+
+        $salesBreakdown = [];
+        $varianceDetails = [];
+
+        if ($shift instanceof CashierShift) {
+            $salesBreakdown = ShiftSalesBreakdown::where('cashier_shift_id', $shift->id)
+                ->get()
+                ->map(fn ($item) => [
+                    'id' => $item->id,
+                    'aggregator_id' => $item->aggregator_id,
+                    'amount' => (string) $item->amount,
+                    'amount_halalas' => (int) round((float) $item->amount * 100),
+                    'notes' => $item->notes,
+                ])
+                ->values()
+                ->toArray();
+
+            $varianceDetails = ShiftVarianceDetail::where('cashier_shift_id', $shift->id)
+                ->get()
+                ->map(fn ($item) => [
+                    'id' => $item->id,
+                    'responsibility_type' => $item->responsibility_type?->value ?? (string) $item->responsibility_type,
+                    'responsible_cashier_id' => $item->responsible_cashier_id,
+                    'variance_amount' => (string) $item->variance_amount,
+                    'variance_amount_halalas' => (int) round((float) $item->variance_amount * 100),
+                    'variance_type' => $item->variance_type?->value ?? (string) $item->variance_type,
+                    'assigned_amount' => (string) $item->assigned_amount,
+                    'assigned_amount_halalas' => (int) round((float) $item->assigned_amount * 100),
+                    'reason' => $item->reason,
+                    'supporting_files' => $item->supporting_files,
+                    'is_approved' => (bool) $item->is_approved,
+                    'approved_by_id' => $item->approved_by_id,
+                    'approved_at' => $item->approved_at?->toIso8601String(),
+                    'rejection_reason' => $item->rejection_reason,
+                ])
+                ->values()
+                ->toArray();
+
+            $cashCount = ShiftReportCashCount::where('report_revision_id', $revision->id)->first();
+            $handover = CashierShiftHandover::where('report_revision_id', $revision->id)->first();
+            $allocations = ShiftLiabilityAllocation::where('report_revision_id', $revision->id)->get()->toArray();
+
+            $snapshotData = [
+                'shift_id' => $shift->id,
+                'revision_id' => $revision->id,
+                'revision_number' => $revision->revision_number,
+                'created_by_type' => $revision->created_by_type,
+                'created_by_id' => $revision->created_by_id,
+                'status' => $shift->status?->value ?? (string) $shift->status,
+                'total_sales' => (string) $shift->total_sales,
+                'total_sales_halalas' => (int) round((float) $shift->total_sales * 100),
+                'net_sales' => (string) $shift->net_sales,
+                'vat_amount' => (string) $shift->vat_amount,
+                'cash_collected' => (string) $shift->cash_collected,
+                'cash_collected_halalas' => (int) round((float) $shift->cash_collected * 100),
+                'card_payments' => (string) $shift->card_payments,
+                'card_payments_halalas' => (int) round((float) $shift->card_payments * 100),
+                'variance' => (string) $shift->variance,
+                'variance_halalas' => (int) round((float) $shift->variance * 100),
+                'sales_breakdown' => $salesBreakdown,
+                'variance_details' => $varianceDetails,
+                'cash_count' => $cashCount ? [
+                    'counted_halalas' => $cashCount->counted_halalas,
+                    'expected_halalas' => $cashCount->expected_halalas,
+                    'variance_halalas' => $cashCount->variance_halalas,
+                    'gross_halalas' => $cashCount->gross_halalas,
+                    'cards_halalas' => $cashCount->cards_halalas,
+                    'apps_halalas' => $cashCount->apps_halalas,
+                ] : null,
+                'handover' => $handover ? [
+                    'id' => $handover->id,
+                    'handover_to_type' => $handover->handover_to_type,
+                    'handover_to_id' => $handover->handover_to_id,
+                    'handover_amount' => (string) $handover->handover_amount,
+                    'status' => $handover->status,
+                ] : null,
+                'allocations' => $allocations,
+            ];
+        } else {
+            $snapshotData = [
+                'shift_id' => $shift->id,
+                'revision_id' => $revision->id,
+                'revision_number' => $revision->revision_number,
+                'created_by_type' => $revision->created_by_type,
+                'created_by_id' => $revision->created_by_id,
+                'status' => $shift->status,
+                'shift_date' => (string) $shift->shift_date,
+                'cash_collected' => (string) ($shift->cash_collected ?? '0.00'),
+            ];
+        }
+
+        return ShiftReportRevisionSnapshot::create([
+            'report_revision_id' => $revision->id,
+            'schema_version' => 1,
+            'snapshot_data' => $snapshotData,
+            'created_at' => now(),
+        ]);
+    }
+}

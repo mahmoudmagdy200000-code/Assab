@@ -37,7 +37,8 @@ class HandoverService
         private ShiftReportRevisionService $revisions,
         private ShiftTransferReceiptService $receipts,
         private ShiftCashCountService $cashCounts,
-        private CountedReassignmentGuard $reassignmentGuard
+        private CountedReassignmentGuard $reassignmentGuard,
+        private ShiftReportRevisionSnapshotService $snapshots
     ) {}
 
     /**
@@ -56,14 +57,26 @@ class HandoverService
         try {
             $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
             $this->reassignmentGuard->assertCanContinue($shift, $actor ?? auth()->user());
-            $existingPendingHandover = CashierShiftHandover::query()
+            $existingHandover = CashierShiftHandover::query()
                 ->where('cashier_shift_id', $shift->id)
-                ->where('status', 'pending')
+                ->orderByDesc('id')
                 ->lockForUpdate()
                 ->first();
             $this->assertNoCorrectionPending($shift);
             $handoverToType = $data['handover_to_type'] ?? 'cashier';
             $handoverToId = $data['handover_to_id'] ?? $data['next_cashier_id'] ?? null;
+
+            if ($existingHandover) {
+                if ($existingHandover->handover_to_type !== $handoverToType || (string) $existingHandover->handover_to_id !== (string) $handoverToId) {
+                    throw new ConflictHttpException('HANDOVER_RECIPIENT_CHANGE_REQUIRES_REPLACEMENT');
+                }
+                if ($existingHandover->status === 'pending' && ! $shift->histories()->whereIn('action', ['handover_rejected_shift_reverted', 'handover_amount_correction_rejected', 'handover_edited_after_rejection'])->exists()) {
+                    throw new ConflictHttpException('HANDOVER_ALREADY_PENDING');
+                }
+                if ($existingHandover->receipt()->exists()) {
+                    throw new ConflictHttpException('CONFIRMED_RECEIPT_IMMUTABLE');
+                }
+            }
 
             Log::info('Recording handover', [
                 'shift_id' => $shift->id,
@@ -97,6 +110,9 @@ class HandoverService
             // its stable identity. The request is bound to this exact revision.
             $actor ??= auth()->user();
             $previousRevision = $this->revisions->currentCashierRevision($shift);
+            if ($previousRevision) {
+                $this->snapshots->createSnapshotIfMissing($previousRevision, $shift);
+            }
             $revision = $this->revisions->recordCashierRevision(
                 $shift,
                 $actor instanceof BranchManager ? 'branch_manager' : 'cashier',
@@ -107,6 +123,7 @@ class HandoverService
                 // Sales and the physical count are unchanged by recording the handover request.
                 $this->cashCounts->carryForward($previousRevision, $revision);
             }
+            $this->snapshots->createSnapshotIfMissing($revision, $shift);
 
             // Create CashierShiftHandover request; request creation is not receipt.
             $handoverData = [
@@ -128,9 +145,9 @@ class HandoverService
                 'handover_data' => $handoverData,
             ]);
 
-            if ($existingPendingHandover) {
-                $existingPendingHandover->update($handoverData);
-                $handover = $existingPendingHandover;
+            if ($existingHandover) {
+                $existingHandover->update($handoverData);
+                $handover = $existingHandover;
             } else {
                 $handover = CashierShiftHandover::create($handoverData);
             }
@@ -462,6 +479,9 @@ class HandoverService
             if ($handover?->receipt()->exists()) {
                 throw new ConflictHttpException('CONFIRMED_RECEIPT_IMMUTABLE');
             }
+            if ($handover?->current_transfer_attempt_id) {
+                throw new ConflictHttpException('PHYSICAL_REJECTION_DETAILS_REQUIRED');
+            }
             if ($handover && $handover->status !== 'pending') {
                 throw new ConflictHttpException('HANDOVER_NOT_PENDING');
             }
@@ -489,7 +509,6 @@ class HandoverService
                     'rejection_reason' => $reason,
                     'rejection_count' => $result['rejection_count'],
                 ]);
-                $this->processRejectionForCurrentTransferAttempt($handover, (string) $reviewerId, $reviewerType, $reason);
             }
 
             $this->revertCashierShiftAfterHandoverRejection($shift->fresh(), [
@@ -700,6 +719,9 @@ class HandoverService
             if ($handover->receipt()->exists()) {
                 throw new ConflictHttpException('CONFIRMED_RECEIPT_IMMUTABLE');
             }
+            if ($handover->current_transfer_attempt_id) {
+                throw new ConflictHttpException('PHYSICAL_REJECTION_DETAILS_REQUIRED');
+            }
             if ($handover->status !== 'pending' || ! $handoverStatus?->canBeAcceptedByCashier()) {
                 throw new ConflictHttpException('HANDOVER_NOT_PENDING');
             }
@@ -733,7 +755,6 @@ class HandoverService
                     'rejection_reason' => $reason,
                     'rejection_count' => $rejectionResult['rejection_count'] ?? 1,
                 ]);
-                $this->processRejectionForCurrentTransferAttempt($handover, (string) $cashierId, \Modules\Cashier\Models\Cashier::class, $reason);
             }
 
             $this->revertCashierShiftAfterHandoverRejection($shift, [
@@ -784,7 +805,7 @@ class HandoverService
             }
 
             $previousAmount = (string) $handover->handover_amount;
-            if ($attemptedMinor === self::toMinorUnits($previousAmount)) {
+            if ($expectedAttemptId === null && $attemptedMinor === self::toMinorUnits($previousAmount)) {
                 throw new ConflictHttpException('HANDOVER_AMOUNT_MISMATCH_REQUIRED_FOR_CORRECTION');
             }
             $result = $status->reject($reviewerId, $reviewerType, $reason);
@@ -1325,72 +1346,5 @@ class HandoverService
     public function stageVarianceFiles(array $files, string $shiftId): array
     {
         return $this->uploadVarianceFiles($files, $shiftId);
-    }
-
-    /**
-     * Process documented rejection evidence and confirmed return for any active physical transfer attempt
-     * linked to the handover being rejected, preventing PREVIOUS_ATTEMPT_NOT_RETURNED upon re-handover.
-     */
-    private function processRejectionForCurrentTransferAttempt(CashierShiftHandover $handover, string $reviewerId, string $reviewerType, string $reason): void
-    {
-        if (! $handover->current_transfer_attempt_id) {
-            return;
-        }
-
-        $attempt = \Modules\Shift\Models\ShiftTransferAttempt::whereKey($handover->current_transfer_attempt_id)
-            ->lockForUpdate()
-            ->first();
-
-        if (! $attempt) {
-            return;
-        }
-
-        // 1. Ensure ShiftTransferRejectionEvidence is documented
-        $evidence = \Modules\Shift\Models\ShiftTransferRejectionEvidence::where('transfer_attempt_id', $attempt->id)
-            ->lockForUpdate()
-            ->first();
-
-        if (! $evidence) {
-            $evidence = \Modules\Shift\Models\ShiftTransferRejectionEvidence::create([
-                'transfer_attempt_id' => $attempt->id,
-                'cashier_shift_handover_id' => $handover->id,
-                'recipient_type' => $attempt->recipient_type,
-                'recipient_id' => $attempt->recipient_id,
-                'receiving_cashier_shift_id' => $attempt->receiving_cashier_shift_id,
-                'requested_halalas' => $attempt->presented_halalas,
-                'physical_halalas' => $attempt->presented_halalas,
-                'correction_reason' => 'actual_shortage',
-                'rejected_at' => now(),
-            ]);
-        }
-
-        // 2. Ensure physical return is documented and confirmed back to the sender
-        $return = \Modules\Shift\Models\ShiftTransferReturn::where('transfer_attempt_id', $attempt->id)
-            ->lockForUpdate()
-            ->first();
-
-        if (! $return) {
-            $returnKey = 'return-auto-'.$attempt->id;
-            \Modules\Shift\Models\ShiftTransferReturn::create([
-                'transfer_attempt_id' => $attempt->id,
-                'rejection_evidence_id' => $evidence->id,
-                'returned_halalas' => $evidence->physical_halalas,
-                'initiated_by_type' => $attempt->recipient_type,
-                'initiated_by_id' => $reviewerId,
-                'initiated_at' => now(),
-                'sender_confirmed_by_type' => $attempt->sender_type,
-                'sender_confirmed_by_id' => $attempt->sender_id,
-                'sender_confirmed_at' => now(),
-                'reason' => $reason,
-                'idempotency_key' => $returnKey,
-                'payload_hash' => hash('sha256', $returnKey),
-            ]);
-        } elseif ($return->sender_confirmed_at === null) {
-            $return->update([
-                'sender_confirmed_by_type' => $attempt->sender_type,
-                'sender_confirmed_by_id' => $attempt->sender_id,
-                'sender_confirmed_at' => now(),
-            ]);
-        }
     }
 }

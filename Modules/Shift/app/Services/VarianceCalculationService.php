@@ -30,6 +30,9 @@ class VarianceCalculationService
                 'variance' => $shift->calculateVariance(),
             ]);
 
+            // Purge old projection rows so removed assignees or responsibility types are excluded from current sum
+            ShiftVarianceDetail::where('cashier_shift_id', $shift->id)->delete();
+
             // Handle different responsibility types
             switch ($varianceData['responsibility_type']) {
                 case ResponsibilityType::I_WAS_RESPONSIBLE->value:
@@ -84,11 +87,10 @@ class VarianceCalculationService
         array $data = []
     ): void {
         $reason = $data['reason'] ?? $data['notes'] ?? null;
-        ShiftVarianceDetail::updateOrCreate([
+        ShiftVarianceDetail::create([
             'cashier_shift_id' => $shift->id,
             'responsibility_type' => ResponsibilityType::I_WAS_RESPONSIBLE,
             'responsible_cashier_id' => $shift->cashier_id,
-        ], [
             'variance_amount' => $amount,
             'variance_type' => $type,
             'assigned_amount' => $amount,
@@ -122,11 +124,10 @@ class VarianceCalculationService
             $supportingFiles = $this->uploadSupportingFiles($data['supporting_files'], $shift->id);
         }
 
-        ShiftVarianceDetail::updateOrCreate([
+        ShiftVarianceDetail::create([
             'cashier_shift_id' => $shift->id,
             'responsibility_type' => ResponsibilityType::ME_AND_OTHER_FACTORS,
             'responsible_cashier_id' => $shift->cashier_id,
-        ], [
             'variance_amount' => $amount,
             'variance_type' => $type,
             'assigned_amount' => $currentCashierAmount,
@@ -137,11 +138,10 @@ class VarianceCalculationService
         // Record for other cashiers
         if (! empty($otherCashiers)) {
             foreach ($otherCashiers as $otherCashier) {
-                ShiftVarianceDetail::updateOrCreate([
+                ShiftVarianceDetail::create([
                     'cashier_shift_id' => $shift->id,
                     'responsibility_type' => ResponsibilityType::ME_AND_OTHER_FACTORS,
                     'responsible_cashier_id' => $otherCashier['cashier_id'],
-                ], [
                     'variance_amount' => $amount,
                     'variance_type' => $type,
                     'assigned_amount' => $otherCashier['amount'],
@@ -163,11 +163,10 @@ class VarianceCalculationService
             $supportingFiles = $this->uploadSupportingFiles($data['supporting_files'], $shift->id);
         }
 
-        ShiftVarianceDetail::updateOrCreate([
+        ShiftVarianceDetail::create([
             'cashier_shift_id' => $shift->id,
             'responsibility_type' => ResponsibilityType::OTHER_FACTORS,
             'responsible_cashier_id' => null,
-        ], [
             'variance_amount' => $amount,
             'variance_type' => $type,
             'assigned_amount' => $amount,
@@ -200,11 +199,10 @@ class VarianceCalculationService
         // Record cashier responsibilities
         if (! empty($cashiers)) {
             foreach ($cashiers as $cashier) {
-                ShiftVarianceDetail::updateOrCreate([
+                ShiftVarianceDetail::create([
                     'cashier_shift_id' => $shift->id,
                     'responsibility_type' => ResponsibilityType::MIXED_FACTORS,
                     'responsible_cashier_id' => $cashier['cashier_id'],
-                ], [
                     'variance_amount' => $amount,
                     'variance_type' => $type,
                     'assigned_amount' => $cashier['amount'],
@@ -219,11 +217,10 @@ class VarianceCalculationService
         $externalAmount = $amount - $totalCashierAmount;
 
         if ($externalAmount > 0) {
-            ShiftVarianceDetail::updateOrCreate([
+            ShiftVarianceDetail::create([
                 'cashier_shift_id' => $shift->id,
                 'responsibility_type' => ResponsibilityType::MIXED_FACTORS,
                 'responsible_cashier_id' => null,
-            ], [
                 'variance_amount' => $amount,
                 'variance_type' => $type,
                 'assigned_amount' => $externalAmount,

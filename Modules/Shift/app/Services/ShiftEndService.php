@@ -25,7 +25,8 @@ class ShiftEndService
         private ShiftReportRevisionService $revisions,
         private ShiftCashCountService $cashCounts,
         private ShiftLiabilityService $liability,
-        private CountedReassignmentGuard $reassignmentGuard
+        private CountedReassignmentGuard $reassignmentGuard,
+        private ShiftReportRevisionSnapshotService $snapshots
     ) {}
 
     public function endShiftOnly(CashierShift $shift, array $data, Model $actor): CashierShift
@@ -47,6 +48,11 @@ class ShiftEndService
             $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($totalSales);
             $vatAmount = $salesCalculation['vat'];
             $netSales = $salesCalculation['net'];
+
+            $previousRevision = $this->revisions->currentCashierRevision($shift);
+            if ($previousRevision) {
+                $this->snapshots->createSnapshotIfMissing($previousRevision, $shift);
+            }
 
             // Update Shift
             $shift->update([
@@ -122,12 +128,16 @@ class ShiftEndService
 
             if (! empty($data['variance']) && $shift->hasVariance()) {
                 $this->varianceService->recordVariance($shift, $data['variance']);
+            } else {
+                \Modules\Shift\Models\ShiftVarianceDetail::where('cashier_shift_id', $shift->id)->delete();
             }
 
             CashierShiftHandover::query()
                 ->where('cashier_shift_id', $shift->id)
                 ->where('status', 'pending')
                 ->update(['report_revision_id' => $revision->id]);
+
+            $this->snapshots->createSnapshotIfMissing($revision, $shift);
 
             DB::commit();
 
@@ -310,17 +320,15 @@ class ShiftEndService
 
     private function saveSalesBreakdown(CashierShift $shift, array $aggregators): void
     {
+        ShiftSalesBreakdown::where('cashier_shift_id', $shift->id)->delete();
+
         foreach ($aggregators as $aggregator) {
-            ShiftSalesBreakdown::updateOrCreate(
-                [
-                    'cashier_shift_id' => $shift->id,
-                    'aggregator_id' => $aggregator['aggregator_id'],
-                ],
-                [
-                    'amount' => $aggregator['amount'],
-                    'notes' => $aggregator['notes'] ?? null,
-                ]
-            );
+            ShiftSalesBreakdown::create([
+                'cashier_shift_id' => $shift->id,
+                'aggregator_id' => $aggregator['aggregator_id'],
+                'amount' => $aggregator['amount'],
+                'notes' => $aggregator['notes'] ?? null,
+            ]);
         }
     }
 

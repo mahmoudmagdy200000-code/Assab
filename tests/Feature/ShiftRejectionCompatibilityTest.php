@@ -552,22 +552,41 @@ class ShiftRejectionCompatibilityTest extends TestCase
         $attempt1Id = $attemptRes1->json('data.id');
         $this->assertNotNull($attempt1Id);
 
-        // Branch manager rejects handover via ordinary rejection endpoint
+        // Plain rejection of typed request requires physical details
         $this->actingAs($this->manager, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$this->senderShift->id}/handover/reject", [
             'rejection_reason' => 'Discrepancy noted in physical bundle',
-        ])->assertOk();
+        ])->assertStatus(409);
+
+        // Branch manager rejects attempt with physical count of 480.00
+        $this->actingAs($this->manager, 'sanctum')->postJson(
+            "/api/v1/shift-transfer-attempts/{$attempt1Id}/reject",
+            [
+                'physical_halalas' => 48000,
+                'reason' => 'Only 480 physically counted in bundle',
+                'correction_reason' => 'actual_shortage',
+            ]
+        )->assertOk();
+
+        // Branch manager initiates return of physical cash
+        $returnRes = $this->actingAs($this->manager, 'sanctum')->postJson(
+            "/api/v1/shift-transfer-attempts/{$attempt1Id}/returns",
+            [
+                'returned_halalas' => 48000,
+                'reason' => 'Returning physical bundle',
+                'idempotency_key' => 'return-attempt-1',
+            ]
+        )->assertOk();
+        $returnId = $returnRes->json('data.id');
+
+        // Original sender confirms receipt of returned cash
+        $this->actingAs($this->sender, 'sanctum')->postJson(
+            "/api/v1/shift-transfer-returns/{$returnId}/confirm"
+        )->assertOk();
 
         // Cashier edits handover to 480.00
         $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/edit", [
             'handover_amount' => '480.00',
             'correction_reason' => 'actual_shortage',
-        ])->assertOk();
-
-        // Cashier ends shift with count for current revision (balanced 480.00 sales and cash)
-        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/end", [
-            'total_sales' => '480.00',
-            'cash_collected' => '480.00',
-            'counted_cash' => '480.00',
         ])->assertOk();
 
         // Present physical transfer attempt 2 for the corrected amount -> Must NOT fail with PREVIOUS_ATTEMPT_NOT_RETURNED

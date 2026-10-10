@@ -997,6 +997,14 @@ class ShiftTransferReceiptTest extends TestCase
 
         // Restore the source request to a current revision, then prove the shift owner check.
         $current = $revisions->currentCashierRevision($source);
+        app(\Modules\Shift\Services\ShiftCashCountService::class)->record(
+            $source,
+            $current,
+            1000,
+            0,
+            0,
+            1000
+        );
         $handover->update(['report_revision_id' => $current->id]);
         try {
             app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, '10.00', $otherShift->id);
@@ -1286,6 +1294,14 @@ class ShiftTransferReceiptTest extends TestCase
             'status' => ShiftStatus::NOT_STARTED,
         ]);
         $revision = app(ShiftReportRevisionService::class)->recordCashierRevision($source, 'cashier', $sender->id, 0);
+        app(\Modules\Shift\Services\ShiftCashCountService::class)->record(
+            $source,
+            $revision,
+            (int) round((float) $amount * 100),
+            0,
+            0,
+            (int) round((float) $amount * 100)
+        );
         ShiftHandoverStatus::create([
             'cashier_shift_id' => $source->id,
             'status' => HandoverStatus::PENDING,
@@ -1304,6 +1320,28 @@ class ShiftTransferReceiptTest extends TestCase
         ]);
 
         return [$source, $recipient, $destination, $handover, $revision, $otherShift];
+    }
+
+    public function test_handover_receipt_requires_cash_count_for_current_revision(): void
+    {
+        [$source, $recipient, $destination, $handover, $revision] = $this->handoverFixture('10.00');
+        \Modules\Shift\Models\ShiftReportCashCount::where('report_revision_id', $revision->id)->delete();
+
+        $this->expectException(ConflictHttpException::class);
+        $this->expectExceptionMessage('REPORT_COUNT_REQUIRED');
+
+        app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, '10.00', $destination->id);
+    }
+
+    public function test_in_progress_source_shift_cannot_confirm_receipt(): void
+    {
+        [$source, $recipient, $destination, $handover] = $this->handoverFixture('10.00');
+        $source->update(['status' => ShiftStatus::IN_PROGRESS]);
+
+        $this->expectException(ConflictHttpException::class);
+        $this->expectExceptionMessage('REPORT_COUNT_REQUIRED');
+
+        app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, '10.00', $destination->id);
     }
 
     private function managerTransferFixture(): array
@@ -1352,6 +1390,14 @@ class ShiftTransferReceiptTest extends TestCase
         ]);
         $sender = $sourceShift->cashier;
         $revision = app(ShiftReportRevisionService::class)->recordCashierRevision($sourceShift, 'cashier', $sender->id, 0);
+        app(\Modules\Shift\Services\ShiftCashCountService::class)->record(
+            $sourceShift,
+            $revision,
+            (int) round((float) $amount * 100),
+            0,
+            0,
+            (int) round((float) $amount * 100)
+        );
         $managerWorkday->update(['status' => 'active', 'cash_collected' => $amount]);
         ShiftHandoverStatus::create([
             'cashier_shift_id' => $sourceShift->id,
