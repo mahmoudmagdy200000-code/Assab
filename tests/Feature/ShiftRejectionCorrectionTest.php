@@ -200,4 +200,148 @@ class ShiftRejectionCorrectionTest extends TestCase
         ]);
         $this->assertSame(0, $service->pendingIncomingHalalas($foreign->fresh()));
     }
+
+    public function test_unattributed_cashier_evidence_keeps_its_source_branch_after_recipient_moves_company(): void
+    {
+        $handover = CashierShiftHandover::create([
+            'cashier_shift_id' => $this->senderShift->id, 'handover_to_type' => 'cashier', 'handover_to_id' => $this->recipient->id,
+            'handover_amount' => '500.00', 'status' => 'rejected', 'handover_date' => today()->toDateString(), 'handover_time' => now(),
+        ]);
+        ShiftTransferRejectionEvidence::create([
+            'cashier_shift_handover_id' => $handover->id, 'recipient_type' => 'cashier', 'recipient_id' => $this->recipient->id,
+            'requested_halalas' => 50000, 'physical_halalas' => 48000, 'correction_reason' => 'actual_shortage', 'rejected_at' => now(),
+        ]);
+        $this->assertSourceBranchOwnershipAfterMove();
+    }
+
+    public function test_unattributed_manager_transfer_evidence_keeps_its_source_branch_after_recipient_moves_company(): void
+    {
+        $source = \Modules\Shift\Models\BranchManagerShift::where('branch_manager_id', $this->manager->id)
+            ->whereDate('shift_date', today())->firstOrFail();
+        $transfer = \Modules\Shift\Models\BranchManagerCashTransfer::create([
+            'branch_manager_shift_id' => $source->id, 'destination_cashier_id' => $this->recipient->id,
+            'destination_cashier_shift_id' => $this->recipientShift->id, 'created_by_id' => $this->manager->id,
+            'requested_amount' => '500.00', 'status' => 'rejected',
+        ]);
+        ShiftTransferRejectionEvidence::create([
+            'branch_manager_cash_transfer_id' => $transfer->id, 'recipient_type' => 'cashier', 'recipient_id' => $this->recipient->id,
+            'requested_halalas' => 50000, 'physical_halalas' => 48000, 'correction_reason' => 'actual_shortage', 'rejected_at' => now(),
+        ]);
+        $this->assertSourceBranchOwnershipAfterMove();
+    }
+
+    private function assertSourceBranchOwnershipAfterMove(): void
+    {
+        $this->recipientShift->update(['actual_start_time' => now()->subHours(3)]);
+        $notStarted = CashierShift::create([
+            'cashier_id' => $this->recipient->id, 'shift_id' => $this->senderShift->shift_id,
+            'shift_date' => today()->toDateString(), 'status' => ShiftStatus::NOT_STARTED,
+        ]);
+        $this->assertSame(0, app(ShiftCashCountService::class)->pendingIncomingHalalas($notStarted), 'Creation time is not evidence that the receiving shift started.');
+        $company = AsabCompany::create(['name' => 'Other company', 'plan' => 'Professional', 'status' => 'active']);
+        $brand = AsabBrand::create(['company_id' => $company->id, 'name' => 'Other brand', 'sub_status' => 'active', 'status' => 'active']);
+        $branchB = Branch::factory()->create(['asab_brand_id' => $brand->id, 'asab_company_id' => $company->id]);
+        $this->recipient->update(['branch_id' => $branchB->id]);
+        $templateB = Shift::factory()->create(['branch_id' => $branchB->id, 'is_active' => true]);
+        $inB = CashierShift::create([
+            'cashier_id' => $this->recipient->id, 'shift_id' => $templateB->id,
+            'shift_date' => today()->toDateString(), 'status' => ShiftStatus::IN_PROGRESS, 'actual_start_time' => now()->addMinutes(30),
+        ]);
+        $firstA = $this->liveShift($this->recipient, '22:00:00', '23:00:00');
+        $firstA->update(['actual_start_time' => now()->addHour()]);
+        $secondA = $this->liveShift($this->recipient, '23:00:00', '23:30:00');
+        $secondA->update(['actual_start_time' => now()->addHours(2)]);
+        $service = app(ShiftCashCountService::class);
+        $this->assertSame(0, $service->pendingIncomingHalalas($inB->fresh()), 'Current membership in B does not move evidence out of A.');
+        $this->assertSame(48000, $service->pendingIncomingHalalas($firstA->fresh()));
+        $this->assertSame(0, $service->pendingIncomingHalalas($secondA->fresh()));
+
+        // Equal start timestamps still have one deterministic owner (ascending shift ID).
+        $secondA->update(['actual_start_time' => $firstA->fresh()->actual_start_time]);
+        $owner = strcmp($firstA->id, $secondA->id) < 0 ? $firstA : $secondA;
+        $other = $owner->id === $firstA->id ? $secondA : $firstA;
+        $this->assertSame(48000, $service->pendingIncomingHalalas($owner->fresh()));
+        $this->assertSame(0, $service->pendingIncomingHalalas($other->fresh()));
+    }
+
+    public function test_manager_correction_conflict_does_not_store_rejection_uploads(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/end-with-handover", [
+            'total_sales' => '100.00', 'counted_cash' => '100.00',
+            'handover_to_type' => 'branch_manager', 'handover_amount' => '100.00',
+        ])->assertOk();
+        $handover = CashierShiftHandover::where('cashier_shift_id', $this->senderShift->id)->sole();
+        ShiftTransferRejectionEvidence::create([
+            'cashier_shift_handover_id' => $handover->id, 'recipient_type' => 'branch_manager', 'recipient_id' => $this->manager->id,
+            'requested_halalas' => 10000, 'physical_halalas' => 9000, 'correction_reason' => 'actual_shortage', 'rejected_at' => now(),
+        ]);
+        $before = $handover->fresh()->getAttributes();
+        $this->actingAs($this->manager, 'sanctum')->post("/api/v1/branch-manager/shifts/{$this->senderShift->id}/handover/reject", [
+            'rejection_reason' => 'plain rejection',
+            'rejection_files' => [\Illuminate\Http\UploadedFile::fake()->create('count.pdf', 1, 'application/pdf')],
+        ], ['Accept' => 'application/json'])->assertStatus(409)->assertJsonPath('code', 'HANDOVER_HAS_CORRECTION_EVIDENCE');
+        $this->assertSame($before, $handover->fresh()->getAttributes());
+        $this->assertSame([], \Illuminate\Support\Facades\Storage::disk('public')->allFiles());
+    }
+
+    public function test_failed_rejection_after_upload_cleans_only_attempt_files(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        \Illuminate\Support\Facades\Storage::disk('public')->put('handover_rejections/approved.pdf', 'old evidence');
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/end-with-handover", [
+            'total_sales' => '100.00', 'counted_cash' => '100.00',
+            'handover_to_type' => 'branch_manager', 'handover_amount' => '100.00',
+        ])->assertOk();
+        $handover = CashierShiftHandover::where('cashier_shift_id', $this->senderShift->id)->sole();
+        $status = $this->senderShift->fresh()->handoverStatus;
+        $status->update(['rejection_files' => ['handover_rejections/approved.pdf']]);
+        $before = $status->fresh()->getAttributes();
+        \Modules\Shift\Models\ShiftHandoverStatus::updating(static function () {
+            throw new \RuntimeException('injected rejection DB failure after upload');
+        });
+        try {
+            $this->actingAs($this->manager, 'sanctum')->post("/api/v1/branch-manager/shifts/{$this->senderShift->id}/handover/reject", [
+                'rejection_reason' => 'recount',
+                'rejection_files' => [\Illuminate\Http\UploadedFile::fake()->create('new.pdf', 1, 'application/pdf')],
+            ], ['Accept' => 'application/json'])->assertStatus(500);
+        } finally {
+            \Modules\Shift\Models\ShiftHandoverStatus::flushEventListeners();
+        }
+        $this->assertSame($before, $status->fresh()->getAttributes());
+        $this->assertSame('pending', $handover->fresh()->status);
+        $this->assertSame(['handover_rejections/approved.pdf'], \Illuminate\Support\Facades\Storage::disk('public')->allFiles());
+    }
+
+    public function test_second_upload_failure_removes_first_file_and_preserves_old_evidence(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        \Illuminate\Support\Facades\Storage::disk('public')->put('handover_rejections/old.pdf', 'old');
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/end-with-handover", [
+            'total_sales' => '100.00', 'counted_cash' => '100.00',
+            'handover_to_type' => 'branch_manager', 'handover_amount' => '100.00',
+        ])->assertOk();
+        $failedFile = \Mockery::mock(\Illuminate\Http\UploadedFile::class);
+        $failedFile->shouldReceive('getClientOriginalExtension')->andReturn('pdf');
+        $failedFile->shouldReceive('storeAs')->once()->andThrow(new \RuntimeException('second upload failed'));
+        try {
+            app(\Modules\Shift\Services\HandoverService::class)->rejectHandover(
+                $this->senderShift->fresh(), $this->manager->id, 'branch_manager', 'recount', [
+                    \Illuminate\Http\UploadedFile::fake()->create('first.pdf', 1, 'application/pdf'), $failedFile,
+                ]
+            );
+            $this->fail('The second upload must fail.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('second upload failed', $e->getMessage());
+        }
+        $this->assertSame(['handover_rejections/old.pdf'], \Illuminate\Support\Facades\Storage::disk('public')->allFiles());
+        $this->assertSame('pending', CashierShiftHandover::where('cashier_shift_id', $this->senderShift->id)->sole()->status);
+        // A subsequent successful attempt retains its evidence; cleanup must not run after commit.
+        app(\Modules\Shift\Services\HandoverService::class)->rejectHandover(
+            $this->senderShift->fresh(), $this->manager->id, 'branch_manager', 'recount', [
+                \Illuminate\Http\UploadedFile::fake()->create('success.pdf', 1, 'application/pdf'),
+            ]
+        );
+        $this->assertCount(2, \Illuminate\Support\Facades\Storage::disk('public')->allFiles());
+    }
 }

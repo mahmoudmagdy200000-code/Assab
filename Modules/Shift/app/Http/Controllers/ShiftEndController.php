@@ -13,6 +13,7 @@ use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Services\CountedReassignmentGuard;
 use Modules\Shift\Services\HandoverService;
 use Modules\Shift\Services\ShiftCashCountService;
 use Modules\Shift\Services\ShiftEndService;
@@ -34,7 +35,8 @@ class ShiftEndController extends Controller
         private ShiftEndService $shiftEndService,
         private HandoverService $handoverService,
         private VarianceCalculationService $varianceService,
-        private ShiftCashCountService $cashCounts
+        private ShiftCashCountService $cashCounts,
+        private CountedReassignmentGuard $reassignmentGuard
     ) {}
 
     /**
@@ -104,6 +106,7 @@ class ShiftEndController extends Controller
                 ], 404);
             }
 
+            $this->reassignmentGuard->assertCanContinue($shiftModel);
             if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
                 return response()->json([
                     'success' => false,
@@ -315,6 +318,7 @@ class ShiftEndController extends Controller
                 ], 404);
             }
 
+            $this->reassignmentGuard->assertCanContinue($shiftModel);
             if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
                 return response()->json([
                     'success' => false,
@@ -511,6 +515,9 @@ class ShiftEndController extends Controller
                     'message' => 'Shift not found',
                 ], 404);
             }
+
+            // Apply the shared D16 fallback before request-side upload or handover work.
+            $this->reassignmentGuard->assertCanContinue($shiftModel);
 
             // Check if shift can have handover recorded
             if (! $shiftModel->total_sales) {

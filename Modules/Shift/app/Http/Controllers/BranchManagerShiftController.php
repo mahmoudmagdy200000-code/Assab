@@ -247,6 +247,7 @@ class BranchManagerShiftController extends BaseController
         $validator = Validator::make($request->all(), [
             'handover_id' => 'required|exists:cashier_shift_handovers,id',
             'confirmed_amount' => 'required|'.ShiftMoneyValidation::SAR,
+            'transfer_attempt_id' => 'nullable|uuid',
         ]);
 
         if ($validator->fails()) {
@@ -283,7 +284,8 @@ class BranchManagerShiftController extends BaseController
                 $manager->id,
                 get_class($manager),
                 null,
-                (string) $request->input('confirmed_amount')
+                (string) $request->input('confirmed_amount'),
+                $request->input('transfer_attempt_id')
             );
 
             $handover->refresh();
@@ -306,6 +308,7 @@ class BranchManagerShiftController extends BaseController
             'rejection_reason' => 'required|string|max:500',
             'correction_reason' => 'nullable|in:input_error,actual_shortage',
             'confirmed_amount' => 'required_with:correction_reason|'.ShiftMoneyValidation::SAR,
+            'transfer_attempt_id' => 'nullable|uuid',
         ]);
 
         if ($validator->fails()) {
@@ -344,7 +347,8 @@ class BranchManagerShiftController extends BaseController
                     get_class($manager),
                     $request->rejection_reason,
                     (string) $request->input('confirmed_amount'),
-                    $request->string('correction_reason')->toString()
+                    $request->string('correction_reason')->toString(),
+                    $request->input('transfer_attempt_id')
                 );
                 $current = $cashierShift->fresh('handoverStatus')->handoverStatus;
                 $result = [
@@ -823,6 +827,11 @@ class BranchManagerShiftController extends BaseController
             }
 
             DB::transaction(function () use ($managerShift, $request) {
+                $managerShift = BranchManagerShift::query()->whereKey($managerShift->id)->lockForUpdate()->firstOrFail();
+                if ($managerShift->daily_report_submitted || $managerShift->status !== 'completed') {
+                    throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('DAILY_REPORT_NO_LONGER_SUBMITTABLE');
+                }
+                $this->shiftService->lockCashierFinancialInputs($managerShift);
                 $managerShift->update([
                     'daily_report_submitted' => true,
                     'daily_report_submitted_at' => now(),
@@ -862,6 +871,8 @@ class BranchManagerShiftController extends BaseController
                 'shift' => new BranchManagerShiftResource($managerShift),
                 'message' => 'Daily report submitted successfully. Waiting for Sales Team approval.',
             ], 'Daily report submitted successfully');
+        } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
+            return HandoverErrorResponse::from($e, 'daily report submit');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
