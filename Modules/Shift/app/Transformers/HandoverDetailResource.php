@@ -208,7 +208,7 @@ class HandoverDetailResource extends JsonResource
             'pending' => 'Pending',
             'approved' => 'Approved',
             'rejected' => 'Rejected (Awaiting Edit)',
-            'rejected_final' => 'Permanently Rejected',
+            'rejected_final' => 'Rejected (Awaiting Edit)',
             default => 'Unknown',
         };
     }

@@ -307,7 +307,7 @@ class ShiftHandoverStatus extends Model
             'pending' => 'Pending Approval',
             'approved' => 'Approved',
             'rejected' => 'Rejected (Awaiting Edit)',
-            'rejected_final' => 'Permanently Rejected',
+            'rejected_final' => 'Rejected (Awaiting Edit)',
             default => 'Unknown',
         };
     }

@@ -6,9 +6,11 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
+use Modules\Aggregator\Models\Aggregator;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
+use Modules\Custody\Services\CashierCustodyService;
 use Modules\Shift\Enums\HandoverStatus;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\BranchManagerCashTransfer;
@@ -18,6 +20,7 @@ use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\Shift;
 use Modules\Shift\Models\ShiftHandoverStatus;
 use Modules\Shift\Services\HandoverService;
+use Modules\Shift\Transformers\HandoverDetailResource;
 use Tests\TestCase;
 
 /**
@@ -345,6 +348,8 @@ class ShiftRejectionCompatibilityTest extends TestCase
         $priorTemplate = Shift::factory()->create([
             'branch_id' => $this->branch->id,
             'is_active' => true,
+            'start_time' => '16:00:00',
+            'end_time' => '00:00:00',
         ]);
         $priorCashierShift = CashierShift::create([
             'cashier_id' => $this->sender->id,
@@ -422,5 +427,184 @@ class ShiftRejectionCompatibilityTest extends TestCase
         $this->assertFalse($resWorkday->json('data.can_approve_rejection'), 'can_approve_rejection must be false in workday route');
         $this->assertTrue($resWorkday->json('data.can_request_corrections'), 'can_request_corrections must be true in workday route');
         $this->assertFalse($resWorkday->json('data.rejection_details.is_final_rejection'), 'is_final_rejection must be false in workday route');
+    }
+
+    /**
+     * Test 8: Re-ending shift after rejection posts delta-only in custody and preserves sales breakdown and variance.
+     */
+    public function test_re_ending_shift_after_rejection_records_delta_only_and_preserves_breakdown_and_variance(): void
+    {
+        $aggregator = Aggregator::create([
+            'name' => 'جاهز', 'code' => 'JAHEZ', 'commission_rate' => 15,
+            'payment_terms' => 'Monthly', 'integration_type' => 'manual', 'is_active' => true,
+        ]);
+
+        // Initial submission
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/end-with-handover", [
+            'total_sales' => '500.00',
+            'cash_collected' => '400.00',
+            'counted_cash' => '400.00',
+            'aggregators' => [
+                ['aggregator_id' => $aggregator->id, 'amount' => '100.00'],
+            ],
+            'handover_to_type' => 'branch_manager',
+            'handover_amount' => '400.00',
+        ])->assertOk();
+
+        $custodyService = app(CashierCustodyService::class);
+        $this->assertSame(400.0, $custodyService->getPersonalBalanceOnly($this->sender->id));
+        $this->assertDatabaseHas('shift_sales_breakdown', [
+            'cashier_shift_id' => $this->senderShift->id,
+            'aggregator_id' => $aggregator->id,
+            'amount' => '100.00',
+        ]);
+
+        // Branch manager rejects handover
+        $this->actingAs($this->manager, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$this->senderShift->id}/handover/reject", [
+            'rejection_reason' => 'Discrepancy in counting',
+        ])->assertOk();
+
+        // Re-end shift with the same figures: custody must remain 400.0 (delta = 0, NOT doubled to 800.0)
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/end-with-handover", [
+            'total_sales' => '500.00',
+            'cash_collected' => '400.00',
+            'counted_cash' => '400.00',
+            'aggregators' => [
+                ['aggregator_id' => $aggregator->id, 'amount' => '100.00'],
+            ],
+            'handover_to_type' => 'branch_manager',
+            'handover_amount' => '400.00',
+        ])->assertOk();
+
+        $this->assertSame(400.0, $custodyService->getPersonalBalanceOnly($this->sender->id), 'Custody balance must NOT double after re-ending with same cash amount');
+        $this->assertDatabaseHas('shift_sales_breakdown', [
+            'cashier_shift_id' => $this->senderShift->id,
+            'aggregator_id' => $aggregator->id,
+            'amount' => '100.00',
+        ]);
+    }
+
+    /**
+     * Test 9: Confirming handover without valid count on current revision or while in progress is rejected (409).
+     */
+    public function test_handover_cannot_be_confirmed_while_shift_is_in_progress_or_missing_cash_count(): void
+    {
+        // Initial submission to branch manager
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/end-with-handover", [
+            'total_sales' => '500.00',
+            'cash_collected' => '500.00',
+            'counted_cash' => '500.00',
+            'handover_to_type' => 'branch_manager',
+            'handover_amount' => '500.00',
+        ])->assertOk();
+
+        // Branch manager rejects handover
+        $this->actingAs($this->manager, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$this->senderShift->id}/handover/reject", [
+            'rejection_reason' => 'Count mismatch',
+        ])->assertOk();
+
+        // Cashier edits handover request to 480.00 (Shift remains in_progress, current revision has no fresh count yet)
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/edit", [
+            'handover_amount' => '480.00',
+            'correction_reason' => 'actual_shortage',
+        ])->assertOk();
+
+        // Branch manager attempts to confirm while shift is in progress / missing current revision count
+        $this->actingAs($this->manager, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$this->senderShift->id}/handover/approve", [
+            'confirmed_amount' => '480.00',
+        ])->assertStatus(409);
+
+        // Cashier properly ends shift with count for current revision
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/end", [
+            'total_sales' => '480.00',
+            'cash_collected' => '480.00',
+            'counted_cash' => '480.00',
+        ])->assertOk();
+
+        // Now branch manager confirms successfully
+        $this->actingAs($this->manager, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$this->senderShift->id}/handover/approve", [
+            'confirmed_amount' => '480.00',
+        ])->assertOk();
+    }
+
+    /**
+     * Test 10: Physical transfer attempt lifecycle survives ordinary rejection, edit, and re-presentation.
+     */
+    public function test_physical_transfer_attempt_cycle_survives_ordinary_rejection_and_re_presentation(): void
+    {
+        // Initial submission
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/end-with-handover", [
+            'total_sales' => '500.00',
+            'cash_collected' => '500.00',
+            'counted_cash' => '500.00',
+            'handover_to_type' => 'branch_manager',
+            'handover_amount' => '500.00',
+        ])->assertOk();
+
+        $handover = CashierShiftHandover::where('cashier_shift_id', $this->senderShift->id)->firstOrFail();
+
+        // Present physical transfer attempt 1
+        $attemptRes1 = $this->actingAs($this->sender, 'sanctum')->postJson(
+            "/api/v1/shift-transfers/handover/{$handover->id}/present",
+            ['presented_halalas' => 50000, 'idempotency_key' => 'attempt-seq-1']
+        )->assertOk();
+
+        $attempt1Id = $attemptRes1->json('data.id');
+        $this->assertNotNull($attempt1Id);
+
+        // Branch manager rejects handover via ordinary rejection endpoint
+        $this->actingAs($this->manager, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$this->senderShift->id}/handover/reject", [
+            'rejection_reason' => 'Discrepancy noted in physical bundle',
+        ])->assertOk();
+
+        // Cashier edits handover to 480.00
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/edit", [
+            'handover_amount' => '480.00',
+            'correction_reason' => 'actual_shortage',
+        ])->assertOk();
+
+        // Cashier ends shift with count for current revision (balanced 480.00 sales and cash)
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/end", [
+            'total_sales' => '480.00',
+            'cash_collected' => '480.00',
+            'counted_cash' => '480.00',
+        ])->assertOk();
+
+        // Present physical transfer attempt 2 for the corrected amount -> Must NOT fail with PREVIOUS_ATTEMPT_NOT_RETURNED
+        $attemptRes2 = $this->actingAs($this->sender, 'sanctum')->postJson(
+            "/api/v1/shift-transfers/handover/{$handover->id}/present",
+            ['presented_halalas' => 48000, 'idempotency_key' => 'attempt-seq-2']
+        )->assertOk();
+
+        $attempt2Id = $attemptRes2->json('data.id');
+        $this->assertNotNull($attempt2Id);
+        $this->assertNotSame($attempt1Id, $attempt2Id);
+
+        // Branch manager confirms receipt of attempt 2 -> Must succeed
+        $this->actingAs($this->manager, 'sanctum')->postJson(
+            "/api/v1/shift-transfer-attempts/{$attempt2Id}/confirm-receipt",
+            ['confirmed_halalas' => 48000]
+        )->assertOk();
+    }
+
+    /**
+     * Test 11: Legacy rejected_final status displays 'Rejected (Awaiting Edit)' label instead of permanently rejected.
+     */
+    public function test_legacy_rejected_final_label_displays_awaiting_edit_not_permanently_rejected(): void
+    {
+        $handover = CashierShiftHandover::create([
+            'cashier_shift_id' => $this->senderShift->id,
+            'handover_to_id' => $this->manager->id,
+            'handover_to_type' => 'branch_manager',
+            'handover_amount' => '500.00',
+            'variance_amount' => '0.00',
+            'handover_date' => today()->toDateString(),
+            'handover_time' => now(),
+            'status' => 'rejected_final',
+            'rejection_count' => 2,
+        ]);
+
+        $resource = (new HandoverDetailResource($handover))->toArray(request());
+        $this->assertSame('Rejected (Awaiting Edit)', $resource['status_label']);
     }
 }

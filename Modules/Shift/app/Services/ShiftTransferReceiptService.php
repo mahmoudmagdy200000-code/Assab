@@ -10,6 +10,7 @@ use Modules\Cashier\Models\Cashier;
 use Modules\Custody\Enums\TransactionType;
 use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Custody\Models\PersonalLedgerTransaction;
+use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\BranchManagerCashTransfer;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
@@ -17,6 +18,7 @@ use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\CashierShiftHandoverReceipt;
 use Modules\Shift\Models\CashierShiftHistory;
 use Modules\Shift\Models\ShiftHandoverStatus;
+use Modules\Shift\Models\ShiftReportCashCount;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
@@ -229,6 +231,11 @@ class ShiftTransferReceiptService
                 throw new ConflictHttpException('STALE_REPORT_REVISION');
             }
 
+            $count = ShiftReportCashCount::query()->where('report_revision_id', $revision->id)->first();
+            if (! $count || $source->status === ShiftStatus::IN_PROGRESS) {
+                throw new ConflictHttpException('REPORT_COUNT_REQUIRED');
+            }
+
             $this->assertReceivingShift($source, $destination, $recipient);
 
             $receipt = $this->recordReceipt(
@@ -294,6 +301,11 @@ class ShiftTransferReceiptService
             $revision = $this->revisions->currentCashierRevision($source);
             if (! $revision || (string) $revision->id !== (string) $handover->report_revision_id) {
                 throw new ConflictHttpException('STALE_REPORT_REVISION');
+            }
+
+            $count = ShiftReportCashCount::query()->where('report_revision_id', $revision->id)->first();
+            if (! $count || $source->status === ShiftStatus::IN_PROGRESS) {
+                throw new ConflictHttpException('REPORT_COUNT_REQUIRED');
             }
 
             return $this->recordReceipt(

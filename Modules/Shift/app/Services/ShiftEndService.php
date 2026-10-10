@@ -12,6 +12,7 @@ use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Liability\ShiftLiabilityService;
 use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\ShiftLiabilityAllocation;
 use Modules\Shift\Models\ShiftReportRevision;
 use Modules\Shift\Models\ShiftSalesBreakdown;
@@ -86,21 +87,47 @@ class ShiftEndService
 
             // This report declaration is not a transfer receipt, but it is part of
             // the report's financial effects and therefore shares the transaction.
-            $cashAmount = (string) ($shift->cash_collected ?? '0.00');
-            if (Cashier::whereKey($shift->cashier_id)->exists() && (float) $cashAmount > 0) {
-                CashierCustodyTransaction::create([
-                    'cashier_id' => $shift->cashier_id,
-                    'transaction_type' => 'Total Sales',
-                    'amount' => $cashAmount,
-                    'is_cash_in' => true,
-                    'related_shift_id' => $shift->id,
-                    'transaction_date' => now(),
-                ]);
+            // Under BR-17 / S1-11, delta-only is recorded on re-ending / correction to avoid double-counting.
+            $targetCashCollected = round((float) ($shift->cash_collected ?? '0.00'), 2);
+            if (Cashier::whereKey($shift->cashier_id)->exists()) {
+                $existingPosted = (float) (CashierCustodyTransaction::query()
+                    ->where('related_shift_id', $shift->id)
+                    ->where('cashier_id', $shift->cashier_id)
+                    ->where('transaction_type', 'Total Sales')
+                    ->selectRaw('SUM(CASE WHEN is_cash_in = 1 THEN amount ELSE -amount END) as net_sales')
+                    ->value('net_sales') ?? 0.0);
+
+                $salesDelta = round($targetCashCollected - $existingPosted, 2);
+
+                if ($salesDelta > 0.0) {
+                    CashierCustodyTransaction::create([
+                        'cashier_id' => $shift->cashier_id,
+                        'transaction_type' => 'Total Sales',
+                        'amount' => (string) $salesDelta,
+                        'is_cash_in' => true,
+                        'related_shift_id' => $shift->id,
+                        'transaction_date' => now(),
+                    ]);
+                } elseif ($salesDelta < 0.0) {
+                    CashierCustodyTransaction::create([
+                        'cashier_id' => $shift->cashier_id,
+                        'transaction_type' => 'Total Sales',
+                        'amount' => (string) abs($salesDelta),
+                        'is_cash_in' => false,
+                        'related_shift_id' => $shift->id,
+                        'transaction_date' => now(),
+                    ]);
+                }
             }
 
             if (! empty($data['variance']) && $shift->hasVariance()) {
                 $this->varianceService->recordVariance($shift, $data['variance']);
             }
+
+            CashierShiftHandover::query()
+                ->where('cashier_shift_id', $shift->id)
+                ->where('status', 'pending')
+                ->update(['report_revision_id' => $revision->id]);
 
             DB::commit();
 
@@ -283,15 +310,17 @@ class ShiftEndService
 
     private function saveSalesBreakdown(CashierShift $shift, array $aggregators): void
     {
-        ShiftSalesBreakdown::where('cashier_shift_id', $shift->id)->delete();
-
         foreach ($aggregators as $aggregator) {
-            ShiftSalesBreakdown::create([
-                'cashier_shift_id' => $shift->id,
-                'aggregator_id' => $aggregator['aggregator_id'],
-                'amount' => $aggregator['amount'],
-                'notes' => $aggregator['notes'] ?? null,
-            ]);
+            ShiftSalesBreakdown::updateOrCreate(
+                [
+                    'cashier_shift_id' => $shift->id,
+                    'aggregator_id' => $aggregator['aggregator_id'],
+                ],
+                [
+                    'amount' => $aggregator['amount'],
+                    'notes' => $aggregator['notes'] ?? null,
+                ]
+            );
         }
     }
 

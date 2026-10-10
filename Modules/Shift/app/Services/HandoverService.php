@@ -56,9 +56,11 @@ class HandoverService
         try {
             $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
             $this->reassignmentGuard->assertCanContinue($shift, $actor ?? auth()->user());
-            if (CashierShiftHandover::query()->where('cashier_shift_id', $shift->id)->where('status', 'pending')->exists()) {
-                throw new ConflictHttpException('HANDOVER_ALREADY_PENDING');
-            }
+            $existingPendingHandover = CashierShiftHandover::query()
+                ->where('cashier_shift_id', $shift->id)
+                ->where('status', 'pending')
+                ->lockForUpdate()
+                ->first();
             $this->assertNoCorrectionPending($shift);
             $handoverToType = $data['handover_to_type'] ?? 'cashier';
             $handoverToId = $data['handover_to_id'] ?? $data['next_cashier_id'] ?? null;
@@ -126,7 +128,12 @@ class HandoverService
                 'handover_data' => $handoverData,
             ]);
 
-            $handover = CashierShiftHandover::create($handoverData);
+            if ($existingPendingHandover) {
+                $existingPendingHandover->update($handoverData);
+                $handover = $existingPendingHandover;
+            } else {
+                $handover = CashierShiftHandover::create($handoverData);
+            }
 
             // Create or update ShiftHandoverStatus for approval tracking
             // Use updateOrCreate to avoid duplicate entry errors
@@ -241,6 +248,13 @@ class HandoverService
 
             if ($handover->status !== 'pending') {
                 throw new ConflictHttpException('HANDOVER_NOT_PENDING');
+            }
+            if ($shift->status === ShiftStatus::IN_PROGRESS) {
+                throw new ConflictHttpException('REPORT_COUNT_REQUIRED');
+            }
+            $currentRevision = $this->revisions->currentCashierRevision($shift);
+            if (! $currentRevision || ! \Modules\Shift\Models\ShiftReportCashCount::where('report_revision_id', $currentRevision->id)->exists()) {
+                throw new ConflictHttpException('REPORT_COUNT_REQUIRED');
             }
 
             // Manager review is an audit observation only. The named cashier
@@ -475,6 +489,7 @@ class HandoverService
                     'rejection_reason' => $reason,
                     'rejection_count' => $result['rejection_count'],
                 ]);
+                $this->processRejectionForCurrentTransferAttempt($handover, (string) $reviewerId, $reviewerType, $reason);
             }
 
             $this->revertCashierShiftAfterHandoverRejection($shift->fresh(), [
@@ -644,6 +659,9 @@ class HandoverService
         if ($handover->status !== 'pending') {
             throw new ConflictHttpException('HANDOVER_NOT_PENDING');
         }
+        if ($shift->status === ShiftStatus::IN_PROGRESS) {
+            throw new ConflictHttpException('REPORT_COUNT_REQUIRED');
+        }
 
         $this->receipts->confirmHandover(
             $handover->id,
@@ -715,6 +733,7 @@ class HandoverService
                     'rejection_reason' => $reason,
                     'rejection_count' => $rejectionResult['rejection_count'] ?? 1,
                 ]);
+                $this->processRejectionForCurrentTransferAttempt($handover, (string) $cashierId, \Modules\Cashier\Models\Cashier::class, $reason);
             }
 
             $this->revertCashierShiftAfterHandoverRejection($shift, [
@@ -1306,5 +1325,72 @@ class HandoverService
     public function stageVarianceFiles(array $files, string $shiftId): array
     {
         return $this->uploadVarianceFiles($files, $shiftId);
+    }
+
+    /**
+     * Process documented rejection evidence and confirmed return for any active physical transfer attempt
+     * linked to the handover being rejected, preventing PREVIOUS_ATTEMPT_NOT_RETURNED upon re-handover.
+     */
+    private function processRejectionForCurrentTransferAttempt(CashierShiftHandover $handover, string $reviewerId, string $reviewerType, string $reason): void
+    {
+        if (! $handover->current_transfer_attempt_id) {
+            return;
+        }
+
+        $attempt = \Modules\Shift\Models\ShiftTransferAttempt::whereKey($handover->current_transfer_attempt_id)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $attempt) {
+            return;
+        }
+
+        // 1. Ensure ShiftTransferRejectionEvidence is documented
+        $evidence = \Modules\Shift\Models\ShiftTransferRejectionEvidence::where('transfer_attempt_id', $attempt->id)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $evidence) {
+            $evidence = \Modules\Shift\Models\ShiftTransferRejectionEvidence::create([
+                'transfer_attempt_id' => $attempt->id,
+                'cashier_shift_handover_id' => $handover->id,
+                'recipient_type' => $attempt->recipient_type,
+                'recipient_id' => $attempt->recipient_id,
+                'receiving_cashier_shift_id' => $attempt->receiving_cashier_shift_id,
+                'requested_halalas' => $attempt->presented_halalas,
+                'physical_halalas' => $attempt->presented_halalas,
+                'correction_reason' => 'actual_shortage',
+                'rejected_at' => now(),
+            ]);
+        }
+
+        // 2. Ensure physical return is documented and confirmed back to the sender
+        $return = \Modules\Shift\Models\ShiftTransferReturn::where('transfer_attempt_id', $attempt->id)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $return) {
+            $returnKey = 'return-auto-'.$attempt->id;
+            \Modules\Shift\Models\ShiftTransferReturn::create([
+                'transfer_attempt_id' => $attempt->id,
+                'rejection_evidence_id' => $evidence->id,
+                'returned_halalas' => $evidence->physical_halalas,
+                'initiated_by_type' => $attempt->recipient_type,
+                'initiated_by_id' => $reviewerId,
+                'initiated_at' => now(),
+                'sender_confirmed_by_type' => $attempt->sender_type,
+                'sender_confirmed_by_id' => $attempt->sender_id,
+                'sender_confirmed_at' => now(),
+                'reason' => $reason,
+                'idempotency_key' => $returnKey,
+                'payload_hash' => hash('sha256', $returnKey),
+            ]);
+        } elseif ($return->sender_confirmed_at === null) {
+            $return->update([
+                'sender_confirmed_by_type' => $attempt->sender_type,
+                'sender_confirmed_by_id' => $attempt->sender_id,
+                'sender_confirmed_at' => now(),
+            ]);
+        }
     }
 }
