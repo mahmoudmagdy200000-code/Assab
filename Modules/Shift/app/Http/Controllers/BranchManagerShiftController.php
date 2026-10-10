@@ -836,7 +836,7 @@ class BranchManagerShiftController extends BaseController
                     'daily_report_submitted' => true,
                     'daily_report_submitted_at' => now(),
                     'daily_report_notes' => $request->final_notes,
-                    'can_reopen' => true,
+                    'can_reopen' => false,
                 ]);
 
                 // Sweep every approved handover included in this close (today's
@@ -868,7 +868,7 @@ class BranchManagerShiftController extends BaseController
             }
 
             return $this->successResponse([
-                'shift' => new BranchManagerShiftResource($managerShift),
+                'shift' => new BranchManagerShiftResource($managerShift->fresh()),
                 'message' => 'Daily report submitted successfully. Waiting for Sales Team approval.',
             ], 'Daily report submitted successfully');
         } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {

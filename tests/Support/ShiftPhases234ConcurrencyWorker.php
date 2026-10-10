@@ -38,6 +38,16 @@ try {
             app(\Modules\Shift\Services\BranchManagerShiftService::class)->lockCashierFinancialInputs($day);
             $day->update(['daily_report_submitted' => true, 'daily_report_submitted_at' => now()]);
             $result = ['status' => 'submitted'];
+        } elseif ($input['command'] === 'same_recipient_correct') {
+            $source = \Modules\Shift\Models\CashierShift::findOrFail($input['source']);
+            $actor = \Modules\Cashier\Models\Cashier::findOrFail($source->cashier_id);
+            \Illuminate\Support\Facades\Auth::guard()->setUser($actor);
+            app(\Modules\Shift\Services\HandoverService::class)->recordHandoverEdit($source, [
+                'handover_amount' => $input['amount'] ?? '90.00',
+                'correction_reason' => 'input_error',
+                'expected_revision' => $input['revision'] ?? 1,
+            ]);
+            $result = ['status' => 'created'];
         } elseif (in_array($input['command'], ['correct', 'reopen'], true)) {
             $source = \Modules\Shift\Models\CashierShift::findOrFail($input['source']);
             $actor = \Modules\Cashier\Models\Cashier::findOrFail($source->cashier_id);

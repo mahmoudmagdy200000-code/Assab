@@ -181,7 +181,7 @@ class ShiftLegacyMoneyCompatibilityTest extends TestCase
 
         return [
             'record handover' => [$cashier, "/api/cashier/shifts/{$shift->id}/handover", ['next_cashier_id' => $other->id, 'handover_amount' => $amount], 'handover_amount'],
-            'edit after rejection' => [$cashier, "/api/cashier/shifts/{$shift->id}/handover/edit", ['handover_amount' => $amount, 'correction_reason' => 'input_error'], 'handover_amount'],
+            'edit after rejection' => [$cashier, "/api/cashier/shifts/{$shift->id}/handover/edit", ['handover_amount' => $amount, 'correction_reason' => 'input_error', 'expected_revision' => 0], 'handover_amount'],
             'record variance' => [$manager, "/api/branch-manager/shifts/{$shift->id}/variance", ['responsibility_type' => 'self_and_others', 'other_cashiers' => [['cashier_id' => $other->id, 'amount' => $amount]]], 'other_cashiers.0.amount'],
             'reassign with handover' => [$manager, "/api/branch-manager/shifts/{$shift->id}/reassign-with-handover", ['new_cashier_id' => $other->id, 'handover_amount' => $amount], 'handover_amount'],
         ];
@@ -191,7 +191,7 @@ class ShiftLegacyMoneyCompatibilityTest extends TestCase
     {
         foreach ($this->newlyValidatedRequests($this->world(), '40.123') as $name => [$actor, $url, $body, $field]) {
             $this->actingAs($actor, 'sanctum')
-                ->post($url, $body, ['Accept' => 'application/json'])
+                ->post($url, $body, ['Accept' => 'application/json', 'Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])
                 ->assertUnprocessable()
                 ->assertJsonValidationErrors($field);
             $this->app['auth']->forgetGuards();
@@ -201,7 +201,7 @@ class ShiftLegacyMoneyCompatibilityTest extends TestCase
     public function test_newly_validated_endpoints_accept_representation_noise(): void
     {
         foreach ($this->newlyValidatedRequests($this->world(), '40.00000000000001') as $name => [$actor, $url, $body, $field]) {
-            $response = $this->actingAs($actor, 'sanctum')->post($url, $body, ['Accept' => 'application/json']);
+            $response = $this->actingAs($actor, 'sanctum')->post($url, $body, ['Accept' => 'application/json', 'Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()]);
             $this->assertNotSame(422, $response->status(), $name.': '.$response->getContent());
             $this->app['auth']->forgetGuards();
         }

@@ -174,6 +174,86 @@ class ShiftPhases234MySqlConcurrencyTest extends TestCase
         $this->assertSame(3, $reopened->revision_number);
     }
 
+    public function test_same_recipient_waiting_correction_rejects_stale_revision(): void
+    {
+        [$days, $source, $handover] = $this->rejectedFixture();
+        $history = $source->history()->count();
+        [$first, $second] = $this->race(
+            ['command' => 'same_recipient_correct', 'day' => $days[0]->id, 'source' => $source->id],
+            ['command' => 'same_recipient_correct', 'day' => $days[0]->id, 'source' => $source->id, 'amount' => '80.00']
+        );
+        $this->assertSame('created', $first['status']);
+        $this->assertSame('STALE_REPORT_REVISION', $second['code']);
+        $this->assertSame(2, app(ShiftReportRevisionService::class)->currentCashierRevision($source)->revision_number);
+        $this->assertSame('90.00', (string) $handover->fresh()->handover_amount);
+        $this->assertSame('pending', $handover->fresh()->status);
+        $this->assertSame(1, \Modules\Shift\Models\CashierShiftHandover::where('cashier_shift_id', $source->id)->count());
+        $this->assertSame($history + 2, $source->history()->count());
+        $this->assertSame(0, CashierShiftHandoverReceipt::where('cashier_shift_handover_id', $handover->id)->count());
+    }
+
+    public function test_lost_http_response_replays_after_real_commit_and_connection_loss(): void
+    {
+        [, $source, $handover] = $this->rejectedFixture();
+        $this->assertSame(0, DB::transactionLevel(), 'This test must not run in a rollback-only test transaction.');
+        $key = (string) \Illuminate\Support\Str::uuid();
+        $payload = ['handover_amount' => '90.00', 'correction_reason' => 'input_error', 'expected_revision' => 1];
+        $url = "/api/cashier/shifts/{$source->id}/handover/edit";
+        $this->actingAs(Cashier::findOrFail($source->cashier_id), 'sanctum')
+            ->postJson($url, $payload, ['Idempotency-Key' => $key])->assertOk();
+        $this->assertSame(0, DB::transactionLevel());
+        DB::purge();
+        $record = \Modules\Admin\Models\CommandIdempotencyRecord::where('idempotency_key', $key)->sole();
+        $this->assertSame('completed', $record->status);
+        $stored = $record->response_body;
+        $counts = $this->correctionEffectCounts();
+        \Illuminate\Support\Facades\Cache::flush();
+        $retry = $this->postJson($url, $payload, ['Idempotency-Key' => $key])->assertOk();
+        $this->assertSame($stored, $retry->getContent());
+        $this->assertSame($counts, $this->correctionEffectCounts());
+        $this->assertSame('pending', $handover->fresh()->status);
+        $this->assertSame(2, app(ShiftReportRevisionService::class)->currentCashierRevision($source)->revision_number);
+    }
+
+    private function correctionEffectCounts(): array
+    {
+        $counts = [];
+        foreach (['shift_report_revisions', 'cashier_shift_history', 'shift_report_corrections',
+            'shift_transfer_rejection_evidence', 'shift_transfer_attempts', 'cashier_custody_transactions',
+            'personal_ledger_transactions', 'cashier_shift_handover_receipts'] as $table) {
+            $counts[$table] = DB::table($table)->count();
+        }
+
+        return $counts;
+    }
+
+    private function rejectedFixture(): array
+    {
+        [, $days, $destinations] = $this->fixture();
+        $source = $destinations[0];
+        $source->update(['status' => 'completed', 'actual_end_time' => now(), 'total_sales' => '100.00',
+            'cash_collected' => '100.00', 'card_payments' => '0.00', 'closing_balance' => '100.00',
+            'net_sales' => '86.96', 'vat_amount' => '13.04']);
+        $revision = DB::transaction(function () use ($source) {
+            $revision = app(ShiftReportRevisionService::class)->recordCashierRevision($source, 'cashier', $source->cashier_id, 0);
+            app(ShiftCashCountService::class)->record($source, $revision, 10000, 0, 0, 10000);
+
+            return $revision;
+        });
+        $handover = \Modules\Shift\Models\CashierShiftHandover::create([
+            'cashier_shift_id' => $source->id, 'handover_to_type' => 'cashier',
+            'handover_to_id' => $destinations[1]->cashier_id, 'handover_amount' => '100.00',
+            'status' => 'rejected', 'report_revision_id' => $revision->id,
+            'handover_date' => today(), 'handover_time' => now(), 'rejection_reason' => 'Wrong amount',
+        ]);
+        \Modules\Shift\Models\ShiftHandoverStatus::create([
+            'cashier_shift_id' => $source->id, 'handover_id' => $handover->id,
+            'status' => 'rejected', 'manager_approval_status' => 'rejected', 'rejection_count' => 1,
+        ]);
+
+        return [$days, $source, $handover];
+    }
+
     private function race(array $firstInput, array $secondInput): array
     {
         $barrier = tempnam(sys_get_temp_dir(), 's111_race_');

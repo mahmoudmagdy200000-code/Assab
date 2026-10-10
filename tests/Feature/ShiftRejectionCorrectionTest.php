@@ -123,9 +123,9 @@ class ShiftRejectionCorrectionTest extends TestCase
     public function test_plain_rejection_after_d11_evidence_is_conflict_without_writes(): void
     {
         $this->d11Reject();
-        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/edit", [
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/edit", ['expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($this->senderShift)?->revision_number ?? 0,
             'handover_amount' => '480.00', 'correction_reason' => 'actual_shortage',
-        ])->assertOk();
+        ], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertOk();
         $evidence = ShiftTransferRejectionEvidence::count();
         $handovers = CashierShiftHandover::count();
 
@@ -150,9 +150,9 @@ class ShiftRejectionCorrectionTest extends TestCase
         }
         $this->assertSame(1, CashierShiftHandover::count());
 
-        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/edit", [
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/edit", ['expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($this->senderShift)?->revision_number ?? 0,
             'handover_amount' => '480.00', 'correction_reason' => 'actual_shortage',
-        ])->assertOk();
+        ], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertOk();
         $this->actingAs($this->recipient, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/accept", [
             'confirmed_amount' => '480.00', 'receiving_shift_id' => $this->recipientShift->id,
         ])->assertOk();

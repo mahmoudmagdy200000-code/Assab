@@ -818,6 +818,7 @@ class ShiftTransferReceiptTest extends TestCase
         $service->rejectHandoverForAmountCorrection($source, $recipient->id, get_class($recipient), 'Physical amount was 61.00', '61.00', 'actual_shortage');
         $this->actingAs($source->cashier, 'sanctum');
         $service->recordHandoverEdit($source, [
+            'expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($source)?->revision_number ?? 0,
             'handover_amount' => '61.00',
             'handover_notes' => 'Corrected after recipient count',
             'correction_reason' => 'actual_shortage',
@@ -859,6 +860,7 @@ class ShiftTransferReceiptTest extends TestCase
         $service->rejectHandoverForAmountCorrection($source, $recipient->id, get_class($recipient), 'Entered amount was wrong', '61.00', 'input_error');
         $this->actingAs($source->cashier, 'sanctum');
         $service->recordHandoverEdit($source, [
+            'expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($source)?->revision_number ?? 0,
             'handover_amount' => '61.00',
             'correction_reason' => 'input_error',
         ]);

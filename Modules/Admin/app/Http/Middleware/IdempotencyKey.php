@@ -69,6 +69,11 @@ class IdempotencyKey
         }
         $completion = in_array($completion, self::ATOMIC_COMPLETIONS, true) ? $completion : 'after-commit';
         $legacyEnvelope = $envelope === 'legacy';
+        // S1-11 required mobile mutation commands distinguish payload conflicts
+        // from a key owned by another actor. Existing optional/Admin contracts stay intact.
+        $payloadMismatchCode = $requireKey === 'required' && $completion === 'transaction' && $legacyEnvelope
+            ? 'IDEMPOTENCY_PAYLOAD_MISMATCH'
+            : 'IDEMPOTENCY_KEY_REUSED';
 
         $key = $request->header('Idempotency-Key');
         if ($key === null || $key === '') {
@@ -113,7 +118,7 @@ class IdempotencyKey
         $atomic = $completion !== 'after-commit';
 
         try {
-            $reservation = DB::transaction(function () use ($scope, $identityHash, $keyHash, $payloadHash, $atomic, $legacyEnvelope) {
+            $reservation = DB::transaction(function () use ($scope, $identityHash, $keyHash, $payloadHash, $atomic, $legacyEnvelope, $payloadMismatchCode) {
                 $connection = DB::connection();
                 $owners = $connection->table('asab_command_idempotency_owners');
                 $owner = $owners->where('key_hash', $keyHash)->lockForUpdate()->first();
@@ -158,7 +163,7 @@ class IdempotencyKey
                     }
 
                     if (! hash_equals($record->payload_hash, $payloadHash)) {
-                        return ['response' => $this->error(409, 'IDEMPOTENCY_KEY_REUSED', 'Idempotency-Key was reused with a different payload.', $legacyEnvelope)];
+                        return ['response' => $this->error(409, $payloadMismatchCode, 'Idempotency-Key was reused with a different payload.', $legacyEnvelope)];
                     }
 
                     if ($record->status === 'completed') {

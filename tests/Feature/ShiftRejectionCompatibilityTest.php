@@ -104,10 +104,10 @@ class ShiftRejectionCompatibilityTest extends TestCase
         $this->assertSame(1, $res1->json('data.rejection_details.rejection_count'));
 
         // Cashier edits and resubmits
-        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/edit", [
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/edit", ['expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($this->senderShift)?->revision_number ?? 0,
             'handover_amount' => '480.00',
             'correction_reason' => 'actual_shortage',
-        ])->assertOk();
+        ], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertOk();
 
         // 2nd Rejection by recipient (Previously locked out under 2-reject rule, now allowed under BR-17)
         $res2 = $this->actingAs($this->recipient, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/reject", [
@@ -126,10 +126,10 @@ class ShiftRejectionCompatibilityTest extends TestCase
         $this->assertTrue($handoverStatus->canCashierEdit());
 
         // Cashier edits and resubmits again after 2nd rejection!
-        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/edit", [
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/edit", ['expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($this->senderShift)?->revision_number ?? 0,
             'handover_amount' => '470.00',
             'correction_reason' => 'actual_shortage',
-        ])->assertOk();
+        ], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertOk();
 
         // 3rd Rejection by recipient
         $res3 = $this->actingAs($this->recipient, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/reject", [
@@ -187,11 +187,11 @@ class ShiftRejectionCompatibilityTest extends TestCase
         $this->assertTrue($handover->canReject());
 
         // Cashier edits the legacy rejected_final record
-        $response = $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/edit", [
+        $response = $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/edit", ['expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($this->senderShift)?->revision_number ?? 0,
             'handover_amount' => '490.00',
             'correction_reason' => 'actual_shortage',
             'handover_notes' => 'Corrected after legacy rejection',
-        ])->assertOk();
+        ], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertOk();
 
         $this->assertSame('pending', $response->json('data.edit_details.status'));
 
@@ -504,10 +504,10 @@ class ShiftRejectionCompatibilityTest extends TestCase
         ])->assertOk();
 
         // Cashier edits handover request to 480.00 (Shift remains in_progress, current revision has no fresh count yet)
-        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/edit", [
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/edit", ['expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($this->senderShift)?->revision_number ?? 0,
             'handover_amount' => '480.00',
             'correction_reason' => 'actual_shortage',
-        ])->assertOk();
+        ], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertOk();
 
         // Branch manager attempts to confirm while shift is in progress / missing current revision count
         $this->actingAs($this->manager, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$this->senderShift->id}/handover/approve", [
@@ -584,10 +584,10 @@ class ShiftRejectionCompatibilityTest extends TestCase
         )->assertOk();
 
         // Cashier edits handover to 480.00
-        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/edit", [
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/edit", ['expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($this->senderShift)?->revision_number ?? 0,
             'handover_amount' => '480.00',
             'correction_reason' => 'actual_shortage',
-        ])->assertOk();
+        ], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertOk();
 
         // Present physical transfer attempt 2 for the corrected amount -> Must NOT fail with PREVIOUS_ATTEMPT_NOT_RETURNED
         $attemptRes2 = $this->actingAs($this->sender, 'sanctum')->postJson(

@@ -198,7 +198,7 @@ class ShiftPhase1ReviewIntegrityTest extends TestCase
         DB::table('shift_report_revision_snapshots')->where('id', $snapshot->id)->update(['snapshot_data' => json_encode($legacyData)]);
         $this->actingAs($this->manager, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$this->shift->id}/handover/reject", ['rejection_reason' => 'Recount'])->assertOk();
         if ($edit) {
-            $this->actingAs($this->cashier, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->shift->id}/handover/edit", ['handover_amount' => '450.00', 'handover_notes' => 'New note', 'correction_reason' => 'input_error'])->assertOk();
+            $this->actingAs($this->cashier, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->shift->id}/handover/edit", ['expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($this->shift)?->revision_number ?? 0, 'handover_amount' => '450.00', 'handover_notes' => 'New note', 'correction_reason' => 'input_error'], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertOk();
         } else {
             $this->actingAs($this->cashier, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->shift->id}/end-with-handover", [
                 'total_sales' => '500.00', 'cash_collected' => '450.00', 'counted_cash' => '450.00',

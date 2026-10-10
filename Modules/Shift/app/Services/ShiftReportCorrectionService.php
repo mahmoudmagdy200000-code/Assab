@@ -276,23 +276,23 @@ class ShiftReportCorrectionService
             };
 
             if ($grossChanged) {
-                $recordCorrection('total_sales', 'monetary', number_format($oldGrossHalalas / 100, 2, '.', ''), $newGrossSar, $oldGrossHalalas, $newGrossHalalas);
+                $recordCorrection('total_sales', 'monetary_halalas', number_format($oldGrossHalalas / 100, 2, '.', ''), $newGrossSar, $oldGrossHalalas, $newGrossHalalas);
             }
             if ($cardsChanged) {
-                $recordCorrection('card_payments', 'monetary', number_format($oldCardsHalalas / 100, 2, '.', ''), $newCardsSar, $oldCardsHalalas, $newCardsHalalas);
+                $recordCorrection('card_payments', 'monetary_halalas', number_format($oldCardsHalalas / 100, 2, '.', ''), $newCardsSar, $oldCardsHalalas, $newCardsHalalas);
             }
             if ($cashCollectedChanged) {
-                $recordCorrection('cash_collected', 'monetary', number_format($oldCashCollectedHalalas / 100, 2, '.', ''), $newCashCollectedSar, $oldCashCollectedHalalas, $newCashCollectedHalalas);
+                $recordCorrection('cash_collected', 'monetary_halalas', number_format($oldCashCollectedHalalas / 100, 2, '.', ''), $newCashCollectedSar, $oldCashCollectedHalalas, $newCashCollectedHalalas);
             }
 
             $oldNetHalalas = ShiftFinancialCalculator::storedSarToHalalas($shift->net_sales ?? '0.00');
             if ($netHalalas !== $oldNetHalalas) {
-                $recordCorrection('net_sales', 'monetary', number_format($oldNetHalalas / 100, 2, '.', ''), $newNetSar, $oldNetHalalas, $netHalalas);
+                $recordCorrection('net_sales', 'monetary_halalas', number_format($oldNetHalalas / 100, 2, '.', ''), $newNetSar, $oldNetHalalas, $netHalalas);
             }
 
             $oldVatHalalas = ShiftFinancialCalculator::storedSarToHalalas($shift->vat_amount ?? '0.00');
             if ($vatHalalas !== $oldVatHalalas) {
-                $recordCorrection('vat_amount', 'monetary', number_format($oldVatHalalas / 100, 2, '.', ''), $newVatSar, $oldVatHalalas, $vatHalalas);
+                $recordCorrection('vat_amount', 'monetary_halalas', number_format($oldVatHalalas / 100, 2, '.', ''), $newVatSar, $oldVatHalalas, $vatHalalas);
             }
 
             if ($notesChanged) {
@@ -304,11 +304,11 @@ class ShiftReportCorrectionService
             }
 
             if ($appsChanged) {
-                $recordCorrection('derived_delivery_apps', 'monetary', number_format($oldAppsHalalas / 100, 2, '.', ''), number_format($newAppsHalalas / 100, 2, '.', ''), $oldAppsHalalas, $newAppsHalalas);
+                $recordCorrection('derived_delivery_apps', 'monetary_halalas', number_format($oldAppsHalalas / 100, 2, '.', ''), number_format($newAppsHalalas / 100, 2, '.', ''), $oldAppsHalalas, $newAppsHalalas);
             }
 
             if ($varianceChanged) {
-                $recordCorrection('variance', 'monetary', number_format($oldVarianceHalalas / 100, 2, '.', ''), $newVarianceSar, $oldVarianceHalalas, $newVarianceHalalas);
+                $recordCorrection('variance', 'monetary_halalas', number_format($oldVarianceHalalas / 100, 2, '.', ''), $newVarianceSar, $oldVarianceHalalas, $newVarianceHalalas);
             }
 
             // Supersede existing liability allocations

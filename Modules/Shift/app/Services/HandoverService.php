@@ -617,6 +617,10 @@ class HandoverService
      */
     public function recordHandoverEdit(CashierShift $shift, array $data): CashierShift
     {
+        \Illuminate\Support\Facades\Validator::make($data, [
+            'expected_revision' => 'required|integer|min:0',
+        ])->validate();
+        $expectedRevision = (int) $data['expected_revision'];
         $correctionReason = $data['correction_reason'] ?? null;
         if (! in_array($correctionReason, ['input_error', 'actual_shortage'], true)) {
             throw new \InvalidArgumentException('Correction reason must be input_error or actual_shortage.');
@@ -625,6 +629,10 @@ class HandoverService
         DB::beginTransaction();
         try {
             $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
+            $previousRevision = $this->revisions->currentCashierRevision($shift);
+            if (($previousRevision?->revision_number ?? 0) !== $expectedRevision) {
+                throw new ConflictHttpException('STALE_REPORT_REVISION');
+            }
             $handover = $this->currentHandover($shift, true);
             TransferRequestLifecycleGuard::assertActive($handover);
             if (isset($data['handover_to_type']) && $data['handover_to_type'] !== $handover->handover_to_type) {
@@ -645,7 +653,6 @@ class HandoverService
                 throw HandoverException::cannotBeEdited();
             }
 
-            $previousRevision = $this->revisions->currentCashierRevision($shift);
             if ($previousRevision) {
                 $this->snapshots->preserveVarianceReviews($shift, $previousRevision);
                 $this->snapshots->createSnapshotIfMissing($previousRevision, $shift);
@@ -675,7 +682,7 @@ class HandoverService
                 'variance' => $variance,
             ]);
 
-            $revision = $this->revisions->recordCashierRevision($shift, 'cashier', $shift->cashier_id);
+            $revision = $this->revisions->recordCashierRevision($shift, 'cashier', $shift->cashier_id, $expectedRevision);
             if ($previousRevision) {
                 $this->cashCounts->carryForward($previousRevision, $revision);
             }

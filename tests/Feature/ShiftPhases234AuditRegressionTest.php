@@ -223,7 +223,7 @@ class ShiftPhases234AuditRegressionTest extends \Tests\TestCase
         $this->assertSame(2, app(ShiftReportRevisionService::class)->currentCashierRevision($f[4])->revision_number);
         $this->assertSame(1, $f[4]->history()->where('action', 'report_reopened')->count());
         $this->postJson($url, ['expected_revision' => 1, 'reason' => 'Different reason'])
-            ->assertStatus(409)->assertJsonPath('code', 'IDEMPOTENCY_KEY_REUSED');
+            ->assertStatus(409)->assertJsonPath('code', 'IDEMPOTENCY_PAYLOAD_MISMATCH');
     }
 
     public function test_audit_foreign_actor_cannot_supersede_daily_locks(): void

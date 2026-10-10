@@ -423,7 +423,8 @@ Route::prefix('cashier')
 
             // Edit handover after manager rejection
             Route::post('edit', [ShiftHandoverController::class, 'editHandoverAfterRejection'])
-                ->name('cashier.handover.edit');
+                ->name('cashier.handover.edit')
+                ->middleware('asab.idempotency:required,transaction,legacy');
 
             // Get handover status
             Route::get('status', [ShiftHandoverController::class, 'getHandoverStatus'])

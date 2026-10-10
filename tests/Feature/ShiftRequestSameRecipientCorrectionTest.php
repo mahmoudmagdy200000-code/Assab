@@ -40,6 +40,7 @@ class ShiftRequestSameRecipientCorrectionTest extends TestCase
         // Perform edit with same recipient
         $this->actingAs($cashier1);
         $updatedShift = $handoverService->recordHandoverEdit($sourceShift, [
+            'expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($sourceShift)?->revision_number ?? 0,
             'handover_amount' => '120.00',
             'handover_notes' => 'Corrected amount',
             'correction_reason' => 'input_error',
@@ -69,6 +70,7 @@ class ShiftRequestSameRecipientCorrectionTest extends TestCase
         $this->expectExceptionMessage('HANDOVER_RECIPIENT_CHANGE_REQUIRES_REPLACEMENT');
 
         $handoverService->recordHandoverEdit($sourceShift, [
+            'expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($sourceShift)?->revision_number ?? 0,
             'handover_amount' => '100.00',
             'handover_to_id' => $cashier3->id,
             'correction_reason' => 'input_error',

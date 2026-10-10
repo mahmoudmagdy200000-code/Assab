@@ -152,7 +152,7 @@ class ShiftReportCorrectionServiceTest extends TestCase
             ->where('field_name', 'card_payments')
             ->first();
         $this->assertNotNull($correction);
-        $this->assertEquals('monetary', $correction->field_type);
+        $this->assertEquals('monetary_halalas', $correction->field_type);
         $this->assertEquals('20.00', $correction->old_value);
         $this->assertEquals('20.01', $correction->new_value);
         $this->assertEquals(2000, $correction->old_halalas);

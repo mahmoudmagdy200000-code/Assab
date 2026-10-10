@@ -93,7 +93,7 @@ class ShiftTransferPhysicalReturnTest extends TestCase
         $this->reject($recipient, $source);
         $return = $this->initiate($recipient, $first)->assertOk()->json('data.id');
         $this->actingAs($sender, 'sanctum')->postJson("/api/shift-transfer-returns/{$return}/confirm")->assertOk();
-        $this->postJson("/api/cashier/shifts/{$source->id}/handover/edit", ['handover_amount' => '480.00', 'correction_reason' => 'actual_shortage'])->assertOk();
+        $this->postJson("/api/cashier/shifts/{$source->id}/handover/edit", ['expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($source)?->revision_number ?? 0, 'handover_amount' => '480.00', 'correction_reason' => 'actual_shortage'], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertOk();
         $this->assertDatabaseCount('shift_transfer_attempts', 1);
         $this->actingAs($recipient, 'sanctum')->postJson("/api/cashier/shifts/{$source->id}/handover/accept", ['confirmed_amount' => '480.00', 'receiving_shift_id' => $destination->id])->assertConflict();
         $second = $this->present($sender, $handover, 'physical-redelivery');
@@ -117,7 +117,7 @@ class ShiftTransferPhysicalReturnTest extends TestCase
         $this->reject($recipient, $source);
         $return = $this->initiate($recipient, $first)->assertOk()->json('data.id');
         $this->actingAs($sender, 'sanctum')->postJson("/api/shift-transfer-returns/{$return}/confirm")->assertOk();
-        $this->postJson("/api/cashier/shifts/{$source->id}/handover/edit", ['handover_amount' => '480.00', 'correction_reason' => 'actual_shortage'])->assertOk();
+        $this->postJson("/api/cashier/shifts/{$source->id}/handover/edit", ['expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($source)?->revision_number ?? 0, 'handover_amount' => '480.00', 'correction_reason' => 'actual_shortage'], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertOk();
         $second = $this->present($sender, $handover, 'second');
         $this->actingAs($recipient, 'sanctum')->postJson("/api/cashier/shifts/{$source->id}/handover/reject", ['rejection_reason' => 'Second presentation short', 'confirmed_amount' => '470.00', 'correction_reason' => 'actual_shortage', 'transfer_attempt_id' => $second])->assertOk();
         $this->assertSame(47000, app(ShiftCashCountService::class)->pendingIncomingHalalas($destination));

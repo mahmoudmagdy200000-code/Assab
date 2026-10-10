@@ -62,9 +62,9 @@ class ShiftLegacyFinalRejectionCorrectionTest extends TestCase
         ]);
         $this->assertSame(0, ShiftReportCashCount::count());
 
-        $this->actingAs($sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$source->id}/handover/edit", [
+        $this->actingAs($sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$source->id}/handover/edit", ['expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($source)?->revision_number ?? 0,
             'handover_amount' => '100.00', 'correction_reason' => 'input_error', 'handover_notes' => 'Corrected request',
-        ])->assertOk();
+        ], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertOk();
         $this->assertSame(ShiftStatus::IN_PROGRESS, $source->fresh()->status);
         $this->assertSame('pending', $handover->fresh()->status);
         $oldSnapshot = ShiftReportRevisionSnapshot::where('report_revision_id', $oldRevision->id)->firstOrFail();

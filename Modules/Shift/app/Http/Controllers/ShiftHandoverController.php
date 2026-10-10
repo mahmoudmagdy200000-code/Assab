@@ -13,6 +13,7 @@ use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\HandoverStatus;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Services\HandoverService;
+use Modules\Shift\Services\ShiftReportRevisionService;
 use Modules\Shift\Transformers\ShiftDetailResource;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -515,6 +516,7 @@ class ShiftHandoverController extends Controller
             'handover_amount' => 'required|'.ShiftMoneyValidation::SAR,
             'correction_reason' => 'required|in:input_error,actual_shortage',
             'handover_notes' => 'nullable|string|max:500',
+            'expected_revision' => 'required|integer|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -537,16 +539,8 @@ class ShiftHandoverController extends Controller
                 ], 403);
             }
 
-            // Check if can edit
-            if (! $shiftModel->handoverStatus?->canCashierEdit()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Handover cannot be edited. Either not rejected or permanently rejected.',
-                    'current_status' => $shiftModel->handoverStatus?->manager_approval_status,
-                    'rejection_count' => $shiftModel->handoverStatus?->rejection_count,
-                ], 409);
-            }
-
+            // The writer checks the current revision and correction state under its locks.
+            // Completed retries are replayed by transactional middleware before this point.
             $updatedShift = $this->handoverService->recordHandoverEdit($shiftModel, $request->all());
 
             return response()->json([
@@ -555,6 +549,7 @@ class ShiftHandoverController extends Controller
                 'data' => [
                     'shift' => new ShiftDetailResource($updatedShift),
                     'edit_details' => [
+                        'report_revision_number' => app(ShiftReportRevisionService::class)->currentCashierRevision($updatedShift)?->revision_number ?? 0,
                         'previous_rejection_count' => $updatedShift->handoverStatus->rejection_count,
                         'new_handover_amount' => (float) $request->handover_amount,
                         'new_variance' => (float) $updatedShift->variance,
@@ -626,6 +621,7 @@ class ShiftHandoverController extends Controller
                 'success' => true,
                 'message' => 'Handover status retrieved successfully',
                 'data' => [
+                    'report_revision_number' => app(ShiftReportRevisionService::class)->currentCashierRevision($shiftModel)?->revision_number ?? 0,
                     'status' => $handoverStatus->status->value,
                     'manager_approval_status' => $handoverStatus->manager_approval_status,
                     'handover_amount' => (float) ($handover?->handover_amount ?? $shiftModel->handover_amount ?? $shiftModel->closing_balance ?? 0),

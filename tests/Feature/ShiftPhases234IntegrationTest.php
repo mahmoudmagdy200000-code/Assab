@@ -125,6 +125,7 @@ class ShiftPhases234IntegrationTest extends TestCase
         // Sender performs same-recipient correction
         $this->actingAs($this->senderCashier);
         app(HandoverService::class)->recordHandoverEdit($sourceShift, [
+            'expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($sourceShift)?->revision_number ?? 0,
             'handover_amount' => '480.00',
             'handover_notes' => 'Corrected notes after recount',
             'correction_reason' => 'input_error',

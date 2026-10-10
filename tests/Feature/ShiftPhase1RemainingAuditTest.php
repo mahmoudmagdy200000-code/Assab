@@ -118,10 +118,10 @@ class ShiftPhase1RemainingAuditTest extends TestCase
         $this->assertSame('rejected', $handover->fresh()->status);
 
         // 3. Cashier edits handover to 480.00 after rejection (status becomes pending again)
-        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$shift->id}/handover/edit", [
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$shift->id}/handover/edit", ['expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($shift)?->revision_number ?? 0,
             'handover_amount' => '480.00',
             'correction_reason' => 'actual_shortage',
-        ])->assertOk();
+        ], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertOk();
 
         $freshHandover = $handover->fresh();
         $this->assertSame('pending', $freshHandover->status);
