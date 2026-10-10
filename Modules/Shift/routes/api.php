@@ -14,6 +14,17 @@ use Modules\Shift\Http\Controllers\ShiftHandoverController;
 use Modules\Shift\Http\Controllers\ShiftRequestsController;
 use Modules\Shift\Http\Controllers\ShiftVarianceController;
 
+// Explicit physical presentation/return facts; existing legacy request APIs retain NULL attempt identity.
+Route::middleware('auth:sanctum')->group(function () {
+    $controller = \Modules\Shift\Http\Controllers\ShiftTransferAttemptController::class;
+    Route::post('shift-transfers/{type}/{id}/present', [$controller, 'present'])->whereIn('type', ['handover', 'manager_transfer']);
+    Route::post('shift-transfer-attempts/{attempt}/returns', [$controller, 'initiate']);
+    Route::post('shift-transfer-attempts/{attempt}/reject', [$controller, 'reject']);
+    Route::post('shift-transfer-attempts/{attempt}/confirm-receipt', [$controller, 'receipt']);
+    Route::post('shift-transfer-returns/{return}/confirm', [$controller, 'confirm']);
+    Route::post('shift-reports/{shift}/recount', [$controller, 'recount']);
+});
+
 /*
 |--------------------------------------------------------------------------
 | Branch Manager - Shift Management Routes
@@ -166,28 +177,40 @@ Route::prefix('branch-manager')
                 Route::post('reassign', [ReassignmentShiftController::class, 'reassign'])
                     ->name('shifts.reassign');
                 Route::post('reassign-with-handover', [ReassignmentShiftController::class, 'reassignWithHandover'])
-                    ->name('shifts.reassign-with-handover');
+                    ->name('shifts.reassign-with-handover')
+                    ->middleware('asab.idempotency:optional,transaction,legacy');
                 Route::get('available-cashiers', [ReassignmentShiftController::class, 'getAvailableCashiers'])
                     ->name('shifts.available-cashiers');
 
                 // End shift (Options 1-4)
                 Route::post('end', [ShiftEndController::class, 'endShiftOnly'])
-                    ->name('shifts.end');
+                    ->name('shifts.end')
+                    ->middleware('asab.idempotency:optional,transaction,legacy');
+                Route::post('cash-reconciliation/preview', [ShiftEndController::class, 'previewCashReconciliation'])
+                    ->name('shifts.cash-reconciliation.preview')
+                    ->middleware('throttle:60,1');
                 Route::post('end-with-handover', [ShiftEndController::class, 'endShiftWithHandover'])
-                    ->name('shifts.end-with-handover');
+                    ->name('shifts.end-with-handover')
+                    ->middleware('asab.idempotency:optional,transaction,legacy');
                 Route::post('start-handover', [ShiftEndController::class, 'startHandover'])
-                    ->name('shifts.start-handover');
+                    ->name('shifts.start-handover')
+                    ->middleware('asab.idempotency:optional,transaction,legacy');
                 Route::get('available-recipients', [ShiftEndController::class, 'getAvailableCashiersForHandover'])
                     ->name('shifts.available-recipients');
 
                 // Handover management
                 Route::prefix('handover')->group(function () {
                     Route::post('/', [ShiftHandoverController::class, 'recordHandover'])
-                        ->name('shifts.handover.record');
+                        ->name('shifts.handover.record')
+                        ->middleware('asab.idempotency:optional,transaction,legacy');
                     Route::post('approve', [ShiftHandoverController::class, 'approveHandover'])
-                        ->name('shifts.handover.approve');
+                        ->name('shifts.handover.approve')
+                        ->middleware('asab.idempotency:optional,transaction,legacy');
                     Route::post('reject', [ShiftHandoverController::class, 'rejectHandover'])
                         ->name('shifts.handover.reject');
+                    Route::post('replace-recipient', [ShiftHandoverController::class, 'replaceRecipient'])
+                        ->name('shifts.handover.replace-recipient')
+                        ->middleware('asab.idempotency:required,transaction,legacy');
                     Route::get('status', [ShiftHandoverController::class, 'getHandoverStatus'])
                         ->name('shifts.handover.status');
                     Route::get('available-cashiers', [ShiftHandoverController::class, 'getAvailableCashiers'])
@@ -218,6 +241,10 @@ Route::prefix('branch-manager')
                 });
             });
         });
+
+        Route::post('cash-transfers/{transfer}/replace-recipient', [BranchManagerShiftController::class, 'replaceTransferRecipient'])
+            ->name('branch-manager.cash-transfers.replace-recipient')
+            ->middleware('asab.idempotency:required,transaction,legacy');
     });
 
 /*
@@ -245,7 +272,8 @@ Route::prefix('branch-manager/workday')
         Route::get('/handoffs/cashier/{handoverId}', [BranchManagerShiftController::class, 'getCashierHandoverDetails'])
             ->name('workday.handoffs.cashier.details');
         Route::post('/handoffs/approve', [BranchManagerShiftController::class, 'approveHandoff'])
-            ->name('workday.handoffs.approve');
+            ->name('workday.handoffs.approve')
+            ->middleware('asab.idempotency:optional,transaction,legacy');
         Route::post('/handoffs/reject', [BranchManagerShiftController::class, 'rejectHandoff'])
             ->name('workday.handoffs.reject');
 
@@ -351,11 +379,17 @@ Route::prefix('cashier')
         |----------------------------------------------------------------------
         */
         Route::post('shifts/{shift}/end', [ShiftEndController::class, 'endShiftOnly'])
-            ->name('cashier.shifts.end');
+            ->name('cashier.shifts.end')
+            ->middleware('asab.idempotency:optional,transaction,legacy');
+        Route::post('shifts/{shift}/cash-reconciliation/preview', [ShiftEndController::class, 'previewCashReconciliation'])
+            ->name('cashier.shifts.cash-reconciliation.preview')
+            ->middleware('throttle:60,1');
         Route::post('shifts/{shift}/end-with-handover', [ShiftEndController::class, 'endShiftWithHandover'])
-            ->name('cashier.shifts.end-with-handover');
+            ->name('cashier.shifts.end-with-handover')
+            ->middleware('asab.idempotency:optional,transaction,legacy');
         Route::post('shifts/{shift}/start-handover', [ShiftEndController::class, 'startHandover'])
-            ->name('cashier.shifts.start-handover');
+            ->name('cashier.shifts.start-handover')
+            ->middleware('asab.idempotency:optional,transaction,legacy');
         Route::get('shifts/{shift}/available-recipients', [ShiftEndController::class, 'getAvailableCashiersForHandover'])
             ->name('cashier.shifts.available-recipients');
 
@@ -371,7 +405,8 @@ Route::prefix('cashier')
         Route::prefix('shifts/{shift}/handover')->group(function () {
             // Record handover
             Route::post('/', [ShiftHandoverController::class, 'recordHandover'])
-                ->name('cashier.handover.record');
+                ->name('cashier.handover.record')
+                ->middleware('asab.idempotency:optional,transaction,legacy');
 
             // Receive Handover - Accept (as next cashier)
             Route::post('accept', [ShiftHandoverController::class, 'acceptHandover'])
@@ -380,6 +415,11 @@ Route::prefix('cashier')
             // Receive Handover - Reject (as next cashier)
             Route::post('reject', [ShiftHandoverController::class, 'rejectHandover'])
                 ->name('cashier.handover.reject');
+
+            // Replace recipient
+            Route::post('replace-recipient', [ShiftHandoverController::class, 'replaceRecipient'])
+                ->name('cashier.handover.replace-recipient')
+                ->middleware('asab.idempotency:required,transaction,legacy');
 
             // Edit handover after manager rejection
             Route::post('edit', [ShiftHandoverController::class, 'editHandoverAfterRejection'])

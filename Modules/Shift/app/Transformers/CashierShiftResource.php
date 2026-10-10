@@ -55,6 +55,12 @@ class CashierShiftResource extends JsonResource
             'card_payments' => $this->card_payments,
             'pos_receipt' => $this->pos_receipt,
 
+            // S1-10 D17: independent count evidence of the CURRENT report revision (SAR); null = no count. Detail only.
+            'cash_reconciliation' => $this->when(
+                $this->resource->relationLoaded('cashReconciliation'),
+                fn () => $this->resource->getRelation('cashReconciliation')
+            ),
+
             // Timing Info
             'actual_start_time' => optional($this->actual_start_time)->format('Y-m-d H:i:s'),
             'actual_end_time' => optional($this->actual_end_time)->format('Y-m-d H:i:s'),
@@ -453,7 +459,8 @@ class CashierShiftResource extends JsonResource
 
         // Fallback: if handover relationship is not loaded, try to get from CashierShiftHandover directly
         if ($this->handed_over_at || $this->relationLoaded('handoverStatus')) {
-            $handover = \Modules\Shift\Models\CashierShiftHandover::where('cashier_shift_id', $this->id)
+            $handover = \Modules\Shift\Models\CashierShiftHandover::active()->where('cashier_shift_id', $this->id)
+                ->orderByDesc('created_at')->orderByDesc('id')
                 ->first();
 
             if ($handover) {

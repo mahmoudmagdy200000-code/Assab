@@ -14,9 +14,9 @@ use Modules\Shift\Enums\HandoverStatus;
 /**
  * ShiftHandoverStatus Model
  *
- * Tracks handover approval workflow with 2-rejection rule:
- * - First rejection: Cashier can edit and resubmit
- * - Second rejection: Permanently rejected (rejected_final)
+ * Tracks handover approval workflow under BR-17:
+ * - Rejection does not permanently terminate the process; cashier can edit and resubmit
+ * - Historical 'rejected_final' records remain editable and correctable
  *
  * @property string $id
  * @property string $cashier_shift_id
@@ -174,12 +174,11 @@ class ShiftHandoverStatus extends Model
     }
 
     /**
-     * Check if permanently rejected (2nd rejection)
-     * Business Rule: Second rejection → Status permanently changes to 'rejected_final'
+     * Check if permanently rejected (retired under BR-17; always false).
      */
     public function isPermanentlyRejected(): bool
     {
-        return $this->manager_approval_status === 'rejected_final' || $this->rejection_count >= 2;
+        return false;
     }
 
     /**
@@ -198,7 +197,7 @@ class ShiftHandoverStatus extends Model
      * Check if handover can be approved by manager
      * Can approve if:
      * - Status is pending
-     * - Status is rejected (first time) and cashier has edited
+     * - Status is rejected (or legacy rejected_final) and cashier has edited
      */
     public function canBeApproved(): bool
     {
@@ -207,9 +206,8 @@ class ShiftHandoverStatus extends Model
             return true;
         }
 
-        // Can re-approve after first rejection if cashier edited
-        if ($this->manager_approval_status === 'rejected' &&
-            $this->rejection_count < 2 &&
+        // Can re-approve after rejection if cashier edited
+        if (in_array($this->manager_approval_status, ['rejected', 'rejected_final']) &&
             $this->was_edited_after_rejection) {
             return true;
         }
@@ -219,12 +217,12 @@ class ShiftHandoverStatus extends Model
 
     /**
      * Check if handover can be rejected by manager
-     * Business Rule: Can reject if pending or first rejection (not yet final)
+     * Business Rule (BR-17): No hard rejection lockout.
      */
     public function canBeRejected(): bool
     {
-        // Cannot reject if already permanently rejected
-        if ($this->isPermanentlyRejected()) {
+        // Cannot reject if already approved
+        if ($this->isManagerApproved()) {
             return false;
         }
 
@@ -233,9 +231,8 @@ class ShiftHandoverStatus extends Model
             return true;
         }
 
-        // Can reject again if first rejection and cashier has edited
-        if ($this->manager_approval_status === 'rejected' &&
-            $this->rejection_count < 2 &&
+        // Can reject again after rejection if cashier has edited
+        if (in_array($this->manager_approval_status, ['rejected', 'rejected_final']) &&
             $this->was_edited_after_rejection) {
             return true;
         }
@@ -245,24 +242,11 @@ class ShiftHandoverStatus extends Model
 
     /**
      * Check if cashier can edit the handover after rejection
-     * Business Rule: Cashier can edit after first rejection, but not after second
+     * Business Rule (BR-17): Cashier can edit after rejection, including legacy rejected_final
      */
     public function canCashierEdit(): bool
     {
-        // Cannot edit if not rejected
-        if ($this->manager_approval_status !== 'rejected') {
-            return false;
-        }
-
-        // Cannot edit if permanently rejected (2nd rejection)
-        if ($this->isPermanentlyRejected()) {
-            return false;
-        }
-
-        // Cannot edit if already edited and awaiting re-approval
-        // (Must wait for manager decision)
-        // Actually, they can edit multiple times until manager decides
-        return true;
+        return in_array($this->manager_approval_status, ['rejected', 'rejected_final']);
     }
 
     /**
@@ -323,7 +307,7 @@ class ShiftHandoverStatus extends Model
             'pending' => 'Pending Approval',
             'approved' => 'Approved',
             'rejected' => 'Rejected (Awaiting Edit)',
-            'rejected_final' => 'Permanently Rejected',
+            'rejected_final' => 'Rejected (Awaiting Edit)',
             default => 'Unknown',
         };
     }
@@ -411,11 +395,10 @@ class ShiftHandoverStatus extends Model
         ?string $comment = null
     ): array {
         $newRejectionCount = $this->rejection_count + 1;
-        $isFinalRejection = $newRejectionCount >= 2;
 
         $updateData = [
             'status' => HandoverStatus::REJECTED,
-            'manager_approval_status' => $isFinalRejection ? 'rejected_final' : 'rejected',
+            'manager_approval_status' => 'rejected',
             'reviewed_by_id' => $reviewerId,
             'reviewed_by_type' => $reviewerType,
             'rejection_reason' => $reason,
@@ -442,8 +425,8 @@ class ShiftHandoverStatus extends Model
 
         return [
             'rejection_count' => $newRejectionCount,
-            'is_final_rejection' => $isFinalRejection,
-            'can_cashier_edit' => ! $isFinalRejection,
+            'is_final_rejection' => false,
+            'can_cashier_edit' => true,
         ];
     }
 

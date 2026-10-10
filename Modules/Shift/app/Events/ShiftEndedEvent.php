@@ -2,11 +2,12 @@
 
 namespace Modules\Shift\Events;
 
+use Illuminate\Contracts\Events\ShouldDispatchAfterCommit;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 use Modules\Shift\Models\CashierShift;
 
-class ShiftEndedEvent
+class ShiftEndedEvent implements ShouldDispatchAfterCommit
 {
     use Dispatchable, SerializesModels;
 

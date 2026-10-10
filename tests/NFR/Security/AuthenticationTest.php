@@ -5,6 +5,7 @@ namespace Tests\NFR\Security;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\PersonalAccessToken;
+use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Tests\TestCase;
@@ -322,11 +323,13 @@ class AuthenticationTest extends TestCase
         $manager1 = BranchManager::factory()->create([
             'email' => 'user1@assab.com',
             'password' => Hash::make('password123'),
+            'branch_id' => Branch::factory()->create()->id,
         ]);
 
         $manager2 = BranchManager::factory()->create([
             'email' => 'user2@assab.com',
             'password' => Hash::make('password123'),
+            'branch_id' => Branch::factory()->create()->id,
         ]);
 
         // Manager1 should access their own profile

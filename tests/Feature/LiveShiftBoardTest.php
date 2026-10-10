@@ -9,6 +9,7 @@ use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Shift as AsabShift;
+use Modules\Admin\Services\LegacyShiftMirror;
 use Modules\Branch\Models\Branch;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Events\ShiftEndedEvent;
@@ -86,12 +87,24 @@ class LiveShiftBoardTest extends TestCase
         $this->assertNotNull($mirror);
         $this->assertSame('active', $mirror->status);
         $this->assertSame($this->branch->id, $mirror->branch_id);
-        $this->assertSame(10000, $mirror->opening_float);
+        $this->assertSame(0, $mirror->opening_float);
 
         $res = $this->actingAs($this->accountant, 'sanctum')->getJson('/api/v1/accountant/shifts/live');
         $res->assertOk();
         $this->assertSame([$mirror->id], collect($res->json('active'))->pluck('id')->all());
         $this->assertSame(1, $res->json('kpis.openNow'));
+    }
+
+    public function test_mobile_shift_mirror_converts_fractional_sar_opening_to_halalas(): void
+    {
+        $legacy = $this->legacyShift();
+        $legacy->forceFill(['opening_balance' => '123.45'])->saveQuietly();
+
+        $mirror = app(LegacyShiftMirror::class)->open($legacy->fresh());
+
+        $this->assertNotNull($mirror);
+        $this->assertSame(12345, $mirror->opening_float);
+        $this->assertSame('123.45', (string) $legacy->fresh()->opening_balance);
     }
 
     public function test_starting_twice_does_not_duplicate_the_row(): void
@@ -137,7 +150,9 @@ class LiveShiftBoardTest extends TestCase
             'emp_number' => 'EMP-0002', 'name' => 'كاشير 2', 'role' => 'cashier',
             'monthly_salary' => 0, 'status' => 'active',
         ]);
+        $otherTemplate = \Modules\Shift\Models\Shift::factory()->create(['branch_id' => $otherBranch->id]);
         $otherLegacy = CashierShift::factory()->create([
+            'shift_id' => $otherTemplate->id,
             'status' => ShiftStatus::IN_PROGRESS, 'actual_start_time' => now()->subHour(),
         ]);
         $otherEmployee->forceFill(['legacy_cashier_id' => $otherLegacy->cashier_id])->save();

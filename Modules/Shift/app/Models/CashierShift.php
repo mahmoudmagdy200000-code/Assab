@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Services\CashierShiftStartService;
 
 class CashierShift extends Model
 {
@@ -37,6 +38,8 @@ class CashierShift extends Model
         'card_payments',
         'pos_receipt',
         'actual_start_time',
+        'operational_chain_id',
+        'operational_ended_at',
         'actual_end_time',
         'next_cashier_id',
         'handed_over_at',
@@ -61,6 +64,7 @@ class CashierShift extends Model
         'cash_collected' => 'decimal:2',
         'card_payments' => 'decimal:2',
         'actual_start_time' => 'datetime',
+        'operational_ended_at' => 'datetime',
         'actual_end_time' => 'datetime',
         'handed_over_at' => 'datetime',
         'reassigned_at' => 'datetime',
@@ -121,7 +125,8 @@ class CashierShift extends Model
 
     public function handover(): HasOne
     {
-        return $this->hasOne(CashierShiftHandover::class, 'cashier_shift_id');
+        return $this->hasOne(CashierShiftHandover::class, 'cashier_shift_id')
+            ->active()->orderByDesc('created_at')->orderByDesc('id');
     }
 
     public function varianceDetails(): HasMany
@@ -139,7 +144,24 @@ class CashierShift extends Model
         return $this->hasMany(CashierShiftHistory::class);
     }
 
+    public function receivedHandoverReceipts(): HasMany
+    {
+        return $this->hasMany(CashierShiftHandoverReceipt::class, 'receiving_cashier_shift_id');
+    }
+
+    public function reportAggregate(): HasOne
+    {
+        return $this->hasOne(ShiftReportAggregate::class, 'source_id')
+            ->where('source_type', 'cashier_shift');
+    }
+
     // Scopes
+    public function scopeCurrentOperational($query)
+    {
+        return $query->whereNotNull('actual_start_time')->whereNull('operational_ended_at')
+            ->whereNull('actual_end_time')->whereNotIn('status', [ShiftStatus::COMPLETED->value, ShiftStatus::CANCELED->value]);
+    }
+
     public function scopePending($query)
     {
         return $query->where('status', ShiftStatus::NOT_STARTED->value);
@@ -173,15 +195,8 @@ class CashierShift extends Model
     // Methods
     public function startShift(): void
     {
-        $this->update([
-            'status' => ShiftStatus::IN_PROGRESS,
-            'actual_start_time' => now(),
-        ]);
-
-        $this->recordHistory('started', null, [
-            'status' => ShiftStatus::IN_PROGRESS->value,
-            'actual_start_time' => now(),
-        ]);
+        $started = app(CashierShiftStartService::class)->startShift($this);
+        $this->setRawAttributes($started->getAttributes(), true);
     }
 
     public function endShift(array $data): void
