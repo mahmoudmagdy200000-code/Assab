@@ -63,6 +63,18 @@ class ShiftTransferReceiptService
                 throw new ConflictHttpException('RECEIVING_SHIFT_NOT_AVAILABLE');
             }
 
+            // D14: a transfer rejected for an amount correction is corrected, not replaced.
+            $pendingCorrection = BranchManagerCashTransfer::query()
+                ->where('branch_manager_shift_id', $source->id)
+                ->where('destination_cashier_id', $destinationCashier->id)
+                ->where('status', 'rejected')
+                ->whereDoesntHave('receipt')
+                ->whereIn('id', \Modules\Shift\Models\ShiftTransferRejectionEvidence::query()->whereNotNull('branch_manager_cash_transfer_id')->select('branch_manager_cash_transfer_id'))
+                ->exists();
+            if ($pendingCorrection) {
+                throw new ConflictHttpException('HANDOVER_CORRECTION_PENDING');
+            }
+
             $currentRevision = $this->revisions->currentManagerRevision($source);
             if (! $currentRevision) {
                 $currentRevision = $this->revisions->recordManagerRevision($source, 'branch_manager', $actor->id, 0);

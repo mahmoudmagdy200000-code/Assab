@@ -535,7 +535,7 @@ Implemented legacy-input noise normalization (N-01, D10 option (a)), stored-spli
 
 `POST …/shifts/{shift}/end`, `…/end-with-handover` (cashier and manager groups) and the manager `…/reassign-with-handover` (when `current_sales` is sent) now require `counted_cash` (SAR, ≤ 2 decimals, ≥ 0) and accept `shortage_allocations[]` (`responsible_type`, `responsible_id`, `amount` in SAR) plus `allocation_reason`. A shortage (`(counted − pending incoming) − expected < 0`) requires an allocation whose total equals it exactly, inside the shift's branch and company; balanced and surplus reports reject allocations. 422 field errors: `counted_cash`, `card_payments` (cards + apps > gross), `shortage_allocations` / `allocations`; 403 `RESPONSIBLE_ACTOR_OUT_OF_SCOPE`; 409 `LIABILITY_COMPANY_MAPPING_REQUIRED`. Retry protection is the S1-09 optional `Idempotency-Key`. The legacy `variance`/`variance_type` meaning and type are unchanged; no existing key was renamed or removed.
 
-**D6 response contract (approved by Mahmoud 2026-10-09; frozen):** single-shift responses add `cash_reconciliation` — in `data.summary` and `data.shift` of `end`, `end-with-handover`, `start-handover`, in `data.shift` of completed-shift detail and `reassign-with-handover`, and nowhere in lists:
+**D6 response contract (approved by Mahmoud 2026-10-09; frozen):** single-shift responses add `cash_reconciliation` — in `data.summary` and `data.shift` of `end` and `end-with-handover`, in `data.shift` only of `start-handover`, in `data.shift` of completed-shift detail and `reassign-with-handover`, and nowhere in lists:
 
 | Key | Type / unit | Rule |
 |---|---|---|
@@ -547,3 +547,21 @@ Implemented legacy-input noise normalization (N-01, D10 option (a)), stored-spli
 | `confirmed_opening_cash` | number, SAR | confirmed receipts only (D2) |
 
 The whole object is `null` when the current revision has no count; individual keys are never null. JSON drops a zero fraction (`30.0` → `30`), like the legacy SAR fields, so clients must parse `num`. Admin `ShiftPresenter` additionally returns `cashCountState` (`counted`/`unknown`/`null`) and `pendingIncomingCountedHalalas` (integer halalas); `unknown` marks the legacy mobile projection, which is not evidence.
+
+## S1-10 Phase 2 corrections D14–D19 (2026-10-09) — PROPOSED for Mahmoud's review, not accepted
+
+**D17 — reconciliation on shift detail and read-only preview (implemented).**
+* `cash_reconciliation` (same object and null policy as D6) is now also returned on `GET /api/{v1/}branch-manager/shifts/{shift}` and `GET …/shifts/cashiers/{shift}` (the endpoints AssabAPP reads, `CashierShiftResource`). Lists never carry it.
+* `POST /api/{v1/}cashier/shifts/{shift}/cash-reconciliation/preview` and `POST /api/{v1/}branch-manager/shifts/{shift}/cash-reconciliation/preview` — same access as `end` (`getShiftForUser`: the owning cashier, or a manager of the shift's branch; otherwise 404), `throttle:60,1`, **no idempotency middleware, no writes**. Body: `total_sales`, `card_payments`, `aggregators[]`, `counted_cash` (SAR, ≤ 2 decimals; `counted_cash` required → 422). Response `data`: `cash_reconciliation` (as D6), `shortage_to_allocate` (SAR, `0` when none) and `allocation_required` (bool). Shift must be `in_progress` (400 otherwise). It uses the same pure computation as the persisted count, so preview and `end` cannot diverge.
+* Incomplete or wrong shortage allocation on `end` / `end-with-handover` / `reassign-with-handover` is a 422 on the field **`shortage_allocations`** (previously `allocations`); the Liability service still emits code `ALLOCATION_INCOMPLETE` when evidence is checked at approval.
+
+**New error codes (all 409 unless noted; body `{success:false,message,code}`):**
+| Code | Meaning |
+|---|---|
+| `HANDOVER_CORRECTION_PENDING` | D14: a rejected request with D11 evidence is unresolved; a new request is refused — correct it through the edit path. |
+| `HANDOVER_HAS_CORRECTION_EVIDENCE` | D14: a plain reject of a request that already carries D11 evidence is refused. |
+| `BRANCH_LIABILITY_APPROVAL_PENDING` | D15 (Admin): final approval of a counted shortage shift is refused until the branch manager approves liability (S1-11). |
+| `BRANCH_ALLOCATION_AUTHORITATIVE` | D15 (Admin): the accountant variance split is refused for a counted shortage; the branch allocation is authoritative. |
+| `REASSIGNMENT_SPLIT_REQUIRED` | D16 fallback: a reassignment of a counted report cannot be accepted by the legacy accept flow. |
+
+`reassign-with-handover` called with a cashier token now returns **403** (it previously reached the transaction and returned 500). Its `pos_receipt` and `variance.supporting_files` are stored only after authorization and shift existence checks and are deleted if the request fails afterwards.

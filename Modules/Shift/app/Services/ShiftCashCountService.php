@@ -43,6 +43,7 @@ class ShiftCashCountService
     public function pendingIncomingHalalas(CashierShift $shift): int
     {
         $since = $shift->actual_start_time ?? $shift->created_at;
+        $branchId = DB::table('shifts')->where('id', $shift->shift_id)->value('branch_id');
 
         $rows = ShiftTransferRejectionEvidence::query()
             ->where(function ($query) use ($shift, $since) {
@@ -52,13 +53,16 @@ class ShiftCashCountService
                             ->where('recipient_type', 'cashier')
                             ->where('recipient_id', $shift->cashier_id);
                         if ($since !== null) {
-                            $unattributed->where('rejected_at', '>=', $since);
+                            // D19: only a shift that started at or after the rejection can own it.
+                            $unattributed->where('rejected_at', '<=', $since);
                         }
                     });
             })
             ->orderBy('rejected_at')
             ->orderBy('created_at')
-            ->get();
+            ->get()
+            ->filter(fn ($row) => $row->receiving_cashier_shift_id !== null
+                || $this->ownsUnattributedEvidence($shift, $row, $branchId, $since));
 
         $latest = [];
         foreach ($rows as $row) {
@@ -83,23 +87,39 @@ class ShiftCashCountService
     }
 
     /**
-     * Calculate and persist the count for the revision just recorded. Must run inside the report
-     * transaction, after the revision and the sales channels are written.
-     *
-     * @param  int  $grossHalalas  VAT-inclusive gross sales as persisted
+     * D19: evidence recorded with no receiving shift belongs to exactly one shift: the recipient's first
+     * shift in the same branch that started at or after the rejection. It is never subtracted twice.
      */
-    public function record(
-        CashierShift $shift,
-        ShiftReportRevision $revision,
-        int $grossHalalas,
-        int $cardsHalalas,
-        int $appsHalalas,
-        int $countedHalalas,
-    ): ShiftReportCashCount {
-        if (DB::transactionLevel() === 0) {
-            throw new \LogicException('A cash count must be recorded inside the report transaction.');
+    private function ownsUnattributedEvidence(CashierShift $shift, ShiftTransferRejectionEvidence $row, mixed $branchId, mixed $since): bool
+    {
+        if ($branchId === null || $since === null) {
+            return false;
+        }
+        $recipientBranch = DB::table('cashiers')->where('id', $row->recipient_id)->value('branch_id');
+        if ((string) $recipientBranch !== (string) $branchId) {
+            return false;
         }
 
+        $earlier = DB::table('cashier_shifts')
+            ->join('shifts', 'shifts.id', '=', 'cashier_shifts.shift_id')
+            ->where('cashier_shifts.cashier_id', $row->recipient_id)
+            ->where('shifts.branch_id', $branchId)
+            ->where('cashier_shifts.id', '!=', $shift->id)
+            ->whereNotNull('cashier_shifts.actual_start_time')
+            ->where('cashier_shifts.actual_start_time', '>=', $row->rejected_at)
+            ->where('cashier_shifts.actual_start_time', '<', $since)
+            ->exists();
+
+        return ! $earlier;
+    }
+
+    /**
+     * The pure calculation shared by the persisted count and the read-only preview. It writes nothing.
+     *
+     * @return array{0:int,1:int,2:array<string,mixed>} confirmed opening, pending incoming, calculator result (halalas)
+     */
+    private function compute(CashierShift $shift, int $grossHalalas, int $cardsHalalas, int $appsHalalas, int $countedHalalas): array
+    {
         $channels = ShiftFinancialCalculator::salesChannelCheck($grossHalalas, $cardsHalalas, $appsHalalas);
         if (! $channels['channelsValid']) {
             throw ValidationException::withMessages([
@@ -117,6 +137,58 @@ class ShiftCashCountService
                 'counted_cash' => 'The counted cash cannot be less than the cash already counted for pending incoming transfers.',
             ]);
         }
+
+        return [$opening, $pending, $result];
+    }
+
+    /**
+     * Read-only preview of what ending the shift with these figures would calculate. Same calculation as
+     * `record`, nothing persisted. Amounts are SAR (halalas ÷ 100 at this boundary), as in `reconciliation`.
+     *
+     * @return array{cash_reconciliation:array<string,mixed>,shortage_to_allocate:float,allocation_required:bool}
+     */
+    public function preview(CashierShift $shift, int $grossHalalas, int $cardsHalalas, int $appsHalalas, int $countedHalalas): array
+    {
+        [$opening, $pending, $result] = $this->compute($shift, $grossHalalas, $cardsHalalas, $appsHalalas, $countedHalalas);
+        $variance = (int) $result['variance'];
+
+        return [
+            'cash_reconciliation' => [
+                'counted_cash' => $countedHalalas / 100,
+                'expected_cash' => $result['expected'] / 100,
+                'cash_variance' => $variance / 100,
+                'cash_variance_type' => match (true) {
+                    $variance < 0 => 'shortage',
+                    $variance > 0 => 'surplus',
+                    default => 'balanced',
+                },
+                'pending_incoming_cash' => $pending / 100,
+                'confirmed_opening_cash' => $opening / 100,
+            ],
+            'shortage_to_allocate' => $variance < 0 ? -$variance / 100 : 0.0,
+            'allocation_required' => $variance < 0,
+        ];
+    }
+
+    /**
+     * Calculate and persist the count for the revision just recorded. Must run inside the report
+     * transaction, after the revision and the sales channels are written.
+     *
+     * @param  int  $grossHalalas  VAT-inclusive gross sales as persisted
+     */
+    public function record(
+        CashierShift $shift,
+        ShiftReportRevision $revision,
+        int $grossHalalas,
+        int $cardsHalalas,
+        int $appsHalalas,
+        int $countedHalalas,
+    ): ShiftReportCashCount {
+        if (DB::transactionLevel() === 0) {
+            throw new \LogicException('A cash count must be recorded inside the report transaction.');
+        }
+
+        [$opening, $pending, $result] = $this->compute($shift, $grossHalalas, $cardsHalalas, $appsHalalas, $countedHalalas);
 
         return ShiftReportCashCount::create([
             'report_revision_id' => $revision->id,

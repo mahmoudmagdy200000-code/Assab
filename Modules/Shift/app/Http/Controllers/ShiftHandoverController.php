@@ -142,6 +142,9 @@ class ShiftHandoverController extends Controller
                 ], 409);
             }
 
+            // D14: a request rejected for an amount correction is corrected, never replaced.
+            $this->handoverService->assertNoCorrectionPending($shiftModel);
+
             if ($shiftModel->handoverStatus && $shiftModel->handoverStatus->manager_approval_status !== 'pending') {
                 return response()->json([
                     'success' => false,

@@ -175,6 +175,9 @@ Route::prefix('branch-manager')
                 Route::post('end', [ShiftEndController::class, 'endShiftOnly'])
                     ->name('shifts.end')
                     ->middleware('asab.idempotency:optional,transaction,legacy');
+                Route::post('cash-reconciliation/preview', [ShiftEndController::class, 'previewCashReconciliation'])
+                    ->name('shifts.cash-reconciliation.preview')
+                    ->middleware('throttle:60,1');
                 Route::post('end-with-handover', [ShiftEndController::class, 'endShiftWithHandover'])
                     ->name('shifts.end-with-handover')
                     ->middleware('asab.idempotency:optional,transaction,legacy');
@@ -360,6 +363,9 @@ Route::prefix('cashier')
         Route::post('shifts/{shift}/end', [ShiftEndController::class, 'endShiftOnly'])
             ->name('cashier.shifts.end')
             ->middleware('asab.idempotency:optional,transaction,legacy');
+        Route::post('shifts/{shift}/cash-reconciliation/preview', [ShiftEndController::class, 'previewCashReconciliation'])
+            ->name('cashier.shifts.cash-reconciliation.preview')
+            ->middleware('throttle:60,1');
         Route::post('shifts/{shift}/end-with-handover', [ShiftEndController::class, 'endShiftWithHandover'])
             ->name('cashier.shifts.end-with-handover')
             ->middleware('asab.idempotency:optional,transaction,legacy');

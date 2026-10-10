@@ -228,3 +228,11 @@ This section governs earlier conflicting text in this contract for the items bel
 ## S1-08 S8-05 manager cash handover classification (2026-10-08)
 
 The historical personal-ledger inventory above predates the approved S8-05 type. Manager-to-cashier recipient confirmation now writes manager cash-out `Handover to Cashier` in the existing string(50) `transaction_type` column, with the receiving `cashier_name`, receipt ID, and exact confirmed SAR amount. The cashier custody side remains `Handover Received`. Manager transfer availability uses personal sales-cash ledger balance less pending outgoing requests; expense custody is excluded. AssabAPP D4 retains API value `Handover to Cashier` and localizes its UI label as `تسليم نقدية لكاشير`.
+
+## S1-10 Phase 2 corrections D14–D19 (2026-10-09) — PROPOSED for Mahmoud's review, not accepted
+
+* **D18 (implemented):** a rejected handover/reassignment of a report voids the count for the current report: a no-count revision is recorded, the shift is reopened, and the next `end` calculates from the sale figures again. A shortage re-end allocates over the **latest** allocation version (the previous one is superseded, never deleted).
+* **D14 (implemented):** while a D11-rejected request is unresolved, no new request may be created (`HANDOVER_CORRECTION_PENDING`); the confirmed D11 amount stays pending incoming cash of the recipient, owned by the sender, until the corrected request is received.
+* **D19 (implemented):** D11 evidence without an explicit receiving shift counts as pending incoming only for the recipient's **first later shift in the same branch** that started at or after `rejected_at`; other branches and later shifts see 0.
+* **D15 (implemented):** for an Admin shift with `cash_count_state = counted` and a negative variance, the legacy branch allocation is the only shortage authority. No Admin `EmployeeMovement` is created for a counted legacy shortage before S1-11 (final approval and accountant split are refused); the shortage ledger posting remains S1-11 work.
+* No unit change: legacy columns stay DECIMAL(12,2) SAR; evidence tables stay integer halalas; the only ÷100 boundary is `ShiftCashCountService::reconciliation`/`preview`. FIN-01 (115/50/25/10/30 → net 100, VAT 15, expected 50, variance −20, shortage 20) is unchanged and covered by preview and `end`.

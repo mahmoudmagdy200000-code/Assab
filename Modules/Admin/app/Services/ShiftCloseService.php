@@ -119,6 +119,9 @@ class ShiftCloseService
                 throw new AsabException('SHIFT_NOT_FOUND', 'Shift operation has no current shift', 'الوردية المرتبطة بالعملية غير موجودة', 409);
             }
             $shift = Shift::query()->whereKey($shiftStub->id)->lockForUpdate()->firstOrFail();
+            if ((int) $shift->variance < 0 && $shift->cash_count_state === 'counted') {
+                throw new AsabException('BRANCH_ALLOCATION_AUTHORITATIVE', 'The branch liability allocation is the only authority for this shortage', 'توزيع الفرع هو المرجع الوحيد لعجز هذه الوردية', 409);
+            }
             $target = abs((int) $shift->variance);
 
             $rows = [];
@@ -169,6 +172,11 @@ class ShiftCloseService
                 throw new AsabException('SHIFT_NOT_PENDING_REVIEW', 'Shift is no longer pending review', 'الوردية لم تعد بانتظار المراجعة', 409);
             }
             $variance = (int) $shift->variance;
+            if ($variance < 0 && $shift->cash_count_state === 'counted') {
+                // D15: a legacy shift with a real count is governed by the branch liability allocation
+                // (S1-07). Admin must not charge the shortage on its own before S1-11 posts it once.
+                throw new AsabException('BRANCH_LIABILITY_APPROVAL_PENDING', 'The shortage is governed by the branch liability allocation and its manager approval', 'عجز هذه الوردية يُحدَّد بتوزيع الفرع واعتماد مدير الفرع', 409);
+            }
             if ($variance < 0) {
                 $rows = $this->resolveAllocationRows($lockedOperation, $shift, abs($variance));
                 if ($rows === []) {
