@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
@@ -17,6 +18,7 @@ use Modules\Shift\Models\CashierShiftHistory;
 use Modules\Shift\Models\Shift;
 use Modules\Shift\Models\ShiftHandoverStatus;
 use Modules\Shift\Services\HandoverService;
+use Modules\Shift\Services\ShiftCashCountService;
 use Modules\Shift\Services\ShiftReportRevisionService;
 use Tests\TestCase;
 
@@ -56,11 +58,15 @@ class HandoverLedgerDateTest extends TestCase
             'cashier_id' => $this->cashier->id,
             'shift_id' => $template->id,
             'shift_date' => today()->subDay(),
-            'status' => ShiftStatus::IN_PROGRESS,
+            'status' => ShiftStatus::COMPLETED,
+            'actual_end_time' => now()->subDay(),
             'cash_collected' => 5000.00,
             'total_sales' => 5000.00,
+            'card_payments' => 0,
+            'closing_balance' => 5000.00,
         ]);
         $revision = app(ShiftReportRevisionService::class)->recordCashierRevision($this->shift, 'cashier', $this->cashier->id, 0);
+        DB::transaction(fn () => app(ShiftCashCountService::class)->record($this->shift, $revision, 500000, 0, 0, 500000));
         $managerWorkday = BranchManagerShift::query()
             ->where('branch_manager_id', $this->manager->id)
             ->first();

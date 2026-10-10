@@ -51,6 +51,7 @@ class ShiftEndService
 
             $previousRevision = $this->revisions->currentCashierRevision($shift);
             if ($previousRevision) {
+                $this->snapshots->preserveVarianceReviews($shift, $previousRevision);
                 $this->snapshots->createSnapshotIfMissing($previousRevision, $shift);
             }
 
@@ -129,7 +130,6 @@ class ShiftEndService
             if (! empty($data['variance']) && $shift->hasVariance()) {
                 $this->varianceService->recordVariance($shift, $data['variance']);
             } else {
-                $this->snapshots->preserveVarianceReviews($shift);
                 \Modules\Shift\Models\ShiftVarianceDetail::where('cashier_shift_id', $shift->id)->delete();
             }
 

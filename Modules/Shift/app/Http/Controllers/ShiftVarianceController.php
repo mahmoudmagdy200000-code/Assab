@@ -343,7 +343,7 @@ class ShiftVarianceController extends Controller
                     'reviewed_by_type' => get_class($cashier),
                     'reviewed_at' => now(),
                 ]);
-                app(\Modules\Shift\Services\ShiftReportRevisionSnapshotService::class)->preserveVarianceReviews($shiftModel);
+                app(\Modules\Shift\Services\ShiftReportRevisionSnapshotService::class)->preserveVarianceReviews($shiftModel, reviewedDetailIds: [$detail->id]);
                 event(new \Modules\Shift\Events\VarianceRecorded($shiftModel->fresh(['varianceDetails', 'handover'])));
 
                 return response()->json([
@@ -393,46 +393,50 @@ class ShiftVarianceController extends Controller
         try {
             $cashier = auth()->user();
 
-            $detail = \Modules\Shift\Models\ShiftVarianceDetail::where('cashier_shift_id', $shift)
-                ->where('responsible_cashier_id', $cashier->id)
-                ->first();
+            return DB::transaction(function () use ($cashier, $shift, $request): JsonResponse {
+                $shiftModel = CashierShift::query()->whereKey($shift)->lockForUpdate()->firstOrFail();
+                $detail = \Modules\Shift\Models\ShiftVarianceDetail::where('cashier_shift_id', $shiftModel->id)
+                    ->where('responsible_cashier_id', $cashier->id)
+                    ->lockForUpdate()
+                    ->first();
 
-            if (! $detail) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'No responsibility record found for you on this shift',
-                ], 404);
-            }
+                if (! $detail) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'No responsibility record found for you on this shift',
+                    ], 404);
+                }
 
-            if ($detail->responsibility_status === 'rejected') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Responsibility has already been rejected',
-                    'current_status' => $detail->responsibility_status,
-                ], 400);
-            }
+                if ($detail->responsibility_status === 'rejected') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Responsibility has already been rejected',
+                        'current_status' => $detail->responsibility_status,
+                    ], 400);
+                }
 
-            $detail->update([
-                'responsibility_status' => 'rejected',
-                'rejection_reason' => $request->reason,
-                'reviewed_by_id' => $cashier->id,
-                'reviewed_by_type' => get_class($cashier),
-                'reviewed_at' => now(),
-            ]);
-            app(\Modules\Shift\Services\ShiftReportRevisionSnapshotService::class)->preserveVarianceReviews($shiftModel);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'You have rejected the assigned responsibility',
-                'data' => [
-                    'shift_id' => $shift,
-                    'cashier_name' => $cashier->name,
-                    'assigned_amount' => (float) $detail->assigned_amount,
+                $detail->update([
                     'responsibility_status' => 'rejected',
                     'rejection_reason' => $request->reason,
-                    'reviewed_at' => now()->format('Y-m-d H:i:s'),
-                ],
-            ]);
+                    'reviewed_by_id' => $cashier->id,
+                    'reviewed_by_type' => get_class($cashier),
+                    'reviewed_at' => now(),
+                ]);
+                app(\Modules\Shift\Services\ShiftReportRevisionSnapshotService::class)->preserveVarianceReviews($shiftModel, reviewedDetailIds: [$detail->id]);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'You have rejected the assigned responsibility',
+                    'data' => [
+                        'shift_id' => $shift,
+                        'cashier_name' => $cashier->name,
+                        'assigned_amount' => (float) $detail->assigned_amount,
+                        'responsibility_status' => 'rejected',
+                        'rejection_reason' => $request->reason,
+                        'reviewed_at' => now()->format('Y-m-d H:i:s'),
+                    ],
+                ]);
+            });
         } catch (\Exception $e) {
             Log::error('Cashier failed to reject responsibility', [
                 'shift_id' => $shift,
@@ -485,7 +489,7 @@ class ShiftVarianceController extends Controller
                         'reviewed_at' => now(),
                     ]);
                 $shiftModel->recordHistory('responsibility_approved', ['responsibility_status' => $currentStatus], ['responsibility_status' => 'approved', 'reviewed_by_id' => $manager->id]);
-                app(\Modules\Shift\Services\ShiftReportRevisionSnapshotService::class)->preserveVarianceReviews($shiftModel);
+                app(\Modules\Shift\Services\ShiftReportRevisionSnapshotService::class)->preserveVarianceReviews($shiftModel, reviewedDetailIds: $details->modelKeys());
                 event(new \Modules\Shift\Events\VarianceRecorded($shiftModel->fresh(['varianceDetails', 'handover'])));
 
                 return response()->json([
@@ -535,66 +539,69 @@ class ShiftVarianceController extends Controller
         try {
             $manager = auth()->user();
 
-            $shiftModel = CashierShift::with([
-                'varianceDetails.responsibleCashier',
-                'cashier:id,name',
-                'shift:id,branch_id',
-            ])->findOrFail($shift);
+            return DB::transaction(function () use ($manager, $shift, $request): JsonResponse {
+                $shiftModel = CashierShift::query()->whereKey($shift)->lockForUpdate()->firstOrFail();
+                $shiftModel->load([
+                    'cashier:id,name',
+                    'shift:id,branch_id',
+                ]);
 
-            if (! $manager->branch_id || $shiftModel->shift->branch_id !== $manager->branch_id) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthorized: This shift is not in your branch',
-                ], 403);
-            }
+                if (! $manager->branch_id || $shiftModel->shift->branch_id !== $manager->branch_id) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Unauthorized: This shift is not in your branch',
+                    ], 403);
+                }
 
-            if ($shiftModel->varianceDetails->isEmpty()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'No responsibility details submitted yet for this shift',
-                ], 404);
-            }
+                $details = $shiftModel->varianceDetails()->orderBy('id')->lockForUpdate()->get();
+                if ($details->isEmpty()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'No responsibility details submitted yet for this shift',
+                    ], 404);
+                }
 
-            $currentStatus = $shiftModel->varianceDetails->first()->responsibility_status;
-            if ($currentStatus === 'rejected') {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Responsibility has already been rejected',
-                    'current_status' => $currentStatus,
-                ], 400);
-            }
+                $currentStatus = $details->first()->responsibility_status;
+                if ($currentStatus === 'rejected') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Responsibility has already been rejected',
+                        'current_status' => $currentStatus,
+                    ], 400);
+                }
 
-            $shiftModel->varianceDetails()->update([
-                'responsibility_status' => 'rejected',
-                'rejection_reason' => $request->reason,
-                'reviewed_by_id' => $manager->id,
-                'reviewed_by_type' => get_class($manager),
-                'reviewed_at' => now(),
-            ]);
-
-            $shiftModel->recordHistory(
-                'responsibility_rejected',
-                ['responsibility_status' => $currentStatus],
-                [
+                $shiftModel->varianceDetails()->whereIn('id', $details->modelKeys())->update([
                     'responsibility_status' => 'rejected',
                     'rejection_reason' => $request->reason,
                     'reviewed_by_id' => $manager->id,
-                ]
-            );
-            app(\Modules\Shift\Services\ShiftReportRevisionSnapshotService::class)->preserveVarianceReviews($shiftModel);
+                    'reviewed_by_type' => get_class($manager),
+                    'reviewed_at' => now(),
+                ]);
 
-            return response()->json([
-                'success' => true,
-                'message' => 'Responsibility rejected successfully',
-                'data' => [
-                    'shift_id' => $shiftModel->id,
-                    'cashier_name' => $shiftModel->cashier?->name,
-                    'responsibility_status' => 'rejected',
-                    'rejection_reason' => $request->reason,
-                    'rejected_by' => $manager->name,
-                    'rejected_at' => now()->format('Y-m-d H:i:s'),
-                ],
-            ]);
+                $shiftModel->recordHistory(
+                    'responsibility_rejected',
+                    ['responsibility_status' => $currentStatus],
+                    [
+                        'responsibility_status' => 'rejected',
+                        'rejection_reason' => $request->reason,
+                        'reviewed_by_id' => $manager->id,
+                    ]
+                );
+                app(\Modules\Shift\Services\ShiftReportRevisionSnapshotService::class)->preserveVarianceReviews($shiftModel, reviewedDetailIds: $details->modelKeys());
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Responsibility rejected successfully',
+                    'data' => [
+                        'shift_id' => $shiftModel->id,
+                        'cashier_name' => $shiftModel->cashier?->name,
+                        'responsibility_status' => 'rejected',
+                        'rejection_reason' => $request->reason,
+                        'rejected_by' => $manager->name,
+                        'rejected_at' => now()->format('Y-m-d H:i:s'),
+                    ],
+                ]);
+            });
         } catch (\Exception $e) {
             Log::error('Failed to reject responsibility', [
                 'shift_id' => $shift,

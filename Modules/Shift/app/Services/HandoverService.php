@@ -94,6 +94,14 @@ class HandoverService
                 'handover_to_id' => $handoverToId,
             ]);
 
+            $actor ??= auth()->user();
+            $previousReportProjection = $shift->only(['closing_balance', 'handover_notes']);
+            $previousRevision = $this->revisions->currentCashierRevision($shift);
+            if ($previousRevision) {
+                $this->snapshots->preserveVarianceReviews($shift, $previousRevision);
+                $this->snapshots->createSnapshotIfMissing($previousRevision, $shift);
+            }
+
             // Update shift with handover details so the recipient sees the request in cashier requests
             $nextCashierId = $data['next_cashier_id'] ?? ($handoverToType === 'cashier' ? $handoverToId : null);
             if ($handoverToType === 'cashier' && $nextCashierId) {
@@ -118,11 +126,6 @@ class HandoverService
 
             // Updating the submitted report's handover/closing projection advances
             // its stable identity. The request is bound to this exact revision.
-            $actor ??= auth()->user();
-            $previousRevision = $this->revisions->currentCashierRevision($shift);
-            if ($previousRevision) {
-                $this->snapshots->createSnapshotIfMissing($previousRevision, $shift);
-            }
             $revision = $this->revisions->recordCashierRevision(
                 $shift,
                 $actor instanceof BranchManager ? 'branch_manager' : 'cashier',
@@ -159,6 +162,18 @@ class HandoverService
             ]);
 
             if ($existingHandover) {
+                // Older immutable snapshots can lack request narrative fields. Keep
+                // the complete submitted request in additive history before replacing it.
+                $this->writeCorrectionHistory($shift, 'handover_request_corrected',
+                    (string) ($actor?->getKey() ?? $shift->cashier_id),
+                    $actor?->getMorphClass() ?? 'cashier', [
+                        'handover_id' => $existingHandover->id,
+                        'old_report_revision_id' => $existingHandover->report_revision_id,
+                        'new_report_revision_id' => $revision->id,
+                        'previous_handover' => $existingHandover->toArray(),
+                        'previous_report_projection' => $previousReportProjection,
+                        'new_requested_amount' => (string) $data['handover_amount'],
+                    ], 'Handover request resubmitted after rejection; original request evidence preserved.');
                 $existingHandover->update($handoverData);
                 $handover = $existingHandover;
             } else {
@@ -515,6 +530,12 @@ class HandoverService
 
             $this->assertNoCorrectionEvidence($handover);
 
+            $previousRevision = $this->revisions->currentCashierRevision($shift);
+            if ($previousRevision) {
+                $this->snapshots->preserveVarianceReviews($shift, $previousRevision);
+                $this->snapshots->createSnapshotIfMissing($previousRevision, $shift);
+            }
+
             $uploadedFiles = [];
             foreach ($files as $file) {
                 $filename = 'rejection_'.$shift->id.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension();
@@ -612,10 +633,25 @@ class HandoverService
                 throw HandoverException::cannotBeEdited();
             }
 
+            $previousRevision = $this->revisions->currentCashierRevision($shift);
+            if ($previousRevision) {
+                $this->snapshots->preserveVarianceReviews($shift, $previousRevision);
+                $this->snapshots->createSnapshotIfMissing($previousRevision, $shift);
+            }
+
+            // An unreceived legacy report may predate physical-count evidence. Reopen only
+            // this correction path so the owner can explicitly end and count it again.
+            $needsLegacyCount = $shift->status === ShiftStatus::COMPLETED
+                && $handover->current_transfer_attempt_id === null
+                && (! $previousRevision || ! \Modules\Shift\Models\ShiftReportCashCount::where('report_revision_id', $previousRevision->id)->exists());
+
+            $previousReportProjection = $shift->only(['closing_balance', 'handover_notes']);
+
             // Update shift data
             $shift->update([
                 'closing_balance' => $data['handover_amount'],
                 'handover_notes' => $data['handover_notes'] ?? $shift->handover_notes,
+                'status' => $needsLegacyCount ? ShiftStatus::IN_PROGRESS : $shift->status,
             ]);
 
             // Recalculate variance using the correct formula:
@@ -627,10 +663,6 @@ class HandoverService
                 'variance' => $variance,
             ]);
 
-            $previousRevision = $this->revisions->currentCashierRevision($shift);
-            if ($previousRevision) {
-                $this->snapshots->createSnapshotIfMissing($previousRevision, $shift);
-            }
             $revision = $this->revisions->recordCashierRevision($shift, 'cashier', $shift->cashier_id);
             if ($previousRevision) {
                 $this->cashCounts->carryForward($previousRevision, $revision);
@@ -639,6 +671,8 @@ class HandoverService
             $actor = auth()->user();
             $this->writeCorrectionHistory($shift, 'handover_request_corrected', (string) ($actor?->id ?? '0'), $actor?->getMorphClass() ?? 'system', [
                 'handover_id' => $handover->id,
+                'previous_handover' => $handover->toArray(),
+                'previous_report_projection' => $previousReportProjection,
                 'old_requested_amount' => (string) $handover->handover_amount,
                 'new_requested_amount' => (string) $data['handover_amount'],
                 'correction_reason' => $correctionReason,
@@ -756,6 +790,12 @@ class HandoverService
             }
 
             $this->assertNoCorrectionEvidence($handover);
+
+            $previousRevision = $this->revisions->currentCashierRevision($shift);
+            if ($previousRevision) {
+                $this->snapshots->preserveVarianceReviews($shift, $previousRevision);
+                $this->snapshots->createSnapshotIfMissing($previousRevision, $shift);
+            }
 
             // Upload rejection files
             $uploadedFiles = [];
