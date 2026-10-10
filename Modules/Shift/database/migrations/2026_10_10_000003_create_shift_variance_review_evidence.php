@@ -20,7 +20,7 @@ return new class extends Migration
             $table->text('rejection_reason')->nullable();
             $table->timestamp('created_at')->useCurrent();
 
-            $table->index(['report_revision_id', 'responsibility_status']);
+            $table->index(['report_revision_id', 'responsibility_status'], 'shift_variance_review_revision_status_idx');
             $table->index('cashier_shift_id');
         });
     }

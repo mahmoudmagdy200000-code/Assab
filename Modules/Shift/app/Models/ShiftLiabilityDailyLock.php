@@ -17,10 +17,12 @@ class ShiftLiabilityDailyLock extends Model
         'allocation_version' => 'integer',
         'locked_at' => 'datetime',
         'released_at' => 'datetime',
+        'superseded_at' => 'datetime',
+        'reopened_at' => 'datetime',
     ];
 
     public function scopeActive(Builder $query): Builder
     {
-        return $query->whereNull('released_at');
+        return $query->whereNull('released_at')->whereNull('superseded_at');
     }
 }

@@ -39,6 +39,16 @@ class ShiftReportCashCount extends Model
         return $this->belongsTo(ShiftReportRevision::class, 'report_revision_id');
     }
 
+    public function countedRevision(): BelongsTo
+    {
+        return $this->belongsTo(ShiftReportRevision::class, 'counted_revision_id');
+    }
+
+    public function evidenceRevision(): BelongsTo
+    {
+        return $this->belongsTo(ShiftReportRevision::class, 'evidence_revision_id');
+    }
+
     public function cashierShift(): BelongsTo
     {
         return $this->belongsTo(CashierShift::class, 'cashier_shift_id');

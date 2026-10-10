@@ -83,8 +83,10 @@ class ShiftReportRevisionService
         $aggregate = ShiftReportAggregate::query()
             ->where('source_type', $sourceType)
             ->where('source_id', $sourceId)
+            ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())
             ->first();
 
-        return $aggregate?->revisions()->where('revision_number', $aggregate->current_revision_number)->first();
+        return $aggregate?->revisions()->where('revision_number', $aggregate->current_revision_number)
+            ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())->first();
     }
 }

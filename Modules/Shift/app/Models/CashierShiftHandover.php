@@ -142,9 +142,15 @@ class CashierShiftHandover extends Model
     }
 
     // Scopes
+    public function scopeActive($query)
+    {
+        return $query->whereNull($this->qualifyColumn('cancelled_at'))
+            ->whereNull($this->qualifyColumn('superseded_at'));
+    }
+
     public function scopePending($query)
     {
-        return $query->where('status', 'pending');
+        return $query->active()->where('status', 'pending');
     }
 
     public function scopeApproved($query)
@@ -154,7 +160,7 @@ class CashierShiftHandover extends Model
 
     public function scopeRejected($query)
     {
-        return $query->whereIn('status', ['rejected', 'rejected_final']);
+        return $query->active()->whereIn('status', ['rejected', 'rejected_final']);
     }
 
     public function scopeForManager($query, $managerId)
@@ -173,7 +179,7 @@ class CashierShiftHandover extends Model
     // Helper methods
     public function isPending(): bool
     {
-        return $this->status === 'pending';
+        return $this->status === 'pending' && ! $this->isCancelled() && ! $this->isSuperseded();
     }
 
     public function isApproved(): bool

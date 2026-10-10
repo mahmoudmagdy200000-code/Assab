@@ -208,6 +208,9 @@ Route::prefix('branch-manager')
                         ->middleware('asab.idempotency:optional,transaction,legacy');
                     Route::post('reject', [ShiftHandoverController::class, 'rejectHandover'])
                         ->name('shifts.handover.reject');
+                    Route::post('replace-recipient', [ShiftHandoverController::class, 'replaceRecipient'])
+                        ->name('shifts.handover.replace-recipient')
+                        ->middleware('asab.idempotency:required,transaction,legacy');
                     Route::get('status', [ShiftHandoverController::class, 'getHandoverStatus'])
                         ->name('shifts.handover.status');
                     Route::get('available-cashiers', [ShiftHandoverController::class, 'getAvailableCashiers'])
@@ -238,6 +241,10 @@ Route::prefix('branch-manager')
                 });
             });
         });
+
+        Route::post('cash-transfers/{transfer}/replace-recipient', [BranchManagerShiftController::class, 'replaceTransferRecipient'])
+            ->name('branch-manager.cash-transfers.replace-recipient')
+            ->middleware('asab.idempotency:required,transaction,legacy');
     });
 
 /*
@@ -408,6 +415,11 @@ Route::prefix('cashier')
             // Receive Handover - Reject (as next cashier)
             Route::post('reject', [ShiftHandoverController::class, 'rejectHandover'])
                 ->name('cashier.handover.reject');
+
+            // Replace recipient
+            Route::post('replace-recipient', [ShiftHandoverController::class, 'replaceRecipient'])
+                ->name('cashier.handover.replace-recipient')
+                ->middleware('asab.idempotency:required,transaction,legacy');
 
             // Edit handover after manager rejection
             Route::post('edit', [ShiftHandoverController::class, 'editHandoverAfterRejection'])

@@ -125,7 +125,8 @@ class CashierShift extends Model
 
     public function handover(): HasOne
     {
-        return $this->hasOne(CashierShiftHandover::class, 'cashier_shift_id');
+        return $this->hasOne(CashierShiftHandover::class, 'cashier_shift_id')
+            ->active()->orderByDesc('created_at')->orderByDesc('id');
     }
 
     public function varianceDetails(): HasMany

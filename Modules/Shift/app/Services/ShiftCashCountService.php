@@ -221,6 +221,7 @@ class ShiftCashCountService
         $count = ShiftReportCashCount::create([
             'report_revision_id' => $revision->id,
             'counted_revision_id' => $revision->id,
+            'evidence_revision_id' => $revision->id,
             'cashier_shift_id' => $shift->id,
             'gross_halalas' => $grossHalalas,
             'cards_halalas' => $cardsHalalas,
@@ -246,7 +247,7 @@ class ShiftCashCountService
         if (DB::table('shift_report_aggregates')->where('id', $from->report_aggregate_id)->lockForUpdate()->value('fresh_count_required')) {
             throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('PHYSICAL_RECOUNT_REQUIRED');
         }
-        $count = ShiftReportCashCount::query()->where('report_revision_id', $from->id)->first();
+        $count = ShiftReportCashCount::query()->where('report_revision_id', $from->id)->lockForUpdate()->first();
         if ($count === null) {
             return null;
         }
@@ -254,6 +255,7 @@ class ShiftCashCountService
         return ShiftReportCashCount::create([
             'report_revision_id' => $to->id,
             'counted_revision_id' => $count->counted_revision_id,
+            'evidence_revision_id' => $count->evidence_revision_id ?? $count->counted_revision_id,
             'cashier_shift_id' => $count->cashier_shift_id,
             'gross_halalas' => $count->gross_halalas,
             'cards_halalas' => $count->cards_halalas,
@@ -266,12 +268,80 @@ class ShiftCashCountService
         ]);
     }
 
+    /**
+     * Recalculates from corrected financial inputs while holding original physical observation constant.
+     * counted_revision_id stays as sourceCount, while evidence_revision_id is set to the new revision.
+     */
+    public function recordCorrectedEvidence(
+        CashierShift $shift,
+        ShiftReportRevision $revision,
+        ShiftReportCashCount $sourceCount,
+        array $financialInputs,
+    ): ShiftReportCashCount {
+        if (DB::transactionLevel() === 0) {
+            throw new \LogicException('Corrected evidence must be recorded inside the report transaction.');
+        }
+
+        if (DB::table('shift_report_aggregates')->where('id', $revision->report_aggregate_id)->lockForUpdate()->value('fresh_count_required')) {
+            throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('PHYSICAL_RECOUNT_REQUIRED');
+        }
+
+        $grossHalalas = $financialInputs['gross_halalas'];
+        $cardsHalalas = $financialInputs['cards_halalas'];
+        $appsHalalas = $financialInputs['apps_halalas'];
+
+        $channels = ShiftFinancialCalculator::salesChannelCheck($grossHalalas, $cardsHalalas, $appsHalalas);
+        if (! $channels['channelsValid']) {
+            throw ValidationException::withMessages([
+                'card_payments' => 'Card payments plus delivery-app sales cannot exceed gross sales.',
+            ]);
+        }
+
+        $opening = $this->confirmedOpeningHalalas($shift->id);
+        $pending = $this->pendingIncomingHalalas($shift);
+
+        if ($opening !== $sourceCount->confirmed_opening_halalas || $pending !== $sourceCount->pending_incoming_counted_halalas) {
+            throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('PHYSICAL_RECOUNT_REQUIRED');
+        }
+
+        try {
+            $result = ShiftFinancialCalculator::calculate(
+                $grossHalalas,
+                $cardsHalalas,
+                $appsHalalas,
+                $opening,
+                $sourceCount->counted_halalas,
+                $pending
+            );
+        } catch (InvalidArgumentException) {
+            throw ValidationException::withMessages([
+                'counted_cash' => 'The counted cash cannot be less than the cash already counted for pending incoming transfers.',
+            ]);
+        }
+
+        return ShiftReportCashCount::create([
+            'report_revision_id' => $revision->id,
+            'counted_revision_id' => $sourceCount->counted_revision_id,
+            'evidence_revision_id' => $revision->id,
+            'cashier_shift_id' => $shift->id,
+            'gross_halalas' => $grossHalalas,
+            'cards_halalas' => $cardsHalalas,
+            'apps_halalas' => $appsHalalas,
+            'confirmed_opening_halalas' => $opening,
+            'pending_incoming_counted_halalas' => $pending,
+            'counted_halalas' => $sourceCount->counted_halalas,
+            'expected_halalas' => $result['expected'],
+            'variance_halalas' => $result['variance'],
+        ]);
+    }
+
     /** The count of the shift's CURRENT report revision, or null when that revision has none. */
     public function currentFor(string $cashierShiftId): ?ShiftReportCashCount
     {
         $aggregate = DB::table('shift_report_aggregates')
             ->where('source_type', 'cashier_shift')
             ->where('source_id', $cashierShiftId)
+            ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())
             ->first();
         if (! $aggregate) {
             return null;
@@ -280,9 +350,11 @@ class ShiftCashCountService
         $revisionId = DB::table('shift_report_revisions')
             ->where('report_aggregate_id', $aggregate->id)
             ->where('revision_number', $aggregate->current_revision_number)
+            ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())
             ->value('id');
 
-        return $revisionId ? ShiftReportCashCount::query()->where('report_revision_id', $revisionId)->first() : null;
+        return $revisionId ? ShiftReportCashCount::query()->where('report_revision_id', $revisionId)
+            ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())->first() : null;
     }
 
     /**

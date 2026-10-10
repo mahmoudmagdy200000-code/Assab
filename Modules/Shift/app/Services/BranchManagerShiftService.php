@@ -51,7 +51,7 @@ class BranchManagerShiftService
             return;
         }
 
-        $handovers = CashierShiftHandover::where('handover_to_type', 'branch_manager')
+        $handovers = CashierShiftHandover::active()->where('handover_to_type', 'branch_manager')
             ->whereIn('handover_to_id', $shifts->pluck('branch_manager_id')->unique())
             ->whereHas('cashierShift.shift', function ($q) use ($branchIds) {
                 $q->whereIn('branch_id', $branchIds);
@@ -259,6 +259,7 @@ class BranchManagerShiftService
     private function fetchShiftHandovers(BranchManagerShift $managerShift, ?string $handoverType)
     {
         $query = CashierShiftHandover::query()
+            ->active()
             ->whereHas('cashierShift', function ($query) use ($managerShift) {
                 $query->whereHas('shift', function ($q) use ($managerShift) {
                     $q->where('branch_id', $managerShift->branch_id);
@@ -453,7 +454,7 @@ class BranchManagerShiftService
 
             // Single query to fetch all handovers (branch-scoped: cashier shift ids
             // are already limited to this branch and workday)
-            $handovers = CashierShiftHandover::where('handover_to_type', 'branch_manager')
+            $handovers = CashierShiftHandover::active()->where('handover_to_type', 'branch_manager')
                 ->where('handover_to_id', $managerShift->branch_manager_id)
                 ->whereIn('cashier_shift_id', $cashierShifts->pluck('id'))
                 ->get()
@@ -846,7 +847,7 @@ class BranchManagerShiftService
         }
 
         // Method 3: Manual forget (Fallback for file/database cache)
-        $types = ['', 'handovers:to_manager', 'handovers:between_cashiers', 'financial_summary'];
+        $types = ['', 'handovers:', 'handovers:to_manager', 'handovers:to_branch_manager', 'handovers:between_cashiers', 'financial_summary'];
         foreach ($types as $type) {
             Cache::forget($this->getShiftCacheKey($shift, $type));
         }

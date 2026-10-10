@@ -134,6 +134,7 @@ class ShiftEndService
             }
 
             CashierShiftHandover::query()
+                ->active()
                 ->where('cashier_shift_id', $shift->id)
                 ->where('status', 'pending')
                 ->update(['report_revision_id' => $revision->id]);

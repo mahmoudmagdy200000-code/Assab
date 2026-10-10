@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Services;
 
+use Illuminate\Support\Facades\DB;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
@@ -22,7 +23,8 @@ class ShiftReportRevisionSnapshotService
         ShiftReportRevision $revision,
         CashierShift|BranchManagerShift $shift
     ): ?ShiftReportRevisionSnapshot {
-        $existing = ShiftReportRevisionSnapshot::where('report_revision_id', $revision->id)->first();
+        $existing = ShiftReportRevisionSnapshot::where('report_revision_id', $revision->id)
+            ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())->first();
         if ($existing) {
             return $existing;
         }
@@ -32,6 +34,7 @@ class ShiftReportRevisionSnapshotService
 
         if ($shift instanceof CashierShift) {
             $salesBreakdown = ShiftSalesBreakdown::where('cashier_shift_id', $shift->id)
+                ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())
                 ->get()
                 ->map(fn ($item) => [
                     'id' => $item->id,
@@ -44,6 +47,7 @@ class ShiftReportRevisionSnapshotService
                 ->toArray();
 
             $varianceDetails = ShiftVarianceDetail::where('cashier_shift_id', $shift->id)
+                ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())
                 ->get()
                 ->map(fn ($item) => [
                     'id' => $item->id,
@@ -66,6 +70,7 @@ class ShiftReportRevisionSnapshotService
                 ->toArray();
 
             $varianceReviews = ShiftVarianceReviewEvidence::where('report_revision_id', $revision->id)
+                ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())
                 ->get()
                 ->map(fn ($item) => [
                     'id' => $item->id,
@@ -79,9 +84,15 @@ class ShiftReportRevisionSnapshotService
                 ->values()
                 ->toArray();
 
-            $cashCount = ShiftReportCashCount::where('report_revision_id', $revision->id)->first();
-            $handover = CashierShiftHandover::where('report_revision_id', $revision->id)->first();
-            $allocations = ShiftLiabilityAllocation::where('report_revision_id', $revision->id)->get()->toArray();
+            $cashCount = ShiftReportCashCount::where('report_revision_id', $revision->id)
+                ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())->first();
+            $handover = CashierShiftHandover::where('report_revision_id', $revision->id)
+                ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())->first();
+            $allocations = ShiftLiabilityAllocation::where('cashier_shift_id', $shift->id)
+                ->where('report_revision', $revision->id)
+                ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())
+                ->with(['shares' => fn ($query) => $query->when(DB::transactionLevel() > 0, fn ($shares) => $shares->lockForUpdate())])
+                ->get()->toArray();
 
             $snapshotData = [
                 'shift_id' => $shift->id,
@@ -170,6 +181,7 @@ class ShiftReportRevisionSnapshotService
                 $q->whereNotNull('reviewed_at')
                     ->orWhereIn('responsibility_status', ['approved', 'rejected']);
             })
+            ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())
             ->get();
 
         foreach ($reviewedDetails as $detail) {
@@ -184,6 +196,7 @@ class ShiftReportRevisionSnapshotService
                 ->where('reviewed_by_type', (string) $detail->reviewed_by_type)
                 ->where('reviewed_at', $detail->reviewed_at)
                 ->where('rejection_reason', $detail->rejection_reason)
+                ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())
                 ->exists()) {
                 continue;
             }

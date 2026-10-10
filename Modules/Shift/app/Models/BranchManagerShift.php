@@ -178,6 +178,7 @@ class BranchManagerShift extends Model
     public function cashierHandovers()
     {
         return CashierShiftHandover::query()
+            ->active()
             ->where('handover_to_type', 'branch_manager')
             ->where('handover_to_id', $this->branch_manager_id)
             ->whereHas('cashierShift', function ($query) {

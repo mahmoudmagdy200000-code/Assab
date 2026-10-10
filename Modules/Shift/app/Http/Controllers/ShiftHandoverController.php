@@ -1190,4 +1190,55 @@ class ShiftHandoverController extends Controller
             ], 500);
         }
     }
+
+    public function replaceRecipient(Request $request, string $shift): Response
+    {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
+        try {
+            $validator = Validator::make($request->all(), [
+                'recipient_type' => 'nullable|string|in:cashier,branch_manager',
+                'recipient_id' => 'required|uuid',
+                'receiving_shift_id' => 'nullable|uuid',
+                'handover_amount' => 'required|'.ShiftMoneyValidation::SAR,
+                'expected_revision' => 'required|integer',
+                'reason' => 'required|string|min:1|max:500',
+            ]);
+            if ($validator->fails()) {
+                return response()->json(['success' => false, 'message' => 'Validation failed', 'code' => 'VALIDATION_ERROR', 'errors' => $validator->errors()], 422);
+            }
+
+            $shiftModel = CashierShift::withoutEagerLoads()->findOrFail($shift);
+            $handover = $this->handoverService->currentHandover($shiftModel);
+            $actor = auth()->user();
+            $operationId = (string) ($request->header('Idempotency-Key') ?? \Illuminate\Support\Str::uuid());
+
+            $replacement = app(\Modules\Shift\Services\TransferRequestLifecycleService::class)->replaceRecipient(
+                'handover',
+                $handover->id,
+                $actor,
+                [
+                    'recipient_type' => $request->input('recipient_type', 'cashier'),
+                    'recipient_id' => $request->input('recipient_id'),
+                    'receiving_shift_id' => $request->input('receiving_shift_id'),
+                ],
+                (string) $request->input('handover_amount'),
+                (int) $request->input('expected_revision'),
+                (string) $request->input('reason'),
+                $operationId
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Handover recipient replaced successfully',
+                'data' => [
+                    'handover_request_id' => $replacement->id,
+                    'supersedes_id' => $replacement->supersedes_id,
+                    'requested_amount' => (string) $replacement->handover_amount,
+                    'status' => $replacement->status,
+                ],
+            ], 200);
+        } catch (\Throwable $e) {
+            return HandoverErrorResponse::from($e, 'replace recipient');
+        }
+    }
 }

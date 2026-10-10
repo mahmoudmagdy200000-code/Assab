@@ -18,6 +18,7 @@ use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Services\BranchManagerShiftService;
 use Modules\Shift\Services\HandoverService;
 use Modules\Shift\Services\ShiftReportRevisionService;
+use Modules\Shift\Services\ShiftTransferReceiptService;
 use Modules\Shift\Transformers\BranchManagerShiftResource;
 
 class BranchManagerShiftController extends BaseController
@@ -543,6 +544,7 @@ class BranchManagerShiftController extends BaseController
             DB::beginTransaction();
 
             try {
+                app(ShiftTransferReceiptService::class)->lockManagerCashOwner((string) $managerShift->branch_manager_id);
                 $managerShift = BranchManagerShift::query()->whereKey($managerShift->id)->lockForUpdate()->firstOrFail();
                 $this->shiftService->lockCashierFinancialInputs($managerShift);
                 if (! $managerShift->canEnd()) {
@@ -718,6 +720,7 @@ class BranchManagerShiftController extends BaseController
             DB::beginTransaction();
 
             try {
+                app(ShiftTransferReceiptService::class)->lockManagerCashOwner((string) $managerShift->branch_manager_id);
                 $managerShift = BranchManagerShift::query()->whereKey($managerShift->id)->lockForUpdate()->firstOrFail();
                 if ($managerShift->status !== 'completed') {
                     DB::rollBack();
@@ -823,6 +826,7 @@ class BranchManagerShiftController extends BaseController
             }
 
             DB::transaction(function () use ($managerShift, $request) {
+                app(ShiftTransferReceiptService::class)->lockManagerCashOwner((string) $managerShift->branch_manager_id);
                 $managerShift = BranchManagerShift::query()->whereKey($managerShift->id)->lockForUpdate()->firstOrFail();
                 if ($managerShift->daily_report_submitted || $managerShift->status !== 'completed') {
                     throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('DAILY_REPORT_NO_LONGER_SUBMITTABLE');
@@ -892,28 +896,14 @@ class BranchManagerShiftController extends BaseController
                 ->whereDate('shift_date', today())
                 ->firstOrFail();
 
-            if (! $managerShift->can_reopen) {
-                return $this->errorResponse('This shift cannot be reopened', 400);
-            }
-
-            if (! $managerShift->daily_report_submitted) {
-                return $this->errorResponse('Shift must be submitted first', 400);
-            }
-
-            DB::transaction(function () use ($managerShift, $request) {
-                $managerShift->update([
-                    'daily_report_submitted' => false,
-                    'daily_report_submitted_at' => null,
-                    'reopened_at' => now(),
-                    'reopen_reason' => $request->reopen_reason,
-                    'can_reopen' => false,
-                ]);
-            });
-
-            return $this->successResponse([
-                'shift' => new BranchManagerShiftResource($managerShift),
-                'message' => 'Shift reopened successfully. You can now make changes and resubmit.',
-            ], 'Shift reopened successfully');
+            // Gate D-PR: Reopening a submitted daily report requires an executive business decision.
+            // Under Gate D-PR, reopening submitted workdays is strictly blocked.
+            return response()->json([
+                'success' => false,
+                'message' => 'REPORT_REOPEN_REQUIRED',
+                'code' => 'REPORT_REOPEN_REQUIRED',
+                'reason' => 'Reopening submitted daily reports is blocked by Gate D-PR pending executive business decision.',
+            ], 409);
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -1181,5 +1171,52 @@ class BranchManagerShiftController extends BaseController
                 'processed_at' => now()->format(self::DATETIME_FORMAT),
             ],
         ], 'Corrections requested successfully');
+    }
+
+    public function replaceTransferRecipient(Request $request, string $transfer): JsonResponse
+    {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
+        try {
+            $validator = Validator::make($request->all(), [
+                'recipient_id' => 'required|uuid',
+                'destination_cashier_shift_id' => 'nullable|uuid',
+                'requested_amount' => 'required|'.ShiftMoneyValidation::SAR,
+                'expected_revision' => 'required|integer',
+                'reason' => 'required|string|min:1|max:500',
+            ]);
+            if ($validator->fails()) {
+                return response()->json(['success' => false, 'message' => 'Validation failed', 'code' => 'VALIDATION_ERROR', 'errors' => $validator->errors()], 422);
+            }
+
+            $actor = auth()->user();
+            $operationId = (string) ($request->header('Idempotency-Key') ?? \Illuminate\Support\Str::uuid());
+
+            $replacement = app(\Modules\Shift\Services\TransferRequestLifecycleService::class)->replaceRecipient(
+                'manager_transfer',
+                $transfer,
+                $actor,
+                [
+                    'recipient_id' => $request->input('recipient_id'),
+                    'destination_cashier_shift_id' => $request->input('destination_cashier_shift_id'),
+                ],
+                (string) $request->input('requested_amount'),
+                (int) $request->input('expected_revision'),
+                (string) $request->input('reason'),
+                $operationId
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Transfer recipient replaced successfully',
+                'data' => [
+                    'transfer_request_id' => $replacement->id,
+                    'supersedes_id' => $replacement->supersedes_id,
+                    'requested_amount' => (string) $replacement->requested_amount,
+                    'status' => $replacement->status,
+                ],
+            ], 200);
+        } catch (\Throwable $e) {
+            return HandoverErrorResponse::from($e, 'replace transfer recipient');
+        }
     }
 }

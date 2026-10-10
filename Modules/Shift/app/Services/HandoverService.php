@@ -59,6 +59,7 @@ class HandoverService
             $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
             $this->reassignmentGuard->assertCanContinue($shift, $actor ?? auth()->user());
             $existingHandover = CashierShiftHandover::query()
+                ->active()
                 ->where('cashier_shift_id', $shift->id)
                 ->orderByDesc('id')
                 ->lockForUpdate()
@@ -414,14 +415,17 @@ class HandoverService
     {
         $this->revisions->assertFreshCount($shift);
         $rejected = CashierShiftHandover::query()
+            ->active()
             ->where('cashier_shift_id', $shift->id)
             ->where('status', 'rejected')
+            ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())
             ->pluck('id');
         if ($rejected->isEmpty()) {
             return;
         }
         $withEvidence = ShiftTransferRejectionEvidence::query()
             ->whereIn('cashier_shift_handover_id', $rejected)
+            ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())
             ->pluck('cashier_shift_handover_id')
             ->unique();
         if ($withEvidence->isEmpty()) {
@@ -429,6 +433,7 @@ class HandoverService
         }
         $received = DB::table('cashier_shift_handover_receipts')
             ->whereIn('cashier_shift_handover_id', $withEvidence)
+            ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())
             ->pluck('cashier_shift_handover_id');
         if ($withEvidence->diff($received)->isNotEmpty()) {
             throw new ConflictHttpException('HANDOVER_CORRECTION_PENDING');
@@ -621,6 +626,13 @@ class HandoverService
         try {
             $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
             $handover = $this->currentHandover($shift, true);
+            TransferRequestLifecycleGuard::assertActive($handover);
+            if (isset($data['handover_to_type']) && $data['handover_to_type'] !== $handover->handover_to_type) {
+                throw new ConflictHttpException('HANDOVER_RECIPIENT_CHANGE_REQUIRES_REPLACEMENT');
+            }
+            if (isset($data['handover_to_id']) && (string) $data['handover_to_id'] !== (string) $handover->handover_to_id) {
+                throw new ConflictHttpException('HANDOVER_RECIPIENT_CHANGE_REQUIRES_REPLACEMENT');
+            }
             if ($handover->receipt()->exists()) {
                 throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('CONFIRMED_RECEIPT_IMMUTABLE');
             }
@@ -980,6 +992,7 @@ class HandoverService
     public function currentHandover(CashierShift $shift, bool $lock = false): CashierShiftHandover
     {
         $query = CashierShiftHandover::query()
+            ->active()
             ->where('cashier_shift_id', $shift->id)
             ->orderByDesc('created_at')
             ->orderByDesc('id')

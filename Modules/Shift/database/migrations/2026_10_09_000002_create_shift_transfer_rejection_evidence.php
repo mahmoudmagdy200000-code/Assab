@@ -16,12 +16,12 @@ return new class extends Migration
     {
         Schema::create('shift_transfer_rejection_evidence', function (Blueprint $table) {
             $table->uuid('id')->primary();
-            $table->foreignUuid('cashier_shift_handover_id')->nullable()->constrained('cashier_shift_handovers')->restrictOnDelete();
-            $table->foreignUuid('branch_manager_cash_transfer_id')->nullable()->constrained('branch_manager_cash_transfers')->restrictOnDelete();
+            $table->foreignUuid('cashier_shift_handover_id')->nullable()->constrained('cashier_shift_handovers', indexName: 'transfer_rejection_handover_fk')->restrictOnDelete();
+            $table->foreignUuid('branch_manager_cash_transfer_id')->nullable()->constrained('branch_manager_cash_transfers', indexName: 'transfer_rejection_manager_request_fk')->restrictOnDelete();
             $table->string('recipient_type', 20);
             $table->uuid('recipient_id');
             // The recipient cashier's shift whose count includes this cash, when it was unambiguous.
-            $table->foreignUuid('receiving_cashier_shift_id')->nullable()->constrained('cashier_shifts')->restrictOnDelete();
+            $table->foreignUuid('receiving_cashier_shift_id')->nullable()->constrained('cashier_shifts', indexName: 'transfer_rejection_receiving_shift_fk')->restrictOnDelete();
             $table->unsignedBigInteger('requested_halalas');
             $table->unsignedBigInteger('physical_halalas');
             $table->string('correction_reason', 30);

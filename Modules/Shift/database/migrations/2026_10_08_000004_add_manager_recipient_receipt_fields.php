@@ -14,11 +14,11 @@ return new class extends Migration
             $table->foreignUuid('receiving_cashier_id')->nullable()->change();
             $table->foreignUuid('confirmed_by_id')->nullable()->change();
             $table->foreignUuid('receiving_branch_manager_shift_id')->nullable()->after('receiving_cashier_id')
-                ->constrained('branch_manager_shifts')->restrictOnDelete();
+                ->constrained('branch_manager_shifts', indexName: 'shift_receipt_receiving_manager_day_fk')->restrictOnDelete();
             $table->foreignUuid('receiving_branch_manager_id')->nullable()->after('receiving_branch_manager_shift_id')
-                ->constrained('branch_managers')->restrictOnDelete();
+                ->constrained('branch_managers', indexName: 'shift_receipt_receiving_manager_fk')->restrictOnDelete();
             $table->foreignUuid('confirmed_by_branch_manager_id')->nullable()->after('confirmed_by_id')
-                ->constrained('branch_managers')->restrictOnDelete();
+                ->constrained('branch_managers', indexName: 'shift_receipt_confirming_manager_fk')->restrictOnDelete();
             $table->index(['receiving_branch_manager_shift_id', 'confirmed_at'], 'shift_receipt_manager_destination_time');
         });
     }
@@ -29,11 +29,21 @@ return new class extends Migration
             throw new RuntimeException('Manager receipt evidence exists; migration rollback would destroy it.');
         }
 
-        Schema::table('cashier_shift_handover_receipts', function (Blueprint $table) {
+        $columns = ['confirmed_by_branch_manager_id', 'receiving_branch_manager_id', 'receiving_branch_manager_shift_id'];
+        $foreignNames = [];
+        foreach (Schema::getForeignKeys('cashier_shift_handover_receipts') as $key) {
+            foreach ($columns as $column) {
+                if ($key['columns'] === [$column]) {
+                    $foreignNames[$column] = $key['name'];
+                }
+            }
+        }
+        Schema::table('cashier_shift_handover_receipts', function (Blueprint $table) use ($columns, $foreignNames) {
             $table->dropIndex('shift_receipt_manager_destination_time');
-            $table->dropConstrainedForeignId('confirmed_by_branch_manager_id');
-            $table->dropConstrainedForeignId('receiving_branch_manager_id');
-            $table->dropConstrainedForeignId('receiving_branch_manager_shift_id');
+            foreach ($columns as $column) {
+                $table->dropForeign($foreignNames[$column] ?? [$column]);
+                $table->dropColumn($column);
+            }
             $table->foreignUuid('confirmed_by_id')->nullable(false)->change();
             $table->foreignUuid('receiving_cashier_id')->nullable(false)->change();
             $table->foreignUuid('receiving_cashier_shift_id')->nullable(false)->change();

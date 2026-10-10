@@ -7,6 +7,7 @@ use Illuminate\Validation\ValidationException;
 use LogicException;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Shift\Models\BranchManagerShift;
+use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\ShiftLiabilityAllocation;
 use Modules\Shift\Models\ShiftLiabilityDailyLock;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
@@ -81,7 +82,65 @@ final class DailyLiabilityGuard
             'released_by_id' => (string) $manager->getKey(),
             'released_at' => now(),
             'release_reason' => $reason,
+            'reopened_at' => now(),
+            'reopened_by_type' => 'branch_manager',
+            'reopened_by_id' => (string) $manager->getKey(),
+            'reopen_reason' => $reason,
         ]);
+    }
+
+    /**
+     * Primitive for superseding active daily locks on a shift due to authorized revision/correction.
+     */
+    public function supersedeLocksForShift(string $shiftId, \Illuminate\Database\Eloquent\Model $actor, string $reason, ?string $workdayId = null): int
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new LogicException('Superseding daily liability locks requires a transaction.');
+        }
+        if (trim($reason) === '') {
+            throw ValidationException::withMessages(['reason' => 'Superseding daily locks requires a reason.']);
+        }
+        if (! $actor instanceof BranchManager) {
+            throw new AccessDeniedHttpException('ONLY_WORKDAY_MANAGER');
+        }
+        $shift = CashierShift::withoutEagerLoads()->findOrFail($shiftId);
+        $branchId = $shift->shift()->value('branch_id');
+        app(\Modules\BranchManagers\Services\BranchManagerService::class)
+            ->assertAssignedActiveManager($branchId, (string) $actor->id);
+        if ($workdayId === null) {
+            $ids = ShiftLiabilityDailyLock::active()->where('cashier_shift_id', $shiftId)
+                ->distinct()->pluck('branch_manager_shift_id');
+            if ($ids->count() > 1) {
+                throw new ConflictHttpException('WORKDAY_SCOPE_REQUIRED');
+            }
+            $workdayId = $ids->first();
+            if ($workdayId === null) {
+                return 0;
+            }
+        }
+        $day = BranchManagerShift::withoutEagerLoads()->whereKey($workdayId)->lockForUpdate()->firstOrFail();
+        if ((string) $day->branch_manager_id !== (string) $actor->id || (string) $day->branch_id !== (string) $branchId) {
+            throw new AccessDeniedHttpException('ONLY_WORKDAY_MANAGER');
+        }
+        CashierShift::withoutEagerLoads()->whereKey($shiftId)->lockForUpdate()->firstOrFail();
+        if ($day->daily_report_submitted || $day->daily_report_submitted_at !== null
+            || DB::table('cashier_shift_handovers')->where('cashier_shift_id', $shiftId)->whereNotNull('daily_closed_at')->lockForUpdate()->first() !== null
+            || DB::table('asab_shifts')->where('legacy_shift_id', $shiftId)->whereIn('status', ['closed', 'pending_review'])->lockForUpdate()->first() !== null
+            || DB::table('asab_operations')->where('module_key', 'shifts')->where('status', 'final-approved')
+                ->whereIn('source_id', DB::table('asab_shifts')->where('legacy_shift_id', $shiftId)->select('id'))->lockForUpdate()->first() !== null) {
+            throw new ConflictHttpException('REPORT_REOPEN_REQUIRED');
+        }
+
+        return ShiftLiabilityDailyLock::active()
+            ->where('cashier_shift_id', $shiftId)
+            ->where('branch_manager_shift_id', $workdayId)
+            ->update([
+                'superseded_at' => now(),
+                'reopened_at' => now(),
+                'reopened_by_type' => $actor->getMorphClass(),
+                'reopened_by_id' => (string) $actor->getKey(),
+                'reopen_reason' => $reason,
+            ]);
     }
 
     private function readyScope(string $workdayId, BranchManager $manager): DailyCloseEvidence

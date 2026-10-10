@@ -212,6 +212,7 @@ class ShiftFinancialService
                 ->values();
 
             $handoversByShiftId = CashierShiftHandover::where('handover_to_type', 'branch_manager')
+                ->active()
                 ->whereIn('cashier_shift_id', $allCashierShiftIds)
                 ->get()
                 ->keyBy('cashier_shift_id');

@@ -42,6 +42,7 @@ class ShiftTransferReceiptService
         }
 
         return DB::transaction(function () use ($source, $destinationCashier, $destinationShift, $actor, $amount, $requestedMinor) {
+            $this->lockManagerCashOwner((string) $source->branch_manager_id);
             $source = BranchManagerShift::query()->whereKey($source->id)->lockForUpdate()->firstOrFail();
             $destinationShift = CashierShift::query()->whereKey($destinationShift->id)->lockForUpdate()->firstOrFail();
 
@@ -67,6 +68,7 @@ class ShiftTransferReceiptService
 
             // D14: a transfer rejected for an amount correction is corrected, not replaced.
             $pendingCorrection = BranchManagerCashTransfer::query()
+                ->whereNull('cancelled_at')->whereNull('superseded_at')
                 ->where('branch_manager_shift_id', $source->id)
                 ->where('destination_cashier_id', $destinationCashier->id)
                 ->where('status', 'rejected')
@@ -107,9 +109,12 @@ class ShiftTransferReceiptService
 
         return DB::transaction(function () use ($transferId, $recipient, $attemptedConfirmedAmount, $attemptedMinor, $reason, $correctionReason, $expectedAttemptId) {
             $stub = BranchManagerCashTransfer::query()->whereKey($transferId)->firstOrFail();
+            $this->lockManagerCashOwner((string) BranchManagerShift::whereKey($stub->branch_manager_shift_id)->value('branch_manager_id'));
             $source = BranchManagerShift::query()->whereKey($stub->branch_manager_shift_id)->lockForUpdate()->firstOrFail();
             $destination = CashierShift::withoutEagerLoads()->whereKey($stub->destination_cashier_shift_id)->lockForUpdate()->firstOrFail();
             $transfer = BranchManagerCashTransfer::query()->whereKey($transferId)->lockForUpdate()->firstOrFail();
+
+            TransferRequestLifecycleGuard::assertActive($transfer);
 
             if ((string) $transfer->destination_cashier_id !== (string) $recipient->id
                 || (string) $destination->cashier_id !== (string) $recipient->id) {
@@ -156,9 +161,12 @@ class ShiftTransferReceiptService
 
         return DB::transaction(function () use ($transferId, $actor, $newAmount, $newMinor, $correctionReason) {
             $stub = BranchManagerCashTransfer::query()->whereKey($transferId)->firstOrFail();
+            $this->lockManagerCashOwner((string) BranchManagerShift::whereKey($stub->branch_manager_shift_id)->value('branch_manager_id'));
             $source = BranchManagerShift::query()->whereKey($stub->branch_manager_shift_id)->lockForUpdate()->firstOrFail();
             $destination = CashierShift::withoutEagerLoads()->whereKey($stub->destination_cashier_shift_id)->lockForUpdate()->firstOrFail();
             $transfer = BranchManagerCashTransfer::query()->whereKey($transferId)->lockForUpdate()->firstOrFail();
+
+            TransferRequestLifecycleGuard::assertActive($transfer);
 
             if ((string) $source->branch_manager_id !== (string) $actor->id
                 || (string) $source->branch_id !== (string) $actor->branch_id) {
@@ -219,6 +227,8 @@ class ShiftTransferReceiptService
             [$source, $destination] = $this->lockCashierShiftsInOrder($sourceSnapshot->id, $destinationSnapshot->id);
             $handover = CashierShiftHandover::query()->whereKey($handoverId)->lockForUpdate()->firstOrFail();
 
+            TransferRequestLifecycleGuard::assertActive($handover);
+
             if ($handover->handover_to_type !== 'cashier' || (string) $handover->handover_to_id !== (string) $recipient->id) {
                 throw new AccessDeniedHttpException('ONLY_NAMED_CASHIER_RECIPIENT');
             }
@@ -231,7 +241,7 @@ class ShiftTransferReceiptService
                 throw new ConflictHttpException('STALE_REPORT_REVISION');
             }
 
-            $count = ShiftReportCashCount::query()->where('report_revision_id', $revision->id)->first();
+            $count = ShiftReportCashCount::query()->where('report_revision_id', $revision->id)->lockForUpdate()->first();
             if (! $count || $source->status === ShiftStatus::IN_PROGRESS) {
                 throw new ConflictHttpException('REPORT_COUNT_REQUIRED');
             }
@@ -268,6 +278,7 @@ class ShiftTransferReceiptService
         ?string $expectedAttemptId = null
     ): CashierShiftHandoverReceipt {
         return DB::transaction(function () use ($handoverId, $recipient, $confirmedAmount, $comment, $expectedAttemptId) {
+            $this->lockManagerCashOwner((string) $recipient->id);
             $stub = CashierShiftHandover::query()->whereKey($handoverId)->firstOrFail();
             $sourceSnapshot = CashierShift::withoutEagerLoads()->whereKey($stub->cashier_shift_id)->firstOrFail();
             $branchId = $sourceSnapshot->shift()->value('branch_id');
@@ -288,6 +299,8 @@ class ShiftTransferReceiptService
             $source = CashierShift::withoutEagerLoads()->whereKey($sourceSnapshot->id)->lockForUpdate()->firstOrFail();
             $handover = CashierShiftHandover::query()->whereKey($handoverId)->lockForUpdate()->firstOrFail();
 
+            TransferRequestLifecycleGuard::assertActive($handover);
+
             if ($handover->handover_to_type !== 'branch_manager'
                 || (string) $handover->handover_to_id !== (string) $recipient->id
                 || (string) $managerWorkday->branch_manager_id !== (string) $recipient->id
@@ -303,7 +316,7 @@ class ShiftTransferReceiptService
                 throw new ConflictHttpException('STALE_REPORT_REVISION');
             }
 
-            $count = ShiftReportCashCount::query()->where('report_revision_id', $revision->id)->first();
+            $count = ShiftReportCashCount::query()->where('report_revision_id', $revision->id)->lockForUpdate()->first();
             if (! $count || $source->status === ShiftStatus::IN_PROGRESS) {
                 throw new ConflictHttpException('REPORT_COUNT_REQUIRED');
             }
@@ -331,9 +344,12 @@ class ShiftTransferReceiptService
     ): CashierShiftHandoverReceipt {
         return DB::transaction(function () use ($transferId, $recipient, $confirmedAmount, $expectedAttemptId) {
             $stub = BranchManagerCashTransfer::query()->whereKey($transferId)->firstOrFail();
+            $this->lockManagerCashOwner((string) BranchManagerShift::whereKey($stub->branch_manager_shift_id)->value('branch_manager_id'));
             $source = BranchManagerShift::query()->whereKey($stub->branch_manager_shift_id)->lockForUpdate()->firstOrFail();
             $destination = CashierShift::query()->whereKey($stub->destination_cashier_shift_id)->lockForUpdate()->firstOrFail();
             $transfer = BranchManagerCashTransfer::query()->whereKey($transferId)->lockForUpdate()->firstOrFail();
+
+            TransferRequestLifecycleGuard::assertActive($transfer);
 
             if ((string) $transfer->branch_manager_shift_id !== (string) $source->id
                 || (string) $transfer->destination_cashier_shift_id !== (string) $destination->id) {
@@ -590,8 +606,8 @@ class ShiftTransferReceiptService
         }
     }
 
-    /** Confirmed personal-ledger cash less all pending manager transfer requests. */
-    private function availableManagerCashMinor(string $managerId): int
+    /** Confirmed personal-ledger cash less all active pending manager transfer requests. */
+    public function availableManagerCashMinor(string $managerId): int
     {
         $ledgerMinor = PersonalLedgerTransaction::query()
             ->where('branch_manager_id', $managerId)
@@ -602,12 +618,24 @@ class ShiftTransferReceiptService
             ->get(['amount', 'is_cash_in'])
             ->sum(fn (PersonalLedgerTransaction $row) => ($row->is_cash_in ? 1 : -1) * self::toMinorUnits((string) $row->amount));
 
-        $reservedMinor = self::toMinorUnits((string) BranchManagerCashTransfer::query()
+        $reservedMinor = BranchManagerCashTransfer::query()
             ->whereHas('sourceWorkday', fn ($query) => $query->where('branch_manager_id', $managerId))
             ->where('status', 'pending')
-            ->sum('requested_amount'));
+            ->whereNull('cancelled_at')
+            ->whereNull('superseded_at')
+            ->orderBy('id')->lockForUpdate()->get(['requested_amount'])
+            ->sum(fn ($request) => self::toMinorUnits((string) $request->requested_amount));
 
         return max(0, $ledgerMinor - $reservedMinor);
+    }
+
+    /** One stable mutex across all workdays that reserve or spend this manager's cash. */
+    public function lockManagerCashOwner(string $managerId): void
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new \LogicException('Manager cash owner lock requires a transaction.');
+        }
+        BranchManager::whereKey($managerId)->lockForUpdate()->firstOrFail();
     }
 
     private function createCustodyMovement(CashierShiftHandoverReceipt $receipt, Cashier $cashier, string $type, bool $cashIn, int $minor, ?string $counterpart, ?string $sourceShiftId): void

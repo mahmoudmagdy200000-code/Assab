@@ -26,6 +26,7 @@ class ShiftTransferAttemptService
     {
         return DB::transaction(function () use ($type, $id, $actor, $amount, $key) {
             [$source, $request] = $this->lockRequest($type, $id);
+            TransferRequestLifecycleGuard::assertActive($request);
             $senderType = $source instanceof CashierShift ? 'cashier' : 'branch_manager';
             $senderId = $source instanceof CashierShift ? $source->cashier_id : $source->branch_manager_id;
             $this->assertActor($actor, $senderType, $senderId);
@@ -115,6 +116,10 @@ class ShiftTransferAttemptService
         return DB::transaction(function () use ($id, $actor) {
             $stub = ShiftTransferReturn::findOrFail($id);
             $attemptStub = ShiftTransferAttempt::findOrFail($stub->transfer_attempt_id);
+            if ($attemptStub->request_type === 'manager_transfer') {
+                $transferStub = BranchManagerCashTransfer::findOrFail($attemptStub->request_id);
+                app(ShiftTransferReceiptService::class)->lockManagerCashOwner((string) BranchManagerShift::whereKey($transferStub->branch_manager_shift_id)->value('branch_manager_id'));
+            }
             $rejectionStub = ShiftTransferRejectionEvidence::findOrFail($stub->rejection_evidence_id);
             $receivingId = $this->receivingEvidenceShiftId($attemptStub, $rejectionStub);
             // Match manager receipt/daily-close ordering: receiving manager day, legacy cashier rows,
@@ -166,6 +171,7 @@ class ShiftTransferAttemptService
     /** Called only after the established receipt writer acquired its source/destination/request locks. */
     public function assertReceivable(Model $request, ?string $expectedAttemptId = null): ?ShiftTransferAttempt
     {
+        TransferRequestLifecycleGuard::assertActive($request);
         if (! $request->current_transfer_attempt_id) {
             return null;
         }
@@ -272,6 +278,7 @@ class ShiftTransferAttemptService
             abort(404);
         }
         $stub = BranchManagerCashTransfer::findOrFail($id);
+        app(ShiftTransferReceiptService::class)->lockManagerCashOwner((string) BranchManagerShift::whereKey($stub->branch_manager_shift_id)->value('branch_manager_id'));
         $source = BranchManagerShift::whereKey($stub->branch_manager_shift_id)->lockForUpdate()->firstOrFail();
         CashierShift::withoutEagerLoads()->whereKey($stub->destination_cashier_shift_id)->lockForUpdate()->firstOrFail();
 

@@ -58,7 +58,7 @@ class BranchManagerService
     {
         $hasOpenHandover = CashierShiftHandover::query()
             ->forManager($manager->id)
-            ->whereIn('status', ['pending', 'rejected'])
+            ->active()->whereIn('status', ['pending', 'rejected'])
             ->whereDoesntHave('receipt')
             ->exists();
 
