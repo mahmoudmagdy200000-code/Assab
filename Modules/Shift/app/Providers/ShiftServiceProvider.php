@@ -38,6 +38,13 @@ class ShiftServiceProvider extends ServiceProvider
     {
         $this->app->register(RouteServiceProvider::class);
 
+        // S1-10: report evidence is the stored physical count of the current revision (no legacy
+        // fallback). Daily-close membership evidence stays unavailable until S1-11.
+        $this->app->bind(
+            \Modules\Shift\Liability\LiabilityEvidenceSource::class,
+            \Modules\Shift\Liability\CashCountLiabilityEvidence::class
+        );
+
         // Register Repositories
         $this->app->bind(
             CashierShiftRepositoryInterface::class,

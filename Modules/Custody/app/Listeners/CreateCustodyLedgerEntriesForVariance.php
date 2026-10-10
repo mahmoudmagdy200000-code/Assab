@@ -2,8 +2,6 @@
 
 namespace Modules\Custody\Listeners;
 
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Custody\Models\CashierCustodyTransaction;
@@ -16,41 +14,25 @@ use Modules\Shift\Events\VarianceRecorded;
  * - SHORT: cashier cash out; OVER: cashier cash in
  * - Branch manager line mirrors net effect for approved cashier-assigned rows only
  */
-class CreateCustodyLedgerEntriesForVariance implements ShouldQueue
+class CreateCustodyLedgerEntriesForVariance
 {
-    use InteractsWithQueue;
-
-    public $afterCommit = true;
-
-    public $tries = 3;
-
-    public function backoff(): array
-    {
-        $jitter = random_int(1, 4);
-
-        return [10 + $jitter, 30 + $jitter, 90 + $jitter];
-    }
-
     public function handle(VarianceRecorded $event): void
     {
-        $shift = $event->shift->fresh(['handover', 'varianceDetails.responsibleCashier']);
-
-        if ($shift->varianceDetails->isEmpty()) {
-            return;
-        }
-
-        $approvedWithCashier = $shift->varianceDetails->filter(
-            fn ($d) => $d->responsible_cashier_id !== null && $d->responsibility_status === 'approved'
-        );
-
-        try {
-            DB::beginTransaction();
+        DB::transaction(function () use ($event): void {
+            // Approval callers already own this row; this also serializes
+            // direct/backfill dispatches before replacing the legacy ledger set.
+            $shift = \Modules\Shift\Models\CashierShift::withoutEagerLoads()
+                ->whereKey($event->shift->id)
+                ->lockForUpdate()
+                ->firstOrFail()
+                ->load(['handover', 'varianceDetails.responsibleCashier']);
+            $approvedWithCashier = $shift->varianceDetails->filter(
+                fn ($d) => $d->responsible_cashier_id !== null && $d->responsibility_status === 'approved'
+            );
 
             $this->removeExistingVarianceLedgerEntriesForShift($shift->id);
 
             if ($approvedWithCashier->isEmpty()) {
-                DB::commit();
-
                 return;
             }
 
@@ -62,21 +44,12 @@ class CreateCustodyLedgerEntriesForVariance implements ShouldQueue
                 $this->createBranchManagerVarianceEntry($shift, $approvedWithCashier);
             }
 
-            DB::commit();
-
             Log::info('Custody ledger entries created for variance', [
                 'cashier_shift_id' => $shift->id,
                 'details_count' => $approvedWithCashier->count(),
                 'has_handover' => (bool) $shift->handover,
             ]);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('Failed to create custody ledger entries for variance', [
-                'cashier_shift_id' => $shift->id,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-        }
+        });
     }
 
     private function removeExistingVarianceLedgerEntriesForShift(string $cashierShiftId): void

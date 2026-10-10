@@ -69,7 +69,7 @@ class VarianceCalculationService
             DB::commit();
 
             // Custody ledger entries are created only after responsibility is approved (VarianceRecorded from controllers / handover approval).
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('Variance recording failed', [
                 'shift_id' => $shift->id,
@@ -262,15 +262,26 @@ class VarianceCalculationService
 
     private function uploadSupportingFiles(array $files, string $shiftId): string
     {
+        return json_encode($this->stageSupportingFiles($files, $shiftId));
+    }
+
+    /** Store supporting files before a caller acquires financial locks. */
+    public function stageSupportingFiles(array $files, string $shiftId): array
+    {
         $uploadedFiles = [];
 
         foreach ($files as $file) {
+            if (is_string($file)) {
+                $uploadedFiles[] = $file;
+
+                continue;
+            }
+
             $filename = 'variance_'.$shiftId.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension();
-            $path = $file->storeAs('variance/supporting-files', $filename, 'public');
-            $uploadedFiles[] = $path;
+            $uploadedFiles[] = $file->storeAs('variance/supporting-files', $filename, 'public');
         }
 
-        return json_encode($uploadedFiles);
+        return $uploadedFiles;
     }
 
     /**

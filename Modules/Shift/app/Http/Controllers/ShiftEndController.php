@@ -2,15 +2,20 @@
 
 namespace Modules\Shift\Http\Controllers;
 
+use App\Support\ShiftFinancialCalculator;
+use App\Support\ShiftMoneyValidation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Services\CountedReassignmentGuard;
 use Modules\Shift\Services\HandoverService;
+use Modules\Shift\Services\ShiftCashCountService;
 use Modules\Shift\Services\ShiftEndService;
 use Modules\Shift\Services\VarianceCalculationService;
 use Modules\Shift\Transformers\ShiftDetailResource;
@@ -29,7 +34,9 @@ class ShiftEndController extends Controller
     public function __construct(
         private ShiftEndService $shiftEndService,
         private HandoverService $handoverService,
-        private VarianceCalculationService $varianceService
+        private VarianceCalculationService $varianceService,
+        private ShiftCashCountService $cashCounts,
+        private CountedReassignmentGuard $reassignmentGuard
     ) {}
 
     /**
@@ -46,22 +53,30 @@ class ShiftEndController extends Controller
      */
     public function endShiftOnly(Request $request, string $shift): JsonResponse
     {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
         $validator = Validator::make($request->all(), [
-            'total_sales' => 'required|numeric|min:0',
-            'cash_collected' => 'sometimes|numeric|min:0',
-            'card_payments' => 'sometimes|numeric|min:0',
+            'total_sales' => 'required|'.ShiftMoneyValidation::SAR,
+            'cash_collected' => 'sometimes|'.ShiftMoneyValidation::SAR,
+            'card_payments' => 'sometimes|'.ShiftMoneyValidation::SAR,
+            // S1-10: independent physical count (required) and, for a shortage, the full in-branch allocation.
+            'counted_cash' => 'required|'.ShiftMoneyValidation::SAR,
+            'shortage_allocations' => 'sometimes|array',
+            'shortage_allocations.*.responsible_type' => 'required_with:shortage_allocations|in:cashier,branch_manager,employee',
+            'shortage_allocations.*.responsible_id' => 'required_with:shortage_allocations|string|max:64',
+            'shortage_allocations.*.amount' => 'required_with:shortage_allocations|'.ShiftMoneyValidation::SAR,
+            'allocation_reason' => 'nullable|string|max:500',
             'aggregators' => 'sometimes|array',
             'aggregators.*.aggregator_id' => 'required_with:aggregators|exists:aggregators,id',
-            'aggregators.*.amount' => 'required_with:aggregators|numeric|min:0',
+            'aggregators.*.amount' => 'required_with:aggregators|'.ShiftMoneyValidation::SAR,
             'aggregators.*.notes' => 'nullable|string|max:255',
             'pos_receipt' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
             // Optional variance for shifts with variance but no handover yet
             'variance' => 'sometimes|array',
             'variance.responsibility_type' => 'required_with:variance|in:self,self_and_others,other_factors,mixed',
-            'variance.current_cashier_amount' => 'required_if:variance.responsibility_type,self_and_others,mixed|numeric|min:0',
+            'variance.current_cashier_amount' => 'required_if:variance.responsibility_type,self_and_others,mixed|'.ShiftMoneyValidation::SAR,
             'variance.other_cashiers' => 'sometimes|array',
             'variance.other_cashiers.*.cashier_id' => 'required_with:variance.other_cashiers|exists:cashiers,id',
-            'variance.other_cashiers.*.amount' => 'required_with:variance.other_cashiers|numeric|min:0',
+            'variance.other_cashiers.*.amount' => 'required_with:variance.other_cashiers|'.ShiftMoneyValidation::SAR,
             'variance.other_cashiers.*.notes' => 'nullable|string|max:255',
             'variance.reason' => 'required_if:variance.responsibility_type,other_factors,mixed|nullable|string|max:500',
             'variance.supporting_files' => 'sometimes|array',
@@ -91,6 +106,7 @@ class ShiftEndController extends Controller
                 ], 404);
             }
 
+            $this->reassignmentGuard->assertCanContinue($shiftModel);
             if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
                 return response()->json([
                     'success' => false,
@@ -125,15 +141,11 @@ class ShiftEndController extends Controller
             }
 
             // End shift
-            $updatedShift = $this->shiftEndService->endShiftOnly($shiftModel, $data);
-
-            // Handle variance if provided
-            if ($request->has('variance') && $updatedShift->hasVariance()) {
-                $this->varianceService->recordVariance($updatedShift, $request->variance);
-            }
+            $updatedShift = $this->shiftEndService->endShiftOnly($shiftModel, $data, $user);
 
             // Reload shift with relationships
             $updatedShift = $updatedShift->fresh()->loadFullRelationships();
+            $this->cashCounts->attachReconciliation($updatedShift);
 
             // Get variance if exists
             $variance = null;
@@ -160,6 +172,7 @@ class ShiftEndController extends Controller
                             'delivery_apps' => (float) $updatedShift->salesBreakdown->sum('amount'),
                         ],
                         'opening_balance' => (float) ($updatedShift->opening_balance ?? 0),
+                        'cash_reconciliation' => $updatedShift->getRelation('cashReconciliation'),
                         'handover_status' => 'pending',
                     ],
                     'next_actions' => [
@@ -173,18 +186,61 @@ class ShiftEndController extends Controller
                 'success' => false,
                 'message' => 'Shift not found',
             ], 404);
-        } catch (\Exception $e) {
-            Log::error('End shift only failed', [
-                'shift_id' => $shift,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
+        } catch (\Throwable $e) {
+            return HandoverErrorResponse::from($e, 'end shift only');
+        }
+    }
 
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to end shift',
-                'error' => $e->getMessage(),
-            ], 500);
+    /**
+     * S1-10 D17: read-only preview of the server calculation for the figures the user is about to submit.
+     * Same permission and same calculation as `end`; writes nothing and carries no idempotency key.
+     */
+    public function previewCashReconciliation(Request $request, string $shift): JsonResponse
+    {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
+        $validator = Validator::make($request->all(), [
+            'total_sales' => 'required|'.ShiftMoneyValidation::SAR,
+            'card_payments' => 'sometimes|'.ShiftMoneyValidation::SAR,
+            'counted_cash' => 'required|'.ShiftMoneyValidation::SAR,
+            'aggregators' => 'sometimes|array',
+            'aggregators.*.aggregator_id' => 'required_with:aggregators|exists:aggregators,id',
+            'aggregators.*.amount' => 'required_with:aggregators|'.ShiftMoneyValidation::SAR,
+        ]);
+        $validator->after(function (\Illuminate\Validation\Validator $v) use ($request) {
+            $this->validateUniqueAggregators($v, $request->input('aggregators', []));
+        });
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $validator->errors()], 422);
+        }
+
+        try {
+            $shiftModel = $this->getShiftForUser($shift, auth()->user());
+            if (! $shiftModel) {
+                return response()->json(['success' => false, 'message' => 'Shift not found or you do not have access to it'], 404);
+            }
+            if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
+                return response()->json(['success' => false, 'message' => 'This shift is not in progress. Current status: '.$shiftModel->status->value], 400);
+            }
+
+            $countedHalalas = $this->shiftEndService->parseCountedCash($request->all());
+            $apps = 0;
+            foreach ($request->input('aggregators', []) as $aggregator) {
+                $apps += ShiftFinancialCalculator::sarToHalalas($aggregator['amount']);
+            }
+
+            $preview = $this->cashCounts->preview(
+                $shiftModel,
+                ShiftFinancialCalculator::sarToHalalas($request->input('total_sales')),
+                ShiftFinancialCalculator::sarToHalalas($request->input('card_payments', 0)),
+                $apps,
+                $countedHalalas,
+            );
+
+            return response()->json(['success' => true, 'data' => $preview]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json(['success' => false, 'message' => 'Validation failed', 'errors' => $e->errors()], 422);
+        } catch (\Throwable $e) {
+            return HandoverErrorResponse::from($e, 'preview cash reconciliation');
         }
     }
 
@@ -199,14 +255,22 @@ class ShiftEndController extends Controller
      */
     public function endShiftWithHandover(Request $request, string $shift): JsonResponse
     {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
         $validator = Validator::make($request->all(), [
             // Sales information
-            'total_sales' => 'required|numeric|min:0',
-            'cash_collected' => 'sometimes|numeric|min:0',
-            'card_payments' => 'sometimes|numeric|min:0',
+            'total_sales' => 'required|'.ShiftMoneyValidation::SAR,
+            'cash_collected' => 'sometimes|'.ShiftMoneyValidation::SAR,
+            'card_payments' => 'sometimes|'.ShiftMoneyValidation::SAR,
+            // S1-10: independent physical count (required) and, for a shortage, the full in-branch allocation.
+            'counted_cash' => 'required|'.ShiftMoneyValidation::SAR,
+            'shortage_allocations' => 'sometimes|array',
+            'shortage_allocations.*.responsible_type' => 'required_with:shortage_allocations|in:cashier,branch_manager,employee',
+            'shortage_allocations.*.responsible_id' => 'required_with:shortage_allocations|string|max:64',
+            'shortage_allocations.*.amount' => 'required_with:shortage_allocations|'.ShiftMoneyValidation::SAR,
+            'allocation_reason' => 'nullable|string|max:500',
             'aggregators' => 'sometimes|array',
             'aggregators.*.aggregator_id' => 'required_with:aggregators|exists:aggregators,id',
-            'aggregators.*.amount' => 'required_with:aggregators|numeric|min:0',
+            'aggregators.*.amount' => 'required_with:aggregators|'.ShiftMoneyValidation::SAR,
             'aggregators.*.notes' => 'nullable|string|max:255',
             'pos_receipt' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
 
@@ -216,16 +280,16 @@ class ShiftEndController extends Controller
             'branch_manager_id' => 'required_without_all:handover_to_type,next_cashier_id|nullable|exists:branch_managers,id',
 
             // Handover details
-            'handover_amount' => 'required|numeric|min:0',
+            'handover_amount' => 'required|'.ShiftMoneyValidation::SAR,
             'handover_notes' => 'nullable|string|max:500',
 
             // Variance information
             'variance' => 'sometimes|array',
             'variance.responsibility_type' => 'required_with:variance|in:self,self_and_others,other_factors,mixed',
-            'variance.current_cashier_amount' => 'required_if:variance.responsibility_type,self_and_others,mixed|numeric|min:0',
+            'variance.current_cashier_amount' => 'required_if:variance.responsibility_type,self_and_others,mixed|'.ShiftMoneyValidation::SAR,
             'variance.other_cashiers' => 'sometimes|array',
             'variance.other_cashiers.*.cashier_id' => 'required_with:variance.other_cashiers|exists:cashiers,id',
-            'variance.other_cashiers.*.amount' => 'required_with:variance.other_cashiers|numeric|min:0',
+            'variance.other_cashiers.*.amount' => 'required_with:variance.other_cashiers|'.ShiftMoneyValidation::SAR,
             'variance.other_cashiers.*.notes' => 'nullable|string|max:255',
             'variance.reason' => 'required_if:variance.responsibility_type,other_factors,mixed|nullable|string|max:500',
             'variance.supporting_files' => 'sometimes|array',
@@ -254,6 +318,7 @@ class ShiftEndController extends Controller
                 ], 404);
             }
 
+            $this->reassignmentGuard->assertCanContinue($shiftModel);
             if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
                 return response()->json([
                     'success' => false,
@@ -268,22 +333,8 @@ class ShiftEndController extends Controller
 
             // Check if branch_manager_id is provided (must be filled; ignore null/empty so cashier handover works)
             if ($request->filled('branch_manager_id')) {
-                $branchManager = \Modules\BranchManagers\Models\BranchManager::find($request->branch_manager_id);
-
-                if (! $branchManager) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Branch manager not found',
-                    ], 404);
-                }
-
-                // Verify branch manager belongs to the same branch
-                if ($branchManager->branch_id !== $shiftModel->shift->branch_id) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Branch manager does not belong to this branch',
-                    ], 400);
-                }
+                $branchManager = app(\Modules\BranchManagers\Services\BranchManagerService::class)
+                    ->assertAssignedActiveManager($shiftModel->shift->branch_id, (string) $request->branch_manager_id);
 
                 $handoverToType = 'branch_manager';
                 $handoverToId = $branchManager->id;
@@ -291,17 +342,8 @@ class ShiftEndController extends Controller
             }
             // Check if handover_to_type is explicitly set to branch_manager
             elseif ($handoverToType === 'branch_manager') {
-                // Get branch manager for this branch
-                $branchManager = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shiftModel->shift->branch_id)
-                    ->where('is_active', true)
-                    ->first();
-
-                if (! $branchManager) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'No active branch manager found for this branch',
-                    ], 400);
-                }
+                $branchManager = app(\Modules\BranchManagers\Services\BranchManagerService::class)
+                    ->assignedActiveManager($shiftModel->shift->branch_id);
 
                 $handoverToId = $branchManager->id;
                 $handoverToName = $branchManager->name;
@@ -364,7 +406,7 @@ class ShiftEndController extends Controller
             }
 
             // End shift with handover
-            $updatedShift = $this->shiftEndService->endShiftWithHandover($shiftModel, $data);
+            $updatedShift = $this->shiftEndService->endShiftWithHandover($shiftModel, $data, $user);
 
             // Reload with relationships
             $updatedShift = CashierShift::with([
@@ -375,6 +417,7 @@ class ShiftEndController extends Controller
                 'handoverStatus',
                 'varianceDetails.responsibleCashier',
             ])->findOrFail($updatedShift->id);
+            $this->cashCounts->attachReconciliation($updatedShift);
 
             // Get variance if exists
             $variance = null;
@@ -409,6 +452,7 @@ class ShiftEndController extends Controller
                             'card_payments' => (float) ($updatedShift->card_payments ?? 0),
                             'delivery_apps' => (float) $updatedShift->salesBreakdown->sum('amount'),
                         ],
+                        'cash_reconciliation' => $updatedShift->getRelation('cashReconciliation'),
                         'handover_details' => [
                             'handover_amount' => (float) $request->handover_amount,
                             'variance' => (float) $varianceAmount,
@@ -427,18 +471,8 @@ class ShiftEndController extends Controller
                 'success' => false,
                 'message' => 'Shift not found',
             ], 404);
-        } catch (\Exception $e) {
-            Log::error('End shift with handover failed', [
-                'shift_id' => $shift,
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to end shift with handover',
-                'error' => $e->getMessage(),
-            ], 500);
+        } catch (\Throwable $e) {
+            return HandoverErrorResponse::from($e, 'end shift with handover');
         }
     }
 
@@ -449,11 +483,12 @@ class ShiftEndController extends Controller
      */
     public function startHandover(Request $request, string $shift): JsonResponse
     {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
         $validator = Validator::make($request->all(), [
             'handover_to_type' => 'sometimes|in:cashier,branch_manager',
             'next_cashier_id' => 'required_without_all:handover_to_type,branch_manager_id|nullable|exists:cashiers,id',
             'branch_manager_id' => 'required_without_all:handover_to_type,next_cashier_id|nullable|exists:branch_managers,id',
-            'handover_amount' => 'required|numeric|min:0',
+            'handover_amount' => 'required|'.ShiftMoneyValidation::SAR,
             'handover_notes' => 'nullable|string|max:500',
             'variance' => 'sometimes|array',
             'variance.responsibility_type' => 'required_with:variance|in:self,self_and_others,other_factors,mixed',
@@ -481,6 +516,9 @@ class ShiftEndController extends Controller
                 ], 404);
             }
 
+            // Apply the shared D16 fallback before request-side upload or handover work.
+            $this->reassignmentGuard->assertCanContinue($shiftModel);
+
             // Check if shift can have handover recorded
             if (! $shiftModel->total_sales) {
                 return response()->json([
@@ -496,22 +534,8 @@ class ShiftEndController extends Controller
 
             // Check if branch_manager_id is provided (must be filled; ignore null/empty so cashier handover works)
             if ($request->filled('branch_manager_id')) {
-                $branchManager = \Modules\BranchManagers\Models\BranchManager::find($request->branch_manager_id);
-
-                if (! $branchManager) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Branch manager not found',
-                    ], 404);
-                }
-
-                // Verify branch manager belongs to the same branch
-                if ($branchManager->branch_id !== $shiftModel->shift->branch_id) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Branch manager does not belong to this branch',
-                    ], 400);
-                }
+                $branchManager = app(\Modules\BranchManagers\Services\BranchManagerService::class)
+                    ->assertAssignedActiveManager($shiftModel->shift->branch_id, (string) $request->branch_manager_id);
 
                 $handoverToType = 'branch_manager';
                 $handoverToId = $branchManager->id;
@@ -519,17 +543,8 @@ class ShiftEndController extends Controller
             }
             // Check if handover_to_type is explicitly set to branch_manager
             elseif ($handoverToType === 'branch_manager') {
-                $branchManager = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shiftModel->shift->branch_id)
-                    ->where('is_active', true)
-                    ->first();
-
-                if (! $branchManager) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'No active branch manager found',
-                    ], 400);
-                }
-
+                $branchManager = app(\Modules\BranchManagers\Services\BranchManagerService::class)
+                    ->assignedActiveManager($shiftModel->shift->branch_id);
                 $handoverToId = $branchManager->id;
                 $handoverToName = $branchManager->name;
             }
@@ -572,7 +587,7 @@ class ShiftEndController extends Controller
                 $handoverData['variance_reason'] = $request->input('variance.reason');
             }
 
-            $updatedShift = $this->handoverService->recordHandover($shiftModel, $handoverData);
+            $updatedShift = $this->handoverService->recordHandover($shiftModel, $handoverData, $user);
 
             // Record variance if provided
             if ($request->has('variance') && $updatedShift->hasVariance()) {
@@ -586,6 +601,7 @@ class ShiftEndController extends Controller
             // Get handover status from the created handover
             $handoverStatus = 'pending';
             $freshShift = $updatedShift->fresh()->loadFullRelationships();
+            $this->cashCounts->attachReconciliation($freshShift);
             if ($freshShift->handoverStatus) {
                 $handoverStatus = $this->normalizeHandoverStatus($freshShift->handoverStatus->manager_approval_status ?? 'pending');
             }
@@ -606,17 +622,8 @@ class ShiftEndController extends Controller
                     ],
                 ],
             ]);
-        } catch (\Exception $e) {
-            Log::error('Start handover failed', [
-                'shift_id' => $shift,
-                'error' => $e->getMessage(),
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to record handover',
-                'error' => $e->getMessage(),
-            ], 500);
+        } catch (\Throwable $e) {
+            return HandoverErrorResponse::from($e, 'start handover');
         }
     }
 
@@ -625,8 +632,9 @@ class ShiftEndController extends Controller
      */
     public function calculateSales(Request $request): JsonResponse
     {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
         $validator = Validator::make($request->all(), [
-            'total_sales' => 'required|numeric|min:0',
+            'total_sales' => 'required|'.ShiftMoneyValidation::SAR,
         ]);
 
         if ($validator->fails()) {
@@ -686,11 +694,9 @@ class ShiftEndController extends Controller
 
             $suggestedCashierId = $nextShift?->cashier_id;
 
-            // Get all active branch managers for this branch (handover can be to manager)
-            $branchManagers = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $shiftModel->shift->branch_id)
-                ->where('is_active', true)
-                ->where('status', 'active')
-                ->get();
+            $branchManagers = BranchManager::query()->active()
+                ->byBranch($shiftModel->shift->branch_id)
+                ->orderBy('id')->limit(2)->get();
 
             $availableCashiers = $allCashiers->map(function ($cashier) use ($suggestedCashierId) {
                 return [
@@ -709,31 +715,18 @@ class ShiftEndController extends Controller
             });
 
             $recipients = $availableCashiers->toArray();
-            $recipientIds = [];
-            foreach ($branchManagers as $branchManager) {
+            $hasBranchManager = $branchManagers->count() === 1;
+            $branchManagerReason = match ($branchManagers->count()) {
+                0 => 'BRANCH_MANAGER_RECIPIENT_UNAVAILABLE',
+                1 => null,
+                default => 'BRANCH_MANAGER_RECIPIENT_AMBIGUOUS',
+            };
+            if ($hasBranchManager) {
+                $branchManager = $branchManagers->first();
                 $recipients[] = [
                     'id' => $branchManager->id,
                     'name' => $branchManager->name.' (Branch Manager)',
                     'image' => $branchManager->image ? asset('storage/'.$branchManager->image) : null,
-                    'type' => 'branch_manager',
-                    'is_available' => true,
-                    'disabled' => false,
-                    'reason_disabled' => null,
-                    'is_suggested' => false,
-                    'suggestion_reason' => 'Final handover to Branch Manager',
-                ];
-                $recipientIds[(string) $branchManager->id] = true;
-            }
-
-            // Always include logged-in branch manager for this branch (so they can receive handover even if not in active list)
-            $authUser = auth()->user();
-            if ($authUser instanceof \Modules\BranchManagers\Models\BranchManager
-                && (string) $authUser->branch_id === (string) $shiftModel->shift->branch_id
-                && empty($recipientIds[(string) $authUser->id])) {
-                $recipients[] = [
-                    'id' => $authUser->id,
-                    'name' => $authUser->name.' (Branch Manager)',
-                    'image' => $authUser->image ? asset('storage/'.$authUser->image) : null,
                     'type' => 'branch_manager',
                     'is_available' => true,
                     'disabled' => false,
@@ -749,15 +742,12 @@ class ShiftEndController extends Controller
                 'data' => [
                     'recipients' => $recipients,
                     'auto_handover_enabled' => ! is_null($suggestedCashierId),
-                    'has_branch_manager' => $branchManagers->isNotEmpty(),
+                    'has_branch_manager' => $hasBranchManager,
+                    'reason' => $branchManagerReason,
                 ],
             ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to retrieve available recipients',
-                'error' => $e->getMessage(),
-            ], 500);
+        } catch (\Throwable $e) {
+            return HandoverErrorResponse::from($e, 'available recipients');
         }
     }
 

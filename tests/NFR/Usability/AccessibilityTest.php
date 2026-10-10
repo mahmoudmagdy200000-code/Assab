@@ -144,7 +144,10 @@ class AccessibilityTest extends TestCase
         // Should have proper content type
         $contentType = $response->headers->get('Content-Type');
         $this->assertStringContainsString('application/json', $contentType, 'Response should be JSON');
-        $this->assertStringContainsString('utf-8', strtolower($contentType), 'Response should use UTF-8 encoding');
+        $this->assertTrue(
+            mb_check_encoding($response->getContent(), 'UTF-8'),
+            'JSON response content should be valid UTF-8'
+        );
     }
 
     /**

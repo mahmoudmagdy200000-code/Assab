@@ -39,6 +39,8 @@ class ShiftDetailResource extends JsonResource
 
             // Variance Information
             'variance_info' => $this->getVarianceInfo(),
+            // S1-10: present only on single-shift responses that attached it; null = no count evidence.
+            'cash_reconciliation' => $this->when($this->resource->relationLoaded('cashReconciliation'), fn () => $this->resource->getRelation('cashReconciliation')),
 
             // Reassignment Information (same structure for all statuses; nulls when not reassigned)
             'reassignment_info' => $this->getReassignmentInfo(),
