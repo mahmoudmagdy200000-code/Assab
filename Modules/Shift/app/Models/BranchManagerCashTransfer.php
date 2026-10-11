@@ -13,7 +13,11 @@ class BranchManagerCashTransfer extends Model
 
     protected $guarded = ['id'];
 
-    protected $casts = ['requested_amount' => 'decimal:2'];
+    protected $casts = [
+        'requested_amount' => 'decimal:2',
+        'superseded_at' => 'datetime',
+        'cancelled_at' => 'datetime',
+    ];
 
     public function sourceWorkday(): BelongsTo
     {
@@ -28,5 +32,25 @@ class BranchManagerCashTransfer extends Model
     public function receipt(): HasOne
     {
         return $this->hasOne(CashierShiftHandoverReceipt::class, 'branch_manager_cash_transfer_id');
+    }
+
+    public function supersedes(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'supersedes_id');
+    }
+
+    public function replacementRequest(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'replacement_request_id');
+    }
+
+    public function isCancelled(): bool
+    {
+        return $this->cancelled_at !== null;
+    }
+
+    public function isSuperseded(): bool
+    {
+        return $this->superseded_at !== null;
     }
 }

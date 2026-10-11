@@ -19,4 +19,14 @@ class ShiftReportRevision extends Model
     {
         return $this->belongsTo(ShiftReportAggregate::class, 'report_aggregate_id');
     }
+
+    public function snapshot(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(ShiftReportRevisionSnapshot::class, 'report_revision_id');
+    }
+
+    public function varianceReviews(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(ShiftVarianceReviewEvidence::class, 'report_revision_id');
+    }
 }

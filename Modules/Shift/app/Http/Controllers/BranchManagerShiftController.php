@@ -9,15 +9,18 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Shift\Liability\DailyLiabilityGuard;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Services\BranchManagerShiftService;
 use Modules\Shift\Services\HandoverService;
+use Modules\Shift\Services\ShiftDailyCloseScopeService;
 use Modules\Shift\Services\ShiftReportRevisionService;
+use Modules\Shift\Services\ShiftTransferReceiptService;
 use Modules\Shift\Transformers\BranchManagerShiftResource;
 
 class BranchManagerShiftController extends BaseController
@@ -247,6 +250,7 @@ class BranchManagerShiftController extends BaseController
         $validator = Validator::make($request->all(), [
             'handover_id' => 'required|exists:cashier_shift_handovers,id',
             'confirmed_amount' => 'required|'.ShiftMoneyValidation::SAR,
+            'transfer_attempt_id' => 'nullable|uuid',
         ]);
 
         if ($validator->fails()) {
@@ -283,7 +287,8 @@ class BranchManagerShiftController extends BaseController
                 $manager->id,
                 get_class($manager),
                 null,
-                (string) $request->input('confirmed_amount')
+                (string) $request->input('confirmed_amount'),
+                $request->input('transfer_attempt_id')
             );
 
             $handover->refresh();
@@ -306,6 +311,7 @@ class BranchManagerShiftController extends BaseController
             'rejection_reason' => 'required|string|max:500',
             'correction_reason' => 'nullable|in:input_error,actual_shortage',
             'confirmed_amount' => 'required_with:correction_reason|'.ShiftMoneyValidation::SAR,
+            'transfer_attempt_id' => 'nullable|uuid',
         ]);
 
         if ($validator->fails()) {
@@ -344,7 +350,8 @@ class BranchManagerShiftController extends BaseController
                     get_class($manager),
                     $request->rejection_reason,
                     (string) $request->input('confirmed_amount'),
-                    $request->string('correction_reason')->toString()
+                    $request->string('correction_reason')->toString(),
+                    $request->input('transfer_attempt_id')
                 );
                 $current = $cashierShift->fresh('handoverStatus')->handoverStatus;
                 $result = [
@@ -399,7 +406,7 @@ class BranchManagerShiftController extends BaseController
             $shiftModel = CashierShift::select(['id', 'cashier_id', 'shift_id'])
                 ->with([
                     'cashier:id,name',
-                    'handoverStatus:id,cashier_shift_id,rejection_reason,rejection_count,rejection_file_urls,first_rejected_at,second_rejected_at,manager_comment,reviewed_by_id,reviewed_by_type,reviewed_at',
+                    'handoverStatus:id,cashier_shift_id,manager_approval_status,rejection_reason,rejection_count,rejection_file_urls,first_rejected_at,second_rejected_at,manager_comment,reviewed_by_id,reviewed_by_type,reviewed_at',
                     'handoverStatus.reviewedBy:id,name',
                     'shift:id,name,branch_id',
                 ])
@@ -434,8 +441,8 @@ class BranchManagerShiftController extends BaseController
                     'reviewed_by' => $handoverStatus->reviewedBy?->name,
                     'reviewed_at' => $handoverStatus->reviewed_at?->format(self::DATETIME_FORMAT),
                 ],
-                'can_approve_rejection' => ! $handoverStatus->isPermanentlyRejected(),
-                'can_request_corrections' => $handoverStatus->rejection_count === 1,
+                'can_approve_rejection' => false,
+                'can_request_corrections' => true,
             ], 'Rejection details retrieved successfully');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
@@ -482,10 +489,6 @@ class BranchManagerShiftController extends BaseController
                 return $this->errorResponse('This handover is not rejected', 400);
             }
 
-            if ($handoverStatus->isPermanentlyRejected()) {
-                return $this->errorResponse('This rejection is already final and cannot be modified', 400);
-            }
-
             $decision = $requestData['decision'] ?? $request->decision;
             $comment = $requestData['manager_comment'] ?? $request->manager_comment;
 
@@ -522,6 +525,10 @@ class BranchManagerShiftController extends BaseController
             'cashier_breakdown.*.delivery_app_payments' => 'nullable|'.ShiftMoneyValidation::SAR,
             'cashier_breakdown.*.variance' => 'nullable|'.ShiftMoneyValidation::SIGNED_SAR,
             'cashier_breakdown.*.sales' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'cashier_breakdown.*.liability_shares' => 'nullable|array|min:1',
+            'cashier_breakdown.*.liability_shares.*.type' => 'required_with:cashier_breakdown.*.liability_shares|in:cashier,branch_manager,employee',
+            'cashier_breakdown.*.liability_shares.*.id' => 'required_with:cashier_breakdown.*.liability_shares|uuid',
+            'cashier_breakdown.*.liability_shares.*.amount' => 'required_with:cashier_breakdown.*.liability_shares|integer|min:1',
         ]);
 
         if ($validator->fails()) {
@@ -543,6 +550,8 @@ class BranchManagerShiftController extends BaseController
             DB::beginTransaction();
 
             try {
+                app(ShiftTransferReceiptService::class)->lockManagerCashOwner((string) $managerShift->branch_manager_id);
+                $this->shiftService->lockCashierFinancialOwners($managerShift);
                 $managerShift = BranchManagerShift::query()->whereKey($managerShift->id)->lockForUpdate()->firstOrFail();
                 $this->shiftService->lockCashierFinancialInputs($managerShift);
                 if (! $managerShift->canEnd()) {
@@ -552,7 +561,14 @@ class BranchManagerShiftController extends BaseController
                 }
 
                 if ($request->has('cashier_breakdown') && is_array($request->cashier_breakdown)) {
-                    $this->shiftService->bulkUpdateCashierShifts($request->cashier_breakdown, $managerShift);
+                    $this->shiftService->bulkUpdateCashierShifts(
+                        $request->cashier_breakdown,
+                        $managerShift,
+                        $manager,
+                        $request->header('X-Operation-Id') ?? (string) Str::uuid(),
+                        $request->header('Idempotency-Key'),
+                        true
+                    );
                 }
 
                 $financialSummary = $this->shiftService->calculateFinancialSummary($managerShift, true);
@@ -697,6 +713,10 @@ class BranchManagerShiftController extends BaseController
             'cashier_breakdown.*.delivery_app_payments' => 'nullable|'.ShiftMoneyValidation::SAR,
             'cashier_breakdown.*.variance' => 'nullable|'.ShiftMoneyValidation::SIGNED_SAR,
             'cashier_breakdown.*.sales' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'cashier_breakdown.*.liability_shares' => 'nullable|array|min:1',
+            'cashier_breakdown.*.liability_shares.*.type' => 'required_with:cashier_breakdown.*.liability_shares|in:cashier,branch_manager,employee',
+            'cashier_breakdown.*.liability_shares.*.id' => 'required_with:cashier_breakdown.*.liability_shares|uuid',
+            'cashier_breakdown.*.liability_shares.*.amount' => 'required_with:cashier_breakdown.*.liability_shares|integer|min:1',
         ]);
 
         if ($validator->fails()) {
@@ -718,6 +738,8 @@ class BranchManagerShiftController extends BaseController
             DB::beginTransaction();
 
             try {
+                app(ShiftTransferReceiptService::class)->lockManagerCashOwner((string) $managerShift->branch_manager_id);
+                $this->shiftService->lockCashierFinancialOwners($managerShift);
                 $managerShift = BranchManagerShift::query()->whereKey($managerShift->id)->lockForUpdate()->firstOrFail();
                 if ($managerShift->status !== 'completed') {
                     DB::rollBack();
@@ -727,7 +749,14 @@ class BranchManagerShiftController extends BaseController
                 $this->shiftService->lockCashierFinancialInputs($managerShift);
 
                 if ($request->has('cashier_breakdown') && is_array($request->cashier_breakdown)) {
-                    $this->shiftService->bulkUpdateCashierShifts($request->cashier_breakdown, $managerShift);
+                    $this->shiftService->bulkUpdateCashierShifts(
+                        $request->cashier_breakdown,
+                        $managerShift,
+                        $manager,
+                        $request->header('X-Operation-Id') ?? (string) Str::uuid(),
+                        $request->header('Idempotency-Key'),
+                        true
+                    );
                 }
 
                 $financialSummary = $this->shiftService->calculateFinancialSummary($managerShift, true);
@@ -803,6 +832,8 @@ class BranchManagerShiftController extends BaseController
     {
         $validator = Validator::make($request->all(), [
             'final_notes' => 'nullable|string|max:1000',
+            'branch_manager_shift_id' => 'nullable|uuid',
+            'expected_revision' => 'required|integer|min:1',
         ]);
 
         if ($validator->fails()) {
@@ -813,33 +844,57 @@ class BranchManagerShiftController extends BaseController
             /** @var BranchManager $manager */
             $manager = Auth::user();
 
-            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->whereDate('shift_date', today())
-                ->where('status', 'completed')
-                ->firstOrFail();
+            if ($request->filled('branch_manager_shift_id')) {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->whereKey($request->branch_manager_shift_id)
+                    ->firstOrFail();
+            } else {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->whereDate('shift_date', today())
+                    ->where('status', 'completed')
+                    ->firstOrFail();
+            }
 
             if ($managerShift->daily_report_submitted) {
                 return $this->errorResponse('Daily report already submitted', 400);
             }
 
-            DB::transaction(function () use ($managerShift, $request) {
+            DB::transaction(function () use ($managerShift, $request, $manager) {
+                app(ShiftTransferReceiptService::class)->lockManagerCashOwner((string) $managerShift->branch_manager_id);
+                $this->shiftService->lockCashierFinancialOwners($managerShift);
+                $managerShift = BranchManagerShift::query()->whereKey($managerShift->id)->lockForUpdate()->firstOrFail();
+                if ($managerShift->daily_report_submitted) {
+                    throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('DAILY_REPORT_ALREADY_SUBMITTED');
+                }
+                if ($managerShift->status !== 'completed') {
+                    throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('DAILY_REPORT_NO_LONGER_SUBMITTABLE');
+                }
+
+                $currentRevision = app(ShiftReportRevisionService::class)->currentManagerRevision($managerShift);
+                if ($currentRevision === null) {
+                    throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('LIABILITY_EVIDENCE_UNAVAILABLE');
+                }
+                if ($currentRevision->revision_number !== (int) $request->expected_revision) {
+                    throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('STALE_REPORT_REVISION');
+                }
+
+                $this->shiftService->lockCashierFinancialInputs($managerShift);
+
+                // Gate C-DS: Lock submitted day liability and verify complete evidence
+                $scope = app(ShiftDailyCloseScopeService::class)->resolve($managerShift, true);
+                app(DailyLiabilityGuard::class)->lockSubmittedDay($managerShift->id, $manager);
+
                 $managerShift->update([
                     'daily_report_submitted' => true,
                     'daily_report_submitted_at' => now(),
                     'daily_report_notes' => $request->final_notes,
-                    'can_reopen' => true,
+                    'can_reopen' => false,
                 ]);
 
-                // Sweep every approved handover included in this close (today's
-                // plus carried-over unclosed days) so it is never re-included
-                // in a future daily close.
-                $includedIds = $this->shiftService
-                    ->getShiftHandovers($managerShift, 'to_manager', true)
-                    ->where('status', 'approved')
-                    ->pluck('id');
-
-                if ($includedIds->isNotEmpty()) {
-                    CashierShiftHandover::whereIn('id', $includedIds)
+                // Sweep every approved handover included in this close
+                if (! empty($scope['handover_ids'])) {
+                    CashierShiftHandover::whereIn('id', $scope['handover_ids'])
+                        ->where('status', 'approved')
                         ->whereNull('daily_closed_at')
                         ->update(['daily_closed_at' => now()]);
                 }
@@ -847,21 +902,18 @@ class BranchManagerShiftController extends BaseController
 
             $this->shiftService->clearShiftCaches($managerShift);
 
-            // Bridge to the ASAB world: the daily close becomes the branch's
-            // sales statement in the accountant's المبيعات inbox.
-            try {
-                event(new \Modules\Shift\Events\DailyReportSubmittedEvent($managerShift->fresh()));
-            } catch (\Throwable $exception) {
-                Log::error('Daily report bridge projection failed after commit', [
-                    'manager_shift_id' => $managerShift->id,
-                    'error' => $exception->getMessage(),
-                ]);
-            }
+            // Required transactional idempotency still owns the outer transaction.
+            // Bridge failure must roll back the day and response snapshot together.
+            event(new \Modules\Shift\Events\DailyReportSubmittedEvent($managerShift->fresh()));
 
             return $this->successResponse([
-                'shift' => new BranchManagerShiftResource($managerShift),
+                'shift' => new BranchManagerShiftResource($managerShift->fresh()),
                 'message' => 'Daily report submitted successfully. Waiting for Sales Team approval.',
             ], 'Daily report submitted successfully');
+        } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
+            return HandoverErrorResponse::from($e, 'daily report submit');
+        } catch (\Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException $e) {
+            return HandoverErrorResponse::from($e, 'daily report submit');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -885,28 +937,14 @@ class BranchManagerShiftController extends BaseController
                 ->whereDate('shift_date', today())
                 ->firstOrFail();
 
-            if (! $managerShift->can_reopen) {
-                return $this->errorResponse('This shift cannot be reopened', 400);
-            }
-
-            if (! $managerShift->daily_report_submitted) {
-                return $this->errorResponse('Shift must be submitted first', 400);
-            }
-
-            DB::transaction(function () use ($managerShift, $request) {
-                $managerShift->update([
-                    'daily_report_submitted' => false,
-                    'daily_report_submitted_at' => null,
-                    'reopened_at' => now(),
-                    'reopen_reason' => $request->reopen_reason,
-                    'can_reopen' => false,
-                ]);
-            });
-
-            return $this->successResponse([
-                'shift' => new BranchManagerShiftResource($managerShift),
-                'message' => 'Shift reopened successfully. You can now make changes and resubmit.',
-            ], 'Shift reopened successfully');
+            // Gate D-PR: Reopening a submitted daily report requires an executive business decision.
+            // Under Gate D-PR, reopening submitted workdays is strictly blocked.
+            return response()->json([
+                'success' => false,
+                'message' => 'REPORT_REOPEN_REQUIRED',
+                'code' => 'REPORT_REOPEN_REQUIRED',
+                'reason' => 'Reopening submitted daily reports is blocked by Gate D-PR pending executive business decision.',
+            ], 409);
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -1126,34 +1164,7 @@ class BranchManagerShiftController extends BaseController
      */
     private function applyApproveRejection($handoverStatus, CashierShift $shiftModel, ?string $comment, BranchManager $manager): JsonResponse
     {
-        if ($handoverStatus->rejection_count >= 2) {
-            return $this->errorResponse('Rejection is already final', 400);
-        }
-
-        $handoverStatus->update([
-            'manager_approval_status' => 'rejected_final',
-            'rejection_count' => 2,
-            'second_rejected_at' => now(),
-            'manager_comment' => $comment,
-            'reviewed_by_id' => $manager->id,
-            'reviewed_by_type' => get_class($manager),
-            'reviewed_at' => now(),
-        ]);
-
-        CashierShiftHandover::where('cashier_shift_id', $shiftModel->id)
-            ->update(['status' => 'rejected_final', 'rejection_count' => 2]);
-
-        return $this->successResponse([
-            'decision' => 'approve_rejection',
-            'message' => 'Rejection approved and finalized. Cashier cannot edit anymore.',
-            'rejection_details' => [
-                'cashier_name' => $shiftModel->cashier->name,
-                'rejection_count' => 2,
-                'is_final_rejection' => true,
-                'manager_comment' => $comment,
-                'processed_at' => now()->format(self::DATETIME_FORMAT),
-            ],
-        ], 'Rejection approved successfully');
+        return $this->errorResponse('INVALID_STATE: approve_rejection is retired under BR-17', 409);
     }
 
     /**
@@ -1201,5 +1212,95 @@ class BranchManagerShiftController extends BaseController
                 'processed_at' => now()->format(self::DATETIME_FORMAT),
             ],
         ], 'Corrections requested successfully');
+    }
+
+    public function replaceTransferRecipient(Request $request, string $transfer): JsonResponse
+    {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
+        try {
+            $validator = Validator::make($request->all(), [
+                'recipient_id' => 'required|uuid',
+                'destination_cashier_shift_id' => 'nullable|uuid',
+                'requested_amount' => 'required|'.ShiftMoneyValidation::SAR,
+                'expected_revision' => 'required|integer',
+                'reason' => 'required|string|min:1|max:500',
+            ]);
+            if ($validator->fails()) {
+                return response()->json(['success' => false, 'message' => 'Validation failed', 'code' => 'VALIDATION_ERROR', 'errors' => $validator->errors()], 422);
+            }
+
+            $actor = auth()->user();
+            $operationId = (string) ($request->header('Idempotency-Key') ?? \Illuminate\Support\Str::uuid());
+
+            $replacement = app(\Modules\Shift\Services\TransferRequestLifecycleService::class)->replaceRecipient(
+                'manager_transfer',
+                $transfer,
+                $actor,
+                [
+                    'recipient_id' => $request->input('recipient_id'),
+                    'destination_cashier_shift_id' => $request->input('destination_cashier_shift_id'),
+                ],
+                (string) $request->input('requested_amount'),
+                (int) $request->input('expected_revision'),
+                (string) $request->input('reason'),
+                $operationId
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Transfer recipient replaced successfully',
+                'data' => [
+                    'transfer_request_id' => $replacement->id,
+                    'supersedes_id' => $replacement->supersedes_id,
+                    'requested_amount' => (string) $replacement->requested_amount,
+                    'status' => $replacement->status,
+                ],
+            ], 200);
+        } catch (\Throwable $e) {
+            return HandoverErrorResponse::from($e, 'replace transfer recipient');
+        }
+    }
+
+    public function approveReportCorrection(Request $request, string $cashierShiftId): JsonResponse
+    {
+        try {
+            $cashierShift = CashierShift::findOrFail($cashierShiftId);
+            $user = $request->user();
+            if (! $user instanceof BranchManager) {
+                throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('ONLY_REPORT_OWNER_OR_ASSIGNED_BRANCH_MANAGER');
+            }
+
+            $validated = $request->validate([
+                'expected_revision' => 'required|integer|min:1',
+                'expected_allocation_version' => 'nullable|integer|min:1',
+                'reason' => 'nullable|string|max:1000',
+            ]);
+
+            $operationId = $request->header('X-Operation-Id')
+                ?? $request->input('operation_id')
+                ?? (string) Str::uuid();
+
+            $review = app(\Modules\Shift\Services\ShiftReportManagerReviewService::class)->approveCurrent(
+                $cashierShift,
+                $user,
+                (int) $validated['expected_revision'],
+                isset($validated['expected_allocation_version']) ? (int) $validated['expected_allocation_version'] : null,
+                $validated['reason'] ?? null,
+                $operationId
+            );
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'review_id' => $review->id,
+                    'status' => $review->status,
+                    'reviewed_at' => $review->reviewed_at?->toIso8601String(),
+                    'reviewer_id' => $review->reviewer_id,
+                ],
+                'message' => 'Report correction approved successfully.',
+            ]);
+        } catch (\Throwable $e) {
+            return HandoverErrorResponse::from($e, 'approve report correction');
+        }
     }
 }

@@ -33,7 +33,7 @@ return new class extends Migration
             $table->uuid('id')->primary();
             $table->foreignUuid('branch_manager_shift_id')->constrained('branch_manager_shifts')->restrictOnDelete();
             $table->foreignUuid('destination_cashier_id')->constrained('cashiers')->restrictOnDelete();
-            $table->foreignUuid('destination_cashier_shift_id')->constrained('cashier_shifts')->restrictOnDelete();
+            $table->foreignUuid('destination_cashier_shift_id')->constrained('cashier_shifts', indexName: 'bm_transfer_destination_shift_fk')->restrictOnDelete();
             $table->foreignUuid('report_revision_id')->nullable()->constrained('shift_report_revisions')->restrictOnDelete();
             $table->foreignUuid('created_by_id')->constrained('branch_managers')->restrictOnDelete();
             $table->decimal('requested_amount', 12, 2);
@@ -46,9 +46,9 @@ return new class extends Migration
 
         Schema::create('cashier_shift_handover_receipts', function (Blueprint $table) {
             $table->uuid('id')->primary();
-            $table->foreignUuid('cashier_shift_handover_id')->nullable()->constrained('cashier_shift_handovers')->restrictOnDelete();
-            $table->foreignUuid('branch_manager_cash_transfer_id')->nullable()->constrained('branch_manager_cash_transfers')->restrictOnDelete();
-            $table->foreignUuid('receiving_cashier_shift_id')->constrained('cashier_shifts')->restrictOnDelete();
+            $table->foreignUuid('cashier_shift_handover_id')->nullable()->constrained('cashier_shift_handovers', indexName: 'shift_receipt_handover_fk')->restrictOnDelete();
+            $table->foreignUuid('branch_manager_cash_transfer_id')->nullable()->constrained('branch_manager_cash_transfers', indexName: 'shift_receipt_manager_transfer_fk')->restrictOnDelete();
+            $table->foreignUuid('receiving_cashier_shift_id')->constrained('cashier_shifts', indexName: 'shift_receipt_receiving_shift_fk')->restrictOnDelete();
             $table->foreignUuid('receiving_cashier_id')->constrained('cashiers')->restrictOnDelete();
             $table->foreignUuid('report_revision_id')->constrained('shift_report_revisions')->restrictOnDelete();
             $table->decimal('confirmed_amount', 12, 2);

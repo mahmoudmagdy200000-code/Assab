@@ -1,0 +1,318 @@
+{
+  "date": "2026-10-11",
+  "previous_remote_sha": "b854e37044d1b81a08faafbc0e9e6ac700fd006a",
+  "aud05_sha": "72301848df291c78cc3ddaad09aef294757e24a6",
+  "framework": "PHPUnit 12.4.0",
+  "php": "8.4.26",
+  "full_repository_suite": "NOT_RUN",
+  "settlement_authority": "BLOCKED_PENDING_BUSINESS_AUTHORITY",
+  "finalized_reopen": "BLOCKED_D_PR_UNRESOLVED",
+  "runs": [
+    {
+      "gate": "SQLite affected union",
+      "engine": "sqlite",
+      "tests": 428,
+      "assertions": 2440,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "duration_seconds": 517.396628,
+      "retained_junit": "phases1-10-union-final.xml",
+      "junit_sha256": "7b11712a42ed19bcdff2c2de03683a4523cd44380149f7f845a98cad89656273",
+      "skipped_methods": []
+    },
+    {
+      "gate": "MySQL 14-file functional set",
+      "engine": "mysql",
+      "tests": 110,
+      "assertions": 515,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "duration_seconds": 152.248807,
+      "retained_junit": "phases8910-mysql-focused-after-review.xml",
+      "junit_sha256": "76f52bb3e9eefeef85dfb5e902fe94ddc30db56f19da04d422f284d5e972efe9",
+      "skipped_methods": []
+    },
+    {
+      "gate": "MySQL last scope/receipt/correction set",
+      "engine": "mysql",
+      "tests": 72,
+      "assertions": 372,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 6,
+      "duration_seconds": 102.32831,
+      "retained_junit": "mysql-last-affected-final.xml",
+      "junit_sha256": "d69b00382445299978afd3da612203e7bbf62e47ecc9b765f2635ae3d5d43655",
+      "skipped_methods": [
+        "Tests.Feature.ShiftTransferReceiptTest::test_accept_route_returns_generic_500_for_injected_database_failure",
+        "Tests.Feature.ShiftTransferReceiptTest::test_manager_receipt_audit_failure_rolls_back_receipt_custody_ledger_and_state",
+        "Tests.Feature.ShiftTransferReceiptTest::test_receipt_and_both_custody_rows_roll_back_when_destination_write_fails",
+        "Tests.Feature.ShiftTransferReceiptTest::test_source_custody_failure_rolls_back_receipt_and_all_other_effects",
+        "Tests.Feature.ShiftTransferReceiptTest::test_required_audit_failure_rolls_back_receipt_state_and_custody",
+        "Tests.Feature.ShiftTransferReceiptTest::test_manager_ledger_failure_rolls_back_receipt_transfer_and_recipient_custody"
+      ]
+    },
+    {
+      "gate": "MySQL Phases8910 concurrency",
+      "engine": "mysql",
+      "tests": 10,
+      "assertions": 66,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "duration_seconds": 51.717498,
+      "retained_junit": "phases8910-mysql-races-final.xml",
+      "junit_sha256": "b0b06f757267c94f2dff83fbab2ace4be88286adf77e0934fc293fa134858c6a",
+      "skipped_methods": []
+    },
+    {
+      "gate": "MySQL affected Phases567 concurrency",
+      "engine": "mysql",
+      "tests": 6,
+      "assertions": 74,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "duration_seconds": 30.979335,
+      "retained_junit": "phases567-mysql-after-review.xml",
+      "junit_sha256": "2fd7d4f5c5087690ebf81ff811835fb63dc4f207aae988a6aeb68259b854d1c9",
+      "skipped_methods": []
+    },
+    {
+      "gate": "MySQL Phases234 concurrency",
+      "engine": "mysql",
+      "tests": 10,
+      "assertions": 85,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "duration_seconds": 53.505161,
+      "retained_junit": "phases234-mysql-release.xml",
+      "junit_sha256": "65141fd4a06c27ec96d29eb0cbc5ac87496243810b3f593b8ff7ab3b5a5a138e",
+      "skipped_methods": []
+    }
+  ],
+  "existing_schema_upgrade": {
+    "schema": "s111_phase567_phase8910_upgrade_codex",
+    "engine": "MySQL 8.4",
+    "rebuild_during_upgrade": false,
+    "stage_exit_codes": [
+      0,
+      0,
+      0
+    ],
+    "stages": [
+      "prepare populated pre-Phase9 schema",
+      "normal migrate existing schema",
+      "verify original data and additive settlement"
+    ]
+  },
+  "source_php_fingerprints": [
+    {
+      "path": "Modules/Custody/app/Models/CashierCustodyTransaction.php",
+      "sha256": "e62f20f80a80bad357e203d3cae15cd7ca14c1f9bb8cd44e49b21c9acdae3a43"
+    },
+    {
+      "path": "Modules/Custody/app/Models/PersonalLedgerTransaction.php",
+      "sha256": "28c8fab440eef3b8146e2fdf3f26390709fdbebbb447b94844643b627fc9040d"
+    },
+    {
+      "path": "Modules/Shift/app/Http/Controllers/BranchManagerShiftController.php",
+      "sha256": "1c882129cf025b910b847df57cde957fffce92b25f2b11a8ab8065739758bd16"
+    },
+    {
+      "path": "Modules/Shift/app/Http/Controllers/HandoverSettlementController.php",
+      "sha256": "fcb622fd400cea277a6cf37669e2aff447c908fb58d62d166607283432586952"
+    },
+    {
+      "path": "Modules/Shift/app/Http/Controllers/ShiftLiabilityController.php",
+      "sha256": "b063da73fcf3f21ce437c138b5f75ce593b15849d170ec27548940fc154a882b"
+    },
+    {
+      "path": "Modules/Shift/app/Liability/CashCountLiabilityEvidence.php",
+      "sha256": "f93b5eb7331aaf27659b18a2933221046f48b8a4bd9a25b0fc24fdf56c7c2aa1"
+    },
+    {
+      "path": "Modules/Shift/app/Liability/ShiftLiabilityService.php",
+      "sha256": "d202641b995d4ca1519d5605a59d2e664e84fc8dcbb0fdabbb8522e9f93f749c"
+    },
+    {
+      "path": "Modules/Shift/app/Models/ShiftHandoverSettlement.php",
+      "sha256": "d5226551d9660d9da689158acb70960fbf76a4657d075a32fd512dcf04551271"
+    },
+    {
+      "path": "Modules/Shift/app/Policies/HandoverSettlementActorPolicy.php",
+      "sha256": "235029367334992bd0896f0aa501c517de3d43efc6715fcb88927b983e52dbf5"
+    },
+    {
+      "path": "Modules/Shift/app/Services/BranchManagerShiftService.php",
+      "sha256": "9c1bebb57d1d85da6bd1ee65856db9eb5cdfbd0ff4ac2d40df713d9128ffbe4f"
+    },
+    {
+      "path": "Modules/Shift/app/Services/HandoverService.php",
+      "sha256": "6c8bccdc97955147feb4a59a9a808317d2a9a3934167e977b26b117e32b35a5e"
+    },
+    {
+      "path": "Modules/Shift/app/Services/HandoverSettlementActorPolicy.php",
+      "sha256": "313c40a850881d9cdf5f201ef09a109e8e8808e21c6a4405feb6abe85502111d"
+    },
+    {
+      "path": "Modules/Shift/app/Services/HandoverSettlementService.php",
+      "sha256": "199491fbff674aca4ccd2d05f307990517b56be9166de425174e9f4ce1e02a3b"
+    },
+    {
+      "path": "Modules/Shift/app/Services/ShiftCashAvailabilityService.php",
+      "sha256": "7daf343091b7bdb5369236b8b9c4e5e81e008c56765b624e9e1b0f46230c4a5f"
+    },
+    {
+      "path": "Modules/Shift/app/Services/ShiftDailyCloseScopeService.php",
+      "sha256": "ee3e12b8c91b86782589af62a74bc16885bb289924dce03eebb383e99d33043b"
+    },
+    {
+      "path": "Modules/Shift/app/Services/ShiftEndService.php",
+      "sha256": "1f5a9babf1363808f8c9986a40759de2f96f28b2c200afb0cf98d59f6a1e8aa5"
+    },
+    {
+      "path": "Modules/Shift/app/Services/ShiftFinancialService.php",
+      "sha256": "3410d2571ce651308da6960c6c4b5e3bfc4fb1ad73476e9a8382713df97b848e"
+    },
+    {
+      "path": "Modules/Shift/app/Services/ShiftLiabilityLegacyPostingLinkService.php",
+      "sha256": "68d48bc0b511feb6fc713e6a252a618da2abf2a0acb9eb02c6c36d7ca2d3f453"
+    },
+    {
+      "path": "Modules/Shift/app/Services/ShiftReceiptProvenanceService.php",
+      "sha256": "063db96bfa9dc4229153286148ef968b4aaf54c7285d11a20703e6861399e102"
+    },
+    {
+      "path": "Modules/Shift/app/Services/ShiftReportMutationGuard.php",
+      "sha256": "0e8298b6564d78920222b3b4c829a97b66b9e9d18acd9e8eb6f3d9dca5d30fb6"
+    },
+    {
+      "path": "Modules/Shift/app/Services/ShiftTransferReceiptService.php",
+      "sha256": "77ca8e0946a09ed196c974e3fa608e642f21309f694200085b6f1d99bc76ad7b"
+    },
+    {
+      "path": "Modules/Shift/app/Services/ShortagePostingService.php",
+      "sha256": "fdd2fedbfe31472107530696e924c94b90574a54cc10126cccedae2e2bb97041"
+    },
+    {
+      "path": "Modules/Shift/app/Services/TransferRequestLifecycleService.php",
+      "sha256": "6ae93ec6d1dab622846225fa912997fa4194ca7ecf6c281ccac2dd48072b57f3"
+    },
+    {
+      "path": "Modules/Shift/app/Transformers/BranchManagerShiftResource.php",
+      "sha256": "00587a3c704c69f0991e99eaddcaba3fbe8944baf68c3ad2ecffb8ebfd7f4064"
+    },
+    {
+      "path": "Modules/Shift/app/Transformers/ShiftHandoverSettlementResource.php",
+      "sha256": "796229f6e8afd30ad298fb60d80f4bfe7026eb872591fd737a3602cef24b6310"
+    },
+    {
+      "path": "Modules/Shift/database/migrations/2026_10_11_000001_create_shift_handover_settlements.php",
+      "sha256": "da9a95c6135970c7d98a4c3949ba4da448a4c3f4f47281e9965989e8e0778064"
+    },
+    {
+      "path": "Modules/Shift/routes/api.php",
+      "sha256": "baec2a87b6b95bd43389e18f150ce3bc29fa39a6999df172f61099cba229e591"
+    },
+    {
+      "path": "tests/Feature/ShiftAccountantReportCorrectionTest.php",
+      "sha256": "399ac9f72aabc2c24369470e061b42459cf2cb4e58ab18edb236d36b27897778"
+    },
+    {
+      "path": "tests/Feature/ShiftAud05LegacyDiscoveryTest.php",
+      "sha256": "318fc96378eaae5f572a16f9d01add9355115a84738abbe33f4d9ccf36fe7bfd"
+    },
+    {
+      "path": "tests/Feature/ShiftCheckpoint1CorrectionTest.php",
+      "sha256": "06cd489f624e45fc9ee7ee5b39ef9833cdc2e3435dc38d10b15c0dc74f17cbe2"
+    },
+    {
+      "path": "tests/Feature/ShiftDailyCloseScopeTest.php",
+      "sha256": "7928afd85f9b22dc0f7263d15dad1cc4ce5f5087e3e1f49b8380cf4e9115fa5e"
+    },
+    {
+      "path": "tests/Feature/ShiftDailyCloseSubmitGateTest.php",
+      "sha256": "024d0b2baa14b02e6e276896beb5543a758afe045bed92b33285c8169b1fb705"
+    },
+    {
+      "path": "tests/Feature/ShiftHandoverSettlementAuthorizationTest.php",
+      "sha256": "76cb69bbe2e4534bf3af537939ad01db43d0508811dbdeb7e7bfb36560082611"
+    },
+    {
+      "path": "tests/Feature/ShiftHandoverSettlementBalancesTest.php",
+      "sha256": "b6587d2ebbb9996ce596f966c2362d876f379717e998d01eac3f6c1e80533c01"
+    },
+    {
+      "path": "tests/Feature/ShiftHandoverSettlementHttpTest.php",
+      "sha256": "0b152a15e4f222ebb258c632df8b58cbe51420dd107495bfea4fb987951bdf65"
+    },
+    {
+      "path": "tests/Feature/ShiftHandoverSettlementSchemaTest.php",
+      "sha256": "8e5952420d4094319940d818e912e56c8ce0fe480ff9f4fdbc1272424f48fa28"
+    },
+    {
+      "path": "tests/Feature/ShiftHandoverSettlementServiceTest.php",
+      "sha256": "6202cc428702dba9551f23ea7802aee6e44d1196502af1a754a0f7d02c04b53e"
+    },
+    {
+      "path": "tests/Feature/ShiftLiabilityApprovalHttpTest.php",
+      "sha256": "b97f3f2eed1d8fc73f53f1ed3d467e4a1d7c8802f67edb95c453b456a15f3070"
+    },
+    {
+      "path": "tests/Feature/ShiftLiabilityLegacyPostingTest.php",
+      "sha256": "755561393d5b3a503ef34016c2ea38fcdb5a77d1ce384170906385bf4641d1da"
+    },
+    {
+      "path": "tests/Feature/ShiftLiabilityServiceTest.php",
+      "sha256": "6186aaabbfcbe5e41fbff63835ec2b4025f901a10bd8aa99af7ff364924d4f71"
+    },
+    {
+      "path": "tests/Feature/ShiftPhases234MySqlConcurrencyTest.php",
+      "sha256": "c66d8a53fc3994d7373a005178caf5ce24e888296e99a35e0372b434f9e05825"
+    },
+    {
+      "path": "tests/Feature/ShiftPhases567MySqlConcurrencyTest.php",
+      "sha256": "e8b7a78b02d0f19b39a0997b123fc6f06219f3e90484fc689f04834ec37b3d88"
+    },
+    {
+      "path": "tests/Feature/ShiftPhases8910MySqlConcurrencyTest.php",
+      "sha256": "07744e2dea2d6c7b089bdcf263129a18ffb25416897c4af2bab6e1e6aa9dda5f"
+    },
+    {
+      "path": "tests/Feature/ShiftRequestSameRecipientCorrectionTest.php",
+      "sha256": "bccf06f04a946018d5d77ebf270af802e976407a58a61ad0bef4e7fcc6da483d"
+    },
+    {
+      "path": "tests/Feature/ShiftReturnFinalizationGuardTest.php",
+      "sha256": "633a8267a380c777e9f80466629e613fbf8c2d261e91dd1090fbfe8bf19aab20"
+    },
+    {
+      "path": "tests/Feature/ShiftS111CompleteWorkflowTest.php",
+      "sha256": "bb87e070c89d2c20cf9d689a8eadbadf0a5d7314776cb320337ad7e4e68e20fe"
+    },
+    {
+      "path": "tests/Feature/ShiftTransferReceiptTest.php",
+      "sha256": "526c9756ed0162a15f3c7c5b9ede168abc91d89670e04a6848a54173a1a4ed5f"
+    },
+    {
+      "path": "tests/Support/ShiftPhases234ConcurrencyWorker.php",
+      "sha256": "4832b7e72504a06a01999b2d3d8813748e76b88add77c320605b2108add34a43"
+    },
+    {
+      "path": "tests/Support/ShiftPhases567ConcurrencyWorker.php",
+      "sha256": "1a9dbf7139508d436f4d6b948d23924e8c6e9c2f2deed5d33d75ae626f0e7ca0"
+    },
+    {
+      "path": "tests/Support/ShiftPhases8910ConcurrencyWorker.php",
+      "sha256": "205a6b10e34f8e31d26488cd264b798c378338de69a71a7b1474242efe9e2dd5"
+    },
+    {
+      "path": "tests/Support/ShiftPhases8910UpgradeProbe.php",
+      "sha256": "96301d6d499a17ece224f67b5c9b8660415f12eddb4ed24736c6ebb3616cde33"
+    }
+  ]
+}

@@ -64,11 +64,30 @@ class IdempotencyKey
         // All three Admin shift-close aliases already use this middleware.
         // Select the atomic policy once; adding another route middleware would
         // reserve the same command twice through the company role groups.
-        if ($completion === null && $request->route()?->getActionName() === \Modules\Admin\Http\Controllers\Accountant\ShiftController::class.'@close') {
+        $actionName = $request->route()?->getActionName();
+        if ($completion === null && in_array($actionName, [
+            \Modules\Admin\Http\Controllers\Accountant\ShiftController::class.'@close',
+            \Modules\Admin\Http\Controllers\Accountant\AccountantReportCorrectionController::class.'@correct',
+        ], true)) {
             $completion = 'transaction';
+        }
+        if ($requireKey === null && $actionName === \Modules\Admin\Http\Controllers\Accountant\AccountantReportCorrectionController::class.'@correct') {
+            $requireKey = 'required';
         }
         $completion = in_array($completion, self::ATOMIC_COMPLETIONS, true) ? $completion : 'after-commit';
         $legacyEnvelope = $envelope === 'legacy';
+        // S1-11 required transactional commands distinguish payload conflicts
+        // from keys owned by another actor. Manager report corrections keep the
+        // key optional at middleware entry so no-op compatibility is preserved;
+        // their service requires it only when a correction will mutate state.
+        $managerReportCorrection = in_array($actionName, [
+            \Modules\Shift\Http\Controllers\BranchManagerShiftController::class.'@endShift',
+            \Modules\Shift\Http\Controllers\BranchManagerShiftController::class.'@updateFinalDailyClose',
+        ], true);
+        $payloadMismatchCode = ($requireKey === 'required' || $managerReportCorrection)
+            && $completion === 'transaction' && $legacyEnvelope
+            ? 'IDEMPOTENCY_PAYLOAD_MISMATCH'
+            : 'IDEMPOTENCY_KEY_REUSED';
 
         $key = $request->header('Idempotency-Key');
         if ($key === null || $key === '') {
@@ -113,7 +132,7 @@ class IdempotencyKey
         $atomic = $completion !== 'after-commit';
 
         try {
-            $reservation = DB::transaction(function () use ($scope, $identityHash, $keyHash, $payloadHash, $atomic, $legacyEnvelope) {
+            $reservation = DB::transaction(function () use ($scope, $identityHash, $keyHash, $payloadHash, $atomic, $legacyEnvelope, $payloadMismatchCode) {
                 $connection = DB::connection();
                 $owners = $connection->table('asab_command_idempotency_owners');
                 $owner = $owners->where('key_hash', $keyHash)->lockForUpdate()->first();
@@ -158,7 +177,7 @@ class IdempotencyKey
                     }
 
                     if (! hash_equals($record->payload_hash, $payloadHash)) {
-                        return ['response' => $this->error(409, 'IDEMPOTENCY_KEY_REUSED', 'Idempotency-Key was reused with a different payload.', $legacyEnvelope)];
+                        return ['response' => $this->error(409, $payloadMismatchCode, 'Idempotency-Key was reused with a different payload.', $legacyEnvelope)];
                     }
 
                     if ($record->status === 'completed') {
@@ -279,9 +298,13 @@ class IdempotencyKey
         $committedOutsideSnapshot = false;
         $commits = $this->realCommitCounter();
         $commitsBefore = $commits['commits'];
+        // Retry the entire correction command, including its durable response snapshot.
+        // Retrying a nested service savepoint cannot recover a MySQL deadlock.
+        $attempts = $request->route()?->getActionName()
+            === \Modules\Admin\Http\Controllers\Accountant\AccountantReportCorrectionController::class.'@correct' ? 3 : 1;
 
         try {
-            return DB::transaction(function () use ($request, $next, $identityHash, $legacyEnvelope, &$committedOutsideSnapshot, $commits, $commitsBefore) {
+            return DB::transaction(function () use ($request, $next, $identityHash, $legacyEnvelope, &$committedOutsideSnapshot, $commits, $commitsBefore, $attempts) {
                 $reservation = DB::table('asab_command_idempotency_keys')
                     ->where('identity_hash', $identityHash)
                     ->lockForUpdate()
@@ -297,7 +320,15 @@ class IdempotencyKey
                 }
 
                 $level = DB::transactionLevel();
+                $request->attributes->set('idempotency_key_id', $reservation->id);
+                $request->attributes->set('idempotency_identity_hash', $identityHash);
+                $request->attributes->set('idempotency_key_string', $reservation->idempotency_key);
                 $response = $next($request);
+                // Laravel's routing pipeline renders an inner deadlock as a response.
+                // Restore the exception so the owning transaction can roll back and retry.
+                if ($attempts > 1 && ($response->exception ?? null) instanceof \Illuminate\Database\DeadlockException) {
+                    throw $response->exception;
+                }
 
                 // A wrapped writer that leaves its manual transaction unbalanced
                 // must never let a savepoint "commit" pass as the command commit.
@@ -333,7 +364,7 @@ class IdempotencyKey
                 }
 
                 return $response;
-            });
+            }, $attempts);
         } catch (IdempotencyRollbackResponse $rollback) {
             $this->releaseFailedReservation($identityHash);
 

@@ -6,10 +6,10 @@ use App\Support\ShiftFinancialCalculator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
-use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
+use Modules\Shift\Models\ShiftReportAggregate;
 use Modules\Shift\Models\ShiftSalesBreakdown;
 
 /**
@@ -149,16 +149,26 @@ class ShiftFinancialService
         }
 
         $cashierShiftIds = $handovers->pluck('cashier_shift_id')->toArray();
+        $aggregates = ShiftReportAggregate::where('source_type', 'cashier_shift')
+            ->whereIn('source_id', $cashierShiftIds)
+            ->get()
+            ->keyBy('source_id');
+
         $deliveryAppTotals = ShiftSalesBreakdown::whereIn('cashier_shift_id', $cashierShiftIds)
             ->selectRaw('cashier_shift_id, SUM(amount) as total_amount')
             ->groupBy('cashier_shift_id')
             ->pluck('total_amount', 'cashier_shift_id')
             ->toArray();
 
-        return $handovers->map(function ($handover) use ($deliveryAppTotals) {
+        return $handovers->map(function ($handover) use ($deliveryAppTotals, $aggregates) {
             $cashierShift = $handover->cashierShift;
+            $agg = $aggregates->get($cashierShift->id);
+            $rev = $agg ? $agg->current_revision_number : 0;
 
             return [
+                'cashier_shift_id' => $cashierShift->id,
+                'expected_revision' => $rev,
+                'revision_token' => (string) $rev,
                 'cashier_name' => $cashierShift->cashier->name,
                 'cashier_id' => $cashierShift->cashier_id,
                 'cash_collected' => (float) ($cashierShift->cash_collected ?? 0),
@@ -187,18 +197,9 @@ class ShiftFinancialService
      */
     public function prepareDailyCloseSummary(BranchManagerShift $shift): array
     {
-        // Align with fetchShiftHandovers(to_manager): include cashier shifts tied to this workday via
-        // shift_date OR via handover_date, so Summary is not empty when handoffs list shows approved items.
-        $managerHandovers = $this->shiftService->getShiftHandovers($shift, 'to_manager', true);
-        $idsFromHandovers = $managerHandovers->pluck('cashier_shift_id')->unique()->filter()->values();
-
-        $idsSameDayBranch = CashierShift::query()
-            ->whereDate('shift_date', $shift->shift_date)
-            ->whereHas('shift', fn ($q) => $q->where('branch_id', $shift->branch_id))
-            ->whereIn('status', [ShiftStatus::IN_PROGRESS->value, ShiftStatus::COMPLETED->value])
-            ->pluck('id');
-
-        $allCashierShiftIds = $idsFromHandovers->merge($idsSameDayBranch)->unique()->values();
+        // Share one canonical member-ID set across daily summary, liability evidence, locks, and sweep.
+        $scope = app(ShiftDailyCloseScopeService::class)->resolve($shift);
+        $allCashierShiftIds = collect($scope['cashier_shift_ids']);
 
         if ($allCashierShiftIds->isEmpty()) {
             $cashierShifts = collect();
@@ -212,12 +213,18 @@ class ShiftFinancialService
                 ->values();
 
             $handoversByShiftId = CashierShiftHandover::where('handover_to_type', 'branch_manager')
+                ->active()
                 ->whereIn('cashier_shift_id', $allCashierShiftIds)
                 ->get()
                 ->keyBy('cashier_shift_id');
         }
 
-        $cashierBreakdown = $cashierShifts->map(function ($cashierShift) use ($handoversByShiftId) {
+        $aggregates = ShiftReportAggregate::where('source_type', 'cashier_shift')
+            ->whereIn('source_id', $allCashierShiftIds)
+            ->get()
+            ->keyBy('source_id');
+
+        $cashierBreakdown = $cashierShifts->map(function ($cashierShift) use ($handoversByShiftId, $aggregates) {
             $deliveryApps = $cashierShift->salesBreakdown->sum('amount');
             $handover = $handoversByShiftId->get($cashierShift->id);
             $variance = $handover
@@ -228,7 +235,13 @@ class ShiftFinancialService
                 ? (float) ($handover->handover_amount ?? $cashierShift->closing_balance ?? 0)
                 : (float) ($cashierShift->closing_balance ?? 0);
 
+            $agg = $aggregates->get($cashierShift->id);
+            $rev = $agg ? $agg->current_revision_number : 0;
+
             return [
+                'cashier_shift_id' => $cashierShift->id,
+                'expected_revision' => $rev,
+                'revision_token' => (string) $rev,
                 'cashier_name' => $cashierShift->cashier->name,
                 'cashier_id' => $cashierShift->cashier_id,
                 'cash_collected' => (float) ($cashierShift->cash_collected ?? 0),

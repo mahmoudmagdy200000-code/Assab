@@ -30,6 +30,14 @@ class CreateCustodyLedgerEntriesForVariance
                 fn ($d) => $d->responsible_cashier_id !== null && $d->responsibility_status === 'approved'
             );
 
+            // If the shift is governed by modern liability allocations or postings,
+            // do not execute legacy remove/reinsert (plan lines 295-296).
+            if (\Modules\Shift\Models\ShiftLiabilityAllocation::where('cashier_shift_id', $shift->id)->exists()
+                || \Modules\Shift\Models\ShiftLiabilityPosting::where('cashier_shift_id', $shift->id)->exists()
+                || \Modules\Shift\Models\ShiftLiabilityPostingState::where('cashier_shift_id', $shift->id)->exists()) {
+                return;
+            }
+
             $this->removeExistingVarianceLedgerEntriesForShift($shift->id);
 
             if ($approvedWithCashier->isEmpty()) {

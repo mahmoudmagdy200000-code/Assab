@@ -22,15 +22,19 @@ use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\CashierShiftHandoverReceipt;
 use Modules\Shift\Models\Shift;
 use Modules\Shift\Models\ShiftHandoverStatus;
+use Modules\Shift\Models\ShiftReportRevisionSnapshot;
 use Modules\Shift\Models\ShiftVarianceDetail;
 use Modules\Shift\Services\HandoverService;
+use Modules\Shift\Services\ShiftCashCountService;
+use Modules\Shift\Services\ShiftReportRevisionService;
+use Modules\Shift\Services\ShiftReportRevisionSnapshotService;
 use Tests\TestCase;
 
 class ShiftHandoverVarianceCustodyTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_recipient_cashier_reject_reverts_shift_and_strips_custody(): void
+    public function test_recipient_cashier_reject_reopens_shift_and_preserves_report_and_custody(): void
     {
         $branch = Branch::factory()->create();
         $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
@@ -43,6 +47,9 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
             'shift_id' => $shiftTemplate->id,
             'shift_date' => today(),
             'next_cashier_id' => $c2->id,
+            'total_sales' => '500.00',
+            'cash_collected' => '500.00',
+            'closing_balance' => '100.00',
         ]);
 
         ShiftHandoverStatus::create([
@@ -51,7 +58,8 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
             'manager_approval_status' => 'pending',
         ]);
 
-        CashierShiftHandover::create([
+        $revision = app(ShiftReportRevisionService::class)->recordCashierRevision($cashierShift, 'cashier', $c1->id, 0);
+        $handover = CashierShiftHandover::create([
             'cashier_shift_id' => $cashierShift->id,
             'handover_to_id' => $c2->id,
             'handover_to_type' => 'cashier',
@@ -60,9 +68,12 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
             'handover_date' => today()->toDateString(),
             'handover_time' => now(),
             'status' => 'pending',
+            'report_revision_id' => $revision->id,
         ]);
+        $snapshot = app(ShiftReportRevisionSnapshotService::class)->createSnapshotIfMissing($revision, $cashierShift);
+        $oldSnapshot = $snapshot->snapshot_data;
 
-        CashierCustodyTransaction::create([
+        $custody = CashierCustodyTransaction::create([
             'cashier_id' => $c1->id,
             'transaction_type' => 'Handover Sent',
             'amount' => 500,
@@ -72,20 +83,27 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
             'related_handover_id' => null,
             'transaction_date' => now(),
         ]);
+        $oldCustody = $custody->fresh()->getAttributes();
 
         $service = app(HandoverService::class);
         $service->rejectHandoverByCashier($cashierShift->fresh(['handoverStatus']), $c2->id, 'Test reject', []);
 
         $fresh = $cashierShift->fresh();
         $this->assertSame(ShiftStatus::IN_PROGRESS, $fresh->status);
-        $this->assertEquals(0, (float) $fresh->total_sales);
-        $this->assertNull($fresh->next_cashier_id);
-        $this->assertDatabaseMissing('shift_handover_status', ['cashier_shift_id' => $cashierShift->id]);
-        $this->assertDatabaseMissing('cashier_shift_handovers', ['cashier_shift_id' => $cashierShift->id]);
-        $this->assertEquals(0, CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)->count());
+        $this->assertSame('500.00', (string) $fresh->total_sales);
+        $this->assertSame('500.00', (string) $fresh->cash_collected);
+        $this->assertSame('100.00', (string) $fresh->closing_balance);
+        $this->assertSame($c2->id, $fresh->next_cashier_id);
+        $this->assertSame('rejected', $fresh->handoverStatus->manager_approval_status);
+        $this->assertSame('rejected', $handover->fresh()->status);
+        $this->assertSame($oldSnapshot, $snapshot->fresh()->snapshot_data);
+        $this->assertSame('500.00', $snapshot->fresh()->snapshot_data['total_sales']);
+        $this->assertSame($oldCustody, $custody->fresh()->getAttributes());
+        $this->assertSame(1, CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)->count());
+        $this->assertNotSame($revision->id, app(ShiftReportRevisionService::class)->currentCashierRevision($fresh)->id);
     }
 
-    public function test_required_custody_delete_failure_rolls_back_handover_rejection(): void
+    public function test_required_rejection_history_insert_failure_rolls_back_handover_rejection(): void
     {
         if (DB::getDriverName() !== 'sqlite') {
             $this->markTestSkipped('Failure trigger is SQLite-specific; deployment-equivalent DB coverage is separate.');
@@ -127,15 +145,20 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
             'transaction_date' => now(),
         ]);
         $this->assertSame(1, CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)->count());
-        DB::statement("CREATE TRIGGER fail_revert_custody_delete BEFORE UPDATE OF deleted_at ON cashier_custody_transactions WHEN NEW.deleted_at IS NOT NULL BEGIN SELECT RAISE(ABORT, 'injected custody delete failure'); END");
+        $revision = app(ShiftReportRevisionService::class)->recordCashierRevision($cashierShift, 'cashier', $sender->id, 0);
+        $handover->update(['report_revision_id' => $revision->id]);
+        DB::statement("CREATE TRIGGER fail_rejection_history BEFORE INSERT ON cashier_shift_history WHEN NEW.action = 'handover_rejected_shift_reverted' BEGIN SELECT RAISE(ABORT, 'injected required rejection history failure'); END");
 
         try {
             app(HandoverService::class)->rejectHandoverByCashier($cashierShift, $recipient->id, 'Reject handover', []);
-            $this->fail('Required custody cleanup must fail the rejection transaction.');
-        } catch (QueryException) {
+            $this->fail('Required rejection history failure must abort the rejection transaction.');
+        } catch (QueryException $e) {
+            $this->assertStringContainsString('injected required rejection history failure', $e->getMessage());
             $this->assertSame(ShiftStatus::COMPLETED, $cashierShift->fresh()->status);
             $this->assertSame('pending', $handover->fresh()->status);
-            $this->assertDatabaseHas('shift_handover_status', ['cashier_shift_id' => $cashierShift->id]);
+            $this->assertSame('pending', $cashierShift->fresh()->handoverStatus->manager_approval_status);
+            $this->assertSame($revision->id, app(ShiftReportRevisionService::class)->currentCashierRevision($cashierShift)->id);
+            $this->assertSame(0, ShiftReportRevisionSnapshot::where('report_revision_id', $revision->id)->count());
             $this->assertSame(1, CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)->count());
             $this->assertSame(0, DB::table('cashier_shift_history')->where('action', 'handover_rejected_shift_reverted')->count());
         }
@@ -205,6 +228,9 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
             'shift_date' => today(),
             'next_cashier_id' => $c2->id,
             'closing_balance' => 200,
+            'total_sales' => 200,
+            'cash_collected' => 200,
+            'card_payments' => 0,
         ]);
 
         ShiftHandoverStatus::create([
@@ -219,6 +245,7 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
             $c1->id,
             0
         );
+        DB::transaction(fn () => app(ShiftCashCountService::class)->record($cashierShift, $revision, 20000, 0, 0, 20000));
 
         CashierShiftHandover::create([
             'cashier_shift_id' => $cashierShift->id,
@@ -342,6 +369,10 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
             'shift_id' => $shiftTemplate->id,
             'shift_date' => today(),
             'variance' => 1500,
+            'total_sales' => 3500,
+            'cash_collected' => 3500,
+            'card_payments' => 0,
+            'closing_balance' => 3500,
         ]);
 
         ShiftHandoverStatus::create([
@@ -363,6 +394,7 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
         $revision = app(\Modules\Shift\Services\ShiftReportRevisionService::class)
             ->recordCashierRevision($cashierShift, 'cashier', $cashier->id, 0);
         $handover->update(['report_revision_id' => $revision->id]);
+        DB::transaction(fn () => app(ShiftCashCountService::class)->record($cashierShift, $revision, 350000, 0, 0, 350000));
         $managerWorkday = BranchManagerShift::query()->where('branch_manager_id', $manager->id)->first();
         if (! $managerWorkday) {
             $managerWorkday = new BranchManagerShift([
@@ -439,6 +471,10 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
             'cashier_id' => $cashier->id,
             'shift_id' => $template->id,
             'variance' => 150,
+            'total_sales' => 100,
+            'cash_collected' => 100,
+            'card_payments' => 0,
+            'closing_balance' => 100,
         ]);
         ShiftHandoverStatus::create([
             'cashier_shift_id' => $cashierShift->id,
@@ -458,6 +494,7 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
         $revision = app(\Modules\Shift\Services\ShiftReportRevisionService::class)
             ->recordCashierRevision($cashierShift, 'cashier', $cashier->id, 0);
         $handover->update(['report_revision_id' => $revision->id]);
+        DB::transaction(fn () => app(ShiftCashCountService::class)->record($cashierShift, $revision, 10000, 0, 0, 10000));
         $managerWorkday = BranchManagerShift::query()->where('branch_manager_id', $manager->id)->first();
         if (! $managerWorkday) {
             $managerWorkday = new BranchManagerShift([
@@ -487,7 +524,8 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
         try {
             app(HandoverService::class)->approveHandover($cashierShift, $manager->id, get_class($manager), null, '100.00');
             $this->fail('Required manager receipt ledger failure must abort confirmation.');
-        } catch (QueryException) {
+        } catch (QueryException $e) {
+            $this->assertStringContainsString('injected manager ledger failure', $e->getMessage());
             $this->assertSame('pending', $handover->fresh()->status);
             $this->assertSame('pending', $detail->fresh()->responsibility_status);
             $this->assertSame('pending', $cashierShift->fresh()->handoverStatus->manager_approval_status);

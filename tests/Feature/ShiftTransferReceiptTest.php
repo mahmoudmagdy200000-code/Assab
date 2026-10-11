@@ -44,6 +44,7 @@ use Tests\TestCase;
 class ShiftTransferReceiptTest extends TestCase
 {
     use RefreshDatabase;
+    use \Tests\Concerns\ConfirmsPhysicalReturn;
 
     public function test_manager_transfer_request_has_destination_identity_and_no_receipt_until_confirmation(): void
     {
@@ -780,6 +781,11 @@ class ShiftTransferReceiptTest extends TestCase
             'total_sales' => '10.00',
         ]);
 
+        DB::transaction(function () use ($source, $cashier) {
+            $countRevision = app(ShiftReportRevisionService::class)->recordCashierRevision($source, 'cashier', $cashier->id, 0);
+            app(\Modules\Shift\Services\ShiftCashCountService::class)->record($source, $countRevision, 1000, 0, 0, 1000);
+        });
+
         $this->actingAs($manager, 'sanctum');
         app(HandoverService::class)->recordHandover($source, [
             'handover_to_type' => 'cashier',
@@ -807,7 +813,7 @@ class ShiftTransferReceiptTest extends TestCase
         $service->bulkUpdateCashierShifts([['cashier_id' => $cashier->id, 'sales' => '10.00']], $managerShift);
         $this->assertSame($first->id, app(ShiftReportRevisionService::class)->currentCashierRevision($cashierShift)->id);
 
-        $service->bulkUpdateCashierShifts([['cashier_id' => $cashier->id, 'sales' => '11.00']], $managerShift);
+        $service->bulkUpdateCashierShifts([['cashier_id' => $cashier->id, 'sales' => '11.00', 'expected_revision' => 1, 'reason' => 'Sales adjustment']], $managerShift);
         $this->assertSame(2, app(ShiftReportRevisionService::class)->currentCashierRevision($cashierShift)->revision_number);
     }
 
@@ -815,14 +821,19 @@ class ShiftTransferReceiptTest extends TestCase
     {
         [$source, $recipient, $destination, $handover] = $this->handoverFixture('61.50');
         $service = app(HandoverService::class);
-        $service->rejectHandoverForAmountCorrection($source, $recipient->id, get_class($recipient), 'Physical amount was 61.00', '61.00', 'actual_shortage');
+        $attempt = $this->presentAttempt($handover, $source->cashier, 6150);
+        $service->rejectHandoverForAmountCorrection($source, $recipient->id, get_class($recipient), 'Physical amount was 61.00', '61.00', 'actual_shortage', $attempt->id);
+        $this->returnAndConfirm($attempt, $recipient, $source->cashier);
         $this->actingAs($source->cashier, 'sanctum');
         $service->recordHandoverEdit($source, [
+            'expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($source)?->revision_number ?? 0,
+            'total_sales' => '61.00', 'card_payments' => '0.00', 'cash_collected' => '61.00', 'counted_cash' => '61.00',
             'handover_amount' => '61.00',
             'handover_notes' => 'Corrected after recipient count',
             'correction_reason' => 'actual_shortage',
         ]);
-        $receipt = app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, '61.00', $destination->id);
+        $second = $this->presentAttempt($handover->fresh(), $source->cashier, 6100);
+        $receipt = app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, '61.00', $destination->id, expectedAttemptId: $second->id);
 
         $history = \Modules\Shift\Models\CashierShiftHistory::query()
             ->where('cashier_shift_id', $source->id)
@@ -856,9 +867,13 @@ class ShiftTransferReceiptTest extends TestCase
     {
         [$source, $recipient, $destination, $handover] = $this->handoverFixture('61.50');
         $service = app(HandoverService::class);
-        $service->rejectHandoverForAmountCorrection($source, $recipient->id, get_class($recipient), 'Entered amount was wrong', '61.00', 'input_error');
+        $attempt = $this->presentAttempt($handover, $source->cashier, 6150);
+        $service->rejectHandoverForAmountCorrection($source, $recipient->id, get_class($recipient), 'Entered amount was wrong', '61.00', 'input_error', $attempt->id);
+        $this->returnAndConfirm($attempt, $recipient, $source->cashier);
         $this->actingAs($source->cashier, 'sanctum');
         $service->recordHandoverEdit($source, [
+            'expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($source)?->revision_number ?? 0,
+            'total_sales' => '61.00', 'card_payments' => '0.00', 'cash_collected' => '61.00', 'counted_cash' => '61.00',
             'handover_amount' => '61.00',
             'correction_reason' => 'input_error',
         ]);
@@ -871,7 +886,8 @@ class ShiftTransferReceiptTest extends TestCase
         $this->assertSame('61.00', $history->new_value['new_requested_amount']);
         $this->assertSame('input_error', $history->new_value['correction_reason']);
         $this->assertSame($source->cashier_id, $history->new_value['actor_id']);
-        $receipt = app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, '61.00', $destination->id);
+        $second = $this->presentAttempt($handover->fresh(), $source->cashier, 6100);
+        $receipt = app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, '61.00', $destination->id, expectedAttemptId: $second->id);
         $this->assertSame('61.00', $receipt->confirmed_amount);
     }
 
@@ -997,6 +1013,14 @@ class ShiftTransferReceiptTest extends TestCase
 
         // Restore the source request to a current revision, then prove the shift owner check.
         $current = $revisions->currentCashierRevision($source);
+        app(\Modules\Shift\Services\ShiftCashCountService::class)->record(
+            $source,
+            $current,
+            1000,
+            0,
+            0,
+            1000
+        );
         $handover->update(['report_revision_id' => $current->id]);
         try {
             app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, '10.00', $otherShift->id);
@@ -1067,6 +1091,54 @@ class ShiftTransferReceiptTest extends TestCase
         }
     }
 
+    public function test_manager_cannot_correct_rejected_transfer_while_cash_is_retained_or_return_unconfirmed(): void
+    {
+        // CASH-12: "rejected" alone is not proof of a physical return. Correction must stay refused (zero writes)
+        // until the retained cash was returned AND the sender confirmed it.
+        [, $manager, $cashier, $source, $destination] = $this->managerTransferFixture();
+        $this->fundManagerLedger($manager, $source);
+        $service = app(ShiftTransferReceiptService::class);
+        $transfer = $service->requestManagerCashTransfer($source, $cashier, $destination, '61.50', $manager);
+        $attempts = app(\Modules\Shift\Services\ShiftTransferAttemptService::class);
+        $attempt = $attempts->present('manager_transfer', $transfer->id, $manager, 6150, 'present-'.\Illuminate\Support\Str::uuid());
+        $service->rejectManagerCashTransfer($transfer->id, $cashier, '61.00', 'Short', 'actual_shortage', $attempt->id);
+
+        $assertRefused = function () use ($service, $transfer, $manager) {
+            try {
+                $service->correctManagerCashTransfer($transfer->id, $manager, '61.00', 'actual_shortage');
+                $this->fail('Correction must be refused before the physical return is confirmed.');
+            } catch (ConflictHttpException $e) {
+                $this->assertSame('PHYSICAL_RETURN_REQUIRED', $e->getMessage());
+            }
+            $this->assertSame('rejected', $transfer->fresh()->status);
+            $this->assertSame('61.50', (string) $transfer->fresh()->requested_amount);
+            $this->assertSame(0, CashierShiftHistory::where('action', 'manager_transfer_request_corrected')->count());
+        };
+
+        $assertRefused(); // cash still retained by the recipient
+        $return = $attempts->initiate($attempt->id, $cashier, 6100, 'return-'.\Illuminate\Support\Str::uuid(), 'Returning', null);
+        $assertRefused(); // return initiated but not yet confirmed by the sender
+        $attempts->confirmReturn($return->id, $manager);
+        $corrected = $service->correctManagerCashTransfer($transfer->id, $manager, '61.00', 'actual_shortage');
+        $this->assertSame('pending', $corrected->fresh()->status);
+    }
+
+    public function test_cashier_to_manager_amount_mismatch_rejection_without_presentation_is_refused_with_zero_writes(): void
+    {
+        [, $manager, , $source, , $handover] = $this->managerHandoverFixture('10.00');
+        $historyBefore = CashierShiftHistory::count();
+
+        $this->actingAs($manager, 'sanctum')
+            ->postJson('/api/branch-manager/workday/handoffs/reject', [
+                'handover_id' => $handover->id, 'rejection_reason' => 'short', 'correction_reason' => 'actual_shortage', 'confirmed_amount' => '9.00',
+            ])->assertStatus(409)->assertJsonPath('code', 'TRANSFER_PRESENTATION_REQUIRED');
+
+        $this->assertSame('pending', $handover->fresh()->status);
+        $this->assertSame(0, DB::table('shift_transfer_rejection_evidence')->count());
+        $this->assertSame($historyBefore, CashierShiftHistory::count());
+        $this->assertSame(0, CashierShiftHandoverReceipt::count());
+    }
+
     public function test_manager_transfer_requires_correction_then_posts_exactly_the_corrected_amount(): void
     {
         [, $manager, $cashier, $source, $destination] = $this->managerTransferFixture();
@@ -1082,9 +1154,16 @@ class ShiftTransferReceiptTest extends TestCase
         }
         $this->assertSame(0, CashierShiftHandoverReceipt::count());
 
-        $service->rejectManagerCashTransfer($transfer->id, $cashier, '61.00', 'Actual cash was short by 0.50', 'actual_shortage');
+        // CASH-11/CASH-12: present the physical cash, reject against that attempt, then physically return and
+        // confirm it before correcting and re-presenting the corrected amount.
+        $attempts = app(\Modules\Shift\Services\ShiftTransferAttemptService::class);
+        $attempt = $attempts->present('manager_transfer', $transfer->id, $manager, 6150, 'present-'.\Illuminate\Support\Str::uuid());
+        $service->rejectManagerCashTransfer($transfer->id, $cashier, '61.00', 'Actual cash was short by 0.50', 'actual_shortage', $attempt->id);
+        $return = $attempts->initiate($attempt->id, $cashier, 6100, 'return-'.\Illuminate\Support\Str::uuid(), 'Returning rejected cash', null);
+        $attempts->confirmReturn($return->id, $manager);
         $service->correctManagerCashTransfer($transfer->id, $manager, '61.00', 'actual_shortage');
-        $receipt = $service->confirmManagerCashTransfer($transfer->id, $cashier, '61.00');
+        $second = $attempts->present('manager_transfer', $transfer->id, $manager, 6100, 'redeliver-'.\Illuminate\Support\Str::uuid());
+        $receipt = $service->confirmManagerCashTransfer($transfer->id, $cashier, '61.00', $second->id);
 
         $this->assertSame($destination->id, $receipt->receiving_cashier_shift_id);
         $this->assertSame('61.00', $receipt->confirmed_amount);
@@ -1286,6 +1365,14 @@ class ShiftTransferReceiptTest extends TestCase
             'status' => ShiftStatus::NOT_STARTED,
         ]);
         $revision = app(ShiftReportRevisionService::class)->recordCashierRevision($source, 'cashier', $sender->id, 0);
+        app(\Modules\Shift\Services\ShiftCashCountService::class)->record(
+            $source,
+            $revision,
+            (int) round((float) $amount * 100),
+            0,
+            0,
+            (int) round((float) $amount * 100)
+        );
         ShiftHandoverStatus::create([
             'cashier_shift_id' => $source->id,
             'status' => HandoverStatus::PENDING,
@@ -1304,6 +1391,28 @@ class ShiftTransferReceiptTest extends TestCase
         ]);
 
         return [$source, $recipient, $destination, $handover, $revision, $otherShift];
+    }
+
+    public function test_handover_receipt_requires_cash_count_for_current_revision(): void
+    {
+        [$source, $recipient, $destination, $handover, $revision] = $this->handoverFixture('10.00');
+        \Modules\Shift\Models\ShiftReportCashCount::where('report_revision_id', $revision->id)->delete();
+
+        $this->expectException(ConflictHttpException::class);
+        $this->expectExceptionMessage('REPORT_COUNT_REQUIRED');
+
+        app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, '10.00', $destination->id);
+    }
+
+    public function test_in_progress_source_shift_cannot_confirm_receipt(): void
+    {
+        [$source, $recipient, $destination, $handover] = $this->handoverFixture('10.00');
+        $source->update(['status' => ShiftStatus::IN_PROGRESS]);
+
+        $this->expectException(ConflictHttpException::class);
+        $this->expectExceptionMessage('REPORT_COUNT_REQUIRED');
+
+        app(ShiftTransferReceiptService::class)->confirmHandover($handover->id, $recipient, '10.00', $destination->id);
     }
 
     private function managerTransferFixture(): array
@@ -1352,7 +1461,15 @@ class ShiftTransferReceiptTest extends TestCase
         ]);
         $sender = $sourceShift->cashier;
         $revision = app(ShiftReportRevisionService::class)->recordCashierRevision($sourceShift, 'cashier', $sender->id, 0);
-        $managerWorkday->update(['status' => 'active', 'cash_collected' => $amount]);
+        app(\Modules\Shift\Services\ShiftCashCountService::class)->record(
+            $sourceShift,
+            $revision,
+            (int) round((float) $amount * 100),
+            0,
+            0,
+            (int) round((float) $amount * 100)
+        );
+        $managerWorkday->update(['status' => 'in_progress', 'cash_collected' => $amount]);
         ShiftHandoverStatus::create([
             'cashier_shift_id' => $sourceShift->id,
             'status' => HandoverStatus::PENDING,

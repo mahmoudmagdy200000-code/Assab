@@ -266,7 +266,7 @@ class ShiftDetailResource extends JsonResource
             'rejection_details' => $handoverStatus && $handoverStatus->isManagerRejected() ? [
                 'rejection_reason' => $handoverStatus->rejection_reason,
                 'rejection_count' => $handoverStatus->rejection_count,
-                'is_final_rejection' => $handoverStatus->isPermanentlyRejected(),
+                'is_final_rejection' => false,
                 'can_edit' => $handoverStatus->canCashierEdit(),
                 'first_rejected_at' => $handoverStatus->first_rejected_at?->format('Y-m-d H:i:s'),
                 'second_rejected_at' => $handoverStatus->second_rejected_at?->format('Y-m-d H:i:s'),

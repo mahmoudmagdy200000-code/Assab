@@ -34,6 +34,9 @@ final class ShiftLiabilityService
                 throw ValidationException::withMessages(['reason' => 'Manager correction requires a reason.']);
             }
             $previous = $this->latest($shiftId);
+            if ($previous && $previous->created_by_type === 'accountant') {
+                throw new ConflictHttpException('ACCOUNTANT_FINAL_AUTHORITY');
+            }
             if (($previous?->version ?? 0) !== $expectedVersion) {
                 throw new ConflictHttpException('STALE_ALLOCATION');
             }
@@ -51,12 +54,15 @@ final class ShiftLiabilityService
                 $this->actors->resolve($share['type'], $share['id'], $report->companyId, $report->branchId);
             }
             // Supersede instead of deleting: previous approval/objection evidence remains intact.
-            $previous?->update(['superseded_at' => now()]);
+            if ($previous && $previous->superseded_at === null) {
+                $previous->update(['superseded_at' => now()]);
+            }
             $allocation = ShiftLiabilityAllocation::create([
                 'cashier_shift_id' => $shiftId,
                 'company_id' => $report->companyId,
                 'branch_id' => $report->branchId,
-                'version' => $expectedVersion + 1,
+                'version' => $previous ? $previous->version + 1 : 1,
+                'supersedes_allocation_id' => $previous?->id,
                 'report_revision' => $report->revision,
                 'variance_halalas' => $report->varianceHalalas,
                 'created_by_type' => $identity['type'],
@@ -126,6 +132,9 @@ final class ShiftLiabilityService
                 throw new AccessDeniedHttpException('ONLY_BRANCH_MANAGER');
             }
             $allocation = $this->current($report, $version);
+            if ($allocation->created_by_type === 'accountant') {
+                throw new ConflictHttpException('ACCOUNTANT_FINAL_AUTHORITY');
+            }
             $this->assertComplete($allocation);
             if ($allocation->variance_halalas >= 0) {
                 throw new ConflictHttpException('NO_SHORTAGE_LIABILITY');
@@ -168,12 +177,21 @@ final class ShiftLiabilityService
         }
         $allocation = $this->current($report, $this->latest($report->shiftId)?->version ?? 0);
         $this->assertComplete($allocation);
-        if ($report->varianceHalalas < 0 && (
-            $allocation->manager_approval_status !== 'approved'
-            || $allocation->manager_approved_by === null || $allocation->manager_approved_at === null
-            || ($allocation->created_by_type === 'cashier' && $allocation->cashier_confirmed_at === null)
-        )) {
-            throw new ConflictHttpException('LIABILITY_APPROVAL_REQUIRED');
+        $isAccountantFinal = $allocation->created_by_type === 'accountant';
+        if ($report->varianceHalalas < 0) {
+            if ($isAccountantFinal) {
+                if ($allocation->manager_approval_status !== 'approved') {
+                    throw new ConflictHttpException('LIABILITY_APPROVAL_REQUIRED');
+                }
+            } else {
+                if (
+                    $allocation->manager_approval_status !== 'approved'
+                    || $allocation->manager_approved_by === null || $allocation->manager_approved_at === null
+                    || ($allocation->created_by_type === 'cashier' && $allocation->cashier_confirmed_at === null)
+                ) {
+                    throw new ConflictHttpException('LIABILITY_APPROVAL_REQUIRED');
+                }
+            }
         }
     }
 
@@ -214,12 +232,30 @@ final class ShiftLiabilityService
     {
         $allocation = $this->latest($report->shiftId);
         if (! $allocation || $allocation->version !== $version || $allocation->superseded_at !== null
-            || $allocation->report_revision !== $report->revision || $allocation->variance_halalas !== $report->varianceHalalas
+            || ! $this->matchesEvidenceRevision($allocation, $report) || $allocation->variance_halalas !== $report->varianceHalalas
             || $allocation->branch_id !== $report->branchId || $allocation->company_id !== $report->companyId) {
             throw new ConflictHttpException('STALE_OR_MISSING_LIABILITY_ALLOCATION');
         }
 
         return $allocation;
+    }
+
+    /** Corrections store a revision number; counts retain its immutable evidence UUID. */
+    private function matchesEvidenceRevision(ShiftLiabilityAllocation $allocation, ReportEvidence $report): bool
+    {
+        if ($allocation->report_revision === $report->revision) {
+            return true;
+        }
+        if (! preg_match('/\A[1-9][0-9]*\z/', (string) $allocation->report_revision)) {
+            return false;
+        }
+
+        return DB::table('shift_report_revisions as revision')
+            ->join('shift_report_aggregates as report', 'report.id', '=', 'revision.report_aggregate_id')
+            ->where('revision.id', $report->revision)
+            ->where('revision.revision_number', $allocation->report_revision)
+            ->where('report.source_type', 'cashier_shift')->where('report.source_id', $report->shiftId)
+            ->exists();
     }
 
     private function assertComplete(ShiftLiabilityAllocation $allocation): void

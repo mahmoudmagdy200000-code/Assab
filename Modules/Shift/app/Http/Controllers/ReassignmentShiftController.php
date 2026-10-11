@@ -511,7 +511,11 @@ class ReassignmentShiftController extends Controller
                 }
 
                 // Store original cashier
-                $originalCashierId = $shiftModel->original_cashier_id ?? $shiftModel->cashier_id;
+                if (CashierShift::where('cashier_id', $newCashier->id)->where('shift_id', $shiftModel->shift_id)
+                    ->whereDate('shift_date', $shiftModel->shift_date)->whereKeyNot($shiftModel->id)->lockForUpdate()->exists()) {
+                    throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('INCOMING_REPORT_ALREADY_EXISTS');
+                }
+                $originalCashierId = $shiftModel->cashier_id;
                 $originalCashier = Cashier::find($originalCashierId);
 
                 if (! $originalCashier) {
@@ -522,7 +526,8 @@ class ReassignmentShiftController extends Controller
                 }
 
                 // Create handover
-                $handover = $shiftModel->handoverStatus()->create([
+                // An existing source approval/request is evidence, not the incoming work acceptance.
+                $handover = $shiftModel->handoverStatus()->firstOrCreate([], [
                     'handover_amount' => $request->handover_amount,
                     'handover_notes' => $request->handover_notes,
                     'handover_type' => 'reassignment',
@@ -698,10 +703,14 @@ class ReassignmentShiftController extends Controller
                         'Shift reassigned with handover by branch manager',
                 ]);
 
+                $sourceCashierShiftId = $shiftModel->id;
+                $shiftModel = app(\Modules\Shift\Services\ReassignmentReportOwnershipService::class)->separate($shiftModel);
+
                 return response()->json([
                     'success' => true,
                     'message' => 'Shift reassigned successfully with handover',
                     'data' => [
+                        'source_cashier_shift_id' => $sourceCashierShiftId,
                         'summary' => [
                             'previous_cashier' => $originalCashier->name,
                             'next_cashier_selected' => $newCashier->name,

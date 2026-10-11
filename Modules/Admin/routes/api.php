@@ -482,6 +482,9 @@ Route::prefix('v1')->group(function () {
                 Route::post('shifts/{id}/close', [ShiftController::class, 'close'])->middleware('asab.idempotency');
                 // ACC-6.4 accountant's split of the cash gap before head approval.
                 Route::post('shifts/{id}/variance-allocations', [ShiftController::class, 'varianceAllocations']);
+                // S1-11 Phase 5: Accountant report correction endpoint
+                Route::post('shifts/{id}/corrections', [\Modules\Admin\Http\Controllers\Accountant\AccountantReportCorrectionController::class, 'correct'])
+                    ->middleware('asab.idempotency:required,transaction');
 
                 // Employees (§6.3.10) — list/statement take `brandId` + `branchId`.
                 Route::get('employees/payroll/export', [CompanyExportController::class, 'payroll']);
@@ -855,6 +858,8 @@ Route::prefix('v1')->group(function () {
                     Route::get('shifts', [ShiftController::class, 'index']);
                     Route::post('shifts/{id}/close', [ShiftController::class, 'close']);
                     Route::post('shifts/{id}/variance-allocations', [ShiftController::class, 'varianceAllocations']);
+                    // S1-11 Phase 5: Accountant report correction endpoint
+                    Route::post('shifts/{id}/corrections', [\Modules\Admin\Http\Controllers\Accountant\AccountantReportCorrectionController::class, 'correct']);
                     Route::put('brands/{brandId}/shift-config', [AccountantCompanyController::class, 'saveShiftConfig']);
                     Route::post('brands/{brandId}/shift-config/regenerate', [AccountantCompanyController::class, 'regenerateShifts']);
                     // «تعيين الشفتات» per BRANCH — an override that wins over the

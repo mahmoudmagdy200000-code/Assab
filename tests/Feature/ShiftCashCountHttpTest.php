@@ -111,6 +111,20 @@ class ShiftCashCountHttpTest extends TestCase
         return $request->postJson("/api/v1/cashier/shifts/{$this->recipientShift->id}/end", $payload);
     }
 
+    /**
+     * CASH-11/CASH-12: a D11 amount-mismatch rejection must reference a tracked physical presentation.
+     * The sender presents the handover's cash before the recipient rejects with the current attempt id.
+     */
+    private function presentSenderHandover(): string
+    {
+        $handover = CashierShiftHandover::where('cashier_shift_id', $this->senderShift->id)->sole();
+
+        return $this->actingAs($this->sender, 'sanctum')->postJson("/api/shift-transfers/handover/{$handover->id}/present", [
+            'presented_halalas' => (int) round((float) $handover->handover_amount * 100),
+            'idempotency_key' => (string) Str::uuid(),
+        ])->assertOk()->json('data.id');
+    }
+
     private function assertNothingWritten(): void
     {
         $this->assertSame(ShiftStatus::IN_PROGRESS, $this->recipientShift->fresh()->status);
@@ -235,8 +249,10 @@ class ShiftCashCountHttpTest extends TestCase
             'next_cashier_id' => $this->recipient->id, 'handover_amount' => '500.00',
         ])->assertOk();
 
+        $attempt = $this->presentSenderHandover();
         $this->actingAs($this->recipient, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/reject", [
             'rejection_reason' => 'Counted 480', 'confirmed_amount' => '480.00', 'correction_reason' => 'actual_shortage',
+            'transfer_attempt_id' => $attempt,
         ])->assertOk();
 
         $evidence = ShiftTransferRejectionEvidence::query()->sole();
@@ -266,8 +282,10 @@ class ShiftCashCountHttpTest extends TestCase
             'total_sales' => '500.00', 'cash_collected' => '500.00', 'counted_cash' => '500.00',
             'next_cashier_id' => $this->recipient->id, 'handover_amount' => '500.00',
         ])->assertOk();
+        $attempt = $this->presentSenderHandover();
         $this->actingAs($this->recipient, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/reject", [
             'rejection_reason' => 'Counted 480', 'confirmed_amount' => '480.00', 'correction_reason' => 'actual_shortage',
+            'transfer_attempt_id' => $attempt,
         ])->assertOk();
 
         $this->end(['total_sales' => '100.00', 'cash_collected' => '100.00', 'counted_cash' => '100.00'])
@@ -428,8 +446,10 @@ class ShiftCashCountHttpTest extends TestCase
             'total_sales' => '500.00', 'cash_collected' => '500.00', 'counted_cash' => '500.00',
             'next_cashier_id' => $this->recipient->id, 'handover_amount' => '500.00',
         ])->assertOk();
+        $attempt = $this->presentSenderHandover();
         $this->actingAs($this->recipient, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/reject", [
             'rejection_reason' => 'Counted 480', 'confirmed_amount' => '480.00', 'correction_reason' => 'actual_shortage',
+            'transfer_attempt_id' => $attempt,
         ])->assertOk();
         $this->end(['total_sales' => '100.00', 'cash_collected' => '100.00', 'counted_cash' => '580.00'])->assertOk();
 
@@ -538,20 +558,29 @@ class ShiftCashCountHttpTest extends TestCase
         $this->assertSame('pending_review', $admin->fresh()->status);
     }
 
-    /** D15: the accountant's own split is not an authority over a counted shortage. */
-    public function test_accountant_split_of_a_counted_shortage_is_refused(): void
+    /** S1-11 Phase 5: the accountant's split of a counted shortage routes through AccountantReportCorrectionService and is final without manager review (v3.2). */
+    public function test_accountant_split_of_a_counted_shortage_is_final_without_manager_review(): void
     {
         [$admin, $op] = $this->countedShortageOperation();
         $accountant = AsabUser::where('email', 'acc@s110.test')->firstOrFail();
         $employee = Employee::where('legacy_cashier_id', $this->recipient->id)->firstOrFail();
 
-        try {
-            app(\Modules\Admin\Services\ShiftCloseService::class)->setVarianceAllocations($op, [['employeeId' => $employee->id, 'amountHalalas' => 2000]], $accountant);
-            $this->fail('The branch allocation is the only authority.');
-        } catch (AsabException $exception) {
-            $this->assertSame('BRANCH_ALLOCATION_AUTHORITATIVE', $exception->errorCode);
-        }
-        $this->assertArrayNotHasKey('varianceAllocations', $op->fresh()->payload);
+        $rows = app(\Modules\Admin\Services\ShiftCloseService::class)->setVarianceAllocations($op, [['employeeId' => $employee->id, 'amountHalalas' => 2000]], $accountant);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame(2000, $rows[0]['amountHalalas']);
+        $this->assertArrayHasKey('varianceAllocations', $op->fresh()->payload);
+
+        // Allocation created and final on the accountant's authority (S111-FINAL-01)
+        $allocation = ShiftLiabilityAllocation::where('cashier_shift_id', $this->recipientShift->id)
+            ->whereNull('superseded_at')
+            ->firstOrFail();
+        $this->assertSame('approved', $allocation->manager_approval_status);
+        $this->assertSame('accountant', $allocation->created_by_type);
+
+        // S111-FINAL-01 (Business Rules v3.2): the accountant's allocation is final; no manager review is opened.
+        $this->assertSame(0, \Modules\Shift\Models\ShiftReportManagerReview::where('cashier_shift_id', $this->recipientShift->id)
+            ->where('status', 'pending')->count());
     }
 
     /** D15: a balanced counted shift still closes normally, and one refusal does not fail the rest of a bulk. */

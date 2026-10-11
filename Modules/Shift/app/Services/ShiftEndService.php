@@ -12,6 +12,7 @@ use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Liability\ShiftLiabilityService;
 use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\ShiftLiabilityAllocation;
 use Modules\Shift\Models\ShiftReportRevision;
 use Modules\Shift\Models\ShiftSalesBreakdown;
@@ -23,17 +24,21 @@ class ShiftEndService
         private VarianceCalculationService $varianceService,
         private ShiftReportRevisionService $revisions,
         private ShiftCashCountService $cashCounts,
-        private ShiftLiabilityService $liability
+        private ShiftLiabilityService $liability,
+        private CountedReassignmentGuard $reassignmentGuard,
+        private ShiftReportRevisionSnapshotService $snapshots
     ) {}
 
     public function endShiftOnly(CashierShift $shift, array $data, Model $actor): CashierShift
     {
+        $this->reassignmentGuard->assertCanContinue($shift, $actor);
         $countedHalalas = $this->parseCountedCash($data);
         $data = $this->stageExternalFiles($shift, $data);
 
         DB::beginTransaction();
         try {
-            $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
+            $shift = app(ShiftReportMutationGuard::class)->lockEditable($shift, $actor);
+            $this->reassignmentGuard->assertCanContinue($shift, $actor);
             if ($shift->status !== ShiftStatus::IN_PROGRESS) {
                 throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('SHIFT_NO_LONGER_OPEN');
             }
@@ -43,6 +48,12 @@ class ShiftEndService
             $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($totalSales);
             $vatAmount = $salesCalculation['vat'];
             $netSales = $salesCalculation['net'];
+
+            $previousRevision = $this->revisions->currentCashierRevision($shift);
+            if ($previousRevision) {
+                $this->snapshots->preserveVarianceReviews($shift, $previousRevision);
+                $this->snapshots->createSnapshotIfMissing($previousRevision, $shift);
+            }
 
             // Update Shift
             $shift->update([
@@ -83,21 +94,52 @@ class ShiftEndService
 
             // This report declaration is not a transfer receipt, but it is part of
             // the report's financial effects and therefore shares the transaction.
-            $cashAmount = (string) ($shift->cash_collected ?? '0.00');
-            if (Cashier::whereKey($shift->cashier_id)->exists() && (float) $cashAmount > 0) {
-                CashierCustodyTransaction::create([
-                    'cashier_id' => $shift->cashier_id,
-                    'transaction_type' => 'Total Sales',
-                    'amount' => $cashAmount,
-                    'is_cash_in' => true,
-                    'related_shift_id' => $shift->id,
-                    'transaction_date' => now(),
-                ]);
+            // Under BR-17 / S1-11, delta-only is recorded on re-ending / correction to avoid double-counting.
+            $targetCashCollected = round((float) ($shift->cash_collected ?? '0.00'), 2);
+            if (Cashier::whereKey($shift->cashier_id)->exists()) {
+                $existingPosted = (float) (CashierCustodyTransaction::query()
+                    ->where('related_shift_id', $shift->id)
+                    ->where('cashier_id', $shift->cashier_id)
+                    ->where('transaction_type', 'Total Sales')
+                    ->selectRaw('SUM(CASE WHEN is_cash_in = 1 THEN amount ELSE -amount END) as net_sales')
+                    ->value('net_sales') ?? 0.0);
+
+                $salesDelta = round($targetCashCollected - $existingPosted, 2);
+
+                if ($salesDelta > 0.0) {
+                    CashierCustodyTransaction::create([
+                        'cashier_id' => $shift->cashier_id,
+                        'transaction_type' => 'Total Sales',
+                        'amount' => (string) $salesDelta,
+                        'is_cash_in' => true,
+                        'related_shift_id' => $shift->id,
+                        'transaction_date' => now(),
+                    ]);
+                } elseif ($salesDelta < 0.0) {
+                    CashierCustodyTransaction::create([
+                        'cashier_id' => $shift->cashier_id,
+                        'transaction_type' => 'Total Sales',
+                        'amount' => (string) abs($salesDelta),
+                        'is_cash_in' => false,
+                        'related_shift_id' => $shift->id,
+                        'transaction_date' => now(),
+                    ]);
+                }
             }
 
             if (! empty($data['variance']) && $shift->hasVariance()) {
                 $this->varianceService->recordVariance($shift, $data['variance']);
+            } else {
+                \Modules\Shift\Models\ShiftVarianceDetail::where('cashier_shift_id', $shift->id)->delete();
             }
+
+            CashierShiftHandover::query()
+                ->active()
+                ->where('cashier_shift_id', $shift->id)
+                ->where('status', 'pending')
+                ->update(['report_revision_id' => $revision->id]);
+
+            $this->snapshots->createSnapshotIfMissing($revision, $shift);
 
             DB::commit();
 
@@ -110,6 +152,7 @@ class ShiftEndService
 
     public function endShiftWithHandover(CashierShift $shift, array $data, Model $actor): CashierShift
     {
+        $this->reassignmentGuard->assertCanContinue($shift, $actor);
         // Stage uploads before the outer report + handover transaction begins.
         if (($data['pos_receipt'] ?? null) instanceof UploadedFile) {
             $data['pos_receipt'] = $this->uploadPOSReceipt($data['pos_receipt'], $shift->id);

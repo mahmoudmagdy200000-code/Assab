@@ -13,6 +13,7 @@ use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Services\CountedReassignmentGuard;
 use Modules\Shift\Services\HandoverService;
 use Modules\Shift\Services\ShiftCashCountService;
 use Modules\Shift\Services\ShiftEndService;
@@ -34,7 +35,8 @@ class ShiftEndController extends Controller
         private ShiftEndService $shiftEndService,
         private HandoverService $handoverService,
         private VarianceCalculationService $varianceService,
-        private ShiftCashCountService $cashCounts
+        private ShiftCashCountService $cashCounts,
+        private CountedReassignmentGuard $reassignmentGuard
     ) {}
 
     /**
@@ -104,6 +106,7 @@ class ShiftEndController extends Controller
                 ], 404);
             }
 
+            $this->reassignmentGuard->assertCanContinue($shiftModel);
             if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
                 return response()->json([
                     'success' => false,
@@ -315,6 +318,7 @@ class ShiftEndController extends Controller
                 ], 404);
             }
 
+            $this->reassignmentGuard->assertCanContinue($shiftModel);
             if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
                 return response()->json([
                     'success' => false,
@@ -512,6 +516,9 @@ class ShiftEndController extends Controller
                 ], 404);
             }
 
+            // Apply the shared D16 fallback before request-side upload or handover work.
+            $this->reassignmentGuard->assertCanContinue($shiftModel);
+
             // Check if shift can have handover recorded
             if (! $shiftModel->total_sales) {
                 return response()->json([
@@ -572,20 +579,20 @@ class ShiftEndController extends Controller
                 'handover_notes' => $request->handover_notes,
             ];
 
-            // Handle variance files
-            if ($request->hasFile('variance.supporting_files')) {
-                $handoverData['variance_files'] = $request->file('variance.supporting_files');
-            }
-            if ($request->has('variance.reason')) {
-                $handoverData['variance_reason'] = $request->input('variance.reason');
+            // Handle variance
+            if ($request->has('variance')) {
+                $varianceData = $request->input('variance');
+                if ($request->hasFile('variance.supporting_files')) {
+                    $varianceData['supporting_files'] = $request->file('variance.supporting_files');
+                    $handoverData['variance_files'] = $request->file('variance.supporting_files');
+                }
+                if ($request->has('variance.reason')) {
+                    $handoverData['variance_reason'] = $request->input('variance.reason');
+                }
+                $handoverData['variance'] = $varianceData;
             }
 
             $updatedShift = $this->handoverService->recordHandover($shiftModel, $handoverData, $user);
-
-            // Record variance if provided
-            if ($request->has('variance') && $updatedShift->hasVariance()) {
-                $this->varianceService->recordVariance($updatedShift, $request->variance);
-            }
 
             // Calculate variance using the correct formula:
             // Variance = Total Sales - (Cash Collected + Card Payments + Delivery Apps)

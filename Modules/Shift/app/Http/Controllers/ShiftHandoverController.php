@@ -12,8 +12,8 @@ use Modules\Admin\Http\Middleware\IdempotencyKey;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\HandoverStatus;
 use Modules\Shift\Models\CashierShift;
-use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Services\HandoverService;
+use Modules\Shift\Services\ShiftReportRevisionService;
 use Modules\Shift\Transformers\ShiftDetailResource;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -35,6 +35,7 @@ class ShiftHandoverController extends Controller
             $validator = Validator::make($request->all(), [
                 'confirmed_amount' => 'required|'.ShiftMoneyValidation::SAR,
                 'receiving_shift_id' => 'nullable|uuid|exists:cashier_shifts,id',
+                'transfer_attempt_id' => 'nullable|uuid',
                 'comment' => 'nullable|string|max:500',
             ]);
             if ($validator->fails()) {
@@ -73,7 +74,8 @@ class ShiftHandoverController extends Controller
                     (string) $commandRequest->input('confirmed_amount'),
                     $commandRequest->input('receiving_shift_id'),
                     $commandRequest->get('comment'),
-                    $commandResponse
+                    $commandResponse,
+                    $commandRequest->input('transfer_attempt_id')
                 );
 
                 return $commandResponse;
@@ -257,7 +259,8 @@ class ShiftHandoverController extends Controller
                 $manager->id,
                 get_class($manager),
                 $request->get('manager_comment'),
-                $request->filled('confirmed_amount') ? (string) $request->input('confirmed_amount') : null
+                $request->filled('confirmed_amount') ? (string) $request->input('confirmed_amount') : null,
+                $request->input('transfer_attempt_id')
             );
 
             $isManagerReceipt = $handover->handover_to_type === 'branch_manager';
@@ -293,6 +296,11 @@ class ShiftHandoverController extends Controller
             'rejection_reason' => 'nullable|string|max:500',
             'correction_reason' => 'nullable|in:input_error,actual_shortage',
             'confirmed_amount' => 'required_with:correction_reason|'.ShiftMoneyValidation::SAR,
+            // A D11 amount-mismatch rejection must reference the current physical presentation attempt.
+            // Format is validated here; existence/match of the current attempt is enforced in the service
+            // (HandoverService::rejectHandoverForAmountCorrection → TRANSFER_PRESENTATION_REQUIRED; evidence write → STALE_TRANSFER_ATTEMPT),
+            // so the guarantee never relies on the client sending the field.
+            'transfer_attempt_id' => 'nullable|uuid',
             'manager_comment' => 'nullable|string|max:500',
             'rejection_files' => 'nullable|array',
             'rejection_files.*' => 'nullable|file|mimes:pdf,png,jpeg,jpg|max:5120',
@@ -353,7 +361,8 @@ class ShiftHandoverController extends Controller
                         get_class($user),
                         $request->rejection_reason ?? '',
                         (string) $request->input('confirmed_amount'),
-                        $request->string('correction_reason')->toString()
+                        $request->string('correction_reason')->toString(),
+                        $request->input('transfer_attempt_id')
                     );
                 } else {
                     $this->handoverService->rejectHandoverByCashier(
@@ -448,7 +457,8 @@ class ShiftHandoverController extends Controller
                     get_class($manager),
                     $request->rejection_reason ?? '',
                     (string) $request->input('confirmed_amount'),
-                    $request->string('correction_reason')->toString()
+                    $request->string('correction_reason')->toString(),
+                    $request->input('transfer_attempt_id')
                 );
                 $current = $shiftModel->fresh('handoverStatus')->handoverStatus;
                 $result = [
@@ -508,9 +518,22 @@ class ShiftHandoverController extends Controller
     {
         ShiftMoneyValidation::normalizeRepresentationNoise($request);
         $validator = Validator::make($request->all(), [
-            'handover_amount' => 'required|'.ShiftMoneyValidation::SAR,
+            'handover_amount' => 'nullable|'.ShiftMoneyValidation::SAR,
             'correction_reason' => 'required|in:input_error,actual_shortage',
             'handover_notes' => 'nullable|string|max:500',
+            'expected_revision' => 'required|integer|min:0',
+            'total_sales' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'card_payments' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'cash_collected' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'counted_cash' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'shortage_allocations' => 'nullable|array',
+            'shortage_allocations.*.responsible_type' => 'required_with:shortage_allocations|in:cashier,branch_manager,employee',
+            'shortage_allocations.*.responsible_id' => 'required_with:shortage_allocations|string',
+            'shortage_allocations.*.amount' => 'required_with:shortage_allocations|'.ShiftMoneyValidation::SAR,
+            'aggregators' => 'nullable|array',
+            'aggregators.*.aggregator_id' => 'required_with:aggregators|uuid',
+            'aggregators.*.amount' => 'required_with:aggregators|'.ShiftMoneyValidation::SAR,
+            'aggregators.*.notes' => 'nullable|string|max:255',
         ]);
 
         if ($validator->fails()) {
@@ -533,16 +556,8 @@ class ShiftHandoverController extends Controller
                 ], 403);
             }
 
-            // Check if can edit
-            if (! $shiftModel->handoverStatus?->canCashierEdit()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Handover cannot be edited. Either not rejected or permanently rejected.',
-                    'current_status' => $shiftModel->handoverStatus?->manager_approval_status,
-                    'rejection_count' => $shiftModel->handoverStatus?->rejection_count,
-                ], 409);
-            }
-
+            // The writer checks the current revision and correction state under its locks.
+            // Completed retries are replayed by transactional middleware before this point.
             $updatedShift = $this->handoverService->recordHandoverEdit($shiftModel, $request->all());
 
             return response()->json([
@@ -551,15 +566,14 @@ class ShiftHandoverController extends Controller
                 'data' => [
                     'shift' => new ShiftDetailResource($updatedShift),
                     'edit_details' => [
+                        'report_revision_number' => app(ShiftReportRevisionService::class)->currentCashierRevision($updatedShift)?->revision_number ?? 0,
                         'previous_rejection_count' => $updatedShift->handoverStatus->rejection_count,
-                        'new_handover_amount' => (float) $request->handover_amount,
+                        'new_handover_amount' => (float) ($request->handover_amount ?? $updatedShift->closing_balance),
                         'new_variance' => (float) $updatedShift->variance,
                         'edited_at' => $updatedShift->handoverStatus->edited_at->format('Y-m-d H:i:s'),
                         'status' => 'pending',
                     ],
-                    'warning' => $updatedShift->handoverStatus->rejection_count === 1
-                        ? 'This is your last chance. One more rejection will be permanent.'
-                        : null,
+                    'warning' => null,
                 ],
             ]);
         } catch (\Throwable $e) {
@@ -624,6 +638,7 @@ class ShiftHandoverController extends Controller
                 'success' => true,
                 'message' => 'Handover status retrieved successfully',
                 'data' => [
+                    'report_revision_number' => app(ShiftReportRevisionService::class)->currentCashierRevision($shiftModel)?->revision_number ?? 0,
                     'status' => $handoverStatus->status->value,
                     'manager_approval_status' => $handoverStatus->manager_approval_status,
                     'handover_amount' => (float) ($handover?->handover_amount ?? $shiftModel->handover_amount ?? $shiftModel->closing_balance ?? 0),
@@ -830,13 +845,8 @@ class ShiftHandoverController extends Controller
             return null;
         }
 
-        // If permanently rejected, it's not a correction request
-        if ($handoverStatus->isPermanentlyRejected()) {
-            return null;
-        }
-
-        // If status is rejected and manager_comment exists, it's a correction request
-        if ($handoverStatus->manager_approval_status === 'rejected') {
+        // If status is rejected (or legacy rejected_final) and manager_comment exists, it's a correction request
+        if (in_array($handoverStatus->manager_approval_status, ['rejected', 'rejected_final'])) {
             return [
                 'requested_by' => $handoverStatus->reviewedBy?->name ?? 'N/A',
                 'requested_by_id' => $handoverStatus->reviewed_by_id,
@@ -1061,7 +1071,7 @@ class ShiftHandoverController extends Controller
                         'shift_id' => $shiftModel->id,
                         'rejection_reason' => $handoverStatus->rejection_reason,
                         'rejection_count' => $handoverStatus->rejection_count,
-                        'is_final_rejection' => $handoverStatus->isPermanentlyRejected(),
+                        'is_final_rejection' => false,
                         'rejection_files' => $handoverStatus->rejection_file_urls,
                         'first_rejected_at' => $handoverStatus->first_rejected_at?->format('Y-m-d H:i:s'),
                         'second_rejected_at' => $handoverStatus->second_rejected_at?->format('Y-m-d H:i:s'),
@@ -1069,8 +1079,8 @@ class ShiftHandoverController extends Controller
                         'reviewed_by' => $handoverStatus->reviewedBy?->name,
                         'reviewed_at' => $handoverStatus->reviewed_at?->format('Y-m-d H:i:s'),
                     ],
-                    'can_approve_rejection' => ! $handoverStatus->isPermanentlyRejected(),
-                    'can_request_corrections' => $handoverStatus->rejection_count === 1,
+                    'can_approve_rejection' => false,
+                    'can_request_corrections' => true,
                 ],
             ]);
         } catch (\Exception $e) {
@@ -1146,57 +1156,15 @@ class ShiftHandoverController extends Controller
                 ], 400);
             }
 
-            if ($handoverStatus->isPermanentlyRejected()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'This rejection is already final and cannot be modified',
-                ], 400);
-            }
-
             $decision = $requestData['decision'] ?? $request->decision;
             $comment = $requestData['manager_comment'] ?? $request->manager_comment;
 
             if ($decision === 'approve_rejection') {
-                // Approve rejection = make it final (2nd rejection)
-                if ($handoverStatus->rejection_count >= 2) {
-                    return response()->json([
-                        'success' => false,
-                        'message' => 'Rejection is already final',
-                    ], 400);
-                }
-
-                // Make it final rejection
-                $handoverStatus->update([
-                    'manager_approval_status' => 'rejected_final',
-                    'rejection_count' => 2,
-                    'second_rejected_at' => now(),
-                    'manager_comment' => $comment,
-                    'reviewed_by_id' => $manager->id,
-                    'reviewed_by_type' => get_class($manager),
-                    'reviewed_at' => now(),
-                ]);
-
-                // Update CashierShiftHandover status
-                CashierShiftHandover::where('cashier_shift_id', $shiftModel->id)
-                    ->update([
-                        'status' => 'rejected_final',
-                        'rejection_count' => 2,
-                    ]);
-
                 return response()->json([
-                    'success' => true,
-                    'message' => 'Rejection approved and finalized. Cashier cannot edit anymore.',
-                    'data' => [
-                        'decision' => 'approve_rejection',
-                        'rejection_details' => [
-                            'cashier_name' => $shiftModel->cashier->name,
-                            'rejection_count' => 2,
-                            'is_final_rejection' => true,
-                            'manager_comment' => $comment,
-                            'processed_at' => now()->format('Y-m-d H:i:s'),
-                        ],
-                    ],
-                ]);
+                    'success' => false,
+                    'message' => 'INVALID_STATE: approve_rejection is retired under BR-17',
+                    'code' => 'INVALID_STATE',
+                ], 409);
             } else {
                 // Request corrections = add comment, keep as rejected (cashier can edit)
                 $handoverStatus->update([
@@ -1233,6 +1201,57 @@ class ShiftHandoverController extends Controller
                 'message' => 'Failed to process rejection decision',
                 'error' => $e->getMessage(),
             ], 500);
+        }
+    }
+
+    public function replaceRecipient(Request $request, string $shift): Response
+    {
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
+        try {
+            $validator = Validator::make($request->all(), [
+                'recipient_type' => 'nullable|string|in:cashier,branch_manager',
+                'recipient_id' => 'required|uuid',
+                'receiving_shift_id' => 'nullable|uuid',
+                'handover_amount' => 'required|'.ShiftMoneyValidation::SAR,
+                'expected_revision' => 'required|integer',
+                'reason' => 'required|string|min:1|max:500',
+            ]);
+            if ($validator->fails()) {
+                return response()->json(['success' => false, 'message' => 'Validation failed', 'code' => 'VALIDATION_ERROR', 'errors' => $validator->errors()], 422);
+            }
+
+            $shiftModel = CashierShift::withoutEagerLoads()->findOrFail($shift);
+            $handover = $this->handoverService->currentHandover($shiftModel);
+            $actor = auth()->user();
+            $operationId = (string) ($request->header('Idempotency-Key') ?? \Illuminate\Support\Str::uuid());
+
+            $replacement = app(\Modules\Shift\Services\TransferRequestLifecycleService::class)->replaceRecipient(
+                'handover',
+                $handover->id,
+                $actor,
+                [
+                    'recipient_type' => $request->input('recipient_type', 'cashier'),
+                    'recipient_id' => $request->input('recipient_id'),
+                    'receiving_shift_id' => $request->input('receiving_shift_id'),
+                ],
+                (string) $request->input('handover_amount'),
+                (int) $request->input('expected_revision'),
+                (string) $request->input('reason'),
+                $operationId
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Handover recipient replaced successfully',
+                'data' => [
+                    'handover_request_id' => $replacement->id,
+                    'supersedes_id' => $replacement->supersedes_id,
+                    'requested_amount' => (string) $replacement->handover_amount,
+                    'status' => $replacement->status,
+                ],
+            ], 200);
+        } catch (\Throwable $e) {
+            return HandoverErrorResponse::from($e, 'replace recipient');
         }
     }
 }

@@ -20,7 +20,7 @@ class ShiftController extends AsabController
     {
         if ($request->query('status', 'closed') === 'live') {
             return $this->run(function () {
-                $active = $this->scopeToAssignedBranches(Shift::whereIn('status', ['active', 'late']))->orderByDesc('started_at')->get();
+                $active = $this->scopeToAssignedBranches(Shift::currentlyOperational()->whereIn('status', ['active', 'late']))->orderByDesc('started_at')->get();
 
                 return $this->listResponse($this->presenter->collection($active), ['kpis' => $this->kpis()]);
             });
@@ -32,7 +32,7 @@ class ShiftController extends AsabController
     public function live(): JsonResponse
     {
         return $this->run(function () {
-            $active = $this->scopeToAssignedBranches(Shift::whereIn('status', ['active', 'late']))->orderByDesc('started_at')->get();
+            $active = $this->scopeToAssignedBranches(Shift::currentlyOperational()->whereIn('status', ['active', 'late']))->orderByDesc('started_at')->get();
             $presented = $this->presenter->collection($active);
 
             return $this->ok([
@@ -81,7 +81,7 @@ class ShiftController extends AsabController
         $base = fn () => $this->scopeToAssignedBranches(Shift::query());
 
         return [
-            'openNow' => (clone $base())->whereIn('status', ['active', 'late'])->count(),
+            'openNow' => (clone $base())->currentlyOperational()->whereIn('status', ['active', 'late'])->count(),
             // A shift that ended today counts as closed even while it awaits the
             // accountant/head review (`pending_review`) — the card read 0 all day
             // otherwise, since bridged closes only reach `closed` on final approval.

@@ -80,6 +80,8 @@ class ShiftLiabilityServiceTest extends TestCase
         });
         (require base_path('Modules/Shift/database/migrations/2026_10_08_000001_create_shift_liability_allocations.php'))->up();
         (require base_path('Modules/Shift/database/migrations/2026_10_08_000002_create_shift_liability_daily_locks.php'))->up();
+        Schema::table('shift_liability_allocations', fn (Blueprint $t) => $t->uuid('supersedes_allocation_id')->nullable());
+        Schema::table('shift_liability_daily_locks', fn (Blueprint $t) => $t->timestamp('superseded_at')->nullable());
         $this->companyId = (string) Str::uuid();
         $this->branchId = (string) Str::uuid();
         $this->shiftId = (string) Str::uuid();
@@ -242,7 +244,7 @@ class ShiftLiabilityServiceTest extends TestCase
         $this->service->approve($this->shiftId, $this->manager, 1, true);
         $this->source->scope = new DailyCloseEvidence($this->workdayId, $this->companyId, $this->branchId, [$this->source->report], ['required-transfer' => null]);
         $this->expectException(ConflictHttpException::class);
-        $this->expectExceptionMessage('REQUIRED_TRANSFER_RECEIPT_PENDING');
+        $this->expectExceptionMessage('PENDING_TRANSFER_EVIDENCE_INCOMPLETE');
         $this->ready();
     }
 

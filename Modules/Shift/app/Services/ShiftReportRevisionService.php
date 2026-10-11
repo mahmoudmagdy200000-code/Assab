@@ -12,6 +12,17 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 /** Minimum S1-08 report identity. Revision snapshots and correction history remain S1-11. */
 class ShiftReportRevisionService
 {
+    public function assertFreshCount(CashierShift $shift): void
+    {
+        $query = DB::table('shift_report_aggregates')->where('source_type', 'cashier_shift')->where('source_id', $shift->id);
+        if (DB::transactionLevel() > 0) {
+            $query->lockForUpdate();
+        }
+        if ($query->value('fresh_count_required')) {
+            throw new ConflictHttpException('PHYSICAL_RECOUNT_REQUIRED');
+        }
+    }
+
     public function recordCashierRevision(CashierShift $shift, string $actorType, string $actorId, ?int $expectedRevision = null): ShiftReportRevision
     {
         return $this->recordRevision('cashier_shift', $shift->id, $actorType, $actorId, $expectedRevision);
@@ -72,8 +83,10 @@ class ShiftReportRevisionService
         $aggregate = ShiftReportAggregate::query()
             ->where('source_type', $sourceType)
             ->where('source_id', $sourceId)
+            ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())
             ->first();
 
-        return $aggregate?->revisions()->where('revision_number', $aggregate->current_revision_number)->first();
+        return $aggregate?->revisions()->where('revision_number', $aggregate->current_revision_number)
+            ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())->first();
     }
 }

@@ -210,9 +210,11 @@ class BranchManagerShiftResource extends JsonResource
     {
         return [
             'is_submitted' => (bool) $this->daily_report_submitted,
+            'report_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentManagerRevision($this->resource)?->revision_number,
             'submitted_at' => $this->daily_report_submitted_at?->format(self::DATETIME_FORMAT),
             'notes' => $this->daily_report_notes,
-            'can_reopen' => $this->can_reopen && $this->daily_report_submitted,
+            // D-PR is unresolved: historical flags are evidence, not current authority.
+            'can_reopen' => false,
             'reopened_at' => $this->reopened_at?->format(self::DATETIME_FORMAT),
             'reopen_reason' => $this->reopen_reason,
             'is_archived' => ! is_null($this->archived_at),
@@ -297,7 +299,7 @@ class BranchManagerShiftResource extends JsonResource
             'can_start' => $this->status === 'not_started' && $this->shift_date?->isToday(),
             'can_end' => $this->canEnd(),
             'can_submit_daily_report' => $this->status === 'completed' && ! $this->daily_report_submitted,
-            'can_reopen' => $this->can_reopen && $this->daily_report_submitted && $this->shift_date?->isToday(),
+            'can_reopen' => false,
             'can_approve_handovers' => $this->status === 'in_progress',
             'can_reject_handovers' => $this->status === 'in_progress',
         ];
