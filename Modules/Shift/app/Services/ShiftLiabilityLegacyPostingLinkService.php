@@ -23,16 +23,38 @@ class ShiftLiabilityLegacyPostingLinkService
         }
 
         $cashierRows = DB::table('cashier_custody_transactions')->where('related_shift_id', $shift->id)
-            ->where('transaction_type', 'Variance');
+            ->where('transaction_type', 'Variance')
+            // Discovery concerns today's effective SHORT entries. Immutable links
+            // already established before a later deletion are summed separately.
+            ->whereNull('deleted_at')
+            ->where('is_cash_in', false);
         if (Schema::hasColumn('cashier_custody_transactions', 'posting_id')) {
             $cashierRows->whereNull('posting_id');
         }
         if (Schema::hasColumn('cashier_custody_transactions', 'lineage_key')) {
             $cashierRows->whereNull('lineage_key');
         }
+        $cashierRows = $cashierRows->orderBy('id')->lockForUpdate()->get();
+        // The legacy replacement writer does not store a detail/replacement ID.
+        // Multiple live rows for one actor cannot safely be inferred as additive.
+        if ($cashierRows->groupBy('cashier_id')->contains(fn ($rows) => $rows->count() > 1)) {
+            throw new ConflictHttpException('LEGACY_LIABILITY_RECONCILIATION_REQUIRED');
+        }
+        foreach ($cashierRows->groupBy('cashier_id') as $cashierId => $rows) {
+            $priorDifferentRow = ShiftLiabilityLegacyPostingLink::query()
+                ->where('cashier_shift_id', $shift->id)
+                ->where('responsible_type', 'cashier')->where('responsible_id', (string) $cashierId)
+                ->where('ledger_table', 'cashier_custody_transactions')
+                ->whereNotIn('ledger_id', $rows->pluck('id'))->lockForUpdate()->first();
+            if ($priorDifferentRow) {
+                // An immutable prior link remains effective. A new legacy row
+                // might replace it; guessing an additional charge is unsafe.
+                throw new ConflictHttpException('LEGACY_LIABILITY_RECONCILIATION_REQUIRED');
+            }
+        }
         $this->linkRows(
             $shift,
-            $cashierRows->get(),
+            $cashierRows,
             'cashier_custody_transactions',
             function ($row) use ($branchId): ?array {
                 if (Schema::hasColumn('cashier_custody_transactions', 'category')
@@ -47,40 +69,14 @@ class ShiftLiabilityLegacyPostingLinkService
                 return [
                     'type' => 'cashier',
                     'id' => (string) $row->cashier_id,
-                    'signed' => ShiftFinancialCalculator::sarToHalalas((string) $row->amount) * ($row->is_cash_in ? -1 : 1),
+                    'signed' => ShiftFinancialCalculator::sarToHalalas((string) $row->amount),
                 ];
             }
         );
 
-        $managerRows = DB::table('personal_ledger_transactions')->where('related_shift_id', $shift->id)
-            ->where('transaction_type', 'Variance from Cashier');
-        if (Schema::hasColumn('personal_ledger_transactions', 'posting_id')) {
-            $managerRows->whereNull('posting_id');
-        }
-        if (Schema::hasColumn('personal_ledger_transactions', 'lineage_key')) {
-            $managerRows->whereNull('lineage_key');
-        }
-        $this->linkRows(
-            $shift,
-            $managerRows->get(),
-            'personal_ledger_transactions',
-            function ($row) use ($branchId): ?array {
-                if (Schema::hasColumn('personal_ledger_transactions', 'category')
-                    && $row->category !== null && $row->category !== 'cash_variance') {
-                    throw new ConflictHttpException('LEGACY_LIABILITY_RECONCILIATION_REQUIRED');
-                }
-                $manager = DB::table('branch_managers')->where('id', $row->branch_manager_id)->where('branch_id', $branchId)->exists();
-                if (! $manager || ! is_numeric($row->amount) || (float) $row->amount < 0) {
-                    throw new ConflictHttpException('LEGACY_LIABILITY_RECONCILIATION_REQUIRED');
-                }
-
-                return [
-                    'type' => 'branch_manager',
-                    'id' => (string) $row->branch_manager_id,
-                    'signed' => ShiftFinancialCalculator::sarToHalalas((string) $row->amount) * ($row->is_cash_in ? -1 : 1),
-                ];
-            }
-        );
+        // "Variance from Cashier" is the manager's custody mirror, not evidence
+        // of manager responsibility. Never discover it as manager liability.
+        // Previously verified immutable links are not rewritten or removed.
 
         $employeeRows = DB::table('asab_employee_movements as movement')
             ->join('asab_operations as operation', 'operation.id', '=', 'movement.ref_operation_id')
@@ -92,6 +88,8 @@ class ShiftLiabilityLegacyPostingLinkService
             ->whereNull('movement.posting_id')
             ->whereNull('movement.lineage_key')
             ->select('movement.*')
+            ->orderBy('movement.id')
+            ->lockForUpdate()
             ->get();
 
         $this->linkRows(
@@ -122,7 +120,7 @@ class ShiftLiabilityLegacyPostingLinkService
                 continue;
             }
             $existing = ShiftLiabilityLegacyPostingLink::query()
-                ->where('ledger_table', $table)->where('ledger_id', (string) $row->id)->first();
+                ->where('ledger_table', $table)->where('ledger_id', (string) $row->id)->lockForUpdate()->first();
             $lineageKey = ShiftLiabilityShare::buildLineageKey($shift->id, $identity['type'], $identity['id']);
             if ($existing !== null) {
                 if ($existing->cashier_shift_id !== $shift->id || $existing->lineage_key !== $lineageKey
@@ -182,12 +180,14 @@ class ShiftLiabilityLegacyPostingLinkService
      */
     public function resolveEffectivePostedHalalas(string $lineageKey): int
     {
+        // Current reads are required after waiting for the shift mutex: an outer
+        // REPEATABLE READ transaction may already have an older snapshot.
         $modernPostedHalalas = (int) ShiftLiabilityPosting::where('lineage_key', $lineageKey)
             ->where('status', 'posted')
-            ->sum('delta_halalas');
+            ->orderBy('id')->lockForUpdate()->get(['delta_halalas'])->sum('delta_halalas');
 
         $legacyPostedHalalas = (int) ShiftLiabilityLegacyPostingLink::where('lineage_key', $lineageKey)
-            ->sum('signed_halalas');
+            ->orderBy('id')->lockForUpdate()->get(['signed_halalas'])->sum('signed_halalas');
 
         return $modernPostedHalalas + $legacyPostedHalalas;
     }

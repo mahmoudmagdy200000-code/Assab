@@ -44,6 +44,13 @@ try {
                 $input['operation_id'] ?? (string) \Illuminate\Support\Str::uuid()
             );
             $result = ['status' => 'approved', 'review_id' => $review->id];
+        } elseif ($input['command'] === 'legacy_reconcile') {
+            $shift = \Modules\Shift\Models\CashierShift::findOrFail($input['shift_id']);
+            $manager = \Modules\BranchManagers\Models\BranchManager::findOrFail($input['manager_id']);
+            $posting = app(\Modules\Shift\Services\ShortagePostingService::class)->reconcile(
+                $shift, $manager, $input['expected_revision'], $input['expected_allocation_version'], $input['operation_id']
+            );
+            $result = ['status' => 'reconciled', 'total_deltas' => $posting['total_deltas']];
         } elseif ($input['command'] === 'allocate_liability') {
             $shift = \Modules\Shift\Models\CashierShift::findOrFail($input['shift_id']);
             $cashier = \Modules\Cashier\Models\Cashier::findOrFail($input['cashier_id']);

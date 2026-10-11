@@ -727,6 +727,54 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
             ->where('source_id', $shift->id)->first();
     }
 
+    public function test_aud05_concurrent_first_discovery_links_only_live_shortage_once(): void
+    {
+        [, $manager, , , $shift, $cashier] = $this->fixture(7000);
+        $old = CashierCustodyTransaction::create([
+            'cashier_id' => $cashier->id, 'transaction_type' => 'Variance', 'amount' => '10.00',
+            'is_cash_in' => false, 'related_shift_id' => $shift->id, 'transaction_date' => now(),
+        ]);
+        $old->delete();
+        $live = CashierCustodyTransaction::create([
+            'cashier_id' => $cashier->id, 'transaction_type' => 'Variance', 'amount' => '12.00',
+            'is_cash_in' => false, 'related_shift_id' => $shift->id, 'transaction_date' => now(),
+        ]);
+        $mirror = \Modules\Custody\Models\PersonalLedgerTransaction::create([
+            'branch_manager_id' => $manager->id, 'transaction_type' => 'Variance from Cashier',
+            'amount' => '12.00', 'is_cash_in' => true, 'related_shift_id' => $shift->id, 'transaction_date' => now(),
+        ]);
+        $mirrorOriginal = $mirror->fresh()->getAttributes();
+        $allocation = ShiftLiabilityAllocation::create([
+            'company_id' => $shift->shift->branch->asab_company_id, 'branch_id' => $shift->shift->branch_id,
+            'cashier_shift_id' => $shift->id, 'version' => 1, 'report_revision' => '1', 'variance_halalas' => -1000,
+            'created_by_type' => 'branch_manager', 'created_by_id' => $manager->id,
+            'manager_approval_status' => 'approved', 'manager_approved_by' => $manager->id, 'manager_approved_at' => now(),
+        ]);
+        $allocation->shares()->create([
+            'responsible_type' => 'cashier', 'responsible_id' => $cashier->id, 'amount_halalas' => 1000,
+        ]);
+        $input = [
+            'command' => 'legacy_reconcile', 'shift_id' => $shift->id, 'manager_id' => $manager->id,
+            'expected_revision' => 1, 'expected_allocation_version' => 1,
+        ];
+        [$first, $second] = $this->race(
+            $input + ['operation_id' => (string) \Illuminate\Support\Str::uuid()],
+            $input + ['operation_id' => (string) \Illuminate\Support\Str::uuid()]
+        );
+        $this->assertSame('reconciled', $first['status']);
+        $this->assertSame('reconciled', $second['status']);
+        $this->assertSame(1, $first['total_deltas']);
+        $this->assertSame(0, $second['total_deltas']);
+        $link = \Modules\Shift\Models\ShiftLiabilityLegacyPostingLink::where('cashier_shift_id', $shift->id)->sole();
+        $this->assertSame($live->id, $link->ledger_id);
+        $this->assertSame(1200, $link->signed_halalas);
+        $posting = ShiftLiabilityPosting::where('cashier_shift_id', $shift->id)->sole();
+        $this->assertSame(-200, $posting->delta_halalas);
+        $this->assertSame(1200, $posting->effective_before_halalas);
+        $this->assertSame('cashier', $posting->responsible_type);
+        $this->assertSame($mirrorOriginal, $mirror->fresh()->getAttributes());
+    }
+
     private function race(array $firstInput, array $secondInput): array
     {
         $barrier = tempnam(sys_get_temp_dir(), 's111_p567_race_');

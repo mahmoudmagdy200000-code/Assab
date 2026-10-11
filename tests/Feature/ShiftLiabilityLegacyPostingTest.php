@@ -303,7 +303,7 @@ class ShiftLiabilityLegacyPostingTest extends TestCase
         $service->reconcileShiftLegacyEvidence($this->cashierShift);
     }
 
-    public function test_reconciliation_links_exact_cashier_manager_and_employee_legacy_rows_with_signed_amounts(): void
+    public function test_reconciliation_links_cashier_and_employee_liability_but_not_manager_custody_mirror(): void
     {
         $cashierRow = CashierCustodyTransaction::create([
             'cashier_id' => $this->cashier->id,
@@ -361,11 +361,11 @@ class ShiftLiabilityLegacyPostingTest extends TestCase
 
         app(ShiftLiabilityLegacyPostingLinkService::class)->reconcileShiftLegacyEvidence($this->cashierShift);
 
-        $this->assertSame(3, ShiftLiabilityLegacyPostingLink::count());
+        $this->assertSame(2, ShiftLiabilityLegacyPostingLink::count());
         $this->assertSame(10000, ShiftLiabilityLegacyPostingLink::where('ledger_table', 'cashier_custody_transactions')
             ->where('ledger_id', $cashierRow->id)->sole()->signed_halalas);
-        $this->assertSame(5000, ShiftLiabilityLegacyPostingLink::where('ledger_table', 'personal_ledger_transactions')
-            ->where('ledger_id', $managerRow->id)->sole()->signed_halalas);
+        $this->assertSame(0, ShiftLiabilityLegacyPostingLink::where('ledger_table', 'personal_ledger_transactions')
+            ->where('ledger_id', $managerRow->id)->count());
         $this->assertSame(15000, ShiftLiabilityLegacyPostingLink::where('ledger_table', 'asab_employee_movements')
             ->where('ledger_id', $employeeRow->id)->sole()->signed_halalas);
         $this->assertEquals($originalEmployee, $employeeRow->fresh()->getAttributes());

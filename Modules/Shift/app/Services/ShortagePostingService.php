@@ -82,7 +82,7 @@ class ShortagePostingService
 
             // From current approved allocation
             if ($activeAllocation) {
-                $shares = $activeAllocation->shares()->get();
+                $shares = $activeAllocation->shares()->orderBy('id')->lockForUpdate()->get();
                 foreach ($shares as $share) {
                     $key = ShiftLiabilityShare::buildLineageKey($shift->id, $share->responsible_type, $share->responsible_id);
                     $targets[$key] = [
@@ -94,7 +94,8 @@ class ShortagePostingService
             }
 
             // From existing posting states
-            $existingStates = ShiftLiabilityPostingState::where('cashier_shift_id', $shift->id)->get();
+            $existingStates = ShiftLiabilityPostingState::where('cashier_shift_id', $shift->id)
+                ->orderBy('lineage_key')->lockForUpdate()->get();
             foreach ($existingStates as $state) {
                 if (! isset($targets[$state->lineage_key])) {
                     $targets[$state->lineage_key] = [
@@ -108,6 +109,7 @@ class ShortagePostingService
             // From existing legacy links
             $legacyLinks = DB::table('shift_liability_legacy_posting_links')
                 ->where('cashier_shift_id', $shift->id)
+                ->orderBy('lineage_key')->lockForUpdate()
                 ->get();
             foreach ($legacyLinks as $legacy) {
                 if (! isset($targets[$legacy->lineage_key])) {
@@ -129,17 +131,19 @@ class ShortagePostingService
 
             foreach ($targets as $lineageKey => $stakeholder) {
                 // Ensure posting state exists and is locked
-                $postingState = ShiftLiabilityPostingState::firstOrCreate(
-                    ['lineage_key' => $lineageKey],
-                    [
+                $postingState = ShiftLiabilityPostingState::where('lineage_key', $lineageKey)
+                    ->lockForUpdate()->first();
+                if ($postingState === null) {
+                    $postingState = ShiftLiabilityPostingState::create([
+                        'lineage_key' => $lineageKey,
                         'company_id' => $companyId,
                         'branch_id' => $branchId,
                         'cashier_shift_id' => $shift->id,
                         'responsible_type' => $stakeholder['type'],
                         'responsible_id' => $stakeholder['id'],
                         'last_approved_target_halalas' => 0,
-                    ]
-                );
+                    ]);
+                }
 
                 $postingState = ShiftLiabilityPostingState::whereKey($postingState->id)
                     ->lockForUpdate()
