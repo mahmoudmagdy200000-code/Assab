@@ -19,7 +19,11 @@ trait ConfirmsPhysicalReturn
     /** Present the request's cash as a tracked attempt (sender action). */
     protected function presentAttempt(CashierShiftHandover $handover, Model $sender, int $presentedHalalas): ShiftTransferAttempt
     {
-        return app(ShiftTransferAttemptService::class)->present('handover', $handover->id, $sender, $presentedHalalas, 'present-'.Str::uuid());
+        $attempt = app(ShiftTransferAttemptService::class)->present('handover', $handover->id, $sender, $presentedHalalas, 'present-'.Str::uuid());
+        // The presentation must become the request's current attempt identity.
+        $this->assertSame($attempt->id, $handover->fresh()->current_transfer_attempt_id);
+
+        return $attempt;
     }
 
     /** Recipient returns every retained halala of the rejected attempt and the sender confirms the return. */
@@ -27,10 +31,14 @@ trait ConfirmsPhysicalReturn
     {
         $service = app(ShiftTransferAttemptService::class);
         $retained = $service->retained($attempt->fresh());
-        if ($retained > 0) {
-            $return = $service->initiate($attempt->id, $recipient, $retained, 'return-'.Str::uuid(), 'Rejected cash returned', null);
-            $service->confirmReturn($return->id, $sender);
-        }
+        // A rejected attempt must hold physical cash; otherwise the return chain would be skipped without anyone noticing.
+        $this->assertGreaterThan(0, $retained, 'A rejected attempt must retain physical cash before the return is recorded.');
+
+        $return = $service->initiate($attempt->id, $recipient, $retained, 'return-'.Str::uuid(), 'Rejected cash returned', null);
+        $this->assertSame($retained, (int) $return->returned_halalas);
+
+        $service->confirmReturn($return->id, $sender);
+        $this->assertNotNull($return->fresh()->sender_confirmed_at, 'The sender must confirm the physical return.');
         $this->assertSame(0, $service->retained($attempt->fresh()));
     }
 

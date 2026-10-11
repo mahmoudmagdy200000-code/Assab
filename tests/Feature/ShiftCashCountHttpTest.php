@@ -539,7 +539,7 @@ class ShiftCashCountHttpTest extends TestCase
     }
 
     /** S1-11 Phase 5: the accountant's split of a counted shortage routes through AccountantReportCorrectionService and is final without manager review (v3.2). */
-    public function test_accountant_split_of_a_counted_shortage_is_refused(): void
+    public function test_accountant_split_of_a_counted_shortage_is_final_without_manager_review(): void
     {
         [$admin, $op] = $this->countedShortageOperation();
         $accountant = AsabUser::where('email', 'acc@s110.test')->firstOrFail();

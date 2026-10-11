@@ -1,6 +1,6 @@
 # S1-11 final test evidence — correction pass (2026-10-11)
 
-All runs: PHP 8.3.6, PHPUnit 12.4.0, ParaTest, SQLite `:memory:` (testing env), working tree = `f62a4ba` + this pass's test/doc changes. Executed by the correction-pass author (evidence class **REVIEWER_EXECUTED-equivalent for the author's session**: the same session that audited `f62a4ba`; the independent re-audit must re-run).
+All runs: PHP 8.3.6, PHPUnit 12.4.0, ParaTest, SQLite `:memory:` (testing env), working tree = `f62a4ba` + this pass's test/doc changes. Executed by the correction-pass author in the author's own session (evidence class **DEVELOPER_EXECUTED / AUTHOR_REPORTED**; this is not independent execution, and the independent re-audit must re-run at the exact SHA). No JUnit artifact or runner log is stored in the repository: `/tmp/full-corr.xml` below was a temporary path.
 
 ## 1. Baseline before the pass (audit f62a4ba)
 1890 tests / 10573 assertions / 9 failures / 3 errors / 33 skipped (12 red = 10 stale by `f62a4ba` + 2 pre-existing; proven by re-running parent `8fe1daaa`).
@@ -17,7 +17,7 @@ Skipped (33): `ShiftPhases234MySqlConcurrencyTest` 10, `ShiftPhases567MySqlConcu
 | Test | Root cause | Change | Real assertion kept? |
 |---|---|---|---|
 | `ShiftAccountantCorrectionHttpTest` ×2 (`…successful_and_idempotent`, `…company_me_alias…`) | S111-FINAL-01: `manager_review_required` now false | expect `false` | Yes |
-| `ShiftCashCountHttpTest::test_accountant_split_of_a_counted_shortage_is_refused` | allocation now `approved`; no pending manager review | expect `approved`; assert zero pending reviews (replaces "review exists with −2000") | Yes (variance −2000 still asserted via allocation/payload) |
+| `ShiftCashCountHttpTest::test_accountant_split_of_a_counted_shortage_is_final_without_manager_review` (renamed from `…_is_refused`, which no longer described the behaviour) | allocation now `approved`; no pending manager review | expect `approved`; assert zero pending reviews (replaces "review exists with −2000") | Yes (variance −2000 still asserted via allocation/payload) |
 | `ShiftLiabilityServiceTest::test_required_transfer_blocks_daily_even_after_liability_approval` | DAY-03 renamed gate | expect `PENDING_TRANSFER_EVIDENCE_INCOMPLETE` | Yes |
 | `ShiftTransferReceiptTest` ×2 (`…corrected_and_then_confirmed_exactly`, `…input_error_correction…`) | S111-FINAL-03/05: return step, full report, new attempt | present → reject(attempt) → return → sender confirm → edit with report fields → present attempt 2 → confirm with `expectedAttemptId` | Yes (old/new amount, evidence rows, receipt, ledger count unchanged) |
 | `ShiftRejectionCorrectionTest` ×2 | same | `d11Reject()` now returns the cash; accept carries `transfer_attempt_id`; plain-reject code `PHYSICAL_REJECTION_DETAILS_REQUIRED` | Yes (409 + zero writes; recon 0 / opening 480) |
