@@ -217,12 +217,30 @@ final class ShiftLiabilityService
     {
         $allocation = $this->latest($report->shiftId);
         if (! $allocation || $allocation->version !== $version || $allocation->superseded_at !== null
-            || $allocation->report_revision !== $report->revision || $allocation->variance_halalas !== $report->varianceHalalas
+            || ! $this->matchesEvidenceRevision($allocation, $report) || $allocation->variance_halalas !== $report->varianceHalalas
             || $allocation->branch_id !== $report->branchId || $allocation->company_id !== $report->companyId) {
             throw new ConflictHttpException('STALE_OR_MISSING_LIABILITY_ALLOCATION');
         }
 
         return $allocation;
+    }
+
+    /** Corrections store a revision number; counts retain its immutable evidence UUID. */
+    private function matchesEvidenceRevision(ShiftLiabilityAllocation $allocation, ReportEvidence $report): bool
+    {
+        if ($allocation->report_revision === $report->revision) {
+            return true;
+        }
+        if (! preg_match('/\A[1-9][0-9]*\z/', (string) $allocation->report_revision)) {
+            return false;
+        }
+
+        return DB::table('shift_report_revisions as revision')
+            ->join('shift_report_aggregates as report', 'report.id', '=', 'revision.report_aggregate_id')
+            ->where('revision.id', $report->revision)
+            ->where('revision.revision_number', $allocation->report_revision)
+            ->where('report.source_type', 'cashier_shift')->where('report.source_id', $report->shiftId)
+            ->exists();
     }
 
     private function assertComplete(ShiftLiabilityAllocation $allocation): void

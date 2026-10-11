@@ -653,27 +653,20 @@ class BranchManagerShiftService
      * Lock the cashier inputs and manager-directed requests used by a manager
      * close/correction. The manager row is locked by the caller first.
      */
+    /** Public bulk/daily boundaries acquire the complete owner set before workday/source rows. */
+    public function lockCashierFinancialOwners(BranchManagerShift $managerShift): void
+    {
+        $owners = CashierShift::withoutEagerLoads()
+            ->whereHas('shift', fn ($query) => $query->where('branch_id', $managerShift->branch_id))
+            ->whereDate('shift_date', '<=', $managerShift->shift_date)
+            ->pluck('cashier_id')->all();
+        app(ShiftCashAvailabilityService::class)->lockCashierOwners($owners);
+    }
+
     public function lockCashierFinancialInputs(BranchManagerShift $managerShift): void
     {
-        $from = $managerShift->shift_date->copy()->subDays(7)->toDateString();
-        $through = $managerShift->shift_date->toDateString();
-
-        $cashierShiftIds = CashierShift::query()
-            ->where(function ($inputs) use ($from, $through, $managerShift) {
-                $inputs->where(function ($recent) use ($from, $through) {
-                    $recent->whereDate('shift_date', '>=', $from)->whereDate('shift_date', '<=', $through);
-                })->orWhereHas('handover', function ($carried) use ($managerShift) {
-                    // The daily close includes approved, unclosed carry-over even beyond seven days.
-                    $carried->where('handover_to_type', 'branch_manager')
-                        ->where('handover_to_id', $managerShift->branch_manager_id)
-                        ->where('status', 'approved')->whereNull('daily_closed_at');
-                });
-            })
-            ->whereHas('shift', fn ($query) => $query->where('branch_id', $managerShift->branch_id))
-            ->orderBy('id')
-            ->lockForUpdate()
-            ->get(['id'])
-            ->pluck('id');
+        $scope = app(ShiftDailyCloseScopeService::class)->resolve($managerShift, true);
+        $cashierShiftIds = collect($scope['cashier_shift_ids']);
 
         if ($cashierShiftIds->isNotEmpty()) {
             $reports = \Modules\Shift\Models\ShiftReportAggregate::query()
@@ -683,20 +676,22 @@ class BranchManagerShiftService
                 throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('PHYSICAL_RECOUNT_REQUIRED');
             }
             app(\Modules\Shift\Services\ShiftReportManagerReviewService::class)->assertReadyForWorkday($managerShift, $cashierShiftIds->all());
-            CashierShiftHandover::query()
-                ->whereIn('cashier_shift_id', $cashierShiftIds)
-                ->where('handover_to_type', 'branch_manager')
-                ->where('handover_to_id', $managerShift->branch_manager_id)
+            if (! empty($scope['handover_ids'])) {
+                CashierShiftHandover::query()
+                    ->whereIn('id', $scope['handover_ids'])
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get();
+            }
+        }
+
+        if (! empty($scope['manager_transfer_ids'])) {
+            BranchManagerCashTransfer::query()
+                ->whereIn('id', $scope['manager_transfer_ids'])
                 ->orderBy('id')
                 ->lockForUpdate()
                 ->get();
         }
-
-        BranchManagerCashTransfer::query()
-            ->where('branch_manager_shift_id', $managerShift->id)
-            ->orderBy('id')
-            ->lockForUpdate()
-            ->get();
     }
 
     // =====================================================================

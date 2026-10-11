@@ -68,7 +68,12 @@ class ShiftReturnFinalizationGuardTest extends TestCase
     {
         $workday = BranchManagerShift::where('branch_manager_id', $this->manager->id)->whereDate('shift_date', today())->firstOrFail();
         $workday->update(['status' => 'completed', 'daily_report_submitted' => false]);
-        $this->actingAs($this->manager, 'sanctum')->postJson('/api/v1/branch-manager/workday/daily-close/submit', [])
+        app(\Modules\Shift\Services\ShiftReportRevisionService::class)->recordManagerRevision($workday, 'branch_manager', $this->manager->id, 0);
+        $this->actingAs($this->manager, 'sanctum')->withHeader('Idempotency-Key', (string) \Illuminate\Support\Str::uuid())
+            ->postJson('/api/v1/branch-manager/workday/daily-close/submit', [
+                'branch_manager_shift_id' => $workday->id,
+                'expected_revision' => 1,
+            ])
             ->assertStatus(409)->assertJsonPath('code', 'PHYSICAL_RECOUNT_REQUIRED');
         $this->assertFalse((bool) $workday->fresh()->daily_report_submitted);
         $this->assertTrue((bool) DB::table('shift_report_aggregates')->where('source_id', $this->legacy->id)->value('fresh_count_required'));
@@ -181,7 +186,12 @@ class ShiftReturnFinalizationGuardTest extends TestCase
         ]);
         $workday = BranchManagerShift::where('branch_manager_id', $this->manager->id)->whereDate('shift_date', today())->firstOrFail();
         $workday->update(['status' => 'completed', 'daily_report_submitted' => false]);
-        $this->actingAs($this->manager, 'sanctum')->postJson('/api/v1/branch-manager/workday/daily-close/submit', [])
+        app(\Modules\Shift\Services\ShiftReportRevisionService::class)->recordManagerRevision($workday, 'branch_manager', $this->manager->id, 0);
+        $this->actingAs($this->manager, 'sanctum')->withHeader('Idempotency-Key', (string) \Illuminate\Support\Str::uuid())
+            ->postJson('/api/v1/branch-manager/workday/daily-close/submit', [
+                'branch_manager_shift_id' => $workday->id,
+                'expected_revision' => 1,
+            ])
             ->assertStatus(409)->assertJsonPath('code', 'PHYSICAL_RECOUNT_REQUIRED');
         $this->assertFalse((bool) $workday->fresh()->daily_report_submitted);
         $this->assertDatabaseHas('cashier_shift_handovers', ['cashier_shift_id' => $this->legacy->id, 'daily_closed_at' => null]);

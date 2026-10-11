@@ -9,15 +9,16 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Shift\Liability\DailyLiabilityGuard;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Services\BranchManagerShiftService;
 use Modules\Shift\Services\HandoverService;
+use Modules\Shift\Services\ShiftDailyCloseScopeService;
 use Modules\Shift\Services\ShiftReportRevisionService;
 use Modules\Shift\Services\ShiftTransferReceiptService;
 use Modules\Shift\Transformers\BranchManagerShiftResource;
@@ -550,6 +551,7 @@ class BranchManagerShiftController extends BaseController
 
             try {
                 app(ShiftTransferReceiptService::class)->lockManagerCashOwner((string) $managerShift->branch_manager_id);
+                $this->shiftService->lockCashierFinancialOwners($managerShift);
                 $managerShift = BranchManagerShift::query()->whereKey($managerShift->id)->lockForUpdate()->firstOrFail();
                 $this->shiftService->lockCashierFinancialInputs($managerShift);
                 if (! $managerShift->canEnd()) {
@@ -737,6 +739,7 @@ class BranchManagerShiftController extends BaseController
 
             try {
                 app(ShiftTransferReceiptService::class)->lockManagerCashOwner((string) $managerShift->branch_manager_id);
+                $this->shiftService->lockCashierFinancialOwners($managerShift);
                 $managerShift = BranchManagerShift::query()->whereKey($managerShift->id)->lockForUpdate()->firstOrFail();
                 if ($managerShift->status !== 'completed') {
                     DB::rollBack();
@@ -829,6 +832,8 @@ class BranchManagerShiftController extends BaseController
     {
         $validator = Validator::make($request->all(), [
             'final_notes' => 'nullable|string|max:1000',
+            'branch_manager_shift_id' => 'nullable|uuid',
+            'expected_revision' => 'required|integer|min:1',
         ]);
 
         if ($validator->fails()) {
@@ -839,22 +844,46 @@ class BranchManagerShiftController extends BaseController
             /** @var BranchManager $manager */
             $manager = Auth::user();
 
-            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->whereDate('shift_date', today())
-                ->where('status', 'completed')
-                ->firstOrFail();
+            if ($request->filled('branch_manager_shift_id')) {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->whereKey($request->branch_manager_shift_id)
+                    ->firstOrFail();
+            } else {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
+                    ->whereDate('shift_date', today())
+                    ->where('status', 'completed')
+                    ->firstOrFail();
+            }
 
             if ($managerShift->daily_report_submitted) {
                 return $this->errorResponse('Daily report already submitted', 400);
             }
 
-            DB::transaction(function () use ($managerShift, $request) {
+            DB::transaction(function () use ($managerShift, $request, $manager) {
                 app(ShiftTransferReceiptService::class)->lockManagerCashOwner((string) $managerShift->branch_manager_id);
+                $this->shiftService->lockCashierFinancialOwners($managerShift);
                 $managerShift = BranchManagerShift::query()->whereKey($managerShift->id)->lockForUpdate()->firstOrFail();
-                if ($managerShift->daily_report_submitted || $managerShift->status !== 'completed') {
+                if ($managerShift->daily_report_submitted) {
+                    throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('DAILY_REPORT_ALREADY_SUBMITTED');
+                }
+                if ($managerShift->status !== 'completed') {
                     throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('DAILY_REPORT_NO_LONGER_SUBMITTABLE');
                 }
+
+                $currentRevision = app(ShiftReportRevisionService::class)->currentManagerRevision($managerShift);
+                if ($currentRevision === null) {
+                    throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('LIABILITY_EVIDENCE_UNAVAILABLE');
+                }
+                if ($currentRevision->revision_number !== (int) $request->expected_revision) {
+                    throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('STALE_REPORT_REVISION');
+                }
+
                 $this->shiftService->lockCashierFinancialInputs($managerShift);
+
+                // Gate C-DS: Lock submitted day liability and verify complete evidence
+                $scope = app(ShiftDailyCloseScopeService::class)->resolve($managerShift, true);
+                app(DailyLiabilityGuard::class)->lockSubmittedDay($managerShift->id, $manager);
+
                 $managerShift->update([
                     'daily_report_submitted' => true,
                     'daily_report_submitted_at' => now(),
@@ -862,16 +891,10 @@ class BranchManagerShiftController extends BaseController
                     'can_reopen' => false,
                 ]);
 
-                // Sweep every approved handover included in this close (today's
-                // plus carried-over unclosed days) so it is never re-included
-                // in a future daily close.
-                $includedIds = $this->shiftService
-                    ->getShiftHandovers($managerShift, 'to_manager', true)
-                    ->where('status', 'approved')
-                    ->pluck('id');
-
-                if ($includedIds->isNotEmpty()) {
-                    CashierShiftHandover::whereIn('id', $includedIds)
+                // Sweep every approved handover included in this close
+                if (! empty($scope['handover_ids'])) {
+                    CashierShiftHandover::whereIn('id', $scope['handover_ids'])
+                        ->where('status', 'approved')
                         ->whereNull('daily_closed_at')
                         ->update(['daily_closed_at' => now()]);
                 }
@@ -879,22 +902,17 @@ class BranchManagerShiftController extends BaseController
 
             $this->shiftService->clearShiftCaches($managerShift);
 
-            // Bridge to the ASAB world: the daily close becomes the branch's
-            // sales statement in the accountant's المبيعات inbox.
-            try {
-                event(new \Modules\Shift\Events\DailyReportSubmittedEvent($managerShift->fresh()));
-            } catch (\Throwable $exception) {
-                Log::error('Daily report bridge projection failed after commit', [
-                    'manager_shift_id' => $managerShift->id,
-                    'error' => $exception->getMessage(),
-                ]);
-            }
+            // Required transactional idempotency still owns the outer transaction.
+            // Bridge failure must roll back the day and response snapshot together.
+            event(new \Modules\Shift\Events\DailyReportSubmittedEvent($managerShift->fresh()));
 
             return $this->successResponse([
                 'shift' => new BranchManagerShiftResource($managerShift->fresh()),
                 'message' => 'Daily report submitted successfully. Waiting for Sales Team approval.',
             ], 'Daily report submitted successfully');
         } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
+            return HandoverErrorResponse::from($e, 'daily report submit');
+        } catch (\Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException $e) {
             return HandoverErrorResponse::from($e, 'daily report submit');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);

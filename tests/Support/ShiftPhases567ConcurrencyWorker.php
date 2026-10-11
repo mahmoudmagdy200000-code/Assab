@@ -61,6 +61,31 @@ try {
                 $input['expected_version']
             );
             $result = ['status' => 'allocated', 'allocation_id' => $allocation->id, 'version' => $allocation->version];
+        } elseif ($input['command'] === 'bulk_correct_public') {
+            $actor = \Modules\BranchManagers\Models\BranchManager::findOrFail($input['manager_id']);
+            $token = $actor->createToken('public bulk audit')->plainTextToken;
+            $locks = [];
+            \Illuminate\Support\Facades\DB::listen(function ($query) use (&$locks) {
+                if (str_contains(strtolower($query->sql), 'for update')) {
+                    $locks[] = $query->sql;
+                }
+            });
+            $request = \Illuminate\Http\Request::create('/api/v1/branch-manager/workday/daily-close', 'PUT', [], [], [], [
+                'HTTP_AUTHORIZATION' => 'Bearer '.$token, 'HTTP_ACCEPT' => 'application/json',
+                'HTTP_IDEMPOTENCY_KEY' => (string) \Illuminate\Support\Str::uuid(), 'CONTENT_TYPE' => 'application/json',
+            ], json_encode($input['payload'], JSON_THROW_ON_ERROR));
+            $response = app(\Illuminate\Contracts\Http\Kernel::class)->handle($request);
+            $owner = $day = null;
+            foreach ($locks as $index => $query) {
+                if ($owner === null && str_contains($query, 'from `cashiers`')) {
+                    $owner = $index;
+                }
+                if ($day === null && str_contains($query, 'from `branch_manager_shifts`')) {
+                    $day = $index;
+                }
+            }
+            $result = ['http_status' => $response->getStatusCode(), 'body' => json_decode($response->getContent(), true),
+                'owner_before_day' => $owner !== null && $day !== null && $owner < $day];
         } elseif ($input['command'] === 'bulk_correct') {
             $day = \Modules\Shift\Models\BranchManagerShift::findOrFail($input['day_id']);
             $actor = \Modules\BranchManagers\Models\BranchManager::findOrFail($input['manager_id']);

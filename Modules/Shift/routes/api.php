@@ -11,11 +11,15 @@ use Modules\Shift\Http\Controllers\ReassignmentShiftController;
 use Modules\Shift\Http\Controllers\ShiftController;
 use Modules\Shift\Http\Controllers\ShiftEndController;
 use Modules\Shift\Http\Controllers\ShiftHandoverController;
+use Modules\Shift\Http\Controllers\ShiftLiabilityController;
 use Modules\Shift\Http\Controllers\ShiftRequestsController;
 use Modules\Shift\Http\Controllers\ShiftVarianceController;
 
 // Explicit physical presentation/return facts; existing legacy request APIs retain NULL attempt identity.
 Route::middleware('auth:sanctum')->group(function () {
+    Route::post('shift-reports/{shift}/liability/respond', [ShiftLiabilityController::class, 'respond'])
+        ->name('shift-reports.liability.respond')
+        ->middleware('asab.idempotency:required,transaction,legacy');
     $controller = \Modules\Shift\Http\Controllers\ShiftTransferAttemptController::class;
     Route::post('shift-transfers/{type}/{id}/present', [$controller, 'present'])->whereIn('type', ['handover', 'manager_transfer']);
     Route::post('shift-transfer-attempts/{attempt}/returns', [$controller, 'initiate']);
@@ -249,6 +253,31 @@ Route::prefix('branch-manager')
         Route::post('shifts/{cashierShift}/report-correction/approve', [BranchManagerShiftController::class, 'approveReportCorrection'])
             ->name('branch-manager.shifts.report-correction.approve')
             ->middleware('asab.idempotency:required,transaction,legacy');
+
+        Route::post('handover-receipts/{receipt}/settlements', [\Modules\Shift\Http\Controllers\HandoverSettlementController::class, 'settle'])
+            ->name('branch-manager.handover-receipts.settle')
+            ->middleware('asab.idempotency:required,transaction,legacy');
+
+        Route::get('handover-receipts/{receipt}/settlements', [\Modules\Shift\Http\Controllers\HandoverSettlementController::class, 'index'])
+            ->name('branch-manager.handover-receipts.settlements');
+
+        Route::prefix('shifts/{shift}/liability')->group(function () {
+            Route::post('allocate', [ShiftLiabilityController::class, 'allocate'])
+                ->name('branch-manager.shifts.liability.allocate')
+                ->middleware('asab.idempotency:required,transaction,legacy');
+
+            Route::post('confirm', [ShiftLiabilityController::class, 'confirm'])
+                ->name('branch-manager.shifts.liability.confirm')
+                ->middleware('asab.idempotency:required,transaction,legacy');
+
+            Route::post('respond', [ShiftLiabilityController::class, 'respond'])
+                ->name('branch-manager.shifts.liability.respond')
+                ->middleware('asab.idempotency:required,transaction,legacy');
+
+            Route::post('approve', [ShiftLiabilityController::class, 'approve'])
+                ->name('branch-manager.shifts.liability.approve')
+                ->middleware('asab.idempotency:required,transaction,legacy');
+        });
     });
 
 /*
@@ -301,13 +330,22 @@ Route::prefix('branch-manager/workday')
             ->name('workday.daily-close.update')
             ->middleware('asab.idempotency:optional,transaction,legacy');
         Route::post('/daily-close/submit', [BranchManagerShiftController::class, 'submitDailyReport'])
-            ->name('workday.daily-close.submit');
+            ->name('workday.daily-close.submit')
+            ->middleware('asab.idempotency:required,transaction,legacy');
         Route::post('/daily-close/reopen', [BranchManagerShiftController::class, 'reopenShift'])
             ->name('workday.daily-close.reopen');
 
         // Shift History
         Route::get('/history', [BranchManagerShiftController::class, 'getShiftHistory'])
             ->name('workday.history');
+
+        // Section F: Report Correction Review & Approval
+        Route::post('/shifts/{cashierShift}/review-variance', [BranchManagerShiftController::class, 'approveReportCorrection'])
+            ->name('workday.shifts.review-variance')
+            ->middleware('asab.idempotency:required,transaction,legacy');
+        Route::post('/shifts/{cashierShift}/report-correction/approve', [BranchManagerShiftController::class, 'approveReportCorrection'])
+            ->name('workday.shifts.report-correction.approve')
+            ->middleware('asab.idempotency:required,transaction,legacy');
     });
 
 /*

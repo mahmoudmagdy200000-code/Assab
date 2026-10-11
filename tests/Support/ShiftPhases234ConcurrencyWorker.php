@@ -5,7 +5,7 @@ require dirname(__DIR__, 2).'/vendor/autoload.php';
 $app = require dirname(__DIR__, 2).'/bootstrap/app.php';
 $app->make(\Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 $db = \Illuminate\Support\Facades\DB::connection();
-if ($db->getDriverName() !== 'mysql' || ! preg_match('/^s111_phase234_audit_[a-z0-9_]+$/', $db->getDatabaseName())
+if ($db->getDriverName() !== 'mysql' || ! preg_match('/^s111_phase(?:567_phase)?234_audit_[a-z0-9_]+$/', $db->getDatabaseName())
     || ! in_array($db->getConfig('host'), ['127.0.0.1', 'localhost'], true)) {
     throw new LogicException('Concurrency worker requires an owned disposable local MySQL schema.');
 }

@@ -165,14 +165,17 @@ class ShiftCheckpoint1CorrectionTest extends TestCase
 
     public function test_submitted_workday_reports_reopen_disabled_and_endpoint_is_unchanged(): void
     {
-        $branch = Branch::factory()->create();
+        $company = \Modules\Admin\Models\AsabCompany::create(['name' => 'CP1 daily evidence company', 'plan' => 'Professional', 'status' => 'active']);
+        $branch = Branch::factory()->create(['asab_company_id' => $company->id]);
         $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
         $day = BranchManagerShift::firstOrCreate([
             'branch_manager_id' => $manager->id, 'branch_id' => $branch->id, 'shift_date' => today()->toDateString(),
         ], ['status' => 'completed']);
         $day->update(['status' => 'completed']);
+        app(\Modules\Shift\Services\ShiftReportRevisionService::class)->recordManagerRevision($day, 'branch_manager', $manager->id, 0);
         $response = $this->actingAs($manager, 'sanctum')
-            ->postJson('/api/branch-manager/workday/daily-close/submit', ['final_notes' => 'CP1']);
+            ->withHeader('Idempotency-Key', (string) \Illuminate\Support\Str::uuid())
+            ->postJson('/api/branch-manager/workday/daily-close/submit', ['final_notes' => 'CP1', 'expected_revision' => 1]);
         $response->assertOk()
             ->assertJsonPath('data.shift.daily_close.is_submitted', true)
             ->assertJsonPath('data.shift.daily_close.can_reopen', false)

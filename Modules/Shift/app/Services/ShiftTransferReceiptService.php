@@ -224,6 +224,7 @@ class ShiftTransferReceiptService
             $handoverStub = CashierShiftHandover::query()->whereKey($handoverId)->firstOrFail();
             $sourceSnapshot = CashierShift::query()->whereKey($handoverStub->cashier_shift_id)->firstOrFail();
             $destinationSnapshot = $this->resolveReceivingShift($sourceSnapshot, $recipient, $receivingShiftId);
+            app(ShiftCashAvailabilityService::class)->lockCashierOwners([$sourceSnapshot->cashier_id, $destinationSnapshot->cashier_id]);
             [$source, $destination] = $this->lockCashierShiftsInOrder($sourceSnapshot->id, $destinationSnapshot->id);
             $handover = CashierShiftHandover::query()->whereKey($handoverId)->lockForUpdate()->firstOrFail();
 
@@ -281,6 +282,7 @@ class ShiftTransferReceiptService
             $this->lockManagerCashOwner((string) $recipient->id);
             $stub = CashierShiftHandover::query()->whereKey($handoverId)->firstOrFail();
             $sourceSnapshot = CashierShift::withoutEagerLoads()->whereKey($stub->cashier_shift_id)->firstOrFail();
+            app(ShiftCashAvailabilityService::class)->lockCashierOwners([$sourceSnapshot->cashier_id]);
             $branchId = $sourceSnapshot->shift()->value('branch_id');
             app(\Modules\BranchManagers\Services\BranchManagerService::class)
                 ->assertAssignedActiveManager($branchId, $recipient->id);
@@ -345,6 +347,9 @@ class ShiftTransferReceiptService
         return DB::transaction(function () use ($transferId, $recipient, $confirmedAmount, $expectedAttemptId) {
             $stub = BranchManagerCashTransfer::query()->whereKey($transferId)->firstOrFail();
             $this->lockManagerCashOwner((string) BranchManagerShift::whereKey($stub->branch_manager_shift_id)->value('branch_manager_id'));
+            app(ShiftCashAvailabilityService::class)->lockCashierOwners([
+                CashierShift::withoutEagerLoads()->whereKey($stub->destination_cashier_shift_id)->value('cashier_id'),
+            ]);
             $source = BranchManagerShift::query()->whereKey($stub->branch_manager_shift_id)->lockForUpdate()->firstOrFail();
             $destination = CashierShift::query()->whereKey($stub->destination_cashier_shift_id)->lockForUpdate()->firstOrFail();
             $transfer = BranchManagerCashTransfer::query()->whereKey($transferId)->lockForUpdate()->firstOrFail();
@@ -612,11 +617,13 @@ class ShiftTransferReceiptService
         $ledgerMinor = PersonalLedgerTransaction::query()
             ->where('branch_manager_id', $managerId)
             // Liability/variance credits are claims, not confirmed sales cash.
-            ->where(fn ($query) => $query->where('is_cash_in', false)->orWhere('transaction_type', 'Total Sales'))
+            ->where(fn ($query) => $query->where('is_cash_in', false)
+                ->orWhere('transaction_type', 'Total Sales')
+                ->orWhere('category', 'handover_settlement'))
             ->orderBy('id')
             ->lockForUpdate()
             ->get(['amount', 'is_cash_in'])
-            ->sum(fn (PersonalLedgerTransaction $row) => ($row->is_cash_in ? 1 : -1) * self::toMinorUnits((string) $row->amount));
+            ->reduce(fn (int $sum, PersonalLedgerTransaction $row) => ShiftCashAvailabilityService::add($sum, ($row->is_cash_in ? 1 : -1) * self::toMinorUnits((string) $row->amount)), 0);
 
         $reservedMinor = BranchManagerCashTransfer::query()
             ->whereHas('sourceWorkday', fn ($query) => $query->where('branch_manager_id', $managerId))
@@ -624,9 +631,9 @@ class ShiftTransferReceiptService
             ->whereNull('cancelled_at')
             ->whereNull('superseded_at')
             ->orderBy('id')->lockForUpdate()->get(['requested_amount'])
-            ->sum(fn ($request) => self::toMinorUnits((string) $request->requested_amount));
+            ->reduce(fn (int $sum, $request) => ShiftCashAvailabilityService::add($sum, self::toMinorUnits((string) $request->requested_amount)), 0);
 
-        return max(0, $ledgerMinor - $reservedMinor);
+        return max(0, ShiftCashAvailabilityService::add($ledgerMinor, -$reservedMinor));
     }
 
     /** One stable mutex across all workdays that reserve or spend this manager's cash. */
@@ -679,13 +686,7 @@ class ShiftTransferReceiptService
 
     private static function toMinorUnits(string $amount): int
     {
-        if (! preg_match('/\A\d+(?:\.\d{1,2})?\z/', $amount)) {
-            throw ValidationException::withMessages(['amount' => 'Amount must be a nonnegative SAR value with at most two decimals.']);
-        }
-
-        [$whole, $fraction] = array_pad(explode('.', $amount, 2), 2, '');
-
-        return ((int) $whole * 100) + (int) str_pad($fraction, 2, '0');
+        return ShiftCashAvailabilityService::minor($amount);
     }
 
     private static function toSar(int $minor): string

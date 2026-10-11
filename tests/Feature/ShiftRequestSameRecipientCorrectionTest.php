@@ -28,7 +28,12 @@ class ShiftRequestSameRecipientCorrectionTest extends TestCase
 
     public function test_cashier_to_cashier_same_recipient_correction_preserves_request_id_and_evidence(): void
     {
-        [$branch, $manager, $cashier1, $cashier2, $sourceShift, $destShift, $handover] = $this->handoverFixture('100.00');
+        [$branch, $manager, $cashier1, $cashier2, $sourceShift, $destShift, $handover] = $this->handoverFixture('120.00');
+        // The original request understated the proven count; correction can reserve the full 120.
+        $handover->update(['handover_amount' => '100.00']);
+        $funding = CashierCustodyTransaction::create(['cashier_id' => $cashier1->id, 'transaction_type' => 'Total Sales',
+            'amount' => '120.00', 'is_cash_in' => true, 'related_shift_id' => $sourceShift->id, 'transaction_date' => now()]);
+        $originalFunding = $funding->fresh()->getRawOriginal();
 
         // Reject handover
         $handoverService = app(HandoverService::class);
@@ -54,7 +59,8 @@ class ShiftRequestSameRecipientCorrectionTest extends TestCase
         $this->assertSame($cashier2->id, $freshHandover->handover_to_id);
         $this->assertSame($originalRejectionReason, $freshHandover->rejection_reason);
         $this->assertSame(0, CashierShiftHandoverReceipt::count());
-        $this->assertSame(0, CashierCustodyTransaction::count());
+        $this->assertSame(1, CashierCustodyTransaction::count());
+        $this->assertSame($originalFunding, $funding->fresh()->getRawOriginal());
     }
 
     public function test_record_handover_edit_rejects_recipient_change_with_409(): void

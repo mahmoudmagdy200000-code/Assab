@@ -13,10 +13,10 @@ use Modules\Shift\Models\CashierShift;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
-/** Shared correction/reopen boundary. Workdays precede cashier/report row locks. */
+/** Shared correction/reopen boundary. Cash owners precede workday, source and report locks. */
 class ShiftReportMutationGuard
 {
-    public function lockEditable(CashierShift $source, Model $actor, array $additionalCashierIds = []): CashierShift
+    public function lockEditable(CashierShift $source, Model $actor, array $additionalCashierIds = [], array $additionalWorkdayDates = []): CashierShift
     {
         if (DB::transactionLevel() === 0) {
             throw new LogicException('Report mutation guard requires a transaction.');
@@ -24,6 +24,8 @@ class ShiftReportMutationGuard
         $snapshot = CashierShift::withoutEagerLoads()->findOrFail($source->id);
         $branchId = $snapshot->shift()->value('branch_id');
         $this->assertActor($snapshot, $actor, $branchId);
+        $this->lockCashOwners($snapshot, $additionalCashierIds);
+        $membershipDates = $this->membershipDates($snapshot, $additionalWorkdayDates);
 
         $receivingDays = DB::table('cashier_shift_handover_receipts as receipts')
             ->join('cashier_shift_handovers as requests', 'requests.id', '=', 'receipts.cashier_shift_handover_id')
@@ -32,9 +34,13 @@ class ShiftReportMutationGuard
             ->select('receipts.receiving_branch_manager_shift_id');
         $lockedDays = DB::table('shift_liability_daily_locks')->where('cashier_shift_id', $snapshot->id)
             ->select('branch_manager_shift_id');
-        $days = BranchManagerShift::query()->where(function ($query) use ($snapshot, $branchId, $receivingDays, $lockedDays) {
-            $query->where(function ($sameDate) use ($snapshot, $branchId) {
-                $sameDate->where('branch_id', $branchId)->whereDate('shift_date', $snapshot->shift_date);
+        $days = BranchManagerShift::query()->where(function ($query) use ($membershipDates, $branchId, $receivingDays, $lockedDays) {
+            $query->where(function ($sameDate) use ($membershipDates, $branchId) {
+                $sameDate->where('branch_id', $branchId)->where(function ($dates) use ($membershipDates) {
+                    foreach ($membershipDates as $date) {
+                        $dates->orWhereDate('shift_date', $date);
+                    }
+                });
             })->orWhereIn('id', $receivingDays)->orWhereIn('id', $lockedDays);
         })->orderBy('id')->lockForUpdate()->get();
 
@@ -65,7 +71,8 @@ class ShiftReportMutationGuard
         if ($days->contains(fn ($day) => $day->daily_report_submitted || $day->daily_report_submitted_at !== null)
             || $requests->contains(fn ($request) => $request->daily_closed_at !== null)
             || $locks->isNotEmpty()
-            || $admin->contains(fn ($projection) => in_array($projection->status, ['closed', 'pending_review'], true))
+            || $admin->contains(fn ($projection) => $projection->status === 'closed')
+            || ($admin->contains(fn ($projection) => $projection->status === 'pending_review') && $days->isEmpty())
             || $finalOperations->isNotEmpty()) {
             throw new ConflictHttpException('REPORT_REOPEN_REQUIRED');
         }
@@ -81,6 +88,8 @@ class ShiftReportMutationGuard
         $snapshot = CashierShift::withoutEagerLoads()->findOrFail($source->id);
         $branchId = $snapshot->shift()->value('branch_id');
         app(ShiftReportCorrectionActorPolicy::class)->assertAllowed($snapshot, $actor);
+        $this->lockCashOwners($snapshot, $additionalCashierIds);
+        $membershipDates = $this->membershipDates($snapshot, []);
 
         $receivingDays = DB::table('cashier_shift_handover_receipts as receipts')
             ->join('cashier_shift_handovers as requests', 'requests.id', '=', 'receipts.cashier_shift_handover_id')
@@ -89,9 +98,13 @@ class ShiftReportMutationGuard
             ->select('receipts.receiving_branch_manager_shift_id');
         $lockedDays = DB::table('shift_liability_daily_locks')->where('cashier_shift_id', $snapshot->id)
             ->select('branch_manager_shift_id');
-        $days = BranchManagerShift::query()->where(function ($query) use ($snapshot, $branchId, $receivingDays, $lockedDays) {
-            $query->where(function ($sameDate) use ($snapshot, $branchId) {
-                $sameDate->where('branch_id', $branchId)->whereDate('shift_date', $snapshot->shift_date);
+        $days = BranchManagerShift::query()->where(function ($query) use ($membershipDates, $branchId, $receivingDays, $lockedDays) {
+            $query->where(function ($sameDate) use ($membershipDates, $branchId) {
+                $sameDate->where('branch_id', $branchId)->where(function ($dates) use ($membershipDates) {
+                    foreach ($membershipDates as $date) {
+                        $dates->orWhereDate('shift_date', $date);
+                    }
+                });
             })->orWhereIn('id', $receivingDays)->orWhereIn('id', $lockedDays);
         })->orderBy('id')->lockForUpdate()->get();
 
@@ -131,6 +144,22 @@ class ShiftReportMutationGuard
         }
 
         return $shift;
+    }
+
+    private function membershipDates(CashierShift $source, array $additionalDates): array
+    {
+        $dates = DB::table('cashier_shift_handovers')->where('cashier_shift_id', $source->id)
+            ->whereNull('cancelled_at')->pluck('handover_date')
+            ->map(fn ($date) => substr((string) $date, 0, 10))->all();
+
+        return array_values(array_unique(array_merge([$source->shift_date->toDateString()], $dates, $additionalDates)));
+    }
+
+    private function lockCashOwners(CashierShift $source, array $additionalShiftIds): void
+    {
+        $owners = CashierShift::withoutEagerLoads()->whereIn('id', $additionalShiftIds)
+            ->pluck('cashier_id')->push($source->cashier_id)->all();
+        app(ShiftCashAvailabilityService::class)->lockCashierOwners($owners);
     }
 
     private function assertActor(CashierShift $shift, Model $actor, ?string $branchId): void

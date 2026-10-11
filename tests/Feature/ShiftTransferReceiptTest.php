@@ -780,6 +780,11 @@ class ShiftTransferReceiptTest extends TestCase
             'total_sales' => '10.00',
         ]);
 
+        DB::transaction(function () use ($source, $cashier) {
+            $countRevision = app(ShiftReportRevisionService::class)->recordCashierRevision($source, 'cashier', $cashier->id, 0);
+            app(\Modules\Shift\Services\ShiftCashCountService::class)->record($source, $countRevision, 1000, 0, 0, 1000);
+        });
+
         $this->actingAs($manager, 'sanctum');
         app(HandoverService::class)->recordHandover($source, [
             'handover_to_type' => 'cashier',
@@ -1400,7 +1405,7 @@ class ShiftTransferReceiptTest extends TestCase
             0,
             (int) round((float) $amount * 100)
         );
-        $managerWorkday->update(['status' => 'active', 'cash_collected' => $amount]);
+        $managerWorkday->update(['status' => 'in_progress', 'cash_collected' => $amount]);
         ShiftHandoverStatus::create([
             'cashier_shift_id' => $sourceShift->id,
             'status' => HandoverStatus::PENDING,

@@ -27,6 +27,7 @@ class PersonalLedgerTransaction extends Model
         'category',
         'lineage_key',
         'posting_id',
+        'settlement_id',
     ];
 
     protected $casts = [
@@ -44,5 +45,10 @@ class PersonalLedgerTransaction extends Model
     public function receipt(): BelongsTo
     {
         return $this->belongsTo(\Modules\Shift\Models\CashierShiftHandoverReceipt::class, 'receipt_id');
+    }
+
+    public function settlement(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Shift\Models\ShiftHandoverSettlement::class, 'settlement_id');
     }
 }

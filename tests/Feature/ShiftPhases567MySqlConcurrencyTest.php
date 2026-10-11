@@ -699,6 +699,23 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
         $this->assertSame('STALE_REPORT_REVISION', $second['code']);
     }
 
+    public function test_review_public_bulk_locks_cash_owner_before_workday_and_serializes_accountant(): void
+    {
+        [, $manager, $accountant, $day, $shift, $cashier] = $this->fixture();
+        $day->update(['status' => 'completed']);
+        [$first, $second] = $this->race(
+            ['command' => 'bulk_correct_public', 'manager_id' => $manager->id,
+                'payload' => ['cashier_breakdown' => [['cashier_id' => $cashier->id, 'cashier_shift_id' => $shift->id,
+                    'card_payments' => '25.00', 'expected_revision' => 1, 'reason' => 'Public bulk lock audit']]]],
+            ['command' => 'accountant_correct', 'shift_id' => $shift->id, 'accountant_id' => $accountant->id,
+                'payload' => ['card_payments' => '35.00'], 'expected_revision' => 1]
+        );
+        $this->assertSame(200, $first['http_status'], json_encode($first));
+        $this->assertTrue($first['owner_before_day'], 'Public bulk must lock cash owners before its workday prefix.');
+        $this->assertSame('STALE_REPORT_REVISION', $second['code']);
+        $this->assertSame(2, $this->revisionCount($shift));
+    }
+
     private function ledgerNetHalalas(CashierShift $shift, Cashier $cashier): int
     {
         return CashierCustodyTransaction::where('related_shift_id', $shift->id)

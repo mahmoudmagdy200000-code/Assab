@@ -137,6 +137,10 @@ class TransferRequestLifecycleService
 
         $this->assertCashReturned('handover', $oldHandover);
 
+        app(ShiftCashAvailabilityService::class)->assertCashierReservation(
+            (string) $sourceShift->cashier_id, $amountSar, (string) $oldHandover->id
+        );
+
         // Destination resolution
         $newRecipientType = $destination['recipient_type'] ?? $destination['handover_to_type'] ?? 'cashier';
         $newRecipientId = $destination['recipient_id'] ?? $destination['handover_to_id'] ?? null;

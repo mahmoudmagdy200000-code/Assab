@@ -56,7 +56,8 @@ class HandoverService
 
         DB::beginTransaction();
         try {
-            $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
+            $commandActor = $actor ?? auth()->user() ?? $shift->cashier;
+            $shift = app(ShiftReportMutationGuard::class)->lockEditable($shift, $commandActor, [], [today()->toDateString()]);
             $this->reassignmentGuard->assertCanContinue($shift, $actor ?? auth()->user());
             $existingHandover = CashierShiftHandover::query()
                 ->active()
@@ -88,6 +89,10 @@ class HandoverService
                     throw new ConflictHttpException('CONFIRMED_RECEIPT_IMMUTABLE');
                 }
             }
+
+            app(ShiftCashAvailabilityService::class)->assertCashierReservation(
+                (string) $shift->cashier_id, (string) $data['handover_amount'], $existingHandover?->id
+            );
 
             Log::info('Recording handover', [
                 'shift_id' => $shift->id,
@@ -628,6 +633,7 @@ class HandoverService
 
         DB::beginTransaction();
         try {
+            app(ShiftCashAvailabilityService::class)->lockCashierOwners([(string) $shift->cashier_id]);
             $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
             $previousRevision = $this->revisions->currentCashierRevision($shift);
             if (($previousRevision?->revision_number ?? 0) !== $expectedRevision) {
@@ -651,6 +657,14 @@ class HandoverService
 
             if (! $handoverStatus->canCashierEdit()) {
                 throw HandoverException::cannotBeEdited();
+            }
+
+            // Decreasing an existing reservation consumes no additional cash. Legacy corrections
+            // may still need their explicit recount before presentation; increasing requires funding.
+            if (ShiftCashAvailabilityService::minor((string) $data['handover_amount']) > ShiftCashAvailabilityService::minor((string) $handover->handover_amount)) {
+                app(ShiftCashAvailabilityService::class)->assertCashierReservation(
+                    (string) $shift->cashier_id, (string) $data['handover_amount'], (string) $handover->id
+                );
             }
 
             if ($previousRevision) {

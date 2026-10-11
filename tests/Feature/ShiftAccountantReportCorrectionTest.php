@@ -13,6 +13,7 @@ use Modules\Admin\Models\Employee;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
+use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
 use Modules\Shift\Models\ShiftLiabilityAllocation;
@@ -419,5 +420,178 @@ class ShiftAccountantReportCorrectionTest extends TestCase
             reason: 'Stale revision',
             operationId: (string) Str::uuid()
         );
+    }
+
+    public function test_zero_shortage_accountant_correction_acknowledges_and_resolves_manager_review(): void
+    {
+        // 1. Initial count with shortage of -10.00 SAR (-1000h)
+        $rev1 = $this->revisionService->recordCashierRevision($this->cashierShift, 'cashier', $this->cashier->id);
+        ShiftReportCashCount::create([
+            'report_revision_id' => $rev1->id,
+            'counted_revision_id' => $rev1->id,
+            'evidence_revision_id' => $rev1->id,
+            'cashier_shift_id' => $this->cashierShift->id,
+            'gross_halalas' => 10000,
+            'cards_halalas' => 4000,
+            'apps_halalas' => 0,
+            'confirmed_opening_halalas' => 0,
+            'pending_incoming_counted_halalas' => 0,
+            'counted_halalas' => 5000,
+            'expected_halalas' => 6000,
+            'variance_halalas' => -1000,
+        ]);
+
+        // 2. Accountant corrects card payments from 40.00 to 50.00 SAR:
+        // expected cash becomes 100.00 - 50.00 = 50.00 SAR (5000h), matching count of 5000h -> variance = 0h.
+        $rev2 = $this->accountantCorrectionService->correct(
+            $this->cashierShift,
+            $this->accountant,
+            changes: ['card_payments' => '50.00'],
+            shares: null,
+            expectedRevision: 1,
+            expectedAllocationVersion: null,
+            reason: 'Card statement reconciled: zero shortage remaining',
+            operationId: (string) Str::uuid()
+        );
+
+        $newCount = ShiftReportCashCount::where('report_revision_id', $rev2->id)->firstOrFail();
+        $this->assertSame(0, $newCount->variance_halalas);
+
+        // Manager review is required even for zero shortage (status = pending) per T07
+        $review = ShiftReportManagerReview::where('report_revision_id', $rev2->id)->firstOrFail();
+        $this->assertSame('pending', $review->status);
+        $this->assertFalse((bool) $review->has_shortage);
+
+        // Workday readiness is BLOCKED until manager acknowledges / approves
+        $managerDay = BranchManagerShift::firstOrCreate(
+            ['branch_manager_id' => $this->manager->id, 'shift_date' => today()],
+            ['branch_id' => $this->branch->id, 'status' => 'completed']
+        );
+        $managerDay->update(['status' => 'completed']);
+
+        $blocked = false;
+        try {
+            app(\Modules\Shift\Services\ShiftReportManagerReviewService::class)->assertReadyForWorkday($managerDay, [$this->cashierShift->id]);
+        } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
+            $blocked = true;
+            $this->assertSame('BRANCH_MANAGER_REVIEW_REQUIRED', $e->getMessage());
+        }
+        $this->assertTrue($blocked, 'Zero-shortage correction must block workday submit until manager review acknowledgment.');
+
+        // Manager reviews and acknowledges/approves the zero shortage
+        app(\Modules\Shift\Services\ShiftReportManagerReviewService::class)->approveCurrent(
+            $this->cashierShift,
+            $this->manager,
+            expectedRevision: 2,
+            expectedAllocationVersion: null,
+            reason: 'Acknowledged zero shortage correction',
+            operationId: (string) Str::uuid()
+        );
+
+        $this->assertSame('approved', $review->fresh()->status);
+
+        // Workday readiness now succeeds
+        app(\Modules\Shift\Services\ShiftReportManagerReviewService::class)->assertReadyForWorkday($managerDay, [$this->cashierShift->id]);
+    }
+
+    public function test_branch_manager_can_approve_report_correction_via_http_route(): void
+    {
+        $rev1 = $this->revisionService->recordCashierRevision($this->cashierShift, 'cashier', $this->cashier->id);
+        ShiftReportCashCount::create([
+            'report_revision_id' => $rev1->id,
+            'counted_revision_id' => $rev1->id,
+            'evidence_revision_id' => $rev1->id,
+            'cashier_shift_id' => $this->cashierShift->id,
+            'gross_halalas' => 10000,
+            'cards_halalas' => 4000,
+            'apps_halalas' => 0,
+            'confirmed_opening_halalas' => 0,
+            'pending_incoming_counted_halalas' => 0,
+            'counted_halalas' => 5000,
+            'expected_halalas' => 6000,
+            'variance_halalas' => -1000,
+        ]);
+
+        $shares = [
+            ['type' => 'cashier', 'id' => $this->cashier->id, 'amount' => 1000],
+        ];
+        $rev2 = $this->accountantCorrectionService->correct(
+            $this->cashierShift,
+            $this->accountant,
+            changes: ['card_payments' => '40.00'],
+            shares: $shares,
+            expectedRevision: 1,
+            expectedAllocationVersion: null,
+            reason: 'Still shortage',
+            operationId: (string) Str::uuid()
+        );
+
+        $managerDay = BranchManagerShift::firstOrCreate(
+            ['branch_manager_id' => $this->manager->id, 'shift_date' => today()],
+            ['branch_id' => $this->branch->id, 'status' => 'completed']
+        );
+        $managerDay->update(['status' => 'completed']);
+
+        // Prior to manager approval, assertReadyForWorkday throws
+        $this->expectException(ConflictHttpException::class);
+        $this->expectExceptionMessage('BRANCH_MANAGER_REVIEW_REQUIRED');
+        app(\Modules\Shift\Services\ShiftReportManagerReviewService::class)->assertReadyForWorkday($managerDay, [$this->cashierShift->id]);
+    }
+
+    public function test_branch_manager_approval_clears_workday_gate(): void
+    {
+        $rev1 = $this->revisionService->recordCashierRevision($this->cashierShift, 'cashier', $this->cashier->id);
+        ShiftReportCashCount::create([
+            'report_revision_id' => $rev1->id,
+            'counted_revision_id' => $rev1->id,
+            'evidence_revision_id' => $rev1->id,
+            'cashier_shift_id' => $this->cashierShift->id,
+            'gross_halalas' => 10000,
+            'cards_halalas' => 4000,
+            'apps_halalas' => 0,
+            'confirmed_opening_halalas' => 0,
+            'pending_incoming_counted_halalas' => 0,
+            'counted_halalas' => 5000,
+            'expected_halalas' => 6000,
+            'variance_halalas' => -1000,
+        ]);
+
+        $shares = [
+            ['type' => 'cashier', 'id' => $this->cashier->id, 'amount' => 1000],
+        ];
+        $rev2 = $this->accountantCorrectionService->correct(
+            $this->cashierShift,
+            $this->accountant,
+            changes: ['card_payments' => '40.00'],
+            shares: $shares,
+            expectedRevision: 1,
+            expectedAllocationVersion: null,
+            reason: 'Still shortage',
+            operationId: (string) Str::uuid()
+        );
+
+        $managerDay = BranchManagerShift::firstOrCreate(
+            ['branch_manager_id' => $this->manager->id, 'shift_date' => today()],
+            ['branch_id' => $this->branch->id, 'status' => 'completed']
+        );
+        $managerDay->update(['status' => 'completed']);
+
+        $response = $this->actingAs($this->manager, 'sanctum')->postJson(
+            "/api/v1/branch-manager/workday/shifts/{$this->cashierShift->id}/review-variance",
+            [
+                'expected_revision' => 2,
+                'expected_allocation_version' => 1,
+                'reason' => 'Manager approves shortage',
+            ],
+            [
+                'Idempotency-Key' => (string) Str::uuid(),
+            ]
+        );
+
+        $response->assertOk();
+        $this->assertTrue($response->json('success'));
+
+        // After manager approval, assertReadyForWorkday succeeds
+        app(\Modules\Shift\Services\ShiftReportManagerReviewService::class)->assertReadyForWorkday($managerDay, [$this->cashierShift->id]);
     }
 }

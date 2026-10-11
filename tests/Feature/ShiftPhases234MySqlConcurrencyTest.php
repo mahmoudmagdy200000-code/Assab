@@ -31,7 +31,7 @@ class ShiftPhases234MySqlConcurrencyTest extends TestCase
         if (DB::connection()->getDriverName() !== 'mysql') {
             $this->markTestSkipped('Separate-connection MySQL gate requires an owned disposable audit schema.');
         }
-        if (! preg_match('/^s111_phase234_audit_[a-z0-9_]+$/', DB::connection()->getDatabaseName())
+        if (! preg_match('/^s111_phase(?:567_phase)?234_audit_[a-z0-9_]+$/', DB::connection()->getDatabaseName())
             || ! in_array(DB::connection()->getConfig('host'), ['127.0.0.1', 'localhost'], true)) {
             throw new \LogicException('Refusing concurrency gate on a non-audit database.');
         }

@@ -210,6 +210,7 @@ class BranchManagerShiftResource extends JsonResource
     {
         return [
             'is_submitted' => (bool) $this->daily_report_submitted,
+            'report_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentManagerRevision($this->resource)?->revision_number,
             'submitted_at' => $this->daily_report_submitted_at?->format(self::DATETIME_FORMAT),
             'notes' => $this->daily_report_notes,
             // D-PR is unresolved: historical flags are evidence, not current authority.

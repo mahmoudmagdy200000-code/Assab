@@ -37,7 +37,7 @@ class ShiftEndService
 
         DB::beginTransaction();
         try {
-            $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
+            $shift = app(ShiftReportMutationGuard::class)->lockEditable($shift, $actor);
             $this->reassignmentGuard->assertCanContinue($shift, $actor);
             if ($shift->status !== ShiftStatus::IN_PROGRESS) {
                 throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('SHIFT_NO_LONGER_OPEN');
