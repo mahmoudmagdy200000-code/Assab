@@ -434,7 +434,9 @@ class BranchManagerShiftService
         array $cashierBreakdown,
         BranchManagerShift $managerShift,
         ?BranchManager $actor = null,
-        ?string $operationId = null
+        ?string $operationId = null,
+        ?string $idempotencyKey = null,
+        bool $requireDurableIdempotency = false
     ): void {
         if (empty($cashierBreakdown)) {
             return;
@@ -601,6 +603,7 @@ class BranchManagerShiftService
                     'changes' => $changes,
                     'expected_revision' => (int) $row['expected_revision'],
                     'reason' => (string) $row['reason'],
+                    'liability_shares' => $row['liability_shares'] ?? null,
                 ];
             }
         }
@@ -608,6 +611,10 @@ class BranchManagerShiftService
         // If no mutations across the entire batch (all no-ops), do nothing
         if (empty($resolvedRows)) {
             return;
+        }
+
+        if ($requireDurableIdempotency && ($idempotencyKey === null || trim($idempotencyKey) === '')) {
+            throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('IDEMPOTENCY_KEY_REQUIRED_FOR_REPORT_CORRECTION');
         }
 
         // Canonical lock order: sort target shifts by ID ascending
@@ -624,7 +631,8 @@ class BranchManagerShiftService
                     $item['changes'],
                     $item['expected_revision'],
                     $item['reason'],
-                    $batchOpId
+                    $batchOpId,
+                    $item['liability_shares']
                 );
             }
         });

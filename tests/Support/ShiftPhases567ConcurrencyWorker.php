@@ -44,6 +44,16 @@ try {
                 $input['operation_id'] ?? (string) \Illuminate\Support\Str::uuid()
             );
             $result = ['status' => 'approved', 'review_id' => $review->id];
+        } elseif ($input['command'] === 'allocate_liability') {
+            $shift = \Modules\Shift\Models\CashierShift::findOrFail($input['shift_id']);
+            $cashier = \Modules\Cashier\Models\Cashier::findOrFail($input['cashier_id']);
+            $allocation = app(\Modules\Shift\Liability\ShiftLiabilityService::class)->allocate(
+                $shift->id,
+                $cashier,
+                $input['shares'],
+                $input['expected_version']
+            );
+            $result = ['status' => 'allocated', 'allocation_id' => $allocation->id, 'version' => $allocation->version];
         } elseif ($input['command'] === 'bulk_correct') {
             $day = \Modules\Shift\Models\BranchManagerShift::findOrFail($input['day_id']);
             $actor = \Modules\BranchManagers\Models\BranchManager::findOrFail($input['manager_id']);

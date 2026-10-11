@@ -402,7 +402,12 @@ class ShiftPhases234IntegrationTest extends TestCase
             ],
             expectedRevision: 1,
             reason: 'Correction of sales figure by manager audit',
-            operationId: (string) Str::uuid()
+            operationId: (string) Str::uuid(),
+            liabilityShares: [[
+                'type' => 'cashier',
+                'id' => $this->senderCashier->id,
+                'amount' => 1000,
+            ]]
         );
 
         $this->assertSame(2, $rev2->revision_number);

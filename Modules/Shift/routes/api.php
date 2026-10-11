@@ -289,7 +289,8 @@ Route::prefix('branch-manager/workday')
 
         // Section D: Final Handover and End Shift
         Route::post('/end', [BranchManagerShiftController::class, 'endShift'])
-            ->name('workday.end');
+            ->name('workday.end')
+            ->middleware('asab.idempotency:optional,transaction,legacy');
         Route::get('/final-handover/{shiftId}', [BranchManagerShiftController::class, 'getManagerFinalHandover'])
             ->name('workday.final-handover.details');
 
@@ -297,7 +298,8 @@ Route::prefix('branch-manager/workday')
         Route::get('/daily-close', [BranchManagerShiftController::class, 'getFinalDailyClose'])
             ->name('workday.daily-close');
         Route::put('/daily-close', [BranchManagerShiftController::class, 'updateFinalDailyClose'])
-            ->name('workday.daily-close.update');
+            ->name('workday.daily-close.update')
+            ->middleware('asab.idempotency:optional,transaction,legacy');
         Route::post('/daily-close/submit', [BranchManagerShiftController::class, 'submitDailyReport'])
             ->name('workday.daily-close.submit');
         Route::post('/daily-close/reopen', [BranchManagerShiftController::class, 'reopenShift'])

@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use Modules\Shift\Liability\AllocationRules;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\ShiftLiabilityAllocation;
 use Modules\Shift\Models\ShiftReportAggregate;
@@ -37,7 +38,8 @@ class ShiftReportCorrectionService
         array $changes,
         int $expectedRevision,
         string $reason,
-        string $operationId
+        string $operationId,
+        ?array $liabilityShares = null
     ): ShiftReportRevision {
         $reason = trim($reason);
         if ($reason === '') {
@@ -68,7 +70,7 @@ class ShiftReportCorrectionService
             'aggregators.*.notes' => 'nullable|string',
         ])->validate();
 
-        return DB::transaction(function () use ($source, $actor, $changes, $expectedRevision, $reason, $operationId) {
+        return DB::transaction(function () use ($source, $actor, $changes, $expectedRevision, $reason, $operationId, $liabilityShares) {
             $shift = app(ShiftReportMutationGuard::class)->lockCorrection($source, $actor);
             $branchId = $shift->shift()->value('branch_id');
 
@@ -314,13 +316,82 @@ class ShiftReportCorrectionService
             $previousAllocation = ShiftLiabilityAllocation::with('shares')
                 ->where('cashier_shift_id', $shift->id)
                 ->whereNull('superseded_at')
+                ->lockForUpdate()
+                ->first();
+            $latestHistoricalAllocation = ShiftLiabilityAllocation::query()
+                ->where('cashier_shift_id', $shift->id)
+                ->orderByDesc('version')
+                ->lockForUpdate()
                 ->first();
 
-            // Supersede existing liability allocations
-            if ($previousAllocation) {
-                ShiftLiabilityAllocation::where('cashier_shift_id', $shift->id)
-                    ->whereNull('superseded_at')
-                    ->update(['superseded_at' => now()]);
+            $createdAllocation = null;
+            if ($newVarianceHalalas !== null && $newVarianceHalalas < 0) {
+                $candidateShares = $liabilityShares;
+                if ($candidateShares === null && $previousAllocation !== null) {
+                    $candidateShares = $previousAllocation->shares->map(fn ($share) => [
+                        'type' => $share->responsible_type,
+                        'id' => (string) $share->responsible_id,
+                        'amount' => (int) $share->amount_halalas,
+                    ])->all();
+                }
+                if ($candidateShares === null) {
+                    throw new ConflictHttpException('LIABILITY_ALLOCATION_REQUIRED');
+                }
+                try {
+                    $validatedShares = AllocationRules::validate($newVarianceHalalas, $candidateShares);
+                } catch (\InvalidArgumentException $exception) {
+                    throw new ConflictHttpException('LIABILITY_ALLOCATION_REQUIRED', $exception);
+                }
+
+                $branch = $shift->shift?->branch;
+                $companyId = $branch?->asab_company_id;
+                if (! $branch || ! $companyId) {
+                    throw new ConflictHttpException('LIABILITY_COMPANY_MAPPING_REQUIRED');
+                }
+                $resolver = app(\Modules\Shift\Liability\ResponsibleActorResolver::class);
+                foreach ($validatedShares as $share) {
+                    $resolver->resolve($share['type'], $share['id'], $companyId, $branchId);
+                }
+
+                $latestVersion = (int) ShiftLiabilityAllocation::query()
+                    ->where('cashier_shift_id', $shift->id)
+                    ->lockForUpdate()
+                    ->max('version');
+                $createdAllocation = ShiftLiabilityAllocation::create([
+                    'company_id' => $companyId,
+                    'branch_id' => $branchId,
+                    'cashier_shift_id' => $shift->id,
+                    'version' => $latestVersion + 1,
+                    'report_revision' => (string) $newRevision->revision_number,
+                    'variance_halalas' => $newVarianceHalalas,
+                    'created_by_type' => $actorType,
+                    'created_by_id' => $actor->getKey(),
+                    'reason' => $reason,
+                    'manager_approval_status' => 'pending',
+                    'supersedes_allocation_id' => $latestHistoricalAllocation?->id,
+                ]);
+                foreach ($validatedShares as $share) {
+                    $createdAllocation->shares()->create([
+                        'responsible_type' => $share['type'],
+                        'responsible_id' => $share['id'],
+                        'amount_halalas' => $share['amount'],
+                        'employee_response_status' => 'pending',
+                    ]);
+                }
+            }
+
+            // The previous version remains immutable and linked to its replacement.
+            if ($previousAllocation !== null && $newVarianceHalalas !== null) {
+                $previousAllocation->update(['superseded_at' => now()]);
+            }
+
+            if ($newVarianceHalalas !== null) {
+                app(ShiftReportManagerReviewService::class)->requireFor(
+                    $shift,
+                    $newRevision,
+                    $newVarianceHalalas,
+                    $reason
+                );
             }
 
             // Update projection on cashier_shifts
@@ -377,7 +448,7 @@ class ShiftReportCorrectionService
                 $shift,
                 $previousRevision,
                 $previousAllocation,
-                null,
+                $createdAllocation?->load('shares'),
                 $reason
             );
 

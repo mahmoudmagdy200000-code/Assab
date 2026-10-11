@@ -51,12 +51,15 @@ final class ShiftLiabilityService
                 $this->actors->resolve($share['type'], $share['id'], $report->companyId, $report->branchId);
             }
             // Supersede instead of deleting: previous approval/objection evidence remains intact.
-            $previous?->update(['superseded_at' => now()]);
+            if ($previous && $previous->superseded_at === null) {
+                $previous->update(['superseded_at' => now()]);
+            }
             $allocation = ShiftLiabilityAllocation::create([
                 'cashier_shift_id' => $shiftId,
                 'company_id' => $report->companyId,
                 'branch_id' => $report->branchId,
-                'version' => $expectedVersion + 1,
+                'version' => $previous ? $previous->version + 1 : 1,
+                'supersedes_allocation_id' => $previous?->id,
                 'report_revision' => $report->revision,
                 'variance_halalas' => $report->varianceHalalas,
                 'created_by_type' => $identity['type'],

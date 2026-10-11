@@ -76,9 +76,16 @@ class IdempotencyKey
         }
         $completion = in_array($completion, self::ATOMIC_COMPLETIONS, true) ? $completion : 'after-commit';
         $legacyEnvelope = $envelope === 'legacy';
-        // S1-11 required mobile mutation commands distinguish payload conflicts
-        // from a key owned by another actor. Existing optional/Admin contracts stay intact.
-        $payloadMismatchCode = $requireKey === 'required' && $completion === 'transaction' && $legacyEnvelope
+        // S1-11 required transactional commands distinguish payload conflicts
+        // from keys owned by another actor. Manager report corrections keep the
+        // key optional at middleware entry so no-op compatibility is preserved;
+        // their service requires it only when a correction will mutate state.
+        $managerReportCorrection = in_array($actionName, [
+            \Modules\Shift\Http\Controllers\BranchManagerShiftController::class.'@endShift',
+            \Modules\Shift\Http\Controllers\BranchManagerShiftController::class.'@updateFinalDailyClose',
+        ], true);
+        $payloadMismatchCode = ($requireKey === 'required' || $managerReportCorrection)
+            && $completion === 'transaction' && $legacyEnvelope
             ? 'IDEMPOTENCY_PAYLOAD_MISMATCH'
             : 'IDEMPOTENCY_KEY_REUSED';
 

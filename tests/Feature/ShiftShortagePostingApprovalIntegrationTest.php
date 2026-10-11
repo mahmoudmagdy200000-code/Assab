@@ -15,6 +15,7 @@ use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
 use Modules\Shift\Models\ShiftLiabilityAllocation;
 use Modules\Shift\Models\ShiftLiabilityPosting;
+use Modules\Shift\Models\ShiftReportCashCount;
 use Modules\Shift\Services\ShiftReportManagerReviewService;
 use Modules\Shift\Services\ShiftReportRevisionService;
 use Modules\Shift\Services\ShortagePostingService;
@@ -104,6 +105,7 @@ class ShiftShortagePostingApprovalIntegrationTest extends TestCase
             'amount_halalas' => 10000,
         ]);
 
+        $this->recordCurrentCashCount($rev1, -10000);
         $this->reviewService->requireFor($this->cashierShift, $rev1, -10000);
         $this->reviewService->approveCurrent($this->cashierShift, $this->manager, 1, 1, 'Initial approve', 'OP-INIT');
 
@@ -134,6 +136,7 @@ class ShiftShortagePostingApprovalIntegrationTest extends TestCase
             'amount_halalas' => 12000,
         ]);
 
+        $this->recordCurrentCashCount($rev2, -12000);
         $this->reviewService->requireFor($this->cashierShift, $rev2, -12000);
 
         // Verification of waiting state:
@@ -170,6 +173,34 @@ class ShiftShortagePostingApprovalIntegrationTest extends TestCase
         $this->reviewService->assertReadyForWorkday($this->managerShift, [$this->cashierShift->id]);
     }
 
+    public function test_manager_cannot_approve_a_missing_or_incomplete_current_allocation(): void
+    {
+        $revision = app(ShiftReportRevisionService::class)->recordCashierRevision($this->cashierShift, 'cashier', $this->cashierA->id, 0);
+        $allocation = ShiftLiabilityAllocation::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branch->id,
+            'cashier_shift_id' => $this->cashierShift->id,
+            'version' => 1,
+            'report_revision' => '1',
+            'variance_halalas' => -10000,
+            'created_by_type' => 'accountant',
+            'created_by_id' => (string) \Illuminate\Support\Str::uuid(),
+            'manager_approval_status' => 'pending',
+        ]);
+        $this->recordCurrentCashCount($revision, -10000);
+        $review = $this->reviewService->requireFor($this->cashierShift, $revision, -10000);
+
+        try {
+            $this->reviewService->approveCurrent($this->cashierShift, $this->manager, 1, 1, 'approve', 'INCOMPLETE');
+            $this->fail('A manager must not approve an allocation with missing shares.');
+        } catch (ConflictHttpException $exception) {
+            $this->assertSame('ALLOCATION_INCOMPLETE', $exception->getMessage());
+        }
+
+        $this->assertSame('pending', $allocation->fresh()->manager_approval_status);
+        $this->assertSame('pending', $review->fresh()->status);
+    }
+
     public function test_100_to_0_remains_100_during_waiting_and_posts_minus_100_after_replacement_approval(): void
     {
         $rev1 = app(ShiftReportRevisionService::class)->recordCashierRevision($this->cashierShift, 'cashier', $this->cashierA->id, 0);
@@ -192,6 +223,7 @@ class ShiftShortagePostingApprovalIntegrationTest extends TestCase
             'amount_halalas' => 10000,
         ]);
 
+        $this->recordCurrentCashCount($rev1, -10000);
         $this->reviewService->requireFor($this->cashierShift, $rev1, -10000);
         $this->reviewService->approveCurrent($this->cashierShift, $this->manager, 1, 1, 'Initial approve', 'OP-INIT-100');
 
@@ -242,6 +274,7 @@ class ShiftShortagePostingApprovalIntegrationTest extends TestCase
             'responsible_id' => $this->cashierA->id,
             'amount_halalas' => 10000,
         ]);
+        $this->recordCurrentCashCount($rev1, -10000);
         $this->reviewService->requireFor($this->cashierShift, $rev1, -10000);
         $this->reviewService->approveCurrent($this->cashierShift, $this->manager, 1, 1, 'Initial A', 'OP-INIT-A');
 
@@ -275,6 +308,7 @@ class ShiftShortagePostingApprovalIntegrationTest extends TestCase
             'responsible_id' => $this->cashierB->id,
             'amount_halalas' => 4000,
         ]);
+        $this->recordCurrentCashCount($rev2, -10000);
         $this->reviewService->requireFor($this->cashierShift, $rev2, -10000);
 
         // Approve replacement
@@ -305,6 +339,7 @@ class ShiftShortagePostingApprovalIntegrationTest extends TestCase
             'responsible_id' => $this->cashierA->id,
             'amount_halalas' => 10000,
         ]);
+        $this->recordCurrentCashCount($rev1, -10000);
         $this->reviewService->requireFor($this->cashierShift, $rev1, -10000);
         $this->reviewService->approveCurrent($this->cashierShift, $this->manager, 1, 1, 'Initial approve', 'OP-INIT-RETRY');
 
@@ -325,6 +360,7 @@ class ShiftShortagePostingApprovalIntegrationTest extends TestCase
             'manager_approval_status' => 'pending',
             'supersedes_allocation_id' => $alloc1->id,
         ]);
+        $this->recordCurrentCashCount($rev2, -12000);
         $this->reviewService->requireFor($this->cashierShift, $rev2, -12000);
 
         // Before revision 2 is approved, revision 3 is submitted (superseding revision 2)
@@ -347,6 +383,7 @@ class ShiftShortagePostingApprovalIntegrationTest extends TestCase
             'responsible_id' => $this->cashierA->id,
             'amount_halalas' => 15000,
         ]);
+        $this->recordCurrentCashCount($rev3, -15000);
         $this->reviewService->requireFor($this->cashierShift, $rev3, -15000);
 
         // Postings count is STILL 1 (from initial alloc1)
@@ -365,5 +402,23 @@ class ShiftShortagePostingApprovalIntegrationTest extends TestCase
 
         $custodyService = app(CashierCustodyService::class);
         $this->assertSame(-150.00, $custodyService->getPersonalBalanceOnly($this->cashierA->id));
+    }
+
+    private function recordCurrentCashCount($revision, int $varianceHalalas): void
+    {
+        ShiftReportCashCount::create([
+            'report_revision_id' => $revision->id,
+            'counted_revision_id' => $revision->id,
+            'evidence_revision_id' => $revision->id,
+            'cashier_shift_id' => $this->cashierShift->id,
+            'gross_halalas' => abs($varianceHalalas),
+            'cards_halalas' => 0,
+            'apps_halalas' => 0,
+            'confirmed_opening_halalas' => 0,
+            'pending_incoming_counted_halalas' => 0,
+            'counted_halalas' => 0,
+            'expected_halalas' => abs($varianceHalalas),
+            'variance_halalas' => $varianceHalalas,
+        ]);
     }
 }

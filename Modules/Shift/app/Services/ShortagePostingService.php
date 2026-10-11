@@ -73,6 +73,10 @@ class ShortagePostingService
                 ?? DB::table('branches')->where('id', $branchId)->value('company_id')
                 ?? $shift->company_id;
 
+            // Establish exact provenance for legacy variance rows before computing
+            // the first modern effective balance. Unprovable rows fail closed.
+            $this->legacyLinks->reconcileShiftLegacyEvidence($shift);
+
             // 4. Build union of all current and previously-posted stakeholders
             $targets = []; // [lineage_key => ['type' => string, 'id' => string, 'target_halalas' => int]]
 

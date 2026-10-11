@@ -291,6 +291,115 @@ class ShiftAccountantReportCorrectionTest extends TestCase
         $this->assertSame(2, $alloc2->version);
         $this->assertSame('2', $alloc2->report_revision);
         $this->assertSame(2, $alloc2->shares()->count());
+        $this->assertSame($alloc1->id, $alloc2->supersedes_allocation_id);
+    }
+
+    public function test_compatible_shares_are_copied_to_a_new_pending_allocation_for_the_new_revision(): void
+    {
+        $rev1 = $this->revisionService->recordCashierRevision($this->cashierShift, 'cashier', $this->cashier->id);
+        ShiftReportCashCount::create([
+            'report_revision_id' => $rev1->id, 'counted_revision_id' => $rev1->id,
+            'evidence_revision_id' => $rev1->id, 'cashier_shift_id' => $this->cashierShift->id,
+            'gross_halalas' => 10000, 'cards_halalas' => 4000, 'apps_halalas' => 0,
+            'confirmed_opening_halalas' => 0, 'pending_incoming_counted_halalas' => 0,
+            'counted_halalas' => 5000, 'expected_halalas' => 6000, 'variance_halalas' => -1000,
+        ]);
+        $old = ShiftLiabilityAllocation::create([
+            'company_id' => $this->company->id, 'branch_id' => $this->branch->id,
+            'cashier_shift_id' => $this->cashierShift->id, 'version' => 1,
+            'report_revision' => '1', 'variance_halalas' => -1000,
+            'created_by_type' => 'accountant', 'created_by_id' => $this->accountant->id,
+        ]);
+        $old->shares()->create([
+            'responsible_type' => 'cashier', 'responsible_id' => $this->cashier->id,
+            'amount_halalas' => 1000,
+        ]);
+
+        $revision = $this->accountantCorrectionService->correct(
+            $this->cashierShift, $this->accountant,
+            ['handover_notes' => 'verified note'], null, 1, 1,
+            'Narrative correction with unchanged shortage', (string) Str::uuid()
+        );
+
+        $new = ShiftLiabilityAllocation::where('cashier_shift_id', $this->cashierShift->id)
+            ->whereNull('superseded_at')->sole();
+        $this->assertSame(2, $new->version);
+        $this->assertSame((string) $revision->revision_number, $new->report_revision);
+        $this->assertSame(-1000, $new->variance_halalas);
+        $this->assertSame($old->id, $new->supersedes_allocation_id);
+        $this->assertSame('pending', $new->manager_approval_status);
+        $this->assertSame(1000, (int) $new->shares()->sum('amount_halalas'));
+        $this->assertNotNull($old->fresh()->superseded_at);
+    }
+
+    public function test_negative_correction_fails_closed_without_a_complete_current_allocation(): void
+    {
+        $rev1 = $this->revisionService->recordCashierRevision($this->cashierShift, 'cashier', $this->cashier->id);
+        ShiftReportCashCount::create([
+            'report_revision_id' => $rev1->id, 'counted_revision_id' => $rev1->id,
+            'evidence_revision_id' => $rev1->id, 'cashier_shift_id' => $this->cashierShift->id,
+            'gross_halalas' => 10000, 'cards_halalas' => 4000, 'apps_halalas' => 0,
+            'confirmed_opening_halalas' => 0, 'pending_incoming_counted_halalas' => 0,
+            'counted_halalas' => 6000, 'expected_halalas' => 6000, 'variance_halalas' => 0,
+        ]);
+
+        try {
+            $this->accountantCorrectionService->correct(
+                $this->cashierShift, $this->accountant, ['card_payments' => '30.00'],
+                null, 1, null, 'Create shortage without allocation', (string) Str::uuid()
+            );
+            $this->fail('A negative variance without a complete allocation must be blocked.');
+        } catch (ConflictHttpException $exception) {
+            $this->assertSame('LIABILITY_ALLOCATION_REQUIRED', $exception->getMessage());
+        }
+
+        $this->assertSame(1, $this->cashierShift->reportAggregate()->sole()->current_revision_number);
+        $this->assertSame(0, ShiftLiabilityAllocation::where('cashier_shift_id', $this->cashierShift->id)->count());
+    }
+
+    public function test_allocation_versions_remain_monotonic_after_zero_variance_removes_the_active_row(): void
+    {
+        $revision = $this->revisionService->recordCashierRevision($this->cashierShift, 'cashier', $this->cashier->id);
+        ShiftReportCashCount::create([
+            'report_revision_id' => $revision->id, 'counted_revision_id' => $revision->id,
+            'evidence_revision_id' => $revision->id, 'cashier_shift_id' => $this->cashierShift->id,
+            'gross_halalas' => 10000, 'cards_halalas' => 4000, 'apps_halalas' => 0,
+            'confirmed_opening_halalas' => 0, 'pending_incoming_counted_halalas' => 0,
+            'counted_halalas' => 5000, 'expected_halalas' => 6000, 'variance_halalas' => -1000,
+        ]);
+        $v1 = ShiftLiabilityAllocation::create([
+            'company_id' => $this->company->id, 'branch_id' => $this->branch->id,
+            'cashier_shift_id' => $this->cashierShift->id, 'version' => 1,
+            'report_revision' => '1', 'variance_halalas' => -1000,
+            'created_by_type' => 'accountant', 'created_by_id' => $this->accountant->id,
+        ]);
+        $v1->shares()->create(['responsible_type' => 'cashier', 'responsible_id' => $this->cashier->id, 'amount_halalas' => 1000]);
+
+        $v2Revision = $this->accountantCorrectionService->correct(
+            $this->cashierShift, $this->accountant, ['handover_notes' => 'version two'],
+            [['type' => 'cashier', 'id' => $this->cashier->id, 'amount' => 1000]],
+            1, 1, 'Replace allocation at revision two', (string) Str::uuid()
+        );
+        $v2 = ShiftLiabilityAllocation::where('cashier_shift_id', $this->cashierShift->id)->whereNull('superseded_at')->sole();
+        $this->assertSame(2, $v2->version);
+        $this->assertSame($v1->id, $v2->supersedes_allocation_id);
+
+        $zeroRevision = $this->accountantCorrectionService->correct(
+            $this->cashierShift, $this->accountant, ['card_payments' => '50.00'],
+            null, $v2Revision->revision_number, 2, 'Correct report to zero variance', (string) Str::uuid()
+        );
+        $this->assertSame(0, ShiftLiabilityAllocation::where('cashier_shift_id', $this->cashierShift->id)->whereNull('superseded_at')->count());
+
+        $v3Revision = $this->accountantCorrectionService->correct(
+            $this->cashierShift, $this->accountant, ['card_payments' => '40.00'],
+            [['type' => 'cashier', 'id' => $this->cashier->id, 'amount' => 1000]],
+            $zeroRevision->revision_number, 2, 'Shortage returns after zero variance', (string) Str::uuid()
+        );
+        $v3 = ShiftLiabilityAllocation::where('cashier_shift_id', $this->cashierShift->id)->whereNull('superseded_at')->sole();
+        $this->assertSame(3, $v3->version);
+        $this->assertSame((string) $v3Revision->revision_number, $v3->report_revision);
+        $this->assertSame($v2->id, $v3->supersedes_allocation_id);
+        $this->assertNotNull($v2->fresh()->superseded_at);
     }
 
     public function test_stale_expected_revision_throws_409(): void

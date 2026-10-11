@@ -13,6 +13,7 @@ use Modules\Custody\Services\CashierCustodyService;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
 use Modules\Shift\Models\ShiftLiabilityAllocation;
+use Modules\Shift\Models\ShiftLiabilityLegacyPostingLink;
 use Modules\Shift\Models\ShiftLiabilityPosting;
 use Modules\Shift\Services\ShiftReportRevisionService;
 use Modules\Shift\Services\ShortagePostingService;
@@ -106,5 +107,88 @@ class ShiftShortagePostingIdempotencyTest extends TestCase
         $this->assertSame(1, ShiftLiabilityPosting::count());
         $this->assertSame(1, CashierCustodyTransaction::count());
         $this->assertSame(-100.00, $custodyService->getPersonalBalanceOnly($this->cashier->id));
+    }
+
+    public function test_legacy_cashier_liability_is_linked_before_modern_reconciliation(): void
+    {
+        app(ShiftReportRevisionService::class)->recordCashierRevision($this->cashierShift, 'cashier', $this->cashier->id, 0);
+        CashierCustodyTransaction::create([
+            'cashier_id' => $this->cashier->id,
+            'transaction_type' => 'Variance',
+            'amount' => '100.00',
+            'is_cash_in' => false,
+            'related_shift_id' => $this->cashierShift->id,
+            'transaction_date' => now(),
+        ]);
+        $allocation = ShiftLiabilityAllocation::create([
+            'company_id' => $this->company->id, 'branch_id' => $this->branch->id,
+            'cashier_shift_id' => $this->cashierShift->id, 'version' => 1,
+            'report_revision' => '1', 'variance_halalas' => -10000,
+            'created_by_type' => 'branch_manager', 'created_by_id' => $this->manager->id,
+            'manager_approval_status' => 'approved', 'manager_approved_by' => $this->manager->id,
+            'manager_approved_at' => now(),
+        ]);
+        $allocation->shares()->create([
+            'responsible_type' => 'cashier', 'responsible_id' => $this->cashier->id,
+            'amount_halalas' => 10000,
+        ]);
+
+        $result = $this->postingService->reconcile($this->cashierShift, $this->manager, 1, 1, 'LEGACY-TARGET-100');
+
+        $this->assertSame(0, $result['total_deltas']);
+        $this->assertSame(0, ShiftLiabilityPosting::count());
+        $this->assertSame(1, ShiftLiabilityLegacyPostingLink::count());
+        $this->assertSame(10000, ShiftLiabilityLegacyPostingLink::sole()->signed_halalas);
+        $this->assertSame(-100.00, app(CashierCustodyService::class)->getPersonalBalanceOnly($this->cashier->id));
+
+        $allocation->update(['superseded_at' => now()]);
+        $replacement = ShiftLiabilityAllocation::create([
+            'company_id' => $this->company->id, 'branch_id' => $this->branch->id,
+            'cashier_shift_id' => $this->cashierShift->id, 'version' => 2,
+            'report_revision' => '1', 'variance_halalas' => -12000,
+            'created_by_type' => 'branch_manager', 'created_by_id' => $this->manager->id,
+            'manager_approval_status' => 'approved', 'manager_approved_by' => $this->manager->id,
+            'manager_approved_at' => now(), 'supersedes_allocation_id' => $allocation->id,
+        ]);
+        $replacement->shares()->create([
+            'responsible_type' => 'cashier', 'responsible_id' => $this->cashier->id,
+            'amount_halalas' => 12000,
+        ]);
+        $delta = $this->postingService->reconcile($this->cashierShift, $this->manager, 1, 2, 'LEGACY-TARGET-120');
+        $this->assertSame(1, $delta['total_deltas']);
+        $this->assertSame(2000, $delta['postings'][0]->delta_halalas);
+        $this->assertSame(10000, $delta['postings'][0]->effective_before_halalas);
+    }
+
+    public function test_legacy_cashier_liability_reverses_only_the_difference_when_target_is_lower(): void
+    {
+        app(ShiftReportRevisionService::class)->recordCashierRevision($this->cashierShift, 'cashier', $this->cashier->id, 0);
+        CashierCustodyTransaction::create([
+            'cashier_id' => $this->cashier->id,
+            'transaction_type' => 'Variance',
+            'amount' => '100.00',
+            'is_cash_in' => false,
+            'related_shift_id' => $this->cashierShift->id,
+            'transaction_date' => now(),
+        ]);
+        $allocation = ShiftLiabilityAllocation::create([
+            'company_id' => $this->company->id, 'branch_id' => $this->branch->id,
+            'cashier_shift_id' => $this->cashierShift->id, 'version' => 1,
+            'report_revision' => '1', 'variance_halalas' => -6000,
+            'created_by_type' => 'branch_manager', 'created_by_id' => $this->manager->id,
+            'manager_approval_status' => 'approved', 'manager_approved_by' => $this->manager->id,
+            'manager_approved_at' => now(),
+        ]);
+        $allocation->shares()->create([
+            'responsible_type' => 'cashier', 'responsible_id' => $this->cashier->id,
+            'amount_halalas' => 6000,
+        ]);
+
+        $result = $this->postingService->reconcile($this->cashierShift, $this->manager, 1, 1, 'LEGACY-TARGET-60');
+
+        $this->assertSame(1, $result['total_deltas']);
+        $this->assertSame(-4000, $result['postings'][0]->delta_halalas);
+        $this->assertSame(10000, $result['postings'][0]->effective_before_halalas);
+        $this->assertSame(-60.00, app(CashierCustodyService::class)->getPersonalBalanceOnly($this->cashier->id));
     }
 }

@@ -268,51 +268,67 @@ class AccountantReportCorrectionService
 
             $createdAlloc = null;
 
-            if ($expectedAllocationVersion !== null && $existingAlloc && $existingAlloc->version !== $expectedAllocationVersion) {
+            $latestAllocationVersion = (int) ShiftLiabilityAllocation::query()
+                ->where('cashier_shift_id', $shift->id)
+                ->lockForUpdate()
+                ->max('version');
+            $latestAllocation = ShiftLiabilityAllocation::query()
+                ->where('cashier_shift_id', $shift->id)
+                ->orderByDesc('version')
+                ->lockForUpdate()
+                ->first();
+            if ($expectedAllocationVersion !== null && $latestAllocationVersion !== $expectedAllocationVersion) {
                 throw new ConflictHttpException('STALE_ALLOCATION_VERSION');
             }
 
             if ($newVarianceHalalas < 0) {
                 if ($shares !== null) {
-                    $validatedShares = AllocationRules::validate($newVarianceHalalas, $shares);
-                    foreach ($validatedShares as $share) {
-                        $this->actorResolver->resolve($share['type'], $share['id'], $companyId, $branchId);
-                    }
-
-                    if ($existingAlloc) {
-                        $existingAlloc->update(['superseded_at' => now()]);
-                    }
-
-                    $nextVersion = ($existingAlloc?->version ?? 0) + 1;
-                    $newAlloc = ShiftLiabilityAllocation::create([
-                        'company_id' => $companyId,
-                        'branch_id' => $branchId,
-                        'cashier_shift_id' => $shift->id,
-                        'version' => $nextVersion,
-                        'report_revision' => (string) $newRevision->revision_number,
-                        'variance_halalas' => $newVarianceHalalas,
-                        'created_by_type' => 'accountant',
-                        'created_by_id' => $actor->id,
-                        'reason' => $reason,
-                        'manager_approval_status' => 'pending',
-                    ]);
-
-                    foreach ($validatedShares as $share) {
-                        $newAlloc->shares()->create([
-                            'responsible_type' => $share['type'],
-                            'responsible_id' => $share['id'],
-                            'amount_halalas' => $share['amount'],
-                            'employee_response_status' => 'pending',
-                        ]);
-                    }
-                    $createdAlloc = $newAlloc->load('shares');
+                    $candidateShares = $shares;
                 } elseif ($existingAlloc) {
-                    $existingAlloc->update(['superseded_at' => now()]);
+                    $candidateShares = $existingAlloc->shares->map(fn ($share) => [
+                        'type' => $share->responsible_type,
+                        'id' => (string) $share->responsible_id,
+                        'amount' => (int) $share->amount_halalas,
+                    ])->all();
+                } else {
+                    throw new ConflictHttpException('LIABILITY_ALLOCATION_REQUIRED');
                 }
+
+                try {
+                    $validatedShares = AllocationRules::validate($newVarianceHalalas, $candidateShares);
+                } catch (\InvalidArgumentException $exception) {
+                    throw new ConflictHttpException('LIABILITY_ALLOCATION_REQUIRED', $exception);
+                }
+                foreach ($validatedShares as $share) {
+                    $this->actorResolver->resolve($share['type'], $share['id'], $companyId, $branchId);
+                }
+
+                $newAlloc = ShiftLiabilityAllocation::create([
+                    'company_id' => $companyId,
+                    'branch_id' => $branchId,
+                    'cashier_shift_id' => $shift->id,
+                    'version' => $latestAllocationVersion + 1,
+                    'report_revision' => (string) $newRevision->revision_number,
+                    'variance_halalas' => $newVarianceHalalas,
+                    'created_by_type' => 'accountant',
+                    'created_by_id' => $actor->id,
+                    'reason' => $reason,
+                    'manager_approval_status' => 'pending',
+                    'supersedes_allocation_id' => $latestAllocation?->id,
+                ]);
+
+                foreach ($validatedShares as $share) {
+                    $newAlloc->shares()->create([
+                        'responsible_type' => $share['type'],
+                        'responsible_id' => $share['id'],
+                        'amount_halalas' => $share['amount'],
+                        'employee_response_status' => 'pending',
+                    ]);
+                }
+                $createdAlloc = $newAlloc->load('shares');
+                $existingAlloc?->update(['superseded_at' => now()]);
             } else {
-                if ($existingAlloc) {
-                    $existingAlloc->update(['superseded_at' => now()]);
-                }
+                $existingAlloc?->update(['superseded_at' => now()]);
             }
 
             // Require manager review

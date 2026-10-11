@@ -257,14 +257,19 @@ class ShiftCloseService
             }
             $variance = (int) $shift->variance;
             if ($variance < 0 && $shift->cash_count_state === 'counted') {
-                $cashierShift = CashierShift::query()
-                    ->where('shift_id', $shift->id)
-                    ->where('shift_date', $shift->shift_date ?? today())
-                    ->first()
-                    ?? CashierShift::query()->where('shift_id', $shift->id)->latest('created_at')->first();
-
-                if (! $cashierShift) {
+                if ($shift->isBranchManagerShift() || $shift->legacy_shift_id === null) {
                     throw new AsabException('BRANCH_LIABILITY_APPROVAL_PENDING', 'The shortage is governed by the branch liability allocation and its manager approval', 'عجز هذه الوردية يُحدَّد بتوزيع الفرع واعتماد مدير الفرع', 409);
+                }
+
+                $cashierShift = CashierShift::query()->whereKey($shift->legacy_shift_id)->lockForUpdate()->first();
+                $legacyBranchId = $cashierShift?->shift()->value('branch_id');
+                $legacyCompanyId = $legacyBranchId === null
+                    ? null
+                    : DB::table('branches')->where('id', $legacyBranchId)->value('asab_company_id');
+                if ($cashierShift === null
+                    || (string) $legacyBranchId !== (string) $shift->branch_id
+                    || (string) $legacyCompanyId !== (string) $shift->company_id) {
+                    throw new AsabException('BRANCH_LIABILITY_APPROVAL_PENDING', 'The shortage does not have an exact, valid legacy cashier-shift mapping', 'لا يوجد ربط مؤكد وصحيح بين العجز ووردية الكاشير', 409);
                 }
 
                 $activeAlloc = ShiftLiabilityAllocation::query()

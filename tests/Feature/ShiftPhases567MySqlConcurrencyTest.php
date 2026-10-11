@@ -17,6 +17,7 @@ use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
+use Modules\Shift\Models\ShiftLiabilityAllocation;
 use Modules\Shift\Models\ShiftLiabilityPosting;
 use Modules\Shift\Models\ShiftReportAggregate;
 use Modules\Shift\Models\ShiftReportCorrection;
@@ -110,6 +111,38 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
 
         $currentRev = $this->currentRevision($cashierShift);
         $this->assertSame(1, ShiftReportCorrectionNotification::where('report_revision_id', $currentRev->id)->count());
+    }
+
+    public function test_concurrent_liability_allocations_serialize_version_and_reject_stale_expected_allocation(): void
+    {
+        [, , , , $cashierShift, $cashier] = $this->fixture(7000);
+        $shares = [['type' => 'cashier', 'id' => $cashier->id, 'amount' => 1000]];
+
+        [$first, $second] = $this->race(
+            [
+                'command' => 'allocate_liability',
+                'shift_id' => $cashierShift->id,
+                'cashier_id' => $cashier->id,
+                'shares' => $shares,
+                'expected_version' => 0,
+            ],
+            [
+                'command' => 'allocate_liability',
+                'shift_id' => $cashierShift->id,
+                'cashier_id' => $cashier->id,
+                'shares' => $shares,
+                'expected_version' => 0,
+            ]
+        );
+
+        $this->assertSame('allocated', $first['status']);
+        $this->assertSame('conflict', $second['status']);
+        $this->assertSame('STALE_ALLOCATION', $second['code']);
+        $allocations = ShiftLiabilityAllocation::where('cashier_shift_id', $cashierShift->id)->get();
+        $this->assertCount(1, $allocations);
+        $this->assertSame(1, $allocations->sole()->version);
+        $this->assertSame(-1000, $allocations->sole()->variance_halalas);
+        $this->assertSame(1000, (int) $allocations->sole()->shares()->sum('amount_halalas'));
     }
 
     public function test_correction_vs_manager_approval_rejects_stale_revision(): void
@@ -755,7 +788,7 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
         }
     }
 
-    private function fixture(): array
+    private function fixture(int $countedHalalas = 8000): array
     {
         $company = AsabCompany::create([
             'name' => 'MySQL Test Company '.uniqid(),
@@ -816,9 +849,9 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
             'closing_balance' => '80.00',
         ]);
 
-        DB::transaction(function () use ($cashierShift, $cashier) {
+        DB::transaction(function () use ($cashierShift, $cashier, $countedHalalas) {
             $revision = app(ShiftReportRevisionService::class)->recordCashierRevision($cashierShift, 'cashier', $cashier->id, 0);
-            app(ShiftCashCountService::class)->record($cashierShift, $revision, 10000, 2000, 0, 8000);
+            app(ShiftCashCountService::class)->record($cashierShift, $revision, 10000, 2000, 0, $countedHalalas);
         });
 
         return [$branch, $manager, $accountant, $day, $cashierShift, $cashier];

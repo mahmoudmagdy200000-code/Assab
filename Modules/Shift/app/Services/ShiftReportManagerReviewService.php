@@ -5,10 +5,13 @@ namespace Modules\Shift\Services;
 use Illuminate\Support\Facades\DB;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BranchManagers\Services\BranchManagerService;
+use Modules\Shift\Liability\AllocationRules;
+use Modules\Shift\Liability\ResponsibleActorResolver;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\ShiftLiabilityAllocation;
 use Modules\Shift\Models\ShiftReportAggregate;
+use Modules\Shift\Models\ShiftReportCashCount;
 use Modules\Shift\Models\ShiftReportManagerReview;
 use Modules\Shift\Models\ShiftReportRevision;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
@@ -86,8 +89,27 @@ class ShiftReportManagerReviewService
                 ->where('report_revision_id', $aggregate->required_manager_review_evidence_revision_id)
                 ->lockForUpdate()
                 ->firstOrFail();
+            $currentRevision = ShiftReportRevision::query()
+                ->where('report_aggregate_id', $aggregate->id)
+                ->where('revision_number', $aggregate->current_revision_number)
+                ->lockForUpdate()
+                ->first();
+            if ($currentRevision === null
+                || $review->report_revision_id !== $currentRevision->id
+                || $review->report_revision_number !== $expectedRevision) {
+                throw new ConflictHttpException('STALE_REPORT_REVISION');
+            }
 
             if ($review->has_shortage) {
+                $currentCount = ShiftReportCashCount::query()
+                    ->where('report_revision_id', $currentRevision->id)
+                    ->lockForUpdate()
+                    ->first();
+                if ($currentCount === null || $currentCount->variance_halalas !== $review->variance_halalas
+                    || $review->variance_halalas >= 0) {
+                    throw new ConflictHttpException('LIABILITY_ALLOCATION_REQUIRED');
+                }
+
                 /** @var ShiftLiabilityAllocation|null $allocation */
                 $allocation = ShiftLiabilityAllocation::query()
                     ->where('cashier_shift_id', $shift->id)
@@ -95,16 +117,42 @@ class ShiftReportManagerReviewService
                     ->lockForUpdate()
                     ->first();
 
-                if ($allocation) {
-                    if ($expectedAllocationVersion !== null && $allocation->version !== $expectedAllocationVersion) {
-                        throw new ConflictHttpException('STALE_ALLOCATION_VERSION');
-                    }
-                    $allocation->update([
-                        'manager_approval_status' => 'approved',
-                        'manager_approved_by' => $manager->id,
-                        'manager_approved_at' => now(),
-                    ]);
+                if (! $allocation || $expectedAllocationVersion === null || $allocation->version !== $expectedAllocationVersion
+                    || $allocation->report_revision !== (string) $expectedRevision
+                    || $allocation->variance_halalas !== $review->variance_halalas
+                    || $allocation->manager_approval_status !== 'pending') {
+                    throw new ConflictHttpException($allocation && $expectedAllocationVersion !== null && $allocation->version !== $expectedAllocationVersion
+                        ? 'STALE_ALLOCATION_VERSION'
+                        : 'LIABILITY_ALLOCATION_REQUIRED');
                 }
+
+                $shares = $allocation->shares()->lockForUpdate()->get();
+                try {
+                    AllocationRules::validate($review->variance_halalas, $shares->map(fn ($share) => [
+                        'type' => $share->responsible_type,
+                        'id' => (string) $share->responsible_id,
+                        'amount' => (int) $share->amount_halalas,
+                    ])->all());
+                } catch (\InvalidArgumentException $exception) {
+                    throw new ConflictHttpException('ALLOCATION_INCOMPLETE', $exception);
+                }
+                $branchId = $shift->shift()->value('branch_id') ?? $shift->branch_id;
+                $companyId = $shift->shift?->branch?->asab_company_id;
+                if ((string) $allocation->branch_id !== (string) $branchId
+                    || (string) $allocation->company_id !== (string) $companyId
+                    || (string) $allocation->cashier_shift_id !== (string) $shift->id) {
+                    throw new ConflictHttpException('LIABILITY_ALLOCATION_REQUIRED');
+                }
+                $resolver = app(ResponsibleActorResolver::class);
+                foreach ($shares as $share) {
+                    $resolver->resolve($share->responsible_type, $share->responsible_id, $companyId, $branchId);
+                }
+
+                $allocation->update([
+                    'manager_approval_status' => 'approved',
+                    'manager_approved_by' => $manager->id,
+                    'manager_approved_at' => now(),
+                ]);
             }
 
             $review->update([

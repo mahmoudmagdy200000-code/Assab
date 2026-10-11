@@ -124,7 +124,7 @@ class ShiftPhases567IntegrationTest extends TestCase
 
         DB::transaction(function () use ($shift) {
             $rev = app(ShiftReportRevisionService::class)->recordCashierRevision($shift, 'cashier', $shift->cashier_id, 0);
-            app(ShiftCashCountService::class)->record($shift, $rev, 70000, 0, 0, 70000);
+            app(ShiftCashCountService::class)->record($shift, $rev, 100000, 20000, 0, 70000);
         });
 
         return $shift;
@@ -353,6 +353,11 @@ class ShiftPhases567IntegrationTest extends TestCase
                     'card_payments' => '250.00',
                     'expected_revision' => 1,
                     'reason' => 'Manager adjusted POS card receipt total',
+                    'liability_shares' => [[
+                        'type' => 'cashier',
+                        'id' => $this->cashierA->id,
+                        'amount' => 5000,
+                    ]],
                 ],
             ],
             $this->managerShift,
@@ -389,6 +394,11 @@ class ShiftPhases567IntegrationTest extends TestCase
             'changes' => [
                 'card_payments' => '250.00',
             ],
+            'shortage_allocations' => [[
+                'type' => 'cashier',
+                'id' => $this->cashierA->id,
+                'amount' => 5000,
+            ]],
         ];
 
         // First call via HTTP endpoint

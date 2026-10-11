@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
@@ -523,6 +524,10 @@ class BranchManagerShiftController extends BaseController
             'cashier_breakdown.*.delivery_app_payments' => 'nullable|'.ShiftMoneyValidation::SAR,
             'cashier_breakdown.*.variance' => 'nullable|'.ShiftMoneyValidation::SIGNED_SAR,
             'cashier_breakdown.*.sales' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'cashier_breakdown.*.liability_shares' => 'nullable|array|min:1',
+            'cashier_breakdown.*.liability_shares.*.type' => 'required_with:cashier_breakdown.*.liability_shares|in:cashier,branch_manager,employee',
+            'cashier_breakdown.*.liability_shares.*.id' => 'required_with:cashier_breakdown.*.liability_shares|uuid',
+            'cashier_breakdown.*.liability_shares.*.amount' => 'required_with:cashier_breakdown.*.liability_shares|integer|min:1',
         ]);
 
         if ($validator->fails()) {
@@ -558,7 +563,9 @@ class BranchManagerShiftController extends BaseController
                         $request->cashier_breakdown,
                         $managerShift,
                         $manager,
-                        $request->header('X-Operation-Id') ?? (string) Str::uuid()
+                        $request->header('X-Operation-Id') ?? (string) Str::uuid(),
+                        $request->header('Idempotency-Key'),
+                        true
                     );
                 }
 
@@ -704,6 +711,10 @@ class BranchManagerShiftController extends BaseController
             'cashier_breakdown.*.delivery_app_payments' => 'nullable|'.ShiftMoneyValidation::SAR,
             'cashier_breakdown.*.variance' => 'nullable|'.ShiftMoneyValidation::SIGNED_SAR,
             'cashier_breakdown.*.sales' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'cashier_breakdown.*.liability_shares' => 'nullable|array|min:1',
+            'cashier_breakdown.*.liability_shares.*.type' => 'required_with:cashier_breakdown.*.liability_shares|in:cashier,branch_manager,employee',
+            'cashier_breakdown.*.liability_shares.*.id' => 'required_with:cashier_breakdown.*.liability_shares|uuid',
+            'cashier_breakdown.*.liability_shares.*.amount' => 'required_with:cashier_breakdown.*.liability_shares|integer|min:1',
         ]);
 
         if ($validator->fails()) {
@@ -739,7 +750,9 @@ class BranchManagerShiftController extends BaseController
                         $request->cashier_breakdown,
                         $managerShift,
                         $manager,
-                        $request->header('X-Operation-Id') ?? (string) Str::uuid()
+                        $request->header('X-Operation-Id') ?? (string) Str::uuid(),
+                        $request->header('Idempotency-Key'),
+                        true
                     );
                 }
 

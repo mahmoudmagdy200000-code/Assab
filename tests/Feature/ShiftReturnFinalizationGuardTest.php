@@ -16,7 +16,9 @@ use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
+use Modules\Shift\Models\ShiftLiabilityAllocation;
 use Modules\Shift\Services\ShiftReportRevisionService;
+use Modules\Shift\Services\ShortagePostingService;
 use Tests\TestCase;
 
 /** A stale physical count must not reach the existing final/daily pipelines. */
@@ -90,6 +92,82 @@ class ShiftReturnFinalizationGuardTest extends TestCase
         }
         $this->assertSame('pending_review', $mirror->fresh()->status);
         $this->assertSame(0, \Modules\Admin\Models\EmployeeMovement::count());
+    }
+
+    public function test_final_approval_uses_exact_legacy_shift_id_not_a_matching_template_id(): void
+    {
+        $mirror = AdminShift::create([
+            'company_id' => $this->accountant->company_id,
+            'branch_id' => $this->branch->id,
+            'cashier_name' => 'Cashier',
+            'shift_type' => 'day',
+            'started_at' => now(),
+            'status' => 'active',
+            'legacy_shift_id' => $this->legacy->id,
+            'sales_amount' => 1000,
+            'opening_float' => 0,
+        ]);
+        DB::table('shift_report_aggregates')->where('source_id', $this->legacy->id)->update(['fresh_count_required' => false]);
+
+        // A decoy has the admin projection ID as its shift-template foreign key.
+        // The old lookup could select this row by shift_id/date.
+        $decoyStart = null;
+        for ($hour = 0; $hour < 24; $hour++) {
+            $candidateStart = sprintf('%02d:00:00', $hour);
+            $candidateEnd = sprintf('%02d:00:00', ($hour + 1) % 24);
+            if (! Shift::where('branch_id', $this->branch->id)
+                ->where('start_time', $candidateStart)->where('end_time', $candidateEnd)->exists()) {
+                $decoyStart = [$candidateStart, $candidateEnd];
+                break;
+            }
+        }
+        $this->assertNotNull($decoyStart, 'A unique decoy shift time must be available.');
+        Shift::factory()->create([
+            'id' => $mirror->id,
+            'branch_id' => $this->branch->id,
+            'name' => 'Decoy template',
+            'start_time' => $decoyStart[0],
+            'end_time' => $decoyStart[1],
+        ]);
+        $decoy = CashierShift::create([
+            'cashier_id' => $this->legacy->cashier_id,
+            'shift_id' => $mirror->id,
+            'shift_date' => today(),
+            'status' => 'completed',
+        ]);
+
+        $service = app(\Modules\Admin\Services\ShiftCloseService::class);
+        $closed = $service->close($mirror, ['cashActualHalalas' => 0], $this->accountant);
+        $operation = $closed['operation'];
+        $operation->update(['status' => Operation::STATUS_FINAL]);
+        $mirror->update(['cash_count_state' => 'counted']);
+
+        $allocation = ShiftLiabilityAllocation::create([
+            'company_id' => $this->accountant->company_id,
+            'branch_id' => $this->branch->id,
+            'cashier_shift_id' => $this->legacy->id,
+            'version' => 1,
+            'report_revision' => '1',
+            'variance_halalas' => -1000,
+            'created_by_type' => 'branch_manager',
+            'created_by_id' => $this->manager->id,
+            'manager_approval_status' => 'approved',
+            'manager_approved_by' => $this->manager->id,
+            'manager_approved_at' => now(),
+        ]);
+
+        $posting = \Mockery::mock(ShortagePostingService::class);
+        $posting->shouldReceive('reconcile')->once()->withArgs(function ($shift, $actor, $revision, $version) use ($allocation, $decoy) {
+            return $shift->is($this->legacy)
+                && ! $shift->is($decoy)
+                && $revision === (int) $allocation->report_revision
+                && $version === $allocation->version;
+        })->andReturn(['cashier_shift_id' => $this->legacy->id, 'postings' => [], 'total_deltas' => 0]);
+        app()->instance(ShortagePostingService::class, $posting);
+
+        $service->onFinalApproved($operation, $this->accountant);
+
+        $this->assertSame('closed', $mirror->fresh()->status);
     }
 
     public function test_daily_submission_checks_carried_reports_older_than_the_recent_window(): void

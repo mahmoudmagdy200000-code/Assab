@@ -3,10 +3,13 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\EmployeeMovement;
+use Modules\Admin\Models\Shift as AdminShift;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
@@ -18,6 +21,7 @@ use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
 use Modules\Shift\Models\ShiftLiabilityLegacyPostingLink;
 use Modules\Shift\Services\ShiftLiabilityLegacyPostingLinkService;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Tests\TestCase;
 
 class ShiftLiabilityLegacyPostingTest extends TestCase
@@ -266,5 +270,104 @@ class ShiftLiabilityLegacyPostingTest extends TestCase
         ]);
 
         $this->assertSame(-150.00, $personalService->getPersonalBalanceOnly($this->manager->id));
+    }
+
+    public function test_legacy_reconciliation_ignores_unrelated_rows_and_blocks_foreign_actor_provenance(): void
+    {
+        CashierCustodyTransaction::create([
+            'cashier_id' => $this->cashier->id,
+            'transaction_type' => 'Handover Received',
+            'amount' => 100.00,
+            'is_cash_in' => true,
+            'related_shift_id' => $this->cashierShift->id,
+            'transaction_date' => now(),
+        ]);
+        $service = app(ShiftLiabilityLegacyPostingLinkService::class);
+        $service->reconcileShiftLegacyEvidence($this->cashierShift);
+        $this->assertSame(0, ShiftLiabilityLegacyPostingLink::count());
+
+        $otherBranch = Branch::factory()->create(['asab_company_id' => $this->company->id]);
+        $foreignCashier = Cashier::factory()->create(['branch_id' => $otherBranch->id]);
+        CashierCustodyTransaction::create([
+            'cashier_id' => $foreignCashier->id,
+            'transaction_type' => 'Variance',
+            'amount' => 100.00,
+            'is_cash_in' => false,
+            'category' => 'cash_variance',
+            'related_shift_id' => $this->cashierShift->id,
+            'transaction_date' => now(),
+        ]);
+
+        $this->expectException(ConflictHttpException::class);
+        $this->expectExceptionMessage('LEGACY_LIABILITY_RECONCILIATION_REQUIRED');
+        $service->reconcileShiftLegacyEvidence($this->cashierShift);
+    }
+
+    public function test_reconciliation_links_exact_cashier_manager_and_employee_legacy_rows_with_signed_amounts(): void
+    {
+        $cashierRow = CashierCustodyTransaction::create([
+            'cashier_id' => $this->cashier->id,
+            'transaction_type' => 'Variance',
+            'amount' => '100.00',
+            'is_cash_in' => false,
+            'category' => 'cash_variance',
+            'related_shift_id' => $this->cashierShift->id,
+            'transaction_date' => now(),
+        ]);
+        $managerRow = PersonalLedgerTransaction::create([
+            'branch_manager_id' => $this->manager->id,
+            'transaction_type' => 'Variance from Cashier',
+            'amount' => '50.00',
+            'is_cash_in' => false,
+            'category' => 'cash_variance',
+            'related_shift_id' => $this->cashierShift->id,
+            'transaction_date' => now(),
+        ]);
+        $adminShift = AdminShift::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branch->id,
+            'cashier_name' => $this->cashier->name,
+            'role' => 'cashier',
+            'shift_type' => 'day',
+            'started_at' => now(),
+            'status' => 'completed',
+            'legacy_shift_id' => $this->cashierShift->id,
+        ]);
+        $operationId = (string) Str::uuid();
+        DB::table('asab_operations')->insert([
+            'id' => $operationId,
+            'public_id' => 'OP-'.strtoupper(Str::random(10)),
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branch->id,
+            'module_key' => 'shifts',
+            'source_module' => 'shifts',
+            'source_id' => $adminShift->id,
+            'payload' => json_encode([]),
+            'amount' => 15000,
+            'status' => 'final-approved',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $employeeRow = EmployeeMovement::create([
+            'employee_id' => $this->employee->id,
+            'movement_type' => 'debit',
+            'amount' => 15000,
+            'category' => 'cash_variance',
+            'description' => 'Legacy employee cash variance',
+            'ref_operation_id' => $operationId,
+            'movement_date' => now(),
+        ]);
+        $originalEmployee = $employeeRow->fresh()->getAttributes();
+
+        app(ShiftLiabilityLegacyPostingLinkService::class)->reconcileShiftLegacyEvidence($this->cashierShift);
+
+        $this->assertSame(3, ShiftLiabilityLegacyPostingLink::count());
+        $this->assertSame(10000, ShiftLiabilityLegacyPostingLink::where('ledger_table', 'cashier_custody_transactions')
+            ->where('ledger_id', $cashierRow->id)->sole()->signed_halalas);
+        $this->assertSame(5000, ShiftLiabilityLegacyPostingLink::where('ledger_table', 'personal_ledger_transactions')
+            ->where('ledger_id', $managerRow->id)->sole()->signed_halalas);
+        $this->assertSame(15000, ShiftLiabilityLegacyPostingLink::where('ledger_table', 'asab_employee_movements')
+            ->where('ledger_id', $employeeRow->id)->sole()->signed_halalas);
+        $this->assertEquals($originalEmployee, $employeeRow->fresh()->getAttributes());
     }
 }
