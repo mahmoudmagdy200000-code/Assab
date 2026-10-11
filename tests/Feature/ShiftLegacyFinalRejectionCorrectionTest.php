@@ -64,8 +64,10 @@ class ShiftLegacyFinalRejectionCorrectionTest extends TestCase
 
         $this->actingAs($sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$source->id}/handover/edit", ['expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($source)?->revision_number ?? 0,
             'handover_amount' => '100.00', 'correction_reason' => 'input_error', 'handover_notes' => 'Corrected request',
+            // S111-FINAL-05: the correction carries the report; the legacy report had no count, so the cashier supplies one.
+            'total_sales' => '100.00', 'card_payments' => '0.00', 'cash_collected' => '100.00', 'counted_cash' => '100.00',
         ], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertOk();
-        $this->assertSame(ShiftStatus::IN_PROGRESS, $source->fresh()->status);
+        $this->assertSame(ShiftStatus::COMPLETED, $source->fresh()->status, 'S111-FINAL-05: the correction no longer reopens the shift; it revises the report in place.');
         $this->assertSame('pending', $handover->fresh()->status);
         $oldSnapshot = ShiftReportRevisionSnapshot::where('report_revision_id', $oldRevision->id)->firstOrFail();
         $this->assertSame('completed', $oldSnapshot->snapshot_data['status']);
@@ -75,14 +77,7 @@ class ShiftLegacyFinalRejectionCorrectionTest extends TestCase
         $this->assertSame('rejected_final', $oldSnapshot->snapshot_data['handover']['status']);
         $this->assertSame('Wrong amount', $oldSnapshot->snapshot_data['handover']['rejection_reason']);
         $oldSnapshotData = $oldSnapshot->snapshot_data;
-        $this->assertSame(0, ShiftReportCashCount::count(), 'Editing cannot invent physical count evidence.');
-        $this->actingAs($recipient, 'sanctum')->postJson("/api/v1/cashier/shifts/{$source->id}/handover/accept", [
-            'confirmed_amount' => '100.00', 'receiving_shift_id' => $receiving->id,
-        ])->assertStatus(409)->assertJsonPath('code', 'REPORT_COUNT_REQUIRED');
-
-        $this->actingAs($sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$source->id}/end", [
-            'total_sales' => '100.00', 'cash_collected' => '100.00', 'counted_cash' => '100.00',
-        ])->assertOk();
+        $this->assertSame(1, ShiftReportCashCount::count(), 'The only count is the one the cashier supplied with the correction.');
         $current = app(ShiftReportRevisionService::class)->currentCashierRevision($source->fresh());
         $this->assertNotSame($oldRevision->id, $current->id);
         $this->assertDatabaseHas('shift_report_cash_counts', [

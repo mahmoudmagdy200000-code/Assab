@@ -210,6 +210,12 @@ class ShiftReassignHandoverCountTest extends TestCase
 
     public function test_pending_predecessor_transfer_does_not_block_work_or_change_the_request(): void
     {
+        // Custody-conservation guard (ShiftCashAvailabilityService): a cashier can only hand over cash held in custody.
+        // The fixture previously wrote report fields without the ledger row a real shift end posts.
+        \Modules\Custody\Models\CashierCustodyTransaction::create([
+            'cashier_id' => $this->outgoing->id, 'transaction_type' => 'Total Sales', 'amount' => '30.00',
+            'is_cash_in' => true, 'related_shift_id' => $this->shift->id, 'transaction_date' => now(),
+        ]);
         app(\Modules\Shift\Services\HandoverService::class)->recordHandover($this->shift, [
             'handover_to_type' => 'cashier', 'handover_to_id' => $this->incoming->id,
             'next_cashier_id' => $this->incoming->id, 'handover_amount' => '30.00',
@@ -493,6 +499,12 @@ class ShiftReassignHandoverCountTest extends TestCase
             'total_sales' => '100.00',
             'cash_collected' => '100.00',
             'actual_end_time' => now(),
+        ]);
+        // Custody-conservation guard (ShiftCashAvailabilityService): a cashier can only hand over cash held in custody.
+        // The fixture previously wrote report fields without the ledger row a real shift end posts.
+        \Modules\Custody\Models\CashierCustodyTransaction::create([
+            'cashier_id' => $this->outgoing->id, 'transaction_type' => 'Total Sales', 'amount' => '100.00',
+            'is_cash_in' => true, 'related_shift_id' => $this->shift->id, 'transaction_date' => now(),
         ]);
 
         $this->actingAs($this->outgoing, 'sanctum')

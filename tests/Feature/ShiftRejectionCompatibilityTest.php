@@ -33,6 +33,7 @@ use Tests\TestCase;
 class ShiftRejectionCompatibilityTest extends TestCase
 {
     use RefreshDatabase;
+    use \Tests\Concerns\ConfirmsPhysicalReturn;
 
     private Branch $branch;
 
@@ -93,12 +94,15 @@ class ShiftRejectionCompatibilityTest extends TestCase
         ])->assertOk();
 
         // 1st Rejection by recipient
+        $attempt1 = $this->presentAttempt(CashierShiftHandover::where('cashier_shift_id', $this->senderShift->id)->firstOrFail(), $this->sender, (int) round(((float) CashierShiftHandover::where('cashier_shift_id', $this->senderShift->id)->firstOrFail()->handover_amount) * 100));
         $res1 = $this->actingAs($this->recipient, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/reject", [
+            'transfer_attempt_id' => $attempt1->id,
             'rejection_reason' => '1st rejection: count mismatch',
             'confirmed_amount' => '480.00',
             'correction_reason' => 'actual_shortage',
         ])->assertOk();
 
+        $this->returnAndConfirm($attempt1, $this->recipient, $this->sender);
         $this->assertFalse($res1->json('data.rejection_details.is_final_rejection'));
         $this->assertTrue($res1->json('data.rejection_details.cashier_can_edit'));
         $this->assertSame(1, $res1->json('data.rejection_details.rejection_count'));
@@ -110,12 +114,15 @@ class ShiftRejectionCompatibilityTest extends TestCase
         ], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertOk();
 
         // 2nd Rejection by recipient (Previously locked out under 2-reject rule, now allowed under BR-17)
+        $attempt2 = $this->presentAttempt(CashierShiftHandover::where('cashier_shift_id', $this->senderShift->id)->firstOrFail(), $this->sender, (int) round(((float) CashierShiftHandover::where('cashier_shift_id', $this->senderShift->id)->firstOrFail()->handover_amount) * 100));
         $res2 = $this->actingAs($this->recipient, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/reject", [
+            'transfer_attempt_id' => $attempt2->id,
             'rejection_reason' => '2nd rejection: notes missing',
             'confirmed_amount' => '470.00',
             'correction_reason' => 'actual_shortage',
         ])->assertOk();
 
+        $this->returnAndConfirm($attempt2, $this->recipient, $this->sender);
         $this->assertFalse($res2->json('data.rejection_details.is_final_rejection'));
         $this->assertTrue($res2->json('data.rejection_details.cashier_can_edit'));
         $this->assertSame(2, $res2->json('data.rejection_details.rejection_count'));
@@ -132,12 +139,15 @@ class ShiftRejectionCompatibilityTest extends TestCase
         ], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertOk();
 
         // 3rd Rejection by recipient
+        $attempt3 = $this->presentAttempt(CashierShiftHandover::where('cashier_shift_id', $this->senderShift->id)->firstOrFail(), $this->sender, (int) round(((float) CashierShiftHandover::where('cashier_shift_id', $this->senderShift->id)->firstOrFail()->handover_amount) * 100));
         $res3 = $this->actingAs($this->recipient, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/reject", [
+            'transfer_attempt_id' => $attempt3->id,
             'rejection_reason' => '3rd rejection: recount',
             'confirmed_amount' => '460.00',
             'correction_reason' => 'actual_shortage',
         ])->assertOk();
 
+        $this->returnAndConfirm($attempt3, $this->recipient, $this->sender);
         $this->assertSame(3, $res3->json('data.rejection_details.rejection_count'));
         $this->assertFalse($res3->json('data.rejection_details.is_final_rejection'));
         $this->assertTrue($res3->json('data.rejection_details.cashier_can_edit'));

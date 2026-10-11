@@ -150,7 +150,7 @@ class ShiftAccountantCorrectionHttpTest extends TestCase
 
         $res1->assertOk()
             ->assertJsonPath('revision_number', 2)
-            ->assertJsonPath('manager_review_required', true)
+            ->assertJsonPath('manager_review_required', false)
             ->assertJsonPath('financial_results.card_payments', '30.00')
             ->assertJsonPath('financial_results.variance', '-10.00')
             ->assertJsonPath('financial_results.variance_halalas', -1000)
@@ -264,7 +264,7 @@ class ShiftAccountantCorrectionHttpTest extends TestCase
 
         $res->assertOk()
             ->assertJsonPath('revision_number', 2)
-            ->assertJsonPath('manager_review_required', true);
+            ->assertJsonPath('manager_review_required', false);
     }
 
     public function test_unauthorized_accountant_foreign_company_returns_403(): void

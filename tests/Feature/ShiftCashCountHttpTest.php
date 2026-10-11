@@ -538,7 +538,7 @@ class ShiftCashCountHttpTest extends TestCase
         $this->assertSame('pending_review', $admin->fresh()->status);
     }
 
-    /** S1-11 Phase 5: the accountant's split of a counted shortage routes through AccountantReportCorrectionService and requires manager review. */
+    /** S1-11 Phase 5: the accountant's split of a counted shortage routes through AccountantReportCorrectionService and is final without manager review (v3.2). */
     public function test_accountant_split_of_a_counted_shortage_is_refused(): void
     {
         [$admin, $op] = $this->countedShortageOperation();
@@ -551,17 +551,16 @@ class ShiftCashCountHttpTest extends TestCase
         $this->assertSame(2000, $rows[0]['amountHalalas']);
         $this->assertArrayHasKey('varianceAllocations', $op->fresh()->payload);
 
-        // Allocation created and requires manager review
+        // Allocation created and final on the accountant's authority (S111-FINAL-01)
         $allocation = ShiftLiabilityAllocation::where('cashier_shift_id', $this->recipientShift->id)
             ->whereNull('superseded_at')
             ->firstOrFail();
-        $this->assertSame('pending', $allocation->manager_approval_status);
+        $this->assertSame('approved', $allocation->manager_approval_status);
         $this->assertSame('accountant', $allocation->created_by_type);
 
-        $review = \Modules\Shift\Models\ShiftReportManagerReview::where('cashier_shift_id', $this->recipientShift->id)
-            ->where('status', 'pending')
-            ->firstOrFail();
-        $this->assertSame(-2000, $review->variance_halalas);
+        // S111-FINAL-01 (Business Rules v3.2): the accountant's allocation is final; no manager review is opened.
+        $this->assertSame(0, \Modules\Shift\Models\ShiftReportManagerReview::where('cashier_shift_id', $this->recipientShift->id)
+            ->where('status', 'pending')->count());
     }
 
     /** D15: a balanced counted shift still closes normally, and one refusal does not fail the rest of a bulk. */

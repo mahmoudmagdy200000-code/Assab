@@ -22,6 +22,7 @@ use Tests\TestCase;
 class ShiftRejectionCorrectionTest extends TestCase
 {
     use RefreshDatabase;
+    use \Tests\Concerns\ConfirmsPhysicalReturn;
 
     private Branch $branch;
 
@@ -66,9 +67,8 @@ class ShiftRejectionCorrectionTest extends TestCase
             'total_sales' => '500.00', 'cash_collected' => '500.00', 'counted_cash' => '500.00',
             'next_cashier_id' => $this->recipient->id, 'handover_amount' => '500.00',
         ])->assertOk();
-        $this->actingAs($this->recipient, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/reject", [
-            'rejection_reason' => 'Counted 480', 'confirmed_amount' => '480.00', 'correction_reason' => 'actual_shortage',
-        ])->assertOk();
+        // v3.2 / S111-FINAL-03: the rejected cash is physically returned and the sender confirms it before any correction.
+        $this->httpRejectAndReturn(CashierShiftHandover::where('cashier_shift_id', $this->senderShift->id)->firstOrFail(), $this->sender, $this->recipient, $this->senderShift->id, '480.00', 'Counted 480');
     }
 
     private function shortagePayload(): array
@@ -131,7 +131,7 @@ class ShiftRejectionCorrectionTest extends TestCase
 
         $this->actingAs($this->recipient, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/reject", [
             'rejection_reason' => 'plain',
-        ])->assertStatus(409)->assertJsonPath('code', 'HANDOVER_HAS_CORRECTION_EVIDENCE');
+        ])->assertStatus(409)->assertJsonPath('code', 'PHYSICAL_REJECTION_DETAILS_REQUIRED'); // attempt-tracked request: a plain rejection is refused (v3.2)
 
         $this->assertSame($evidence, ShiftTransferRejectionEvidence::count());
         $this->assertSame($handovers, CashierShiftHandover::count());
@@ -153,8 +153,9 @@ class ShiftRejectionCorrectionTest extends TestCase
         $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/edit", ['expected_revision' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($this->senderShift)?->revision_number ?? 0,
             'handover_amount' => '480.00', 'correction_reason' => 'actual_shortage',
         ], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertOk();
+        $second = $this->presentAttempt(CashierShiftHandover::where('cashier_shift_id', $this->senderShift->id)->firstOrFail(), $this->sender, 48000);
         $this->actingAs($this->recipient, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/accept", [
-            'confirmed_amount' => '480.00', 'receiving_shift_id' => $this->recipientShift->id,
+            'confirmed_amount' => '480.00', 'receiving_shift_id' => $this->recipientShift->id, 'transfer_attempt_id' => $second->id,
         ])->assertOk();
 
         $end = $this->actingAs($this->recipient, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->recipientShift->id}/end", [

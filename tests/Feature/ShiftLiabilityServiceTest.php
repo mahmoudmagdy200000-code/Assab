@@ -244,7 +244,7 @@ class ShiftLiabilityServiceTest extends TestCase
         $this->service->approve($this->shiftId, $this->manager, 1, true);
         $this->source->scope = new DailyCloseEvidence($this->workdayId, $this->companyId, $this->branchId, [$this->source->report], ['required-transfer' => null]);
         $this->expectException(ConflictHttpException::class);
-        $this->expectExceptionMessage('REQUIRED_TRANSFER_RECEIPT_PENDING');
+        $this->expectExceptionMessage('PENDING_TRANSFER_EVIDENCE_INCOMPLETE');
         $this->ready();
     }
 
