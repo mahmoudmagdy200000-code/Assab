@@ -13,7 +13,6 @@ use Modules\Shift\Models\BranchManagerCashTransfer;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
-use Modules\Shift\Models\ShiftSalesBreakdown;
 
 class BranchManagerShiftService
 {
@@ -428,157 +427,210 @@ class BranchManagerShiftService
     }
 
     /**
-     * IMPROVEMENT 6: Optimized bulkUpdateCashierShifts with DB transaction
-     * تحسين الـ bulk update مع DB transaction
+     * S1-11 Task 6.1: Bulk update cashier shift figures via ShiftReportCorrectionService.
+     * Enforces optimistic locking, canonical lock ordering, no-op skipping, and outbox notifications.
      */
-    public function bulkUpdateCashierShifts(array $cashierBreakdown, BranchManagerShift $managerShift): void
-    {
-        $cashierIds = collect($cashierBreakdown)->pluck('cashier_id')->filter()->unique()->all();
-
-        if (empty($cashierIds)) {
+    public function bulkUpdateCashierShifts(
+        array $cashierBreakdown,
+        BranchManagerShift $managerShift,
+        ?BranchManager $actor = null,
+        ?string $operationId = null
+    ): void {
+        if (empty($cashierBreakdown)) {
             return;
         }
 
-        DB::transaction(function () use ($cashierIds, $cashierBreakdown, $managerShift) {
-            // Single query to fetch all shifts
-            $cashierShifts = CashierShift::whereIn('cashier_id', $cashierIds)
-                ->whereDate('shift_date', $managerShift->shift_date)
-                ->whereHas('shift', function ($q) use ($managerShift) {
-                    $q->where('branch_id', $managerShift->branch_id);
-                })
-                ->orderBy('id')
-                ->lockForUpdate()
-                ->with('salesBreakdown')
-                ->get()
-                ->keyBy('cashier_id');
+        $actor = $actor ?? $managerShift->branchManager ?? BranchManager::find($managerShift->branch_manager_id);
+        if (! $actor) {
+            throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('BRANCH_MANAGER_REQUIRED');
+        }
 
-            // Single query to fetch all handovers (branch-scoped: cashier shift ids
-            // are already limited to this branch and workday)
-            $handovers = CashierShiftHandover::active()->where('handover_to_type', 'branch_manager')
-                ->where('handover_to_id', $managerShift->branch_manager_id)
-                ->whereIn('cashier_shift_id', $cashierShifts->pluck('id'))
-                ->get()
-                ->keyBy('cashier_shift_id');
+        app(\Modules\BranchManagers\Services\BranchManagerService::class)
+            ->assertAssignedActiveManager($managerShift->branch_id, (string) $actor->id);
 
-            // Process updates
-            foreach ($cashierBreakdown as $breakdown) {
-                $cashierShift = $cashierShifts[$breakdown['cashier_id'] ?? ''] ?? null;
-                $changed = $this->processCashierBreakdownItem($breakdown, $cashierShifts, $handovers);
-                if ($cashierShift && $changed) {
-                    $current = $this->revisions->currentCashierRevision($cashierShift);
-                    $this->revisions->recordCashierRevision(
-                        $cashierShift,
-                        'branch_manager',
-                        $managerShift->branch_manager_id,
-                        $current?->revision_number ?? 0
-                    );
+        // Pre-validation and row resolution
+        $resolvedRows = [];
+        $seenShiftIds = [];
+
+        foreach ($cashierBreakdown as $index => $row) {
+            // Reject client-supplied variance
+            if (array_key_exists('variance', $row)) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'cashier_breakdown' => 'Variance is a derived field and cannot be directly updated.',
+                ]);
+            }
+
+            // Resolve cashier shift
+            $shift = null;
+            if (isset($row['cashier_shift_id'])) {
+                $shift = CashierShift::with('salesBreakdown')->find($row['cashier_shift_id']);
+                if (! $shift
+                    || $shift->shift?->branch_id !== $managerShift->branch_id
+                    || $shift->shift_date->toDateString() !== $managerShift->shift_date->toDateString()) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        "cashier_breakdown.{$index}.cashier_shift_id" => 'Foreign or invalid cashier shift ID.',
+                    ]);
                 }
+            } elseif (isset($row['cashier_id'])) {
+                $matchingShifts = CashierShift::with('salesBreakdown')
+                    ->where('cashier_id', $row['cashier_id'])
+                    ->whereDate('shift_date', $managerShift->shift_date)
+                    ->whereHas('shift', fn ($q) => $q->where('branch_id', $managerShift->branch_id))
+                    ->get();
+
+                if ($matchingShifts->count() === 0) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        "cashier_breakdown.{$index}.cashier_id" => 'No cashier shift found for the given cashier.',
+                    ]);
+                }
+                if ($matchingShifts->count() > 1) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        "cashier_breakdown.{$index}.cashier_id" => 'Ambiguous cashier ID matches multiple shifts; cashier_shift_id is required.',
+                    ]);
+                }
+                $shift = $matchingShifts->first();
+            } else {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    "cashier_breakdown.{$index}" => 'Either cashier_shift_id or cashier_id must be provided.',
+                ]);
+            }
+
+            // Reject duplicate targets in the same batch
+            if (isset($seenShiftIds[$shift->id])) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    "cashier_breakdown.{$index}" => 'Duplicate cashier shift target in bulk update.',
+                ]);
+            }
+            $seenShiftIds[$shift->id] = true;
+
+            // Check if row has mutations or is a NO-OP
+            $changes = [];
+
+            // 1. Sales / Total sales
+            if (array_key_exists('sales', $row) || array_key_exists('total_sales', $row)) {
+                $proposedGrossVal = $row['sales'] ?? $row['total_sales'];
+                $proposedGross = \App\Support\ShiftFinancialCalculator::sarToHalalas($proposedGrossVal);
+                $currentGross = \App\Support\ShiftFinancialCalculator::storedSarToHalalas($shift->total_sales ?? '0.00');
+                if ($proposedGross !== $currentGross) {
+                    $changes['total_sales'] = number_format($proposedGross / 100, 2, '.', '');
+                }
+            }
+
+            // 2. Card payments
+            if (array_key_exists('card_payments', $row)) {
+                $proposedCards = \App\Support\ShiftFinancialCalculator::sarToHalalas($row['card_payments']);
+                $currentCards = \App\Support\ShiftFinancialCalculator::storedSarToHalalas($shift->card_payments ?? '0.00');
+                if ($proposedCards !== $currentCards) {
+                    $changes['card_payments'] = number_format($proposedCards / 100, 2, '.', '');
+                }
+            }
+
+            // 3. Cash collected
+            if (array_key_exists('cash_collected', $row)) {
+                $proposedCash = \App\Support\ShiftFinancialCalculator::sarToHalalas($row['cash_collected']);
+                $currentCash = \App\Support\ShiftFinancialCalculator::storedSarToHalalas($shift->cash_collected ?? '0.00');
+                if ($proposedCash !== $currentCash) {
+                    $changes['cash_collected'] = number_format($proposedCash / 100, 2, '.', '');
+                }
+            }
+
+            // 4. Handover notes
+            if (array_key_exists('handover_notes', $row)) {
+                if ($row['handover_notes'] !== $shift->handover_notes) {
+                    $changes['handover_notes'] = $row['handover_notes'];
+                }
+            }
+
+            // 5. Aggregators / Delivery apps
+            if (array_key_exists('aggregators', $row)) {
+                $changes['aggregators'] = $row['aggregators'];
+            } elseif (array_key_exists('delivery_app_payments', $row)) {
+                $existingBreakdown = $shift->salesBreakdown;
+                if ($existingBreakdown->count() > 1) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        "cashier_breakdown.{$index}.delivery_app_payments" => 'Explicit aggregators breakdown is required when multiple aggregators exist.',
+                    ]);
+                }
+                $targetAggregatorId = null;
+                if ($existingBreakdown->count() === 1) {
+                    $targetAggregatorId = $existingBreakdown->first()->aggregator_id;
+                } else {
+                    $enabledAggs = \Modules\Aggregator\Models\Aggregator::query()->active()
+                        ->whereHas('enabledBranches', fn ($q) => $q->where('branches.id', $managerShift->branch_id))
+                        ->get();
+                    if ($enabledAggs->count() === 1) {
+                        $targetAggregatorId = $enabledAggs->first()->id;
+                    } elseif ($enabledAggs->count() > 1) {
+                        throw \Illuminate\Validation\ValidationException::withMessages([
+                            "cashier_breakdown.{$index}.delivery_app_payments" => 'Explicit aggregators breakdown is required when multiple aggregators exist.',
+                        ]);
+                    }
+                }
+
+                if ($targetAggregatorId) {
+                    $currentAppHalalas = (int) $existingBreakdown->sum(fn ($b) => \App\Support\ShiftFinancialCalculator::storedSarToHalalas($b->amount));
+                    $proposedAppHalalas = \App\Support\ShiftFinancialCalculator::sarToHalalas($row['delivery_app_payments']);
+                    if ($proposedAppHalalas !== $currentAppHalalas) {
+                        $changes['aggregators'] = [
+                            [
+                                'aggregator_id' => $targetAggregatorId,
+                                'amount' => number_format($proposedAppHalalas / 100, 2, '.', ''),
+                                'notes' => null,
+                            ],
+                        ];
+                    }
+                }
+            }
+
+            $isMutation = ! empty($changes);
+
+            if ($isMutation) {
+                if (! isset($row['expected_revision'])) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        "cashier_breakdown.{$index}.expected_revision" => 'Expected revision is required for report mutations.',
+                    ]);
+                }
+                if (! isset($row['reason']) || trim((string) $row['reason']) === '') {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        "cashier_breakdown.{$index}.reason" => 'Correction reason is required for report mutations.',
+                    ]);
+                }
+
+                $resolvedRows[] = [
+                    'shift' => $shift,
+                    'changes' => $changes,
+                    'expected_revision' => (int) $row['expected_revision'],
+                    'reason' => (string) $row['reason'],
+                ];
+            }
+        }
+
+        // If no mutations across the entire batch (all no-ops), do nothing
+        if (empty($resolvedRows)) {
+            return;
+        }
+
+        // Canonical lock order: sort target shifts by ID ascending
+        usort($resolvedRows, fn ($a, $b) => strcmp((string) $a['shift']->id, (string) $b['shift']->id));
+
+        $correctionService = app(ShiftReportCorrectionService::class);
+        $batchOpId = $operationId ?? (string) \Illuminate\Support\Str::uuid();
+
+        \Illuminate\Support\Facades\DB::transaction(function () use ($resolvedRows, $actor, $correctionService, $batchOpId) {
+            foreach ($resolvedRows as $item) {
+                $correctionService->correctCashierReport(
+                    $item['shift'],
+                    $actor,
+                    $item['changes'],
+                    $item['expected_revision'],
+                    $item['reason'],
+                    $batchOpId
+                );
             }
         });
 
-        // Clear caches after transaction
+        // Clear caches after successful transaction
         $this->clearShiftCaches($managerShift);
-    }
-
-    /**
-     * Process single cashier breakdown item
-     */
-    private function processCashierBreakdownItem(array $breakdown, $cashierShifts, $handovers): bool
-    {
-        $cashierId = $breakdown['cashier_id'] ?? null;
-        if (! $cashierId || ! isset($cashierShifts[$cashierId])) {
-            return false;
-        }
-
-        $cashierShift = $cashierShifts[$cashierId];
-        $updateData = $this->prepareShiftUpdateData($breakdown);
-        $changed = false;
-
-        if (! empty($updateData)) {
-            $cashierShift->fill($updateData);
-            if ($cashierShift->isDirty(array_keys($updateData))) {
-                $cashierShift->save();
-                $changed = true;
-            }
-        }
-
-        // Update handover variance
-        if (isset($breakdown['variance']) && isset($handovers[$cashierShift->id])) {
-            $handover = $handovers[$cashierShift->id];
-            $handover->fill(['variance_amount' => $breakdown['variance']]);
-            if ($handover->isDirty('variance_amount')) {
-                $handover->save();
-                $changed = true;
-            }
-        }
-
-        // Update sales breakdown
-        if (isset($breakdown['delivery_app_payments'])) {
-            $changed = $this->updateSalesBreakdown($cashierShift, $breakdown['delivery_app_payments']) || $changed;
-        }
-
-        return $changed;
-    }
-
-    /**
-     * Prepare shift update data
-     */
-    private function prepareShiftUpdateData(array $breakdown): array
-    {
-        $updateData = [];
-
-        if (isset($breakdown['sales'])) {
-            $salesCalculation = \App\Support\ShiftFinancialCalculator::calculateVatInclusiveSales($breakdown['sales']);
-            $updateData['total_sales'] = $breakdown['sales'];
-            $updateData['vat_amount'] = $salesCalculation['vat'];
-            $updateData['net_sales'] = $salesCalculation['net'];
-        }
-
-        if (isset($breakdown['cash_collected'])) {
-            $updateData['cash_collected'] = $breakdown['cash_collected'];
-        }
-
-        if (isset($breakdown['card_payments'])) {
-            $updateData['card_payments'] = $breakdown['card_payments'];
-        }
-
-        if (isset($breakdown['variance'])) {
-            $updateData['variance'] = $breakdown['variance'];
-        }
-
-        return $updateData;
-    }
-
-    /**
-     * Update sales breakdown
-     */
-    private function updateSalesBreakdown(CashierShift $cashierShift, float $amount): bool
-    {
-        $existingBreakdown = $cashierShift->salesBreakdown;
-
-        if ($existingBreakdown->isEmpty()) {
-            return false;
-        }
-
-        if ($existingBreakdown->count() === 1) {
-            $item = $existingBreakdown->first();
-            $item->fill(['amount' => $amount]);
-            if (! $item->isDirty('amount')) {
-                return false;
-            }
-            $item->save();
-        } else {
-            $aggregatorId = $existingBreakdown->first()->aggregator_id;
-            $existingBreakdown->each->delete();
-
-            ShiftSalesBreakdown::create([
-                'cashier_shift_id' => $cashierShift->id,
-                'aggregator_id' => $aggregatorId,
-                'amount' => $amount,
-            ]);
-        }
-
-        return true;
     }
 
     /**
@@ -622,6 +674,7 @@ class BranchManagerShiftService
             if ($reports->contains(fn ($report) => (bool) $report->fresh_count_required)) {
                 throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('PHYSICAL_RECOUNT_REQUIRED');
             }
+            app(\Modules\Shift\Services\ShiftReportManagerReviewService::class)->assertReadyForWorkday($managerShift, $cashierShiftIds->all());
             CashierShiftHandover::query()
                 ->whereIn('cashier_shift_id', $cashierShiftIds)
                 ->where('handover_to_type', 'branch_manager')

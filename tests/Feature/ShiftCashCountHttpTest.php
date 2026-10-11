@@ -538,20 +538,30 @@ class ShiftCashCountHttpTest extends TestCase
         $this->assertSame('pending_review', $admin->fresh()->status);
     }
 
-    /** D15: the accountant's own split is not an authority over a counted shortage. */
+    /** S1-11 Phase 5: the accountant's split of a counted shortage routes through AccountantReportCorrectionService and requires manager review. */
     public function test_accountant_split_of_a_counted_shortage_is_refused(): void
     {
         [$admin, $op] = $this->countedShortageOperation();
         $accountant = AsabUser::where('email', 'acc@s110.test')->firstOrFail();
         $employee = Employee::where('legacy_cashier_id', $this->recipient->id)->firstOrFail();
 
-        try {
-            app(\Modules\Admin\Services\ShiftCloseService::class)->setVarianceAllocations($op, [['employeeId' => $employee->id, 'amountHalalas' => 2000]], $accountant);
-            $this->fail('The branch allocation is the only authority.');
-        } catch (AsabException $exception) {
-            $this->assertSame('BRANCH_ALLOCATION_AUTHORITATIVE', $exception->errorCode);
-        }
-        $this->assertArrayNotHasKey('varianceAllocations', $op->fresh()->payload);
+        $rows = app(\Modules\Admin\Services\ShiftCloseService::class)->setVarianceAllocations($op, [['employeeId' => $employee->id, 'amountHalalas' => 2000]], $accountant);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame(2000, $rows[0]['amountHalalas']);
+        $this->assertArrayHasKey('varianceAllocations', $op->fresh()->payload);
+
+        // Allocation created and requires manager review
+        $allocation = ShiftLiabilityAllocation::where('cashier_shift_id', $this->recipientShift->id)
+            ->whereNull('superseded_at')
+            ->firstOrFail();
+        $this->assertSame('pending', $allocation->manager_approval_status);
+        $this->assertSame('accountant', $allocation->created_by_type);
+
+        $review = \Modules\Shift\Models\ShiftReportManagerReview::where('cashier_shift_id', $this->recipientShift->id)
+            ->where('status', 'pending')
+            ->firstOrFail();
+        $this->assertSame(-2000, $review->variance_halalas);
     }
 
     /** D15: a balanced counted shift still closes normally, and one refusal does not fail the rest of a bulk. */

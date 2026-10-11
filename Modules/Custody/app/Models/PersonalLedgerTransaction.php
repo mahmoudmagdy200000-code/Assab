@@ -24,6 +24,9 @@ class PersonalLedgerTransaction extends Model
         'related_expense_id',
         'receipt_id',
         'transaction_date',
+        'category',
+        'lineage_key',
+        'posting_id',
     ];
 
     protected $casts = [

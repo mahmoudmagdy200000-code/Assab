@@ -10,6 +10,7 @@ use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
+use Modules\Shift\Models\ShiftReportAggregate;
 use Modules\Shift\Models\ShiftSalesBreakdown;
 
 /**
@@ -149,16 +150,26 @@ class ShiftFinancialService
         }
 
         $cashierShiftIds = $handovers->pluck('cashier_shift_id')->toArray();
+        $aggregates = ShiftReportAggregate::where('source_type', 'cashier_shift')
+            ->whereIn('source_id', $cashierShiftIds)
+            ->get()
+            ->keyBy('source_id');
+
         $deliveryAppTotals = ShiftSalesBreakdown::whereIn('cashier_shift_id', $cashierShiftIds)
             ->selectRaw('cashier_shift_id, SUM(amount) as total_amount')
             ->groupBy('cashier_shift_id')
             ->pluck('total_amount', 'cashier_shift_id')
             ->toArray();
 
-        return $handovers->map(function ($handover) use ($deliveryAppTotals) {
+        return $handovers->map(function ($handover) use ($deliveryAppTotals, $aggregates) {
             $cashierShift = $handover->cashierShift;
+            $agg = $aggregates->get($cashierShift->id);
+            $rev = $agg ? $agg->current_revision_number : 0;
 
             return [
+                'cashier_shift_id' => $cashierShift->id,
+                'expected_revision' => $rev,
+                'revision_token' => (string) $rev,
                 'cashier_name' => $cashierShift->cashier->name,
                 'cashier_id' => $cashierShift->cashier_id,
                 'cash_collected' => (float) ($cashierShift->cash_collected ?? 0),
@@ -218,7 +229,12 @@ class ShiftFinancialService
                 ->keyBy('cashier_shift_id');
         }
 
-        $cashierBreakdown = $cashierShifts->map(function ($cashierShift) use ($handoversByShiftId) {
+        $aggregates = ShiftReportAggregate::where('source_type', 'cashier_shift')
+            ->whereIn('source_id', $allCashierShiftIds)
+            ->get()
+            ->keyBy('source_id');
+
+        $cashierBreakdown = $cashierShifts->map(function ($cashierShift) use ($handoversByShiftId, $aggregates) {
             $deliveryApps = $cashierShift->salesBreakdown->sum('amount');
             $handover = $handoversByShiftId->get($cashierShift->id);
             $variance = $handover
@@ -229,7 +245,13 @@ class ShiftFinancialService
                 ? (float) ($handover->handover_amount ?? $cashierShift->closing_balance ?? 0)
                 : (float) ($cashierShift->closing_balance ?? 0);
 
+            $agg = $aggregates->get($cashierShift->id);
+            $rev = $agg ? $agg->current_revision_number : 0;
+
             return [
+                'cashier_shift_id' => $cashierShift->id,
+                'expected_revision' => $rev,
+                'revision_token' => (string) $rev,
                 'cashier_name' => $cashierShift->cashier->name,
                 'cashier_id' => $cashierShift->cashier_id,
                 'cash_collected' => (float) ($cashierShift->cash_collected ?? 0),

@@ -24,6 +24,9 @@ class CashierCustodyTransaction extends Model
         'related_handover_id',
         'receipt_id',
         'transaction_date',
+        'category',
+        'lineage_key',
+        'posting_id',
     ];
 
     protected $casts = [

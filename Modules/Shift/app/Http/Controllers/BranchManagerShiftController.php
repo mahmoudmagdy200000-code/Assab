@@ -554,7 +554,12 @@ class BranchManagerShiftController extends BaseController
                 }
 
                 if ($request->has('cashier_breakdown') && is_array($request->cashier_breakdown)) {
-                    $this->shiftService->bulkUpdateCashierShifts($request->cashier_breakdown, $managerShift);
+                    $this->shiftService->bulkUpdateCashierShifts(
+                        $request->cashier_breakdown,
+                        $managerShift,
+                        $manager,
+                        $request->header('X-Operation-Id') ?? (string) Str::uuid()
+                    );
                 }
 
                 $financialSummary = $this->shiftService->calculateFinancialSummary($managerShift, true);
@@ -730,7 +735,12 @@ class BranchManagerShiftController extends BaseController
                 $this->shiftService->lockCashierFinancialInputs($managerShift);
 
                 if ($request->has('cashier_breakdown') && is_array($request->cashier_breakdown)) {
-                    $this->shiftService->bulkUpdateCashierShifts($request->cashier_breakdown, $managerShift);
+                    $this->shiftService->bulkUpdateCashierShifts(
+                        $request->cashier_breakdown,
+                        $managerShift,
+                        $manager,
+                        $request->header('X-Operation-Id') ?? (string) Str::uuid()
+                    );
                 }
 
                 $financialSummary = $this->shiftService->calculateFinancialSummary($managerShift, true);
@@ -1217,6 +1227,49 @@ class BranchManagerShiftController extends BaseController
             ], 200);
         } catch (\Throwable $e) {
             return HandoverErrorResponse::from($e, 'replace transfer recipient');
+        }
+    }
+
+    public function approveReportCorrection(Request $request, string $cashierShiftId): JsonResponse
+    {
+        try {
+            $cashierShift = CashierShift::findOrFail($cashierShiftId);
+            $user = $request->user();
+            if (! $user instanceof BranchManager) {
+                throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('ONLY_REPORT_OWNER_OR_ASSIGNED_BRANCH_MANAGER');
+            }
+
+            $validated = $request->validate([
+                'expected_revision' => 'required|integer|min:1',
+                'expected_allocation_version' => 'nullable|integer|min:1',
+                'reason' => 'nullable|string|max:1000',
+            ]);
+
+            $operationId = $request->header('X-Operation-Id')
+                ?? $request->input('operation_id')
+                ?? (string) Str::uuid();
+
+            $review = app(\Modules\Shift\Services\ShiftReportManagerReviewService::class)->approveCurrent(
+                $cashierShift,
+                $user,
+                (int) $validated['expected_revision'],
+                isset($validated['expected_allocation_version']) ? (int) $validated['expected_allocation_version'] : null,
+                $validated['reason'] ?? null,
+                $operationId
+            );
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'review_id' => $review->id,
+                    'status' => $review->status,
+                    'reviewed_at' => $review->reviewed_at?->toIso8601String(),
+                    'reviewer_id' => $review->reviewer_id,
+                ],
+                'message' => 'Report correction approved successfully.',
+            ]);
+        } catch (\Throwable $e) {
+            return HandoverErrorResponse::from($e, 'approve report correction');
         }
     }
 }

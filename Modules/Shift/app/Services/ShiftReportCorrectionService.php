@@ -69,7 +69,7 @@ class ShiftReportCorrectionService
         ])->validate();
 
         return DB::transaction(function () use ($source, $actor, $changes, $expectedRevision, $reason, $operationId) {
-            $shift = app(ShiftReportMutationGuard::class)->lockEditable($source, $actor);
+            $shift = app(ShiftReportMutationGuard::class)->lockCorrection($source, $actor);
             $branchId = $shift->shift()->value('branch_id');
 
             // Lock and verify report aggregate & expected revision
@@ -213,7 +213,7 @@ class ShiftReportCorrectionService
             $newCashCollectedSar = number_format($newCashCollectedHalalas / 100, 2, '.', '');
 
             // Advance report revision
-            $actorType = $actor->getMorphClass();
+            $actorType = app(ShiftReportCorrectionActorPolicy::class)->assertAllowed($shift, $actor);
             $newRevision = $this->revisions->recordCashierRevision($shift, $actorType, $actor->id, $expectedRevision);
 
             // Re-calculate count evidence if prior count exists
@@ -311,10 +311,17 @@ class ShiftReportCorrectionService
                 $recordCorrection('variance', 'monetary_halalas', number_format($oldVarianceHalalas / 100, 2, '.', ''), $newVarianceSar, $oldVarianceHalalas, $newVarianceHalalas);
             }
 
-            // Supersede existing liability allocations
-            ShiftLiabilityAllocation::where('cashier_shift_id', $shift->id)
+            $previousAllocation = ShiftLiabilityAllocation::with('shares')
+                ->where('cashier_shift_id', $shift->id)
                 ->whereNull('superseded_at')
-                ->update(['superseded_at' => now()]);
+                ->first();
+
+            // Supersede existing liability allocations
+            if ($previousAllocation) {
+                ShiftLiabilityAllocation::where('cashier_shift_id', $shift->id)
+                    ->whereNull('superseded_at')
+                    ->update(['superseded_at' => now()]);
+            }
 
             // Update projection on cashier_shifts
             $updateData = [
@@ -363,6 +370,16 @@ class ShiftReportCorrectionService
                 ],
                 'notes' => $reason,
             ]);
+
+            // Enqueue outbox notifications
+            app(ShiftReportCorrectionNotificationService::class)->enqueue(
+                $newRevision,
+                $shift,
+                $previousRevision,
+                $previousAllocation,
+                null,
+                $reason
+            );
 
             // Create snapshot for the new revision
             $this->snapshots->createSnapshotIfMissing($newRevision, $shift);

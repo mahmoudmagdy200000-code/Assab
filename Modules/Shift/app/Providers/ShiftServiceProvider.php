@@ -31,6 +31,8 @@ class ShiftServiceProvider extends ServiceProvider
         Relation::morphMap([
             'cashier' => \Modules\Cashier\Models\Cashier::class,
             'branch_manager' => \Modules\BranchManagers\Models\BranchManager::class,
+            'accountant' => \Modules\Admin\Models\AsabUser::class,
+            'asab_user' => \Modules\Admin\Models\AsabUser::class,
         ]);
     }
 
@@ -65,6 +67,7 @@ class ShiftServiceProvider extends ServiceProvider
             \Modules\Shift\Console\GenerateDailyReportCommand::class,
             \Modules\Shift\Console\SendShiftRemindersCommand::class,
             \Modules\Shift\Console\ShiftWeekRenewalCommand::class,
+            \Modules\Shift\Console\DispatchShiftCorrectionNotificationsCommand::class,
         ]);
     }
 

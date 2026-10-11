@@ -245,6 +245,10 @@ Route::prefix('branch-manager')
         Route::post('cash-transfers/{transfer}/replace-recipient', [BranchManagerShiftController::class, 'replaceTransferRecipient'])
             ->name('branch-manager.cash-transfers.replace-recipient')
             ->middleware('asab.idempotency:required,transaction,legacy');
+
+        Route::post('shifts/{cashierShift}/report-correction/approve', [BranchManagerShiftController::class, 'approveReportCorrection'])
+            ->name('branch-manager.shifts.report-correction.approve')
+            ->middleware('asab.idempotency:required,transaction,legacy');
     });
 
 /*

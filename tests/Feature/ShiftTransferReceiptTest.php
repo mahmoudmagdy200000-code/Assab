@@ -807,7 +807,7 @@ class ShiftTransferReceiptTest extends TestCase
         $service->bulkUpdateCashierShifts([['cashier_id' => $cashier->id, 'sales' => '10.00']], $managerShift);
         $this->assertSame($first->id, app(ShiftReportRevisionService::class)->currentCashierRevision($cashierShift)->id);
 
-        $service->bulkUpdateCashierShifts([['cashier_id' => $cashier->id, 'sales' => '11.00']], $managerShift);
+        $service->bulkUpdateCashierShifts([['cashier_id' => $cashier->id, 'sales' => '11.00', 'expected_revision' => 1, 'reason' => 'Sales adjustment']], $managerShift);
         $this->assertSame(2, app(ShiftReportRevisionService::class)->currentCashierRevision($cashierShift)->revision_number);
     }
 
