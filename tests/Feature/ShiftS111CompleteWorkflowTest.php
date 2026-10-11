@@ -286,29 +286,11 @@ class ShiftS111CompleteWorkflowTest extends TestCase
 
         $correctResponse->assertOk()
             ->assertJsonPath('revision_number', 2)
-            ->assertJsonPath('manager_review_required', true)
+            ->assertJsonPath('manager_review_required', false)
             ->assertJsonPath('financial_results.variance_halalas', 0);
 
-        // Day submit is BLOCKED until manager acknowledges the zero-shortage correction per T07!
-        $blockedSubmitResponse = $this->actingAs($this->manager, 'sanctum')
-            ->withHeader('Idempotency-Key', (string) Str::uuid())
-            ->postJson('/api/v1/branch-manager/workday/daily-close/submit', [
-                'branch_manager_shift_id' => $this->workday->id,
-                'expected_revision' => 1,
-            ]);
-        $blockedSubmitResponse->assertStatus(409);
-
-        // Manager reviews and acknowledges revision 2
-        $reviewApproveResponse = $this->actingAs($this->manager, 'sanctum')
-            ->withHeader('Idempotency-Key', (string) Str::uuid())
-            ->postJson("/api/v1/branch-manager/workday/shifts/{$shift->id}/review-variance", [
-                'expected_revision' => 2,
-                'expected_allocation_version' => null,
-                'reason' => 'Manager acknowledges bank reconciliation zero-shortage adjustment',
-            ]);
-        $reviewApproveResponse->assertOk();
-
-        // Now workday submit succeeds!
+        // COR-07 / RESOLVED-02: Accountant is final authority across branches.
+        // Workday submit succeeds immediately without requiring manager review/approval!
         $finalSubmitResponse = $this->actingAs($this->manager, 'sanctum')
             ->withHeader('Idempotency-Key', (string) Str::uuid())
             ->postJson('/api/v1/branch-manager/workday/daily-close/submit', [
@@ -400,34 +382,17 @@ class ShiftS111CompleteWorkflowTest extends TestCase
 
         $correctResponse->assertOk()
             ->assertJsonPath('revision_number', 2)
-            ->assertJsonPath('manager_review_required', true)
+            ->assertJsonPath('manager_review_required', false)
             ->assertJsonPath('financial_results.variance_halalas', -5000);
 
+        // Employee objection is evidence and not a veto (COR-07)
         $this->actingAs($this->cashierA, 'sanctum')->withHeader('Idempotency-Key', (string) Str::uuid())
             ->postJson("/api/v1/branch-manager/shifts/{$shift->id}/liability/respond", [
                 'version' => 2, 'response' => 'objected', 'reason' => 'Current corrected shortage objection',
             ])->assertOk();
 
-        // Day submit is BLOCKED until manager acknowledges the zero-shortage correction per T07!
-        $blockedSubmitResponse = $this->actingAs($this->manager, 'sanctum')
-            ->withHeader('Idempotency-Key', (string) Str::uuid())
-            ->postJson('/api/v1/branch-manager/workday/daily-close/submit', [
-                'branch_manager_shift_id' => $this->workday->id,
-                'expected_revision' => 1,
-            ]);
-        $blockedSubmitResponse->assertStatus(409);
-
-        // Manager reviews and acknowledges revision 2
-        $reviewApproveResponse = $this->actingAs($this->manager, 'sanctum')
-            ->withHeader('Idempotency-Key', (string) Str::uuid())
-            ->postJson("/api/v1/branch-manager/workday/shifts/{$shift->id}/review-variance", [
-                'expected_revision' => 2,
-                'expected_allocation_version' => 2,
-                'reason' => 'Manager acknowledges bank reconciliation zero-shortage adjustment',
-            ]);
-        $reviewApproveResponse->assertOk();
-
-        // Now workday submit succeeds!
+        // COR-07 / RESOLVED-02: Accountant is final authority across branches.
+        // Workday submit succeeds immediately without requiring a manager approval!
         $finalSubmitResponse = $this->actingAs($this->manager, 'sanctum')
             ->withHeader('Idempotency-Key', (string) Str::uuid())
             ->postJson('/api/v1/branch-manager/workday/daily-close/submit', [

@@ -313,7 +313,9 @@ class AccountantReportCorrectionService
                     'created_by_type' => 'accountant',
                     'created_by_id' => $actor->id,
                     'reason' => $reason,
-                    'manager_approval_status' => 'pending',
+                    'manager_approval_status' => 'approved',
+                    'manager_approved_by' => null,
+                    'manager_approved_at' => null,
                     'supersedes_allocation_id' => $latestAllocation?->id,
                 ]);
 
@@ -331,8 +333,20 @@ class AccountantReportCorrectionService
                 $existingAlloc?->update(['superseded_at' => now()]);
             }
 
-            // Require manager review
-            $this->reviewService->requireFor($shift, $newRevision, $newVarianceHalalas, $reason);
+            // COR-07 / RESOLVED-02: Accountant is final decision authority across branches.
+            // Clear required manager review so branch manager cannot block daily submit or veto accountant.
+            $aggregate->update([
+                'required_manager_review_evidence_revision_id' => null,
+            ]);
+
+            // Reconcile liability posting deltas immediately under accountant authority
+            app(ShortagePostingService::class)->reconcile(
+                $shift,
+                $actor,
+                $newRevision->revision_number,
+                $createdAlloc?->version,
+                $operationId
+            );
 
             // Record fine-grained immutable audit rows
             $recordCorrection = function (

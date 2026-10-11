@@ -34,6 +34,9 @@ final class ShiftLiabilityService
                 throw ValidationException::withMessages(['reason' => 'Manager correction requires a reason.']);
             }
             $previous = $this->latest($shiftId);
+            if ($previous && $previous->created_by_type === 'accountant') {
+                throw new ConflictHttpException('ACCOUNTANT_FINAL_AUTHORITY');
+            }
             if (($previous?->version ?? 0) !== $expectedVersion) {
                 throw new ConflictHttpException('STALE_ALLOCATION');
             }
@@ -129,6 +132,9 @@ final class ShiftLiabilityService
                 throw new AccessDeniedHttpException('ONLY_BRANCH_MANAGER');
             }
             $allocation = $this->current($report, $version);
+            if ($allocation->created_by_type === 'accountant') {
+                throw new ConflictHttpException('ACCOUNTANT_FINAL_AUTHORITY');
+            }
             $this->assertComplete($allocation);
             if ($allocation->variance_halalas >= 0) {
                 throw new ConflictHttpException('NO_SHORTAGE_LIABILITY');
@@ -171,12 +177,21 @@ final class ShiftLiabilityService
         }
         $allocation = $this->current($report, $this->latest($report->shiftId)?->version ?? 0);
         $this->assertComplete($allocation);
-        if ($report->varianceHalalas < 0 && (
-            $allocation->manager_approval_status !== 'approved'
-            || $allocation->manager_approved_by === null || $allocation->manager_approved_at === null
-            || ($allocation->created_by_type === 'cashier' && $allocation->cashier_confirmed_at === null)
-        )) {
-            throw new ConflictHttpException('LIABILITY_APPROVAL_REQUIRED');
+        $isAccountantFinal = $allocation->created_by_type === 'accountant';
+        if ($report->varianceHalalas < 0) {
+            if ($isAccountantFinal) {
+                if ($allocation->manager_approval_status !== 'approved') {
+                    throw new ConflictHttpException('LIABILITY_APPROVAL_REQUIRED');
+                }
+            } else {
+                if (
+                    $allocation->manager_approval_status !== 'approved'
+                    || $allocation->manager_approved_by === null || $allocation->manager_approved_at === null
+                    || ($allocation->created_by_type === 'cashier' && $allocation->cashier_confirmed_at === null)
+                ) {
+                    throw new ConflictHttpException('LIABILITY_APPROVAL_REQUIRED');
+                }
+            }
         }
     }
 

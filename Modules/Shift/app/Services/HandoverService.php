@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Services;
 
+use App\Support\ShiftFinancialCalculator;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
@@ -12,11 +13,17 @@ use Modules\Shift\Enums\HandoverStatus;
 use Modules\Shift\Enums\ShiftHistoryAction;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Exceptions\HandoverException;
+use Modules\Shift\Liability\AllocationRules;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\ShiftHandoverStatus;
+use Modules\Shift\Models\ShiftLiabilityAllocation;
+use Modules\Shift\Models\ShiftReportCashCount;
+use Modules\Shift\Models\ShiftSalesBreakdown;
+use Modules\Shift\Models\ShiftTransferAttempt;
 use Modules\Shift\Models\ShiftTransferRejectionEvidence;
+use Modules\Shift\Models\ShiftTransferReturn;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
@@ -116,11 +123,9 @@ class HandoverService
                 ]);
             }
 
-            // Calculate variance using the correct formula:
-            // Variance = Total Sales - (Cash Collected + Card Payments + Delivery Apps)
-            // Note: handover_amount is the cash being handed over, not used for variance calculation
-            $variance = $shift->calculateVariance();
-            $expectedBalance = $shift->total_sales;
+            $count = $this->cashCounts->currentFor($shift->id);
+            $expectedBalance = $count ? number_format($count->expected_halalas / 100, 2, '.', '') : (string) $shift->total_sales;
+            $variance = $count ? number_format($count->variance_halalas / 100, 2, '.', '') : (string) ($shift->variance ?? '0.00');
 
             $shift->update([
                 'closing_balance' => $data['handover_amount'],
@@ -624,12 +629,25 @@ class HandoverService
     {
         \Illuminate\Support\Facades\Validator::make($data, [
             'expected_revision' => 'required|integer|min:0',
+            'correction_reason' => 'required|in:input_error,actual_shortage',
+            'handover_amount' => 'sometimes|required|'.\App\Support\ShiftMoneyValidation::SAR,
+            'total_sales' => 'sometimes|required|'.\App\Support\ShiftMoneyValidation::SAR,
+            'card_payments' => 'sometimes|required|'.\App\Support\ShiftMoneyValidation::SAR,
+            'cash_collected' => 'sometimes|required|'.\App\Support\ShiftMoneyValidation::SAR,
+            'counted_cash' => 'sometimes|required|'.\App\Support\ShiftMoneyValidation::SAR,
+            'shortage_allocations' => 'sometimes|array',
+            'shortage_allocations.*.responsible_type' => 'required_with:shortage_allocations|in:cashier,branch_manager,employee',
+            'shortage_allocations.*.responsible_id' => 'required_with:shortage_allocations|string',
+            'shortage_allocations.*.amount' => 'required_with:shortage_allocations|'.\App\Support\ShiftMoneyValidation::SAR,
+            'allocation_reason' => 'nullable|string|max:500',
+            'aggregators' => 'sometimes|array',
+            'aggregators.*.aggregator_id' => 'required_with:aggregators|uuid',
+            'aggregators.*.amount' => 'required_with:aggregators|'.\App\Support\ShiftMoneyValidation::SAR,
+            'aggregators.*.notes' => 'nullable|string|max:255',
+            'handover_notes' => 'nullable|string|max:500',
         ])->validate();
         $expectedRevision = (int) $data['expected_revision'];
-        $correctionReason = $data['correction_reason'] ?? null;
-        if (! in_array($correctionReason, ['input_error', 'actual_shortage'], true)) {
-            throw new \InvalidArgumentException('Correction reason must be input_error or actual_shortage.');
-        }
+        $correctionReason = (string) $data['correction_reason'];
 
         DB::beginTransaction();
         try {
@@ -648,22 +666,41 @@ class HandoverService
                 throw new ConflictHttpException('HANDOVER_RECIPIENT_CHANGE_REQUIRES_REPLACEMENT');
             }
             if ($handover->receipt()->exists()) {
-                throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('CONFIRMED_RECEIPT_IMMUTABLE');
+                throw new ConflictHttpException('CONFIRMED_RECEIPT_IMMUTABLE');
             }
-            if (! in_array($handover->status, ['rejected', 'rejected_final'])) {
+            if (! in_array($handover->status, ['rejected', 'rejected_final'], true)) {
                 throw new ConflictHttpException('HANDOVER_NOT_CORRECTABLE');
             }
+
+            // S111-FINAL-03: Rejected physical cash MUST be returned and confirmed before same-request correction
+            if ($handover->current_transfer_attempt_id !== null) {
+                $attempt = ShiftTransferAttempt::whereKey($handover->current_transfer_attempt_id)->lockForUpdate()->first();
+                if ($attempt) {
+                    $attemptService = app(\Modules\Shift\Services\ShiftTransferAttemptService::class);
+                    $retained = $attemptService->retained($attempt);
+                    $hasUnconfirmedReturn = ShiftTransferReturn::where('transfer_attempt_id', $attempt->id)
+                        ->whereNull('sender_confirmed_at')
+                        ->exists();
+                    if ($retained > 0 || $hasUnconfirmedReturn) {
+                        throw new ConflictHttpException('PHYSICAL_RETURN_REQUIRED');
+                    }
+                }
+            } elseif (ShiftTransferRejectionEvidence::where('cashier_shift_handover_id', $handover->id)->exists()) {
+                throw new ConflictHttpException('PHYSICAL_RETURN_REQUIRED');
+            }
+
             $handoverStatus = ShiftHandoverStatus::query()->where('cashier_shift_id', $shift->id)->lockForUpdate()->firstOrFail();
 
             if (! $handoverStatus->canCashierEdit()) {
                 throw HandoverException::cannotBeEdited();
             }
 
-            // Decreasing an existing reservation consumes no additional cash. Legacy corrections
-            // may still need their explicit recount before presentation; increasing requires funding.
-            if (ShiftCashAvailabilityService::minor((string) $data['handover_amount']) > ShiftCashAvailabilityService::minor((string) $handover->handover_amount)) {
+            $newHandoverAmount = array_key_exists('handover_amount', $data) ? $data['handover_amount'] : (string) $handover->handover_amount;
+
+            // Decreasing an existing reservation consumes no additional cash.
+            if (ShiftCashAvailabilityService::minor((string) $newHandoverAmount) > ShiftCashAvailabilityService::minor((string) $handover->handover_amount)) {
                 app(ShiftCashAvailabilityService::class)->assertCashierReservation(
-                    (string) $shift->cashier_id, (string) $data['handover_amount'], (string) $handover->id
+                    (string) $shift->cashier_id, (string) $newHandoverAmount, (string) $handover->id
                 );
             }
 
@@ -672,46 +709,211 @@ class HandoverService
                 $this->snapshots->createSnapshotIfMissing($previousRevision, $shift);
             }
 
-            // An unreceived legacy report may predate physical-count evidence. Reopen only
-            // this correction path so the owner can explicitly end and count it again.
-            $needsLegacyCount = $shift->status === ShiftStatus::COMPLETED
-                && $handover->current_transfer_attempt_id === null
-                && (! $previousRevision || ! \Modules\Shift\Models\ShiftReportCashCount::where('report_revision_id', $previousRevision->id)->exists());
+            $previousReportProjection = $shift->only(['closing_balance', 'handover_notes', 'total_sales', 'card_payments', 'cash_collected']);
 
-            $previousReportProjection = $shift->only(['closing_balance', 'handover_notes']);
+            // S111-FINAL-05: Cashier can correct sales, payment channels, count, aggregators, handover, notes
+            $oldGrossHalalas = ShiftFinancialCalculator::storedSarToHalalas($shift->total_sales ?? '0.00');
+            $oldCardsHalalas = ShiftFinancialCalculator::storedSarToHalalas($shift->card_payments ?? '0.00');
+            $oldCashCollectedHalalas = ShiftFinancialCalculator::storedSarToHalalas($shift->cash_collected ?? '0.00');
 
-            // Update shift data
-            $shift->update([
-                'closing_balance' => $data['handover_amount'],
-                'handover_notes' => $data['handover_notes'] ?? $shift->handover_notes,
-                'status' => $needsLegacyCount ? ShiftStatus::IN_PROGRESS : $shift->status,
-            ]);
+            $newGrossHalalas = array_key_exists('total_sales', $data)
+                ? ShiftFinancialCalculator::sarToHalalas($data['total_sales'])
+                : $oldGrossHalalas;
 
-            // Recalculate variance using the correct formula:
-            // Variance = Total Sales - (Cash Collected + Card Payments + Delivery Apps)
-            $variance = $shift->calculateVariance();
-            $expectedBalance = $shift->total_sales;
-            $shift->update([
-                'expected_balance' => $expectedBalance,
-                'variance' => $variance,
-            ]);
+            $newCardsHalalas = array_key_exists('card_payments', $data)
+                ? ShiftFinancialCalculator::sarToHalalas($data['card_payments'])
+                : $oldCardsHalalas;
 
-            $revision = $this->revisions->recordCashierRevision($shift, 'cashier', $shift->cashier_id, $expectedRevision);
-            if ($previousRevision) {
-                $this->cashCounts->carryForward($previousRevision, $revision);
+            $newCashCollectedHalalas = array_key_exists('cash_collected', $data)
+                ? ShiftFinancialCalculator::sarToHalalas($data['cash_collected'])
+                : $oldCashCollectedHalalas;
+
+            $branchId = $shift->shift()->value('branch_id') ?? $shift->branch_id;
+            $companyId = $shift->shift?->branch?->asab_company_id;
+
+            // Aggregators breakdown
+            if (array_key_exists('aggregators', $data)) {
+                ShiftSalesBreakdown::where('cashier_shift_id', $shift->id)->delete();
+                $newAppsHalalas = 0;
+                foreach ($data['aggregators'] as $agg) {
+                    $aggAmount = ShiftFinancialCalculator::sarToHalalas($agg['amount'] ?? 0);
+                    $newAppsHalalas += $aggAmount;
+                    ShiftSalesBreakdown::create([
+                        'cashier_shift_id' => $shift->id,
+                        'aggregator_id' => $agg['aggregator_id'],
+                        'amount' => number_format($aggAmount / 100, 2, '.', ''),
+                        'notes' => $agg['notes'] ?? null,
+                    ]);
+                }
+            } else {
+                $newAppsHalalas = (int) ShiftSalesBreakdown::where('cashier_shift_id', $shift->id)
+                    ->get()
+                    ->sum(fn ($b) => ShiftFinancialCalculator::storedSarToHalalas($b->amount));
             }
 
-            $actor = auth()->user();
-            $this->writeCorrectionHistory($shift, 'handover_request_corrected', (string) ($actor?->id ?? '0'), $actor?->getMorphClass() ?? 'system', [
+            // Sales channel check
+            $channels = ShiftFinancialCalculator::salesChannelCheck($newGrossHalalas, $newCardsHalalas, $newAppsHalalas);
+            if (! $channels['channelsValid']) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'card_payments' => 'Card payments plus delivery-app sales cannot exceed gross sales.',
+                ]);
+            }
+
+            // Reconcile balance entry if cash_collected changed
+            if ($newCashCollectedHalalas !== $oldCashCollectedHalalas) {
+                app(ShiftReportBalanceCorrectionService::class)->reconcileCashCollected(
+                    $shift,
+                    $oldCashCollectedHalalas,
+                    $newCashCollectedHalalas,
+                    (string) \Illuminate\Support\Str::uuid()
+                );
+            }
+
+            // Advance report revision (one new report revision)
+            $actor = auth()->user() ?? $shift->cashier;
+            $revision = $this->revisions->recordCashierRevision(
+                $shift,
+                'cashier',
+                (string) $actor->getKey(),
+                $expectedRevision
+            );
+
+            // Re-calculate count evidence or record new physical count
+            $sourceCount = $previousRevision
+                ? ShiftReportCashCount::where('report_revision_id', $previousRevision->id)->lockForUpdate()->first()
+                : null;
+
+            if (array_key_exists('counted_cash', $data)) {
+                $countedHalalas = ShiftFinancialCalculator::sarToHalalas($data['counted_cash']);
+                $newCount = $this->cashCounts->record(
+                    $shift,
+                    $revision,
+                    $newGrossHalalas,
+                    $newCardsHalalas,
+                    $newAppsHalalas,
+                    $countedHalalas
+                );
+            } elseif ($sourceCount !== null) {
+                $newCount = $this->cashCounts->recordCorrectedEvidence(
+                    $shift,
+                    $revision,
+                    $sourceCount,
+                    [
+                        'gross_halalas' => $newGrossHalalas,
+                        'cards_halalas' => $newCardsHalalas,
+                        'apps_halalas' => $newAppsHalalas,
+                    ]
+                );
+            } else {
+                $newCount = null;
+            }
+
+            // Canonical calculation for variance and expected balance (S111-FINAL-04)
+            $varianceHalalas = $newCount ? $newCount->variance_halalas : 0;
+            $expectedHalalas = $newCount
+                ? $newCount->expected_halalas
+                : ($newGrossHalalas - $newCardsHalalas - $newAppsHalalas + $this->cashCounts->confirmedOpeningHalalas($shift->id));
+
+            $varianceSar = number_format($varianceHalalas / 100, 2, '.', '');
+            $expectedSar = number_format($expectedHalalas / 100, 2, '.', '');
+
+            // Shortage allocation handling (S111-FINAL-05)
+            $latestAllocationVersion = (int) ShiftLiabilityAllocation::where('cashier_shift_id', $shift->id)->lockForUpdate()->max('version');
+            $latestAllocation = ShiftLiabilityAllocation::where('cashier_shift_id', $shift->id)->orderByDesc('version')->lockForUpdate()->first();
+            $previousAlloc = ShiftLiabilityAllocation::where('cashier_shift_id', $shift->id)->whereNull('superseded_at')->lockForUpdate()->first();
+
+            if ($varianceHalalas < 0) {
+                if (isset($data['shortage_allocations'])) {
+                    $candidateShares = [];
+                    foreach ($data['shortage_allocations'] as $alloc) {
+                        $candidateShares[] = [
+                            'type' => $alloc['responsible_type'],
+                            'id' => (string) $alloc['responsible_id'],
+                            'amount' => ShiftFinancialCalculator::sarToHalalas($alloc['amount'] ?? 0),
+                        ];
+                    }
+                } elseif ($previousAlloc) {
+                    $candidateShares = $previousAlloc->shares->map(fn ($s) => [
+                        'type' => $s->responsible_type,
+                        'id' => (string) $s->responsible_id,
+                        'amount' => (int) $s->amount_halalas,
+                    ])->all();
+                } else {
+                    throw new ConflictHttpException('LIABILITY_ALLOCATION_REQUIRED');
+                }
+
+                try {
+                    $validatedShares = AllocationRules::validate($varianceHalalas, $candidateShares);
+                } catch (\InvalidArgumentException $e) {
+                    throw new ConflictHttpException('LIABILITY_ALLOCATION_REQUIRED', $e);
+                }
+
+                $resolver = app(\Modules\Shift\Liability\ResponsibleActorResolver::class);
+                foreach ($validatedShares as $share) {
+                    $resolver->resolve($share['type'], $share['id'], $companyId, $branchId);
+                }
+
+                $newAlloc = ShiftLiabilityAllocation::create([
+                    'company_id' => $companyId,
+                    'branch_id' => $branchId,
+                    'cashier_shift_id' => $shift->id,
+                    'version' => $latestAllocationVersion + 1,
+                    'report_revision' => (string) $revision->revision_number,
+                    'variance_halalas' => $varianceHalalas,
+                    'created_by_type' => 'cashier',
+                    'created_by_id' => $actor->getKey(),
+                    'reason' => $data['allocation_reason'] ?? $handover->variance_reason,
+                    'manager_approval_status' => 'pending',
+                    'cashier_confirmed_at' => now(),
+                    'supersedes_allocation_id' => $latestAllocation?->id,
+                ]);
+
+                foreach ($validatedShares as $share) {
+                    $newAlloc->shares()->create([
+                        'responsible_type' => $share['type'],
+                        'responsible_id' => $share['id'],
+                        'amount_halalas' => $share['amount'],
+                        'employee_response_status' => 'pending',
+                    ]);
+                }
+                $previousAlloc?->update(['superseded_at' => now()]);
+            } else {
+                // Surplus or balanced: no allocation, supersede prior shortage allocation
+                $previousAlloc?->update(['superseded_at' => now()]);
+            }
+
+            // VAT and Net calculation
+            $calcSales = ShiftFinancialCalculator::calculateVatInclusiveSales(number_format($newGrossHalalas / 100, 2, '.', ''));
+            $newNetSar = $calcSales['net'];
+            $newVatSar = $calcSales['vat'];
+            $newGrossSar = number_format($newGrossHalalas / 100, 2, '.', '');
+            $newCardsSar = number_format($newCardsHalalas / 100, 2, '.', '');
+            $newCashCollectedSar = number_format($newCashCollectedHalalas / 100, 2, '.', '');
+            $newHandoverNotes = array_key_exists('handover_notes', $data) ? $data['handover_notes'] : $shift->handover_notes;
+
+            // Update shift data with CANONICAL expected balance and variance
+            $shift->update([
+                'total_sales' => $newGrossSar,
+                'card_payments' => $newCardsSar,
+                'cash_collected' => $newCashCollectedSar,
+                'closing_balance' => (string) $newHandoverAmount,
+                'net_sales' => $newNetSar,
+                'vat_amount' => $newVatSar,
+                'handover_notes' => $newHandoverNotes,
+                'expected_balance' => $expectedSar,
+                'variance' => $varianceSar,
+            ]);
+
+            $this->writeCorrectionHistory($shift, 'handover_request_corrected', (string) ($actor?->getKey() ?? '0'), $actor?->getMorphClass() ?? 'system', [
                 'handover_id' => $handover->id,
                 'previous_handover' => $handover->toArray(),
                 'previous_report_projection' => $previousReportProjection,
                 'old_requested_amount' => (string) $handover->handover_amount,
-                'new_requested_amount' => (string) $data['handover_amount'],
+                'new_requested_amount' => (string) $newHandoverAmount,
                 'correction_reason' => $correctionReason,
                 'old_report_revision_id' => $handover->report_revision_id,
                 'new_report_revision_id' => $revision->id,
-                'variance_amount' => (string) $variance,
+                'variance_amount' => (string) $varianceSar,
                 'variance_reason' => $handover->variance_reason,
                 'variance_files' => $handover->variance_files,
             ], $correctionReason === 'actual_shortage'
@@ -720,9 +922,9 @@ class HandoverService
 
             // Update CashierShiftHandover
             $handover->update([
-                'handover_amount' => $data['handover_amount'],
-                'variance_amount' => $variance,
-                'handover_notes' => $data['handover_notes'] ?? null,
+                'handover_amount' => (string) $newHandoverAmount,
+                'variance_amount' => $varianceSar,
+                'handover_notes' => $newHandoverNotes,
                 'status' => 'pending',
                 'report_revision_id' => $revision->id,
             ]);
@@ -738,8 +940,8 @@ class HandoverService
                 ['status' => 'rejected'],
                 [
                     'status' => 'pending',
-                    'handover_amount' => $data['handover_amount'],
-                    'variance' => $variance,
+                    'handover_amount' => (string) $newHandoverAmount,
+                    'variance' => $varianceSar,
                     'rejection_count' => $handoverStatus->rejection_count,
                 ]
             );

@@ -513,10 +513,22 @@ class ShiftHandoverController extends Controller
     {
         ShiftMoneyValidation::normalizeRepresentationNoise($request);
         $validator = Validator::make($request->all(), [
-            'handover_amount' => 'required|'.ShiftMoneyValidation::SAR,
+            'handover_amount' => 'nullable|'.ShiftMoneyValidation::SAR,
             'correction_reason' => 'required|in:input_error,actual_shortage',
             'handover_notes' => 'nullable|string|max:500',
             'expected_revision' => 'required|integer|min:0',
+            'total_sales' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'card_payments' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'cash_collected' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'counted_cash' => 'nullable|'.ShiftMoneyValidation::SAR,
+            'shortage_allocations' => 'nullable|array',
+            'shortage_allocations.*.responsible_type' => 'required_with:shortage_allocations|in:cashier,branch_manager,employee',
+            'shortage_allocations.*.responsible_id' => 'required_with:shortage_allocations|string',
+            'shortage_allocations.*.amount' => 'required_with:shortage_allocations|'.ShiftMoneyValidation::SAR,
+            'aggregators' => 'nullable|array',
+            'aggregators.*.aggregator_id' => 'required_with:aggregators|uuid',
+            'aggregators.*.amount' => 'required_with:aggregators|'.ShiftMoneyValidation::SAR,
+            'aggregators.*.notes' => 'nullable|string|max:255',
         ]);
 
         if ($validator->fails()) {
@@ -551,7 +563,7 @@ class ShiftHandoverController extends Controller
                     'edit_details' => [
                         'report_revision_number' => app(ShiftReportRevisionService::class)->currentCashierRevision($updatedShift)?->revision_number ?? 0,
                         'previous_rejection_count' => $updatedShift->handoverStatus->rejection_count,
-                        'new_handover_amount' => (float) $request->handover_amount,
+                        'new_handover_amount' => (float) ($request->handover_amount ?? $updatedShift->closing_balance),
                         'new_variance' => (float) $updatedShift->variance,
                         'edited_at' => $updatedShift->handoverStatus->edited_at->format('Y-m-d H:i:s'),
                         'status' => 'pending',

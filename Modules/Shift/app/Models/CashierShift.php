@@ -221,17 +221,32 @@ class CashierShift extends Model
     }
 
     /**
-     * Calculate variance as the difference between total sales and total collected payments
-     * Variance = Total Sales - (Cash Collected + Card Payments + Delivery Apps)
+     * Legacy channel difference between total sales and collected payments breakdown.
+     * Retained strictly for legacy display/backcompat; must NOT drive shortage, surplus,
+     * liability, approval, correction, or daily-close readiness.
+     */
+    public function calculateChannelDifference(): float
+    {
+        $totalCollected = (float) $this->cash_collected + (float) $this->card_payments;
+
+        // Add delivery apps (aggregators) payments
+        $deliveryAppsTotal = (float) $this->salesBreakdown()->sum('amount');
+
+        return (float) $this->total_sales - ($totalCollected + $deliveryAppsTotal);
+    }
+
+    /**
+     * Authoritative financial variance from the CURRENT report revision's stored physical-count evidence.
+     * Negative represents shortage, positive represents surplus.
      */
     public function calculateVariance(): float
     {
-        $totalCollected = $this->cash_collected + $this->card_payments;
+        $count = app(\Modules\Shift\Services\ShiftCashCountService::class)->currentFor($this->id);
+        if ($count !== null) {
+            return $count->variance_halalas / 100;
+        }
 
-        // Add delivery apps (aggregators) payments
-        $deliveryAppsTotal = $this->salesBreakdown()->sum('amount');
-
-        return $this->total_sales - ($totalCollected + $deliveryAppsTotal);
+        return $this->calculateChannelDifference();
     }
 
     public function recordHistory(string $action, ?array $oldValue, array $newValue): void
@@ -258,7 +273,7 @@ class CashierShift extends Model
 
     public function hasVariance(): bool
     {
-        return abs($this->calculateVariance()) > 0.01;
+        return abs($this->calculateVariance()) > 0.001;
     }
 
     public function creator()

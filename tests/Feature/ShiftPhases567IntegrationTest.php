@@ -190,18 +190,7 @@ class ShiftPhases567IntegrationTest extends TestCase
         $this->assertNotNull($count2);
         $this->assertSame(70000, $count2->counted_halalas);
 
-        // Workday submit is blocked because replacement review is required and pending
-        try {
-            $reviewService->assertReadyForWorkday($this->managerShift, [$cashierShift->id]);
-            $this->fail('Expected ConflictHttpException was not thrown');
-        } catch (ConflictHttpException $e) {
-            $this->assertSame('BRANCH_MANAGER_REVIEW_REQUIRED', $e->getMessage());
-        }
-
-        // 3. Manager approves replacement review (zero variance has no allocation)
-        $reviewService->approveCurrent($cashierShift, $this->manager, 2, null, 'Approved corrected report', (string) Str::uuid());
-
-        // Now workday submit check passes
+        // Under v3.1 COR-07: Accountant correction is authoritative immediately across branches without requiring a new branch-manager approval.
         $reviewService->assertReadyForWorkday($this->managerShift, [$cashierShift->id]);
     }
 
@@ -258,13 +247,7 @@ class ShiftPhases567IntegrationTest extends TestCase
         $notifications = ShiftReportCorrectionNotification::where('report_revision_id', $rev2->id)->get();
         $this->assertNotEmpty($notifications);
 
-        // Before manager approves: old liability remains
-        $this->assertSame(-100.00, $custodyService->getPersonalBalanceOnly($this->cashierA->id));
-        $this->assertSame(0.00, $custodyService->getPersonalBalanceOnly($this->cashierB->id));
-
-        // Manager approves replacement
-        $reviewService->approveCurrent($cashierShift, $this->manager, 2, 2, 'Approved split', 'OP-SPLIT-APPROVE');
-
+        // Under v3.1 COR-07: Accountant correction is final authority and reconciles delta immediately without requiring manager approval.
         // Net deltas posted:
         // Cashier A was credited 40.00 SAR (from -100 to -60)
         // Cashier B was debited 40.00 SAR (from 0 to -40)
@@ -277,7 +260,7 @@ class ShiftPhases567IntegrationTest extends TestCase
     }
 
     /**
-     * 3. Zero-shortage correction reverses previously posted liability upon approval per user policy 7.3.
+     * 3. Zero-shortage correction reverses previously posted liability immediately per v3.1 COR-07.
      */
     public function test_zero_shortage_correction_reverses_previously_posted_liability_upon_approval(): void
     {
@@ -320,17 +303,11 @@ class ShiftPhases567IntegrationTest extends TestCase
             'OP-ZERO'
         );
 
-        // Before approval: previous liability remains intact (policy 7.3)
-        $this->assertSame(-100.00, $custodyService->getPersonalBalanceOnly($this->cashierA->id));
-
-        // Manager approves current review (has_shortage = false)
-        $reviewService->approveCurrent($cashierShift, $this->manager, 2, null, 'Approved zero shortage', 'OP-ZERO-APPROVE');
-
-        // Liability reversed to 0.00 SAR
+        // Under v3.1 COR-07: Accountant correction is authoritative immediately and reverses liability without requiring manager approval.
         $this->assertSame(0.00, $custodyService->getPersonalBalanceOnly($this->cashierA->id));
 
-        // Reversal posting recorded in journal
-        $latestPosting = ShiftLiabilityPosting::where('operation_id', 'OP-ZERO-APPROVE')->first();
+        // Reversal posting recorded in journal under accountant operation
+        $latestPosting = ShiftLiabilityPosting::where('operation_id', 'OP-ZERO')->first();
         $this->assertNotNull($latestPosting);
         $this->assertSame(-10000, $latestPosting->delta_halalas);
         $this->assertSame(0, $latestPosting->target_halalas);

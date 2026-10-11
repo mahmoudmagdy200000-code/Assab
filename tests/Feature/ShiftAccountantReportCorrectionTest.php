@@ -214,14 +214,13 @@ class ShiftAccountantReportCorrectionTest extends TestCase
             ->whereNull('superseded_at')
             ->firstOrFail();
         $this->assertSame(-1000, $allocation->variance_halalas);
-        $this->assertSame('pending', $allocation->manager_approval_status);
+        $this->assertSame('approved', $allocation->manager_approval_status);
         $this->assertSame('accountant', $allocation->created_by_type);
         $this->assertSame((string) $this->accountant->id, (string) $allocation->created_by_id);
 
-        // Manager review required
-        $review = ShiftReportManagerReview::where('report_revision_id', $rev2->id)->firstOrFail();
-        $this->assertSame('pending', $review->status);
-        $this->assertSame(-1000, $review->variance_halalas);
+        // Manager review is NOT required/pending because accountant is final authority (COR-07 / RESOLVED-02)
+        $review = ShiftReportManagerReview::where('report_revision_id', $rev2->id)->first();
+        $this->assertNull($review);
     }
 
     public function test_distribution_only_correction_creates_new_revision_and_supersedes_prior_allocation(): void
@@ -328,7 +327,7 @@ class ShiftAccountantReportCorrectionTest extends TestCase
         $this->assertSame((string) $revision->revision_number, $new->report_revision);
         $this->assertSame(-1000, $new->variance_halalas);
         $this->assertSame($old->id, $new->supersedes_allocation_id);
-        $this->assertSame('pending', $new->manager_approval_status);
+        $this->assertSame('approved', $new->manager_approval_status);
         $this->assertSame(1000, (int) $new->shares()->sum('amount_halalas'));
         $this->assertNotNull($old->fresh()->superseded_at);
     }
@@ -457,44 +456,21 @@ class ShiftAccountantReportCorrectionTest extends TestCase
         $newCount = ShiftReportCashCount::where('report_revision_id', $rev2->id)->firstOrFail();
         $this->assertSame(0, $newCount->variance_halalas);
 
-        // Manager review is required even for zero shortage (status = pending) per T07
-        $review = ShiftReportManagerReview::where('report_revision_id', $rev2->id)->firstOrFail();
-        $this->assertSame('pending', $review->status);
-        $this->assertFalse((bool) $review->has_shortage);
+        // Manager review is NOT required for accountant correction per COR-07
+        $review = ShiftReportManagerReview::where('report_revision_id', $rev2->id)->first();
+        $this->assertNull($review);
 
-        // Workday readiness is BLOCKED until manager acknowledges / approves
+        // Workday readiness succeeds immediately under accountant authority
         $managerDay = BranchManagerShift::firstOrCreate(
             ['branch_manager_id' => $this->manager->id, 'shift_date' => today()],
             ['branch_id' => $this->branch->id, 'status' => 'completed']
         );
         $managerDay->update(['status' => 'completed']);
 
-        $blocked = false;
-        try {
-            app(\Modules\Shift\Services\ShiftReportManagerReviewService::class)->assertReadyForWorkday($managerDay, [$this->cashierShift->id]);
-        } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
-            $blocked = true;
-            $this->assertSame('BRANCH_MANAGER_REVIEW_REQUIRED', $e->getMessage());
-        }
-        $this->assertTrue($blocked, 'Zero-shortage correction must block workday submit until manager review acknowledgment.');
-
-        // Manager reviews and acknowledges/approves the zero shortage
-        app(\Modules\Shift\Services\ShiftReportManagerReviewService::class)->approveCurrent(
-            $this->cashierShift,
-            $this->manager,
-            expectedRevision: 2,
-            expectedAllocationVersion: null,
-            reason: 'Acknowledged zero shortage correction',
-            operationId: (string) Str::uuid()
-        );
-
-        $this->assertSame('approved', $review->fresh()->status);
-
-        // Workday readiness now succeeds
         app(\Modules\Shift\Services\ShiftReportManagerReviewService::class)->assertReadyForWorkday($managerDay, [$this->cashierShift->id]);
     }
 
-    public function test_branch_manager_can_approve_report_correction_via_http_route(): void
+    public function test_accountant_final_authority_cannot_be_vetoed_or_reapproved_by_branch_manager(): void
     {
         $rev1 = $this->revisionService->recordCashierRevision($this->cashierShift, 'cashier', $this->cashier->id);
         ShiftReportCashCount::create([
@@ -532,66 +508,190 @@ class ShiftAccountantReportCorrectionTest extends TestCase
         );
         $managerDay->update(['status' => 'completed']);
 
-        // Prior to manager approval, assertReadyForWorkday throws
-        $this->expectException(ConflictHttpException::class);
-        $this->expectExceptionMessage('BRANCH_MANAGER_REVIEW_REQUIRED');
+        // S111-FINAL-01: Manager review is NOT required and manager cannot veto
         app(\Modules\Shift\Services\ShiftReportManagerReviewService::class)->assertReadyForWorkday($managerDay, [$this->cashierShift->id]);
-    }
 
-    public function test_branch_manager_approval_clears_workday_gate(): void
-    {
-        $rev1 = $this->revisionService->recordCashierRevision($this->cashierShift, 'cashier', $this->cashier->id);
-        ShiftReportCashCount::create([
-            'report_revision_id' => $rev1->id,
-            'counted_revision_id' => $rev1->id,
-            'evidence_revision_id' => $rev1->id,
-            'cashier_shift_id' => $this->cashierShift->id,
-            'gross_halalas' => 10000,
-            'cards_halalas' => 4000,
-            'apps_halalas' => 0,
-            'confirmed_opening_halalas' => 0,
-            'pending_incoming_counted_halalas' => 0,
-            'counted_halalas' => 5000,
-            'expected_halalas' => 6000,
-            'variance_halalas' => -1000,
-        ]);
-
-        $shares = [
-            ['type' => 'cashier', 'id' => $this->cashier->id, 'amount' => 1000],
-        ];
-        $rev2 = $this->accountantCorrectionService->correct(
-            $this->cashierShift,
-            $this->accountant,
-            changes: ['card_payments' => '40.00'],
-            shares: $shares,
-            expectedRevision: 1,
-            expectedAllocationVersion: null,
-            reason: 'Still shortage',
-            operationId: (string) Str::uuid()
-        );
-
-        $managerDay = BranchManagerShift::firstOrCreate(
-            ['branch_manager_id' => $this->manager->id, 'shift_date' => today()],
-            ['branch_id' => $this->branch->id, 'status' => 'completed']
-        );
-        $managerDay->update(['status' => 'completed']);
-
+        // Attempting to review/approve accountant-final correction returns 409
         $response = $this->actingAs($this->manager, 'sanctum')->postJson(
             "/api/v1/branch-manager/workday/shifts/{$this->cashierShift->id}/review-variance",
             [
                 'expected_revision' => 2,
                 'expected_allocation_version' => 1,
-                'reason' => 'Manager approves shortage',
+                'reason' => 'Manager attempts redundant approval',
             ],
             [
                 'Idempotency-Key' => (string) Str::uuid(),
             ]
         );
 
-        $response->assertOk();
-        $this->assertTrue($response->json('success'));
+        $response->assertStatus(409);
+    }
 
-        // After manager approval, assertReadyForWorkday succeeds
+    public function test_s111_final_01_accountant_final_authority_regressions_a_through_i(): void
+    {
+        // Setup employee A and employee B
+        $employeeA = $this->employee;
+        $employeeB = Employee::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branch->id,
+            'name' => 'موظف ب',
+            'emp_number' => 'EMP-002',
+            'role' => 'staff',
+            'email' => 'emp2@test.com',
+            'status' => 'active',
+        ]);
+
+        // A. Branch manager approves initial shortage allocation (100% to employee A)
+        $rev1 = $this->revisionService->recordCashierRevision($this->cashierShift, 'cashier', $this->cashier->id);
+        ShiftReportCashCount::create([
+            'report_revision_id' => $rev1->id,
+            'counted_revision_id' => $rev1->id,
+            'evidence_revision_id' => $rev1->id,
+            'cashier_shift_id' => $this->cashierShift->id,
+            'gross_halalas' => 10000,
+            'cards_halalas' => 4000,
+            'apps_halalas' => 0,
+            'confirmed_opening_halalas' => 0,
+            'pending_incoming_counted_halalas' => 0,
+            'counted_halalas' => 5000,
+            'expected_halalas' => 6000,
+            'variance_halalas' => -1000,
+        ]);
+
+        $alloc1 = ShiftLiabilityAllocation::create([
+            'id' => (string) Str::uuid(),
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branch->id,
+            'cashier_shift_id' => $this->cashierShift->id,
+            'version' => 1,
+            'report_revision' => '1',
+            'variance_halalas' => -1000,
+            'created_by_type' => 'branch_manager',
+            'created_by_id' => $this->manager->id,
+            'manager_approval_status' => 'approved',
+            'manager_approved_by' => $this->manager->id,
+            'manager_approved_at' => now(),
+            'reason' => 'Manager initial approved allocation',
+        ]);
+        $alloc1->shares()->create([
+            'id' => (string) Str::uuid(),
+            'responsible_type' => 'employee',
+            'responsible_id' => $employeeA->id,
+            'amount_halalas' => 1000,
+        ]);
+
+        // Post initial liability for A
+        app(\Modules\Shift\Services\ShortagePostingService::class)->reconcile(
+            $this->cashierShift,
+            $this->manager,
+            expectedRevision: 1,
+            expectedAllocationVersion: 1,
+            operationId: (string) Str::uuid()
+        );
+
+        $postingsAInitial = \Modules\Shift\Models\ShiftLiabilityPosting::where('cashier_shift_id', $this->cashierShift->id)
+            ->where('responsible_id', $employeeA->id)->get();
+        $this->assertCount(1, $postingsAInitial);
+        $this->assertSame(1000, (int) $postingsAInitial->first()->delta_halalas);
+
+        // B. Accountant later changes responsible employee A -> B
+        $rev2 = $this->accountantCorrectionService->correct(
+            $this->cashierShift,
+            $this->accountant,
+            changes: [],
+            shares: [
+                ['type' => 'employee', 'id' => (string) $employeeB->id, 'amount' => 1000],
+            ],
+            expectedRevision: 1,
+            expectedAllocationVersion: 1,
+            reason: 'Reassigning responsibility to employee B per audit',
+            operationId: (string) Str::uuid()
+        );
+
+        // C. New revision becomes authoritative immediately under accountant authority
+        $this->assertSame(2, $rev2->revision_number);
+        $alloc2 = ShiftLiabilityAllocation::where('cashier_shift_id', $this->cashierShift->id)
+            ->whereNull('superseded_at')
+            ->firstOrFail();
+        $this->assertSame(2, $alloc2->version);
+        $this->assertSame('approved', $alloc2->manager_approval_status);
+        $this->assertSame('accountant', $alloc2->created_by_type);
+
+        // D. Manager cannot veto it by withholding a second approval
+        $managerDay = BranchManagerShift::firstOrCreate(
+            ['branch_manager_id' => $this->manager->id, 'shift_date' => today()],
+            ['branch_id' => $this->branch->id, 'status' => 'completed']
+        );
+        $managerDay->update(['status' => 'completed']);
+        // Workday readiness succeeds immediately:
         app(\Modules\Shift\Services\ShiftReportManagerReviewService::class)->assertReadyForWorkday($managerDay, [$this->cashierShift->id]);
+
+        // Calling manager approval service fails with Conflict (accountant final authority):
+        $managerBlocked = false;
+        try {
+            app(\Modules\Shift\Liability\ShiftLiabilityService::class)->approve($this->cashierShift->id, $this->manager, 2);
+        } catch (ConflictHttpException $e) {
+            $managerBlocked = true;
+            $this->assertSame('ACCOUNTANT_FINAL_AUTHORITY', $e->getMessage());
+        }
+        $this->assertTrue($managerBlocked);
+
+        // E. Old manager approval remains historical
+        $this->assertNotNull($alloc1->fresh()->superseded_at);
+        $this->assertSame('approved', $alloc1->fresh()->manager_approval_status);
+        $this->assertSame((string) $this->manager->id, (string) $alloc1->fresh()->manager_approved_by);
+
+        // F. A liability is reversed and B liability is posted by delta only
+        $allPostingsA = \Modules\Shift\Models\ShiftLiabilityPosting::where('cashier_shift_id', $this->cashierShift->id)
+            ->where('responsible_id', $employeeA->id)->get();
+        $this->assertCount(2, $allPostingsA);
+        $this->assertSame(1000, (int) $allPostingsA[0]->delta_halalas);
+        $this->assertSame(-1000, (int) $allPostingsA[1]->delta_halalas);
+
+        $allPostingsB = \Modules\Shift\Models\ShiftLiabilityPosting::where('cashier_shift_id', $this->cashierShift->id)
+            ->where('responsible_id', $employeeB->id)->get();
+        $this->assertCount(1, $allPostingsB);
+        $this->assertSame(1000, (int) $allPostingsB[0]->delta_halalas);
+
+        // G. Retry creates no duplicate posting
+        $retryOpId = (string) Str::uuid();
+        $retryResult = app(\Modules\Shift\Services\ShortagePostingService::class)->reconcile(
+            $this->cashierShift,
+            $this->accountant,
+            expectedRevision: 2,
+            expectedAllocationVersion: 2,
+            operationId: $retryOpId
+        );
+        $this->assertSame(0, $retryResult['total_deltas']);
+        $this->assertCount(2, \Modules\Shift\Models\ShiftLiabilityPosting::where('cashier_shift_id', $this->cashierShift->id)
+            ->where('responsible_id', $employeeA->id)->get());
+        $this->assertCount(1, \Modules\Shift\Models\ShiftLiabilityPosting::where('cashier_shift_id', $this->cashierShift->id)
+            ->where('responsible_id', $employeeB->id)->get());
+
+        // H. Employee objection does not block accountant-final state
+        $shareB = $alloc2->shares()->where('responsible_id', $employeeB->id)->firstOrFail();
+        app(\Modules\Shift\Liability\ShiftLiabilityService::class)->respond(
+            $this->cashierShift->id,
+            $employeeB,
+            2,
+            'objected',
+            'I object to this allocation'
+        );
+        $this->assertSame('objected', $shareB->fresh()->employee_response_status);
+        // Workday readiness still succeeds:
+        app(\Modules\Shift\Services\ShiftReportManagerReviewService::class)->assertReadyForWorkday($managerDay, [$this->cashierShift->id]);
+
+        // I. Accountant still cannot edit total_sales
+        $this->expectException(ValidationException::class);
+        $this->accountantCorrectionService->correct(
+            $this->cashierShift,
+            $this->accountant,
+            changes: ['total_sales' => '200.00'],
+            shares: null,
+            expectedRevision: 2,
+            expectedAllocationVersion: 2,
+            reason: 'Attempting to change total sales',
+            operationId: (string) Str::uuid()
+        );
     }
 }
