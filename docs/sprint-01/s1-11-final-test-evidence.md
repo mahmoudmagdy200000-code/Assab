@@ -31,3 +31,12 @@ ShiftReassignHandoverCountTest 29/230 · ShiftCashCountHttpTest 28/285 · ShiftL
 ## 5. NOT_RUN
 - **MySQL transactional / concurrency (32 tests)** — NOT_RUN: no MySQL/MariaDB binary and no reachable package source in this environment. Must be run by Mahmoud in an isolated MySQL before any release.
 - AssabAPP, Dashboard integration — NOT_RUN / out of scope.
+
+
+## 4. OG-06 / S111-FINAL-OG06-N1 pass (REVIEWER_EXECUTED by the implementing session; not independent)
+Changed behaviour: `TRANSFER_PRESENTATION_REQUIRED` guard at both live D11 rejection entry points; `correctManagerCashTransfer` physical-return gate. `ShiftCashCountService::recordRejectionEvidence` is unchanged so historical fixtures (`ShiftPhases234AuditRegressionTest`) keep their purpose and assertions.
+
+New/changed tests: `ShiftTransferPhysicalReturnTest` (no-presentation 409 + zero writes for cashier→cashier and manager→cashier; stale/forged/omitted attempt id; historical evidence immutable, labelled fixture), `ShiftTransferReceiptTest` (cashier→manager no-presentation 409 over HTTP; manager correction blocked while cash retained / return unconfirmed; full present→reject→return→confirm→correct→re-present→receipt flow), `ShiftCashCountHttpTest` ×3 and `ShiftRequestSameRecipientCorrectionTest` (fixtures now present first; the old fixtures modelled the stranded state).
+
+Command: `php -d memory_limit=-1 vendor/bin/paratest -p4 --passthru-php="'-d' 'memory_limit=-1'"` (PHP 8.3.6, SQLite `:memory:`). **Exit 0 — 1895 tests / 10748 assertions / 0 failures / 0 errors / 33 skipped**, 8:39 wall. Runner log preserved at `docs/sprint-01/evidence/s1-11-og06-full-suite.log`. `pint --dirty`: PASS. `php -l` on changed PHP files: PASS.
+MySQL concurrency tests (32): **NOT_RUN** (no MySQL available). Foundation/Main/AssabAPP/Dashboard untouched; generic settlement writer not opened.

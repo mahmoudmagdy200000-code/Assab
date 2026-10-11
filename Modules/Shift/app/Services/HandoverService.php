@@ -1108,6 +1108,16 @@ class HandoverService
                 throw new ConflictHttpException('HANDOVER_NOT_CORRECTABLE');
             }
 
+            // CASH-11/CASH-12 (Business Rules v3.2): a D11 amount-mismatch rejection must reference a tracked
+            // physical presentation, so the rejected cash can be physically returned and possession stays
+            // distinguishable from responsibility. Without a current attempt the request would be stranded
+            // (a later /handover/edit throws PHYSICAL_RETURN_REQUIRED while no return can ever be filed).
+            // Refuse before any state or evidence change; a mismatched attempt id is still handled as
+            // STALE_TRANSFER_ATTEMPT when the evidence is written.
+            if ($handover->current_transfer_attempt_id === null) {
+                throw new ConflictHttpException('TRANSFER_PRESENTATION_REQUIRED');
+            }
+
             $previousAmount = (string) $handover->handover_amount;
             if ($expectedAttemptId === null && $attemptedMinor === self::toMinorUnits($previousAmount)) {
                 throw new ConflictHttpException('HANDOVER_AMOUNT_MISMATCH_REQUIRED_FOR_CORRECTION');

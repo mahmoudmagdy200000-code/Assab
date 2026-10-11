@@ -78,12 +78,82 @@ class ShiftTransferPhysicalReturnTest extends TestCase
         $this->assertSame(48000, DB::table('shift_transfer_rejection_evidence')->sole()->physical_halalas);
     }
 
-    public function test_legacy_null_attempt_is_preserved_and_cannot_manufacture_a_return(): void
+    public function test_amount_mismatch_rejection_without_presentation_is_refused_and_writes_nothing(): void
     {
+        // S111-FINAL-OG06-N1 / CASH-11, CASH-12 (Business Rules v3.2): a D11 amount-mismatch rejection with no
+        // tracked physical presentation would create an uncorrectable, unreturnable request (possession could
+        // never be distinguished from responsibility, and /handover/edit would later throw PHYSICAL_RETURN_REQUIRED
+        // forever). The service must refuse it before any write: no rejection evidence, request stays pending,
+        // and the recipient has no pending incoming cash.
         [, $recipient, $source, $destination] = $this->fixture();
-        $this->reject($recipient, $source);
-        $this->assertNull(DB::table('shift_transfer_rejection_evidence')->sole()->transfer_attempt_id);
-        $this->assertSame(48000, app(ShiftCashCountService::class)->pendingIncomingHalalas($destination));
+        $this->actingAs($recipient, 'sanctum')->postJson("/api/cashier/shifts/{$source->id}/handover/reject", [
+            'rejection_reason' => 'Only 480 physically counted', 'confirmed_amount' => '480.00', 'correction_reason' => 'actual_shortage',
+        ])->assertStatus(409)->assertJsonPath('code', 'TRANSFER_PRESENTATION_REQUIRED');
+        $this->assertDatabaseCount('shift_transfer_rejection_evidence', 0);
+        $this->assertSame('pending', CashierShiftHandover::where('cashier_shift_id', $source->id)->sole()->status);
+        $this->assertSame(0, app(ShiftCashCountService::class)->pendingIncomingHalalas($destination));
+    }
+
+    public function test_stale_missing_or_foreign_attempt_ids_cannot_reject_and_write_nothing(): void
+    {
+        [$sender, $recipient, $source, $destination, $handover] = $this->fixture();
+        $this->present($sender, $handover);
+        [$otherSender, , , , $otherHandover] = $this->fixture();
+        $foreign = $this->present($otherSender, $otherHandover, 'presentation-foreign');
+
+        $payload = ['rejection_reason' => 'Only 480 physically counted', 'confirmed_amount' => '480.00', 'correction_reason' => 'actual_shortage'];
+        foreach ([
+            'forged random id' => ['transfer_attempt_id' => (string) \Illuminate\Support\Str::uuid()],
+            'attempt of a different request' => ['transfer_attempt_id' => $foreign],
+            'attempt id omitted' => [],
+        ] as $label => $extra) {
+            $this->actingAs($recipient, 'sanctum')->postJson("/api/cashier/shifts/{$source->id}/handover/reject", $payload + $extra)
+                ->assertStatus(409)->assertJsonPath('code', 'STALE_TRANSFER_ATTEMPT');
+            $this->assertSame('pending', $handover->fresh()->status, $label);
+            $this->assertSame(0, DB::table('shift_transfer_rejection_evidence')->count(), $label);
+            $this->assertSame(0, app(ShiftCashCountService::class)->pendingIncomingHalalas($destination), $label);
+        }
+
+        $this->reject($recipient, $source); // the genuine current attempt still works
+        $this->assertSame('rejected', $handover->fresh()->status);
+    }
+
+    public function test_historical_evidence_without_attempt_is_immutable_and_cannot_manufacture_a_return(): void
+    {
+        // HISTORICAL FIXTURE (explicitly constructed, not a live rejection): a pre-attempt-tracking evidence row.
+        [$sender, $recipient, $source, , $handover] = $this->fixture();
+        DB::transaction(fn () => app(ShiftCashCountService::class)->recordRejectionEvidence(
+            $handover->id, null, 'cashier', $recipient->id, null, '500.00', '480.00', 'actual_shortage', null
+        ));
+        $row = DB::table('shift_transfer_rejection_evidence')->sole();
+
+        // Present refuses to attach an attempt to a request that already has untracked evidence.
+        $this->actingAs($sender, 'sanctum')->postJson("/api/shift-transfers/handover/{$handover->id}/present", [
+            'presented_halalas' => 50000, 'idempotency_key' => 'presentation-legacy',
+        ])->assertStatus(409)->assertSee('LEGACY_ATTEMPT_IDENTITY_UNAVAILABLE');
+        $this->assertDatabaseCount('shift_transfer_attempts', 0);
+        $this->assertDatabaseCount('shift_transfer_returns', 0);
+        $this->assertEquals((array) $row, (array) DB::table('shift_transfer_rejection_evidence')->sole());
+    }
+
+    public function test_manager_amount_mismatch_rejection_without_presentation_is_refused(): void
+    {
+        // The custody-conservation chokepoint (recordRejectionEvidence) covers the manager cash-transfer path too:
+        // a correction rejection with no tracked presentation is refused before any evidence, request stays pending.
+        [$sender, $recipient, $source, $destination] = $this->fixture();
+        $manager = BranchManager::findOrFail($sender->created_by);
+        $workday = \Modules\Shift\Models\BranchManagerShift::where('branch_manager_id', $manager->id)->whereDate('shift_date', today())->firstOrFail();
+        \Modules\Custody\Models\PersonalLedgerTransaction::create(['branch_manager_id' => $manager->id, 'branch_manager_shift_id' => $workday->id, 'transaction_type' => 'Total Sales', 'amount' => '500.00', 'is_cash_in' => true, 'transaction_date' => now()]);
+        $service = app(\Modules\Shift\Services\ShiftTransferReceiptService::class);
+        $request = $service->requestManagerCashTransfer($workday, $recipient, $destination, '500.00', $manager);
+        try {
+            $service->rejectManagerCashTransfer($request->id, $recipient, '480.00', 'Manager transfer short', 'actual_shortage');
+            $this->fail('Expected TRANSFER_PRESENTATION_REQUIRED');
+        } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
+            $this->assertSame('TRANSFER_PRESENTATION_REQUIRED', $e->getMessage());
+        }
+        $this->assertDatabaseCount('shift_transfer_rejection_evidence', 0);
+        $this->assertSame('pending', \Modules\Shift\Models\BranchManagerCashTransfer::whereKey($request->id)->sole()->status);
     }
 
     public function test_correction_needs_new_physical_presentation_and_old_return_cannot_suppress_it(): void

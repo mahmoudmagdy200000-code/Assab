@@ -296,6 +296,11 @@ class ShiftHandoverController extends Controller
             'rejection_reason' => 'nullable|string|max:500',
             'correction_reason' => 'nullable|in:input_error,actual_shortage',
             'confirmed_amount' => 'required_with:correction_reason|'.ShiftMoneyValidation::SAR,
+            // A D11 amount-mismatch rejection must reference the current physical presentation attempt.
+            // Format is validated here; existence/match of the current attempt is enforced in the service
+            // (HandoverService::rejectHandoverForAmountCorrection → TRANSFER_PRESENTATION_REQUIRED; evidence write → STALE_TRANSFER_ATTEMPT),
+            // so the guarantee never relies on the client sending the field.
+            'transfer_attempt_id' => 'nullable|uuid',
             'manager_comment' => 'nullable|string|max:500',
             'rejection_files' => 'nullable|array',
             'rejection_files.*' => 'nullable|file|mimes:pdf,png,jpeg,jpg|max:5120',

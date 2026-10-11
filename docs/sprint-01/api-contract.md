@@ -610,3 +610,11 @@ Source: commit `f62a4ba` (S111-FINAL-01..05, Business Rules v3.2). Documentation
 | 10 | Variance semantics | `CashierShift::calculateVariance()` is count-based (counted − expected); the legacy channel formula is `calculateChannelDifference()` and is display-only. | Any client recomputing variance must use the count-based figure. |
 
 Unchanged and still fail-closed: `POST …/handover-receipts/{receipt}/settlements` → 403 `SETTLEMENT_AUTHORITY_UNRESOLVED`; confirmed receipts → 409 `CONFIRMED_RECEIPT_IMMUTABLE`; Head-of-Accounts `final-approved` reports reject mutation.
+
+## S1-11 correction pass — client-visible change (2026-10-11, finding S111-FINAL-OG06-N1)
+
+Source: this pass (parent `a090b7a`). Application code changed (Shift module only); no settlement writer opened.
+
+| # | Endpoint / resource | Change | Client impact |
+|---|---|---|---|
+| 11 | `POST …/cashier/shifts/{shift}/handover/reject` with `correction_reason` (amount-mismatch / D11), and the manager cash-transfer correction path | A D11 amount-mismatch rejection now requires a current **physical presentation attempt** on the request. If none exists, the request is refused with new **409 `TRANSFER_PRESENTATION_REQUIRED`** before any state or evidence is written (CASH-11/CASH-12: rejected cash must be physically returnable, so possession stays distinguishable from responsibility). A `transfer_attempt_id` that does not match the current attempt still returns 409 `STALE_TRANSFER_ATTEMPT`. The canonical flow is unchanged: present → reject (with `transfer_attempt_id`) → recipient returns the cash → sender confirms the return → correct → re-present → confirm. Format of `transfer_attempt_id` is validated at the endpoint (`nullable|uuid`); the current-attempt requirement is enforced in the service, so it never relies on the client sending the field. | Mobile must present the physical cash (obtain `transfer_attempt_id`) before an amount-correction rejection; map the new `TRANSFER_PRESENTATION_REQUIRED` code. No change to the already-correct present-first flow. |

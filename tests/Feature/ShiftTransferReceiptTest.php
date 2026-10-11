@@ -1091,6 +1091,54 @@ class ShiftTransferReceiptTest extends TestCase
         }
     }
 
+    public function test_manager_cannot_correct_rejected_transfer_while_cash_is_retained_or_return_unconfirmed(): void
+    {
+        // CASH-12: "rejected" alone is not proof of a physical return. Correction must stay refused (zero writes)
+        // until the retained cash was returned AND the sender confirmed it.
+        [, $manager, $cashier, $source, $destination] = $this->managerTransferFixture();
+        $this->fundManagerLedger($manager, $source);
+        $service = app(ShiftTransferReceiptService::class);
+        $transfer = $service->requestManagerCashTransfer($source, $cashier, $destination, '61.50', $manager);
+        $attempts = app(\Modules\Shift\Services\ShiftTransferAttemptService::class);
+        $attempt = $attempts->present('manager_transfer', $transfer->id, $manager, 6150, 'present-'.\Illuminate\Support\Str::uuid());
+        $service->rejectManagerCashTransfer($transfer->id, $cashier, '61.00', 'Short', 'actual_shortage', $attempt->id);
+
+        $assertRefused = function () use ($service, $transfer, $manager) {
+            try {
+                $service->correctManagerCashTransfer($transfer->id, $manager, '61.00', 'actual_shortage');
+                $this->fail('Correction must be refused before the physical return is confirmed.');
+            } catch (ConflictHttpException $e) {
+                $this->assertSame('PHYSICAL_RETURN_REQUIRED', $e->getMessage());
+            }
+            $this->assertSame('rejected', $transfer->fresh()->status);
+            $this->assertSame('61.50', (string) $transfer->fresh()->requested_amount);
+            $this->assertSame(0, CashierShiftHistory::where('action', 'manager_transfer_request_corrected')->count());
+        };
+
+        $assertRefused(); // cash still retained by the recipient
+        $return = $attempts->initiate($attempt->id, $cashier, 6100, 'return-'.\Illuminate\Support\Str::uuid(), 'Returning', null);
+        $assertRefused(); // return initiated but not yet confirmed by the sender
+        $attempts->confirmReturn($return->id, $manager);
+        $corrected = $service->correctManagerCashTransfer($transfer->id, $manager, '61.00', 'actual_shortage');
+        $this->assertSame('pending', $corrected->fresh()->status);
+    }
+
+    public function test_cashier_to_manager_amount_mismatch_rejection_without_presentation_is_refused_with_zero_writes(): void
+    {
+        [, $manager, , $source, , $handover] = $this->managerHandoverFixture('10.00');
+        $historyBefore = CashierShiftHistory::count();
+
+        $this->actingAs($manager, 'sanctum')
+            ->postJson('/api/branch-manager/workday/handoffs/reject', [
+                'handover_id' => $handover->id, 'rejection_reason' => 'short', 'correction_reason' => 'actual_shortage', 'confirmed_amount' => '9.00',
+            ])->assertStatus(409)->assertJsonPath('code', 'TRANSFER_PRESENTATION_REQUIRED');
+
+        $this->assertSame('pending', $handover->fresh()->status);
+        $this->assertSame(0, DB::table('shift_transfer_rejection_evidence')->count());
+        $this->assertSame($historyBefore, CashierShiftHistory::count());
+        $this->assertSame(0, CashierShiftHandoverReceipt::count());
+    }
+
     public function test_manager_transfer_requires_correction_then_posts_exactly_the_corrected_amount(): void
     {
         [, $manager, $cashier, $source, $destination] = $this->managerTransferFixture();
@@ -1106,9 +1154,16 @@ class ShiftTransferReceiptTest extends TestCase
         }
         $this->assertSame(0, CashierShiftHandoverReceipt::count());
 
-        $service->rejectManagerCashTransfer($transfer->id, $cashier, '61.00', 'Actual cash was short by 0.50', 'actual_shortage');
+        // CASH-11/CASH-12: present the physical cash, reject against that attempt, then physically return and
+        // confirm it before correcting and re-presenting the corrected amount.
+        $attempts = app(\Modules\Shift\Services\ShiftTransferAttemptService::class);
+        $attempt = $attempts->present('manager_transfer', $transfer->id, $manager, 6150, 'present-'.\Illuminate\Support\Str::uuid());
+        $service->rejectManagerCashTransfer($transfer->id, $cashier, '61.00', 'Actual cash was short by 0.50', 'actual_shortage', $attempt->id);
+        $return = $attempts->initiate($attempt->id, $cashier, 6100, 'return-'.\Illuminate\Support\Str::uuid(), 'Returning rejected cash', null);
+        $attempts->confirmReturn($return->id, $manager);
         $service->correctManagerCashTransfer($transfer->id, $manager, '61.00', 'actual_shortage');
-        $receipt = $service->confirmManagerCashTransfer($transfer->id, $cashier, '61.00');
+        $second = $attempts->present('manager_transfer', $transfer->id, $manager, 6100, 'redeliver-'.\Illuminate\Support\Str::uuid());
+        $receipt = $service->confirmManagerCashTransfer($transfer->id, $cashier, '61.00', $second->id);
 
         $this->assertSame($destination->id, $receipt->receiving_cashier_shift_id);
         $this->assertSame('61.00', $receipt->confirmed_amount);

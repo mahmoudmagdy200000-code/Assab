@@ -111,6 +111,20 @@ class ShiftCashCountHttpTest extends TestCase
         return $request->postJson("/api/v1/cashier/shifts/{$this->recipientShift->id}/end", $payload);
     }
 
+    /**
+     * CASH-11/CASH-12: a D11 amount-mismatch rejection must reference a tracked physical presentation.
+     * The sender presents the handover's cash before the recipient rejects with the current attempt id.
+     */
+    private function presentSenderHandover(): string
+    {
+        $handover = CashierShiftHandover::where('cashier_shift_id', $this->senderShift->id)->sole();
+
+        return $this->actingAs($this->sender, 'sanctum')->postJson("/api/shift-transfers/handover/{$handover->id}/present", [
+            'presented_halalas' => (int) round((float) $handover->handover_amount * 100),
+            'idempotency_key' => (string) Str::uuid(),
+        ])->assertOk()->json('data.id');
+    }
+
     private function assertNothingWritten(): void
     {
         $this->assertSame(ShiftStatus::IN_PROGRESS, $this->recipientShift->fresh()->status);
@@ -235,8 +249,10 @@ class ShiftCashCountHttpTest extends TestCase
             'next_cashier_id' => $this->recipient->id, 'handover_amount' => '500.00',
         ])->assertOk();
 
+        $attempt = $this->presentSenderHandover();
         $this->actingAs($this->recipient, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/reject", [
             'rejection_reason' => 'Counted 480', 'confirmed_amount' => '480.00', 'correction_reason' => 'actual_shortage',
+            'transfer_attempt_id' => $attempt,
         ])->assertOk();
 
         $evidence = ShiftTransferRejectionEvidence::query()->sole();
@@ -266,8 +282,10 @@ class ShiftCashCountHttpTest extends TestCase
             'total_sales' => '500.00', 'cash_collected' => '500.00', 'counted_cash' => '500.00',
             'next_cashier_id' => $this->recipient->id, 'handover_amount' => '500.00',
         ])->assertOk();
+        $attempt = $this->presentSenderHandover();
         $this->actingAs($this->recipient, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/reject", [
             'rejection_reason' => 'Counted 480', 'confirmed_amount' => '480.00', 'correction_reason' => 'actual_shortage',
+            'transfer_attempt_id' => $attempt,
         ])->assertOk();
 
         $this->end(['total_sales' => '100.00', 'cash_collected' => '100.00', 'counted_cash' => '100.00'])
@@ -428,8 +446,10 @@ class ShiftCashCountHttpTest extends TestCase
             'total_sales' => '500.00', 'cash_collected' => '500.00', 'counted_cash' => '500.00',
             'next_cashier_id' => $this->recipient->id, 'handover_amount' => '500.00',
         ])->assertOk();
+        $attempt = $this->presentSenderHandover();
         $this->actingAs($this->recipient, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->senderShift->id}/handover/reject", [
             'rejection_reason' => 'Counted 480', 'confirmed_amount' => '480.00', 'correction_reason' => 'actual_shortage',
+            'transfer_attempt_id' => $attempt,
         ])->assertOk();
         $this->end(['total_sales' => '100.00', 'cash_collected' => '100.00', 'counted_cash' => '580.00'])->assertOk();
 

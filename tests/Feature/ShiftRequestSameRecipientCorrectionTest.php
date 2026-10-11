@@ -116,10 +116,16 @@ class ShiftRequestSameRecipientCorrectionTest extends TestCase
         $transfer = $service->requestManagerCashTransfer($sourceDay, $cashier, $destShift, '50.00', $manager);
         $originalTransferId = $transfer->id;
 
-        // Reject manager transfer
-        $service->rejectManagerCashTransfer($transfer->id, $cashier, '40.00', 'Count mismatch', 'input_error');
+        // CASH-11/CASH-12: present the physical cash, reject against that attempt, then physically return and
+        // confirm it before the same request may be corrected.
+        $attempts = app(\Modules\Shift\Services\ShiftTransferAttemptService::class);
+        $attempt = $attempts->present('manager_transfer', $transfer->id, $manager, 5000, 'present-'.\Illuminate\Support\Str::uuid());
+        $service->rejectManagerCashTransfer($transfer->id, $cashier, '40.00', 'Count mismatch', 'input_error', $attempt->id);
 
         $this->assertSame('rejected', $transfer->fresh()->status);
+
+        $return = $attempts->initiate($attempt->id, $cashier, 4000, 'return-'.\Illuminate\Support\Str::uuid(), 'Returning rejected cash', null);
+        $attempts->confirmReturn($return->id, $manager);
 
         // Correct manager transfer
         $corrected = $service->correctManagerCashTransfer($transfer->id, $manager, '40.00', 'input_error');

@@ -19,6 +19,9 @@ use Modules\Shift\Models\CashierShiftHandoverReceipt;
 use Modules\Shift\Models\CashierShiftHistory;
 use Modules\Shift\Models\ShiftHandoverStatus;
 use Modules\Shift\Models\ShiftReportCashCount;
+use Modules\Shift\Models\ShiftTransferAttempt;
+use Modules\Shift\Models\ShiftTransferRejectionEvidence;
+use Modules\Shift\Models\ShiftTransferReturn;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
@@ -126,6 +129,13 @@ class ShiftTransferReceiptService
             if ($attemptedMinor === self::toMinorUnits((string) $transfer->requested_amount)) {
                 throw new ConflictHttpException('HANDOVER_AMOUNT_MISMATCH_REQUIRED_FOR_CORRECTION');
             }
+            // CASH-11/CASH-12 (Business Rules v3.2): a D11 amount-mismatch rejection on a manager cash transfer
+            // must reference a tracked physical presentation, so the rejected cash can be physically returned.
+            // Without a current attempt the request would be stranded. A mismatched attempt id is still handled
+            // as STALE_TRANSFER_ATTEMPT when the evidence is written.
+            if ($transfer->current_transfer_attempt_id === null) {
+                throw new ConflictHttpException('TRANSFER_PRESENTATION_REQUIRED');
+            }
 
             $transfer->update(['status' => 'rejected']);
             // D11: structured physical amount, pending incoming in the destination shift's count.
@@ -175,6 +185,7 @@ class ShiftTransferReceiptService
             if ($transfer->status !== 'rejected' || $transfer->receipt()->exists()) {
                 throw new ConflictHttpException('TRANSFER_NOT_CORRECTABLE');
             }
+            $this->assertRejectedCashReturned($transfer);
 
             $revision = $this->revisions->currentManagerRevision($source);
             if (! $revision) {
@@ -205,6 +216,30 @@ class ShiftTransferReceiptService
 
             return $transfer;
         });
+    }
+
+    /**
+     * CASH-12 (Business Rules v3.2): a rejected manager transfer is correctable only after the retained physical
+     * cash was returned and the sender confirmed it. Mirrors HandoverService::recordHandoverEdit; call inside the
+     * correction transaction after the request row is locked. Never synthesizes a return.
+     */
+    private function assertRejectedCashReturned(BranchManagerCashTransfer $transfer): void
+    {
+        if ($transfer->current_transfer_attempt_id === null) {
+            if (ShiftTransferRejectionEvidence::where('branch_manager_cash_transfer_id', $transfer->id)->exists()) {
+                throw new ConflictHttpException('PHYSICAL_RETURN_REQUIRED');
+            }
+
+            return;
+        }
+        $attempt = ShiftTransferAttempt::whereKey($transfer->current_transfer_attempt_id)->lockForUpdate()->first();
+        if (! $attempt) {
+            throw new ConflictHttpException('PHYSICAL_RETURN_REQUIRED');
+        }
+        if (app(ShiftTransferAttemptService::class)->retained($attempt) > 0
+            || ShiftTransferReturn::where('transfer_attempt_id', $attempt->id)->whereNull('sender_confirmed_at')->lockForUpdate()->exists()) {
+            throw new ConflictHttpException('PHYSICAL_RETURN_REQUIRED');
+        }
     }
 
     public function confirmHandover(
