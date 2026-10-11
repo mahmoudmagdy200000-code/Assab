@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
@@ -11,6 +13,7 @@ use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\EmployeeMovement;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\Shift;
+use Modules\Admin\Services\EmployeeAllocationService;
 use Modules\Admin\Services\OperationService;
 use Modules\Admin\Services\ShiftCloseService;
 use Modules\Branch\Models\Branch;
@@ -72,6 +75,47 @@ class ShiftCloseChainTest extends TestCase
         ]);
     }
 
+    public function test_admin_close_replays_across_aliases_with_one_operation(): void
+    {
+        $shift = $this->openShift();
+        $key = (string) Str::uuid();
+        $body = ['cashActualHalalas' => 47000];
+        $first = $this->acc()->withHeader('Idempotency-Key', $key)
+            ->postJson("/api/v1/accountant/shifts/{$shift->id}/close", $body);
+        $first->assertOk();
+        $retry = $this->acc()->withHeader('Idempotency-Key', $key)
+            ->postJson("/api/v1/company/me/shifts/{$shift->id}/close", $body);
+        $retry->assertOk();
+        $this->assertSame($first->getContent(), $retry->getContent());
+        $this->assertSame(1, Operation::where('module_key', 'shifts')->count());
+        $this->assertSame('completed', DB::table('asab_command_idempotency_keys')->sole()->status);
+    }
+
+    public function test_admin_close_snapshot_failure_rolls_back_and_same_key_can_retry(): void
+    {
+        if (DB::getDriverName() !== 'sqlite') {
+            $this->markTestSkipped('SQLite failure-injection trigger; MySQL concurrency is a separate gate.');
+        }
+        $shift = $this->openShift();
+        $key = (string) Str::uuid();
+        $body = ['cashActualHalalas' => 47000];
+        DB::statement("CREATE TRIGGER block_admin_close_snapshot BEFORE UPDATE ON asab_command_idempotency_keys WHEN NEW.status = 'completed' BEGIN SELECT RAISE(ABORT, 'snapshot unavailable'); END");
+        try {
+            $failed = $this->acc()->withHeader('Idempotency-Key', $key)
+                ->postJson("/api/v1/company/me/shifts/{$shift->id}/close", $body);
+            $failed->assertStatus(500);
+            $this->assertSame('active', $shift->fresh()->status);
+            $this->assertSame(0, Operation::where('module_key', 'shifts')->count());
+            $this->assertSame(0, DB::table('asab_command_idempotency_keys')->count());
+        } finally {
+            DB::statement('DROP TRIGGER block_admin_close_snapshot');
+        }
+        $this->acc()->withHeader('Idempotency-Key', $key)
+            ->postJson("/api/v1/company/me/shifts/{$shift->id}/close", $body)->assertOk();
+        $this->assertSame(1, Operation::where('module_key', 'shifts')->count());
+        $this->assertSame('pending_review', $shift->fresh()->status);
+    }
+
     private function ops(): OperationService
     {
         return app(OperationService::class);
@@ -116,6 +160,34 @@ class ShiftCloseChainTest extends TestCase
             ->assertStatus(409)->assertJsonPath('error.code', 'SHIFT_ALREADY_CLOSED');
     }
 
+    public function test_close_uses_locked_current_shift_values_for_expected_cash(): void
+    {
+        $shift = $this->openShift(sales: 50000, float: 0);
+        $stale = $shift->fresh();
+        Shift::query()->whereKey($shift->id)->update(['sales_amount' => 60000, 'opening_float' => 1000]);
+
+        $closed = app(ShiftCloseService::class)->close($stale, ['cashActualHalalas' => 61000], $this->accountant, 'system');
+
+        $this->assertSame(61000, $closed['shift']->cash_expected);
+        $this->assertSame(0, $closed['shift']->variance);
+    }
+
+    public function test_close_rejects_a_stale_open_model_after_locked_state_changed(): void
+    {
+        $shift = $this->openShift();
+        $stale = $shift->fresh();
+        Shift::query()->whereKey($shift->id)->update(['status' => 'closed']);
+
+        try {
+            app(ShiftCloseService::class)->close($stale, ['cashActualHalalas' => 50000], $this->accountant, 'system');
+            $this->fail('The current closed state must be re-read under lock.');
+        } catch (\Modules\Admin\Exceptions\AsabException $exception) {
+            $this->assertSame('SHIFT_ALREADY_CLOSED', $exception->errorCode);
+        }
+
+        $this->assertSame(0, Operation::where('module_key', 'shifts')->count());
+    }
+
     // ── Ledger post on final approval (T08.7) ────────────────────────────────
 
     public function test_final_approval_charges_the_shortage_to_the_cashier(): void
@@ -132,6 +204,30 @@ class ShiftCloseChainTest extends TestCase
         $this->assertCount(1, $movements);
         $this->assertSame($this->cashier->id, $movements[0]->employee_id);
         $this->assertSame(3000, (int) $movements[0]->amount);
+    }
+
+    public function test_required_allocation_failure_rolls_back_final_approval_and_shift_close(): void
+    {
+        $shift = $this->openShift(sales: 50000);
+        app(ShiftCloseService::class)->close($shift, ['cashActualHalalas' => 47000], $this->accountant, 'system');
+        $op = $this->shiftOp($shift);
+        $this->ops()->approve($op, $this->accountant);
+
+        $allocationService = \Mockery::mock(EmployeeAllocationService::class);
+        $allocationService->shouldReceive('post')->once()->andThrow(new \RuntimeException('injected allocation failure'));
+        $this->app->instance(EmployeeAllocationService::class, $allocationService);
+
+        try {
+            $this->ops()->finalApprove($op->fresh(), $this->head);
+            $this->fail('A required allocation failure must abort final approval.');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('injected allocation failure', $exception->getMessage());
+        }
+
+        $this->assertSame(Operation::STATUS_APPROVED, $op->fresh()->status);
+        $this->assertSame('pending_review', $shift->fresh()->status);
+        $this->assertSame(0, EmployeeMovement::where('ref_operation_id', $op->id)->count());
+        $this->assertSame(0, $op->fresh()->steps()->where('stage_id', 'final')->count());
     }
 
     public function test_rejection_reopens_the_shift_and_posts_nothing(): void

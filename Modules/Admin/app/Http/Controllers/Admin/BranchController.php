@@ -131,27 +131,28 @@ class BranchController extends AsabController
                 $this->assertManagerAssignable($data['managerUserId']);
             }
 
-            $branch = DB::transaction(fn () => Branch::create([
-                'name' => $data['name'],
-                // `branches.location` is NOT NULL and predates the ASAB
-                // city/address columns — leaving it out made every branch
-                // created here die on the constraint (a 500, not a branch).
-                'location' => $data['address'] ?? $data['city'] ?? $data['name'],
-                'manager' => $data['manager'] ?? null,
-                'asab_manager_user_id' => $data['managerUserId'] ?? null,
-                'city' => $data['city'] ?? null,
-                'address' => $data['address'] ?? null,
-                'phone' => $data['phone'] ?? null,
-                'status' => 'active',
-                'is_active' => true,
-                'asab_restaurant_id' => $restaurant->id,
-                'asab_brand_id' => $restaurant->brand_id,
-                'asab_company_id' => $restaurant->company_id,
-            ]));
+            $branch = DB::transaction(function () use ($data, $restaurant) {
+                $branch = Branch::create([
+                    'name' => $data['name'],
+                    // `branches.location` is NOT NULL and predates the ASAB
+                    // city/address columns — leaving it out made every branch
+                    // created here die on the constraint (a 500, not a branch).
+                    'location' => $data['address'] ?? $data['city'] ?? $data['name'],
+                    'manager' => $data['manager'] ?? null,
+                    'asab_manager_user_id' => $data['managerUserId'] ?? null,
+                    'city' => $data['city'] ?? null,
+                    'address' => $data['address'] ?? null,
+                    'phone' => $data['phone'] ?? null,
+                    'status' => 'active',
+                    'is_active' => true,
+                    'asab_restaurant_id' => $restaurant->id,
+                    'asab_brand_id' => $restaurant->brand_id,
+                    'asab_company_id' => $restaurant->company_id,
+                ]);
+                $this->managerSync->sync($data['managerUserId'] ?? null, $branch->id);
 
-            // Without this the manager's PHONE still opens their previous
-            // branch — the new branch shows that branch's old data.
-            $this->managerSync->sync($data['managerUserId'] ?? null, $branch->id);
+                return $branch;
+            });
 
             // The brand's raw-material upload seeded only the branches that
             // existed at upload time, so a branch created later opened with an
@@ -195,20 +196,21 @@ class BranchController extends AsabController
                 ? AsabRestaurant::withoutGlobalScope('tenant')->findOrFail($data['restaurantId'])
                 : null;
 
-            DB::transaction(fn () => $branch->update(array_filter([
-                'name' => $data['name'] ?? null,
-                'manager' => $data['manager'] ?? null,
-                'asab_manager_user_id' => $data['managerUserId'] ?? null,
-                'city' => $data['city'] ?? null,
-                'address' => $data['address'] ?? null,
-                'phone' => $data['phone'] ?? null,
-                'status' => $data['status'] ?? null,
-                'asab_restaurant_id' => $restaurant?->id,
-                'asab_brand_id' => $restaurant?->brand_id,
-                'asab_company_id' => $restaurant?->company_id,
-            ], fn ($v) => $v !== null)));
-
-            $this->managerSync->sync($data['managerUserId'] ?? null, $branch->id);
+            DB::transaction(function () use ($branch, $data, $restaurant) {
+                $branch->update(array_filter([
+                    'name' => $data['name'] ?? null,
+                    'manager' => $data['manager'] ?? null,
+                    'asab_manager_user_id' => $data['managerUserId'] ?? null,
+                    'city' => $data['city'] ?? null,
+                    'address' => $data['address'] ?? null,
+                    'phone' => $data['phone'] ?? null,
+                    'status' => $data['status'] ?? null,
+                    'asab_restaurant_id' => $restaurant?->id,
+                    'asab_brand_id' => $restaurant?->brand_id,
+                    'asab_company_id' => $restaurant?->company_id,
+                ], fn ($v) => $v !== null));
+                $this->managerSync->sync($data['managerUserId'] ?? null, $branch->id);
+            });
 
             // Linking a pre-existing branch to a restaurant is the moment it
             // joins a brand — seed its purchase items from that brand's catalog.

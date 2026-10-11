@@ -22,7 +22,12 @@ class CashierCustodyTransaction extends Model
         'counterpart_name',
         'related_shift_id',
         'related_handover_id',
+        'receipt_id',
         'transaction_date',
+        'category',
+        'lineage_key',
+        'posting_id',
+        'settlement_id',
     ];
 
     protected $casts = [
@@ -34,5 +39,15 @@ class CashierCustodyTransaction extends Model
     public function cashier(): BelongsTo
     {
         return $this->belongsTo(Cashier::class);
+    }
+
+    public function receipt(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Shift\Models\CashierShiftHandoverReceipt::class, 'receipt_id');
+    }
+
+    public function settlement(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Shift\Models\ShiftHandoverSettlement::class, 'settlement_id');
     }
 }

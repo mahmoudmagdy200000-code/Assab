@@ -12,7 +12,7 @@ class EmployeeMovement extends Model
     protected $table = 'asab_employee_movements';
 
     protected $fillable = [
-        'employee_id', 'movement_date', 'description', 'movement_type', 'category', 'ref', 'amount', 'ref_operation_id', 'created_by_id',
+        'employee_id', 'movement_date', 'description', 'movement_type', 'category', 'ref', 'amount', 'ref_operation_id', 'created_by_id', 'lineage_key', 'posting_id',
     ];
 
     protected $casts = [

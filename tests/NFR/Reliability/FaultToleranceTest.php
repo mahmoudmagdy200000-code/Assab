@@ -234,17 +234,30 @@ class FaultToleranceTest extends TestCase
      */
     public function test_database_connection_recovery(): void
     {
-        // Get initial connection
-        $initialConnection = DB::connection()->getPdo();
-        $this->assertNotNull($initialConnection, 'Initial database connection should work');
+        // Keep the reconnect probe separate from RefreshDatabase's transactional
+        // in-memory connection. Reconnecting that shared PDO loses its outer
+        // transaction and poisons the static in-memory database for later tests.
+        $probe = 'nfr_connection_recovery_probe';
+        config(['database.connections.'.$probe => [
+            'driver' => 'sqlite',
+            'database' => ':memory:',
+            'prefix' => '',
+            'foreign_key_constraints' => true,
+        ]]);
 
-        // Simulate reconnection
         try {
-            DB::reconnect();
-            $reconnected = DB::connection()->getPdo();
+            $initialConnection = DB::connection($probe)->getPdo();
+            $this->assertNotNull($initialConnection, 'Initial database connection should work');
+
+            DB::reconnect($probe);
+            $reconnected = DB::connection($probe)->getPdo();
             $this->assertNotNull($reconnected, 'Database should reconnect successfully');
+            $this->assertNotSame($initialConnection, $reconnected, 'Reconnect should establish a new PDO');
         } catch (\Exception $e) {
             $this->fail('Database reconnection failed: '.$e->getMessage());
+        } finally {
+            DB::purge($probe);
+            config(['database.connections.'.$probe => null]);
         }
     }
 

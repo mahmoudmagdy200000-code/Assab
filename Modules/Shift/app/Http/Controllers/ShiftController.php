@@ -352,6 +352,7 @@ class ShiftController extends BaseController
 
             // Compute next cashier from chronologically next shift (same day, same branch) for display
             $cashierShift->setAttribute('computed_next_cashier', $shiftService->getNextShiftCashier($cashierShift));
+            app(\Modules\Shift\Services\ShiftCashCountService::class)->attachReconciliation($cashierShift);
 
             try {
                 return $this->successResponse(

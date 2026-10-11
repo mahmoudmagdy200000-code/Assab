@@ -29,6 +29,7 @@ class Shift extends Model
         'cashier_employee_id', 'cashier_name', 'role', 'shift_type', 'shift_no',
         'started_at', 'ended_at', 'status', 'orders_count', 'sales_amount',
         'opening_float', 'cash_expected', 'cash_actual', 'variance', 'notes', 'legacy_shift_id',
+        'cash_count_state', 'pending_incoming_counted',
     ];
 
     /**
@@ -50,6 +51,7 @@ class Shift extends Model
         'cash_expected' => 'integer',
         'cash_actual' => 'integer',
         'variance' => 'integer',
+        'pending_incoming_counted' => 'integer',
     ];
 
     /**
@@ -65,5 +67,19 @@ class Shift extends Model
     public function isBranchManagerShift(): bool
     {
         return $this->role === self::ROLE_BRANCH_MANAGER;
+    }
+
+    /** Operational visibility only; financial close eligibility retains active/late. */
+    public function scopeCurrentlyOperational($query)
+    {
+        return $query->where(function ($visible) {
+            $visible->where('asab_shifts.role', self::ROLE_BRANCH_MANAGER)
+                ->orWhereNull('asab_shifts.legacy_shift_id')
+                ->orWhereNotExists(function ($ended) {
+                    $ended->selectRaw('1')->from('cashier_shifts')
+                        ->whereColumn('cashier_shifts.id', 'asab_shifts.legacy_shift_id')
+                        ->whereNotNull('cashier_shifts.operational_ended_at');
+                });
+        });
     }
 }

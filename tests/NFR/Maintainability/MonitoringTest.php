@@ -85,7 +85,8 @@ class MonitoringTest extends TestCase
         // This test verifies the concept - actual log content checking requires log inspection
         $plainPassword = 'password123';
 
-        $manager = BranchManager::factory()->create([
+        $manager = $this->manager;
+        $manager->update([
             'email' => 'log-test@assab.com',
             'password' => Hash::make($plainPassword),
         ]);

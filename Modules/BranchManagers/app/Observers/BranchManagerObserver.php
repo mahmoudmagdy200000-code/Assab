@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Modules\BranchManagers\Events\BranchManagerSuspendedEvent;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\BranchManagers\Services\BranchManagerService;
 
 class BranchManagerObserver
 {
@@ -23,6 +24,8 @@ class BranchManagerObserver
         if (! isset($manager->is_first_login)) {
             $manager->is_first_login = true;
         }
+
+        app(BranchManagerService::class)->assertActiveAssignmentAvailable($manager);
     }
 
     public function created(BranchManager $manager): void
@@ -36,6 +39,19 @@ class BranchManagerObserver
 
     public function updating(BranchManager $manager): void
     {
+        $isDeactivating = ($manager->isDirty('is_active') && ! $manager->is_active)
+            || ($manager->isDirty('status') && $manager->status !== 'active');
+        $isTransferring = $manager->isDirty('branch_id')
+            && (string) $manager->getOriginal('branch_id') !== (string) $manager->branch_id;
+
+        if ($isDeactivating || $isTransferring) {
+            app(BranchManagerService::class)->assertNoOpenAddressedHandovers($manager);
+        }
+
+        if ($manager->isDirty(['branch_id', 'status', 'is_active'])) {
+            app(BranchManagerService::class)->assertActiveAssignmentAvailable($manager);
+        }
+
         // Detect status changes
         if ($manager->isDirty('status')) {
             $oldStatus = $manager->getOriginal('status');
@@ -69,6 +85,11 @@ class BranchManagerObserver
         ]);
     }
 
+    public function restoring(BranchManager $manager): void
+    {
+        app(BranchManagerService::class)->assertActiveAssignmentAvailable($manager);
+    }
+
     public function deleted(BranchManager $manager): void
     {
         Log::warning('Branch Manager deleted', [
@@ -83,6 +104,11 @@ class BranchManagerObserver
 
         // Revoke all tokens
         $manager->tokens()->delete();
+    }
+
+    public function deleting(BranchManager $manager): void
+    {
+        app(BranchManagerService::class)->assertNoOpenAddressedHandovers($manager);
     }
 
     public function restored(BranchManager $manager): void

@@ -106,7 +106,7 @@ class NotificationListenerWiringTest extends TestCase
     public function test_shift_variance_notifies_the_cashier_and_their_branch_managers(): void
     {
         $cashier = Cashier::factory()->create(['branch_id' => $this->branch->id, 'status' => 'active']);
-        $manager = BranchManager::factory()->create(['branch_id' => $this->branch->id, 'status' => 'active']);
+        $manager = BranchManager::where('branch_id', $this->branch->id)->firstOrFail();
 
         $cashierToken = $this->registerDevice($cashier, 'c');
         $managerToken = $this->registerDevice($manager, 'd');

@@ -238,7 +238,7 @@ class FcmNotificationDeliveryTest extends TestCase
     {
         $otherBranch = Branch::factory()->create();
 
-        $inBranch = BranchManager::factory()->create(['branch_id' => $this->branch->id, 'status' => 'active']);
+        $inBranch = BranchManager::where('branch_id', $this->branch->id)->firstOrFail();
         $elsewhere = BranchManager::factory()->create(['branch_id' => $otherBranch->id, 'status' => 'active']);
 
         $wanted = $this->registerDevice($inBranch, 'en', 'd');
@@ -296,10 +296,7 @@ class FcmNotificationDeliveryTest extends TestCase
             'status' => 'active',
         ]);
 
-        $legacyManager = BranchManager::factory()->create([
-            'branch_id' => $this->branch->id,
-            'status' => 'active',
-        ]);
+        $legacyManager = BranchManager::where('branch_id', $this->branch->id)->firstOrFail();
 
         AsabIdentityMap::create([
             'company_id' => $company->id,

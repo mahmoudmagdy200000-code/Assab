@@ -52,6 +52,13 @@ return Application::configure(basePath: dirname(__DIR__))
             ->mondays()
             ->at('04:00');
 
+        // Keep command identities permanently while pruning replayable bodies
+        // after the documented response-retention window.
+        $schedule->command('asab:idempotency-expire-responses')
+            ->daily()
+            ->at('04:20')
+            ->timezone('Asia/Riyadh');
+
         // Drop FCM device tokens no app has used in months. Dead tokens are
         // also pruned reactively when Firebase rejects them, but a device that
         // is simply never opened again never produces a rejection.

@@ -39,6 +39,8 @@ class ShiftDetailResource extends JsonResource
 
             // Variance Information
             'variance_info' => $this->getVarianceInfo(),
+            // S1-10: present only on single-shift responses that attached it; null = no count evidence.
+            'cash_reconciliation' => $this->when($this->resource->relationLoaded('cashReconciliation'), fn () => $this->resource->getRelation('cashReconciliation')),
 
             // Reassignment Information (same structure for all statuses; nulls when not reassigned)
             'reassignment_info' => $this->getReassignmentInfo(),
@@ -264,7 +266,7 @@ class ShiftDetailResource extends JsonResource
             'rejection_details' => $handoverStatus && $handoverStatus->isManagerRejected() ? [
                 'rejection_reason' => $handoverStatus->rejection_reason,
                 'rejection_count' => $handoverStatus->rejection_count,
-                'is_final_rejection' => $handoverStatus->isPermanentlyRejected(),
+                'is_final_rejection' => false,
                 'can_edit' => $handoverStatus->canCashierEdit(),
                 'first_rejected_at' => $handoverStatus->first_rejected_at?->format('Y-m-d H:i:s'),
                 'second_rejected_at' => $handoverStatus->second_rejected_at?->format('Y-m-d H:i:s'),

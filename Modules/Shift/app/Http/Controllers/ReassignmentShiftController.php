@@ -2,18 +2,25 @@
 
 namespace Modules\Shift\Http\Controllers;
 
+use App\Support\ShiftFinancialCalculator;
+use App\Support\ShiftMoneyValidation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ResponsibilityType;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Enums\VarianceType;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\ShiftVarianceDetail;
+use Modules\Shift\Services\ShiftCashCountService;
+use Modules\Shift\Services\ShiftEndService;
 use Modules\Shift\Services\ShiftNotificationService;
+use Modules\Shift\Services\ShiftReportRevisionService;
 use Modules\Shift\Services\ShiftService;
 use Modules\Shift\Transformers\CashierShiftResource;
 use Modules\Shift\Transformers\ShiftDetailResource;
@@ -326,19 +333,28 @@ class ReassignmentShiftController extends Controller
             ], 400);
         }
 
+        ShiftMoneyValidation::normalizeRepresentationNoise($request);
         $validator = Validator::make($request->all(), [
             'new_cashier_id' => 'required|exists:cashiers,id',
             'reason' => 'nullable|string|max:500', // غيرت من required ل nullable
-            'handover_amount' => 'required|numeric|min:0',
+            'handover_amount' => 'required|'.ShiftMoneyValidation::SAR,
             'handover_notes' => 'nullable|string|max:500',
 
-            'current_sales' => 'sometimes|numeric|min:0',
-            'cash_collected' => 'sometimes|numeric|min:0',
-            'card_payments' => 'sometimes|numeric|min:0',
+            'current_sales' => 'sometimes|'.ShiftMoneyValidation::SAR,
+            'cash_collected' => 'sometimes|'.ShiftMoneyValidation::SAR,
+            'card_payments' => 'sometimes|'.ShiftMoneyValidation::SAR,
+
+            // S1-10: a report (current_sales) is counted with the same shared rule as shift end.
+            'counted_cash' => 'required_with:current_sales|'.ShiftMoneyValidation::SAR,
+            'shortage_allocations' => 'sometimes|array',
+            'shortage_allocations.*.responsible_type' => 'required_with:shortage_allocations|in:cashier,branch_manager,employee',
+            'shortage_allocations.*.responsible_id' => 'required_with:shortage_allocations|string|max:64',
+            'shortage_allocations.*.amount' => 'required_with:shortage_allocations|'.ShiftMoneyValidation::SAR,
+            'allocation_reason' => 'nullable|string|max:500',
 
             'aggregators' => 'sometimes|array',
             'aggregators.*.aggregator_id' => 'required_with:aggregators|exists:aggregators,id',
-            'aggregators.*.amount' => 'required_with:aggregators|numeric|min:0',
+            'aggregators.*.amount' => 'required_with:aggregators|'.ShiftMoneyValidation::SAR,
             'aggregators.*.notes' => 'nullable|string|max:255',
 
             'pos_receipt' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
@@ -346,11 +362,11 @@ class ReassignmentShiftController extends Controller
             // ---------- Added Variance Validation ----------
             'variance' => 'sometimes|array',
             'variance.responsibility_type' => 'required_with:variance|in:self,self_and_others,other_factors,mixed',
-            'variance.current_cashier_amount' => 'required_if:variance.responsibility_type,self_and_others,mixed|numeric|min:0',
+            'variance.current_cashier_amount' => 'required_if:variance.responsibility_type,self_and_others,mixed|'.ShiftMoneyValidation::SAR,
 
             'variance.other_cashiers' => 'sometimes|array',
             'variance.other_cashiers.*.cashier_id' => 'required_with:variance.other_cashiers|exists:cashiers,id',
-            'variance.other_cashiers.*.amount' => 'required_with:variance.other_cashiers|numeric|min:0',
+            'variance.other_cashiers.*.amount' => 'required_with:variance.other_cashiers|'.ShiftMoneyValidation::SAR,
             'variance.other_cashiers.*.notes' => 'nullable|string|max:255',
 
             'variance.reason' => 'required_if:variance.responsibility_type,other_factors,mixed|string|max:500',
@@ -360,6 +376,9 @@ class ReassignmentShiftController extends Controller
             // ------------------------------------------------
         ]);
         $validator->after(function (\Illuminate\Validation\Validator $v) use ($request) {
+            if ($request->has('counted_cash') && ! $request->has('current_sales')) {
+                $v->errors()->add('counted_cash', 'A count needs the report it counts (current_sales).');
+            }
             $aggs = $request->input('aggregators', []);
             if (empty($aggs)) {
                 return;
@@ -378,337 +397,358 @@ class ReassignmentShiftController extends Controller
             ], 422);
         }
 
-        DB::beginTransaction();
+        // Authorize and confirm the shift exists BEFORE anything is written to storage (cashier tokens reach
+        // this route through the shared group; only a branch manager of the shift's branch may continue).
+        $actor = auth()->user();
+        if (! $actor instanceof BranchManager || ! $actor->branch_id) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+        }
+        $preShift = CashierShift::withoutEagerLoads()->with('shift:id,branch_id')->find($shift);
+        if (! $preShift) {
+            return response()->json(['success' => false, 'message' => 'Shift not found', 'error' => 'The specified shift does not exist'], 404);
+        }
+        if ($preShift->shift?->branch_id !== $actor->branch_id) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized: This shift does not belong to your branch'], 403);
+        }
+
+        // Stage uploads before the financial transaction (no file I/O inside it); remove them if the request fails.
+        $posReceiptPath = null;
+        $stagedSupporting = [];
+        if ($request->hasFile('pos_receipt')) {
+            $posReceiptPath = $request->file('pos_receipt')->store('handovers/receipts', 'public');
+        }
+        foreach ((array) data_get($request->allFiles(), 'variance.supporting_files', []) as $file) {
+            $stagedSupporting[] = $file->storeAs('variance/supporting-files', 'reassign_'.$shift.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension(), 'public');
+        }
+        $discardStaged = function () use (&$posReceiptPath, &$stagedSupporting): void {
+            $paths = array_filter([$posReceiptPath, ...$stagedSupporting]);
+            if ($paths !== []) {
+                Storage::disk('public')->delete($paths);
+            }
+        };
+
         try {
-            $manager = auth()->user();
+            $response = DB::transaction(function () use ($request, $shift, $posReceiptPath, $stagedSupporting) {
+                $manager = auth()->user();
 
-            // Ensure the user is a branch manager
-            if (! $manager || ! $manager->branch_id) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthorized',
-                ], 403);
-            }
+                // Ensure the user is a branch manager
+                if (! $manager || ! $manager->branch_id) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Unauthorized',
+                    ], 403);
+                }
 
-            // البحث مرة واحدة فقط
-            $shiftModel = CashierShift::with(['cashier', 'shift'])->find($shift);
+                // البحث مرة واحدة فقط
+                $shiftModel = CashierShift::with(['cashier', 'shift'])->lockForUpdate()->find($shift);
 
-            if (! $shiftModel) {
-                DB::rollBack();
+                if (! $shiftModel) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Shift not found',
+                        'error' => 'The specified shift does not exist',
+                    ], 404);
+                }
 
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Shift not found',
-                    'error' => 'The specified shift does not exist',
-                ], 404);
-            }
+                // Verify shift belongs to manager's branch
+                if ($shiftModel->shift->branch_id !== $manager->branch_id) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Unauthorized: This shift does not belong to your branch',
+                    ], 403);
+                }
 
-            // Verify shift belongs to manager's branch
-            if ($shiftModel->shift->branch_id !== $manager->branch_id) {
-                DB::rollBack();
+                // Verify cashier belongs to manager's branch
+                if ($shiftModel->cashier->branch_id !== $manager->branch_id) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Unauthorized: This cashier does not belong to your branch',
+                    ], 403);
+                }
 
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthorized: This shift does not belong to your branch',
-                ], 403);
-            }
+                if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Can only reassign with handover for in-progress shifts',
+                    ], 400);
+                }
 
-            // Verify cashier belongs to manager's branch
-            if ($shiftModel->cashier->branch_id !== $manager->branch_id) {
-                DB::rollBack();
+                if ($shiftModel->cashier_id == $request->new_cashier_id) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Cannot reassign to the same cashier',
+                    ], 400);
+                }
 
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthorized: This cashier does not belong to your branch',
-                ], 403);
-            }
+                $newCashier = Cashier::find($request->new_cashier_id);
+                if (! $newCashier) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'New cashier not found',
+                    ], 404);
+                }
 
-            if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
-                DB::rollBack();
+                // Verify new cashier belongs to manager's branch
+                if ($newCashier->branch_id !== $manager->branch_id) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Unauthorized: The selected cashier does not belong to your branch',
+                    ], 403);
+                }
 
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Can only reassign with handover for in-progress shifts',
-                ], 400);
-            }
+                // Conflict check
+                $conflictingShift = CashierShift::where('cashier_id', $newCashier->id)
+                    ->where('id', '!=', $shift)
+                    ->whereIn('status', [ShiftStatus::IN_PROGRESS, ShiftStatus::NOT_STARTED])
+                    ->whereDate('shift_date', $shiftModel->shift_date)
+                    ->first();
 
-            if ($shiftModel->cashier_id == $request->new_cashier_id) {
-                DB::rollBack();
+                if ($conflictingShift) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'The selected cashier is already assigned to another active shift',
+                    ], 400);
+                }
 
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Cannot reassign to the same cashier',
-                ], 400);
-            }
+                // Store original cashier
+                if (CashierShift::where('cashier_id', $newCashier->id)->where('shift_id', $shiftModel->shift_id)
+                    ->whereDate('shift_date', $shiftModel->shift_date)->whereKeyNot($shiftModel->id)->lockForUpdate()->exists()) {
+                    throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('INCOMING_REPORT_ALREADY_EXISTS');
+                }
+                $originalCashierId = $shiftModel->cashier_id;
+                $originalCashier = Cashier::find($originalCashierId);
 
-            $newCashier = Cashier::find($request->new_cashier_id);
-            if (! $newCashier) {
-                DB::rollBack();
+                if (! $originalCashier) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Original cashier not found',
+                    ], 404);
+                }
 
-                return response()->json([
-                    'success' => false,
-                    'message' => 'New cashier not found',
-                ], 404);
-            }
-
-            // Verify new cashier belongs to manager's branch
-            if ($newCashier->branch_id !== $manager->branch_id) {
-                DB::rollBack();
-
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Unauthorized: The selected cashier does not belong to your branch',
-                ], 403);
-            }
-
-            // Conflict check
-            $conflictingShift = CashierShift::where('cashier_id', $newCashier->id)
-                ->where('id', '!=', $shift)
-                ->whereIn('status', [ShiftStatus::IN_PROGRESS, ShiftStatus::NOT_STARTED])
-                ->whereDate('shift_date', $shiftModel->shift_date)
-                ->first();
-
-            if ($conflictingShift) {
-                DB::rollBack();
-
-                return response()->json([
-                    'success' => false,
-                    'message' => 'The selected cashier is already assigned to another active shift',
-                ], 400);
-            }
-
-            // Store original cashier
-            $originalCashierId = $shiftModel->original_cashier_id ?? $shiftModel->cashier_id;
-            $originalCashier = Cashier::find($originalCashierId);
-
-            if (! $originalCashier) {
-                DB::rollBack();
-
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Original cashier not found',
-                ], 404);
-            }
-
-            // Receipt upload
-            $posReceiptPath = null;
-            if ($request->hasFile('pos_receipt')) {
-                $posReceiptPath = $request->file('pos_receipt')->store('handovers/receipts', 'public');
-            }
-
-            // Create handover
-            $handover = $shiftModel->handoverStatus()->create([
-                'handover_amount' => $request->handover_amount,
-                'handover_notes' => $request->handover_notes,
-                'handover_type' => 'reassignment',
-                'handed_over_by' => $shiftModel->cashier_id,
-                'handed_over_to' => $request->new_cashier_id,
-                'handover_at' => now(),
-                'acceptance_status' => 'pending',
-                'pos_receipt_path' => $posReceiptPath,
-            ]);
-
-            // Store current sales breakdown (optional)
-            if ($request->has('current_sales')) {
-                $shiftModel->update([
-                    'total_sales' => $request->current_sales,
-                    'cash_collected' => $request->cash_collected ?? 0,
-                    'card_payments' => $request->card_payments ?? 0,
+                // Create handover
+                // An existing source approval/request is evidence, not the incoming work acceptance.
+                $handover = $shiftModel->handoverStatus()->firstOrCreate([], [
+                    'handover_amount' => $request->handover_amount,
+                    'handover_notes' => $request->handover_notes,
+                    'handover_type' => 'reassignment',
+                    'handed_over_by' => $shiftModel->cashier_id,
+                    'handed_over_to' => $request->new_cashier_id,
+                    'handover_at' => now(),
+                    'acceptance_status' => 'pending',
+                    'pos_receipt_path' => $posReceiptPath,
                 ]);
 
-                if ($request->has('aggregators')) {
-                    $shiftModel->salesBreakdown()->delete();
-                    foreach ($request->aggregators as $aggregator) {
-                        $shiftModel->salesBreakdown()->create([
-                            'aggregator_id' => $aggregator['aggregator_id'],
-                            'amount' => $aggregator['amount'],
-                            'notes' => $aggregator['notes'] ?? null,
-                        ]);
-                    }
-                }
-            }
+                // Store current sales breakdown (optional)
+                if ($request->has('current_sales')) {
+                    // VAT-inclusive split through the shared calculator (BR-01), as on the end-shift paths.
+                    $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($request->current_sales);
+                    $shiftModel->update([
+                        'total_sales' => $request->current_sales,
+                        'net_sales' => $salesCalculation['net'],
+                        'vat_amount' => $salesCalculation['vat'],
+                        'cash_collected' => $request->cash_collected ?? 0,
+                        'card_payments' => $request->card_payments ?? 0,
+                    ]);
 
-            // ------------------------------------------------
-            // Variance: align with shift_variance_details schema (variance_amount, variance_type, etc.)
-            // ------------------------------------------------
-
-            if ($request->has('variance')) {
-                $shiftModel->refresh();
-                $signedVariance = $shiftModel->calculateVariance();
-                $varianceAmount = abs($signedVariance);
-                $varianceType = $signedVariance >= 0 ? VarianceType::OVER : VarianceType::SHORT;
-
-                $shiftModel->update(['variance' => $signedVariance]);
-
-                $varianceInput = $request->variance;
-                $responsibilityType = $this->normalizeResponsibilityType($varianceInput['responsibility_type'] ?? 'self');
-
-                $supportingFiles = null;
-                if (! empty($varianceInput['supporting_files']) && is_array($varianceInput['supporting_files'])) {
-                    $paths = [];
-                    foreach ($varianceInput['supporting_files'] as $file) {
-                        if (is_object($file) && method_exists($file, 'store')) {
-                            $paths[] = $file->storeAs('variance/supporting-files', 'reassign_'.$shiftModel->id.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension(), 'public');
+                    if ($request->has('aggregators')) {
+                        $shiftModel->salesBreakdown()->delete();
+                        foreach ($request->aggregators as $aggregator) {
+                            $shiftModel->salesBreakdown()->create([
+                                'aggregator_id' => $aggregator['aggregator_id'],
+                                'amount' => $aggregator['amount'],
+                                'notes' => $aggregator['notes'] ?? null,
+                            ]);
                         }
                     }
-                    $supportingFiles = $paths ?: null;
                 }
 
-                $reason = $varianceInput['reason'] ?? $varianceInput['notes'] ?? null;
+                // ------------------------------------------------
+                // Variance: align with shift_variance_details schema (variance_amount, variance_type, etc.)
+                // ------------------------------------------------
 
-                if ($responsibilityType === ResponsibilityType::I_WAS_RESPONSIBLE) {
-                    ShiftVarianceDetail::create([
-                        'cashier_shift_id' => $shiftModel->id,
-                        'variance_amount' => $varianceAmount,
-                        'variance_type' => $varianceType,
-                        'responsibility_type' => $responsibilityType,
-                        'responsible_cashier_id' => $originalCashierId,
-                        'assigned_amount' => $varianceAmount,
-                        'reason' => $reason,
-                        'supporting_files' => $supportingFiles,
-                    ]);
-                } elseif ($responsibilityType === ResponsibilityType::ME_AND_OTHER_FACTORS) {
-                    $currentCashierAmount = (float) ($varianceInput['current_cashier_amount'] ?? 0);
-                    ShiftVarianceDetail::create([
-                        'cashier_shift_id' => $shiftModel->id,
-                        'variance_amount' => $varianceAmount,
-                        'variance_type' => $varianceType,
-                        'responsibility_type' => $responsibilityType,
-                        'responsible_cashier_id' => $originalCashierId,
-                        'assigned_amount' => $currentCashierAmount,
-                        'reason' => $reason,
-                        'supporting_files' => $supportingFiles,
-                    ]);
-                    $otherCashiers = $varianceInput['other_cashiers'] ?? [];
-                    foreach ($otherCashiers as $other) {
+                if ($request->has('variance')) {
+                    $shiftModel->refresh();
+                    $signedVariance = $shiftModel->calculateVariance();
+                    $varianceAmount = abs($signedVariance);
+                    $varianceType = $signedVariance >= 0 ? VarianceType::OVER : VarianceType::SHORT;
+
+                    $shiftModel->update(['variance' => $signedVariance]);
+
+                    $varianceInput = $request->variance;
+                    $responsibilityType = $this->normalizeResponsibilityType($varianceInput['responsibility_type'] ?? 'self');
+
+                    $supportingFiles = $stagedSupporting ?: null;
+
+                    $reason = $varianceInput['reason'] ?? $varianceInput['notes'] ?? null;
+
+                    if ($responsibilityType === ResponsibilityType::I_WAS_RESPONSIBLE) {
                         ShiftVarianceDetail::create([
                             'cashier_shift_id' => $shiftModel->id,
                             'variance_amount' => $varianceAmount,
                             'variance_type' => $varianceType,
                             'responsibility_type' => $responsibilityType,
-                            'responsible_cashier_id' => $other['cashier_id'] ?? null,
-                            'assigned_amount' => (float) ($other['amount'] ?? 0),
-                            'reason' => $other['notes'] ?? null,
-                            'supporting_files' => null,
+                            'responsible_cashier_id' => $originalCashierId,
+                            'assigned_amount' => $varianceAmount,
+                            'reason' => $reason,
+                            'supporting_files' => $supportingFiles,
                         ]);
-                    }
-                } elseif ($responsibilityType === ResponsibilityType::OTHER_FACTORS) {
-                    ShiftVarianceDetail::create([
-                        'cashier_shift_id' => $shiftModel->id,
-                        'variance_amount' => $varianceAmount,
-                        'variance_type' => $varianceType,
-                        'responsibility_type' => $responsibilityType,
-                        'responsible_cashier_id' => null,
-                        'assigned_amount' => $varianceAmount,
-                        'reason' => $reason,
-                        'supporting_files' => $supportingFiles,
-                    ]);
-                } elseif ($responsibilityType === ResponsibilityType::MIXED_FACTORS) {
-                    $otherCashiers = $varianceInput['other_cashiers'] ?? $varianceInput['cashiers'] ?? [];
-                    foreach ($otherCashiers as $other) {
+                    } elseif ($responsibilityType === ResponsibilityType::ME_AND_OTHER_FACTORS) {
+                        $currentCashierAmount = (float) ($varianceInput['current_cashier_amount'] ?? 0);
                         ShiftVarianceDetail::create([
                             'cashier_shift_id' => $shiftModel->id,
                             'variance_amount' => $varianceAmount,
                             'variance_type' => $varianceType,
                             'responsibility_type' => $responsibilityType,
-                            'responsible_cashier_id' => $other['cashier_id'] ?? null,
-                            'assigned_amount' => (float) ($other['amount'] ?? 0),
-                            'reason' => $other['notes'] ?? null,
-                            'supporting_files' => null,
+                            'responsible_cashier_id' => $originalCashierId,
+                            'assigned_amount' => $currentCashierAmount,
+                            'reason' => $reason,
+                            'supporting_files' => $supportingFiles,
                         ]);
-                    }
-                    $totalCashierAmount = collect($otherCashiers)->sum(fn ($c) => (float) ($c['amount'] ?? 0));
-                    $externalAmount = $varianceAmount - $totalCashierAmount;
-                    if ($externalAmount > 0) {
+                        $otherCashiers = $varianceInput['other_cashiers'] ?? [];
+                        foreach ($otherCashiers as $other) {
+                            ShiftVarianceDetail::create([
+                                'cashier_shift_id' => $shiftModel->id,
+                                'variance_amount' => $varianceAmount,
+                                'variance_type' => $varianceType,
+                                'responsibility_type' => $responsibilityType,
+                                'responsible_cashier_id' => $other['cashier_id'] ?? null,
+                                'assigned_amount' => (float) ($other['amount'] ?? 0),
+                                'reason' => $other['notes'] ?? null,
+                                'supporting_files' => null,
+                            ]);
+                        }
+                    } elseif ($responsibilityType === ResponsibilityType::OTHER_FACTORS) {
                         ShiftVarianceDetail::create([
                             'cashier_shift_id' => $shiftModel->id,
                             'variance_amount' => $varianceAmount,
                             'variance_type' => $varianceType,
                             'responsibility_type' => $responsibilityType,
                             'responsible_cashier_id' => null,
-                            'assigned_amount' => $externalAmount,
-                            'reason' => $varianceInput['external_reason'] ?? $reason,
+                            'assigned_amount' => $varianceAmount,
+                            'reason' => $reason,
                             'supporting_files' => $supportingFiles,
                         ]);
+                    } elseif ($responsibilityType === ResponsibilityType::MIXED_FACTORS) {
+                        $otherCashiers = $varianceInput['other_cashiers'] ?? $varianceInput['cashiers'] ?? [];
+                        foreach ($otherCashiers as $other) {
+                            ShiftVarianceDetail::create([
+                                'cashier_shift_id' => $shiftModel->id,
+                                'variance_amount' => $varianceAmount,
+                                'variance_type' => $varianceType,
+                                'responsibility_type' => $responsibilityType,
+                                'responsible_cashier_id' => $other['cashier_id'] ?? null,
+                                'assigned_amount' => (float) ($other['amount'] ?? 0),
+                                'reason' => $other['notes'] ?? null,
+                                'supporting_files' => null,
+                            ]);
+                        }
+                        $totalCashierAmount = collect($otherCashiers)->sum(fn ($c) => (float) ($c['amount'] ?? 0));
+                        $externalAmount = $varianceAmount - $totalCashierAmount;
+                        if ($externalAmount > 0) {
+                            ShiftVarianceDetail::create([
+                                'cashier_shift_id' => $shiftModel->id,
+                                'variance_amount' => $varianceAmount,
+                                'variance_type' => $varianceType,
+                                'responsibility_type' => $responsibilityType,
+                                'responsible_cashier_id' => null,
+                                'assigned_amount' => $externalAmount,
+                                'reason' => $varianceInput['external_reason'] ?? $reason,
+                                'supporting_files' => $supportingFiles,
+                            ]);
+                        }
                     }
                 }
+
+                // ------------------------------------------------
+
+                // S1-10: the outgoing cashier's report is counted before the shift changes hands. The report
+                // revision, count, calculation and (for a shortage) the complete allocation share this
+                // transaction with the reassignment and handover record.
+                if ($request->has('current_sales')) {
+                    $shiftModel->refresh();
+                    $revision = app(ShiftReportRevisionService::class)->recordCashierRevision($shiftModel, 'branch_manager', (string) $manager->id);
+                    $reports = app(ShiftEndService::class);
+                    $reports->recordReportCount($shiftModel, $revision, $reports->parseCountedCash($request->all()), $request->all(), $manager);
+                }
+
+                // Update shift after reassignment
+                $shiftModel->update([
+                    'original_cashier_id' => $originalCashierId,
+                    'cashier_id' => $request->new_cashier_id,
+                    'next_cashier_id' => $request->new_cashier_id,
+                    'status' => ShiftStatus::REASSIGNED,
+                    'reassigned_by' => auth()->id(),
+                    'reassignment_reason' => $request->reason, // ممكن يكون null
+                    'reassigned_at' => now(),
+                    'handover_completed' => true,
+                ]);
+
+                // Record history
+                $shiftModel->history()->create([
+                    'action' => 'reassigned_with_handover',
+                    'performed_by' => auth()->id(),
+                    'performed_by_type' => 'branch_manager',
+                    'old_value' => json_encode([
+                        'cashier_id' => $originalCashierId,
+                        'cashier_name' => $originalCashier->name,
+                    ]),
+                    'new_value' => json_encode([
+                        'cashier_id' => $request->new_cashier_id,
+                        'cashier_name' => $newCashier->name,
+                        'handover_amount' => $request->handover_amount,
+                        'reason' => $request->reason, // ممكن يكون null
+                    ]),
+                    'notes' => $request->reason ?
+                        'Shift reassigned with handover by branch manager: '.$request->reason :
+                        'Shift reassigned with handover by branch manager',
+                ]);
+
+                $sourceCashierShiftId = $shiftModel->id;
+                $shiftModel = app(\Modules\Shift\Services\ReassignmentReportOwnershipService::class)->separate($shiftModel);
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Shift reassigned successfully with handover',
+                    'data' => [
+                        'source_cashier_shift_id' => $sourceCashierShiftId,
+                        'summary' => [
+                            'previous_cashier' => $originalCashier->name,
+                            'next_cashier_selected' => $newCashier->name,
+                            'shift_date' => $shiftModel->shift_date->format('Y-m-d'),
+                            'start_time' => $shiftModel->shift->start_time,
+                            'end_time' => $shiftModel->shift->end_time,
+                            'reason' => $request->reason, // ممكن يكون null
+                            'reassigned_at' => now()->format('Y-m-d H:i:s'),
+                            'handover_details' => [
+                                'handover_amount' => (float) $request->handover_amount,
+                                'handover_notes' => $request->handover_notes,
+                                'current_sales' => (float) ($request->current_sales ?? 0),
+                                'handover_status' => 'pending_acceptance',
+                            ],
+                        ],
+                        'shift' => new ShiftDetailResource(app(ShiftCashCountService::class)->attachReconciliation($shiftModel->fresh([
+                            'cashier',
+                            'shift',
+                            'nextCashier',
+                            'originalCashier',
+                            'reassignedBy',
+                            'handoverStatus',
+                            'salesBreakdown.aggregator',
+                            'varianceDetails.responsibleCashier',
+                        ]))),
+                    ],
+                ]);
+            });
+
+            if ($response->getStatusCode() >= 400) {
+                $discardStaged();
             }
 
-            // ------------------------------------------------
+            return $response;
+        } catch (\Throwable $e) {
+            $discardStaged();
 
-            // Update shift after reassignment
-            $shiftModel->update([
-                'original_cashier_id' => $originalCashierId,
-                'cashier_id' => $request->new_cashier_id,
-                'next_cashier_id' => $request->new_cashier_id,
-                'status' => ShiftStatus::REASSIGNED,
-                'reassigned_by' => auth()->id(),
-                'reassignment_reason' => $request->reason, // ممكن يكون null
-                'reassigned_at' => now(),
-                'handover_completed' => true,
-            ]);
-
-            // Record history
-            $shiftModel->history()->create([
-                'action' => 'reassigned_with_handover',
-                'performed_by' => auth()->id(),
-                'performed_by_type' => 'branch_manager',
-                'old_value' => json_encode([
-                    'cashier_id' => $originalCashierId,
-                    'cashier_name' => $originalCashier->name,
-                ]),
-                'new_value' => json_encode([
-                    'cashier_id' => $request->new_cashier_id,
-                    'cashier_name' => $newCashier->name,
-                    'handover_amount' => $request->handover_amount,
-                    'reason' => $request->reason, // ممكن يكون null
-                ]),
-                'notes' => $request->reason ?
-                    'Shift reassigned with handover by branch manager: '.$request->reason :
-                    'Shift reassigned with handover by branch manager',
-            ]);
-
-            DB::commit();
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Shift reassigned successfully with handover',
-                'data' => [
-                    'summary' => [
-                        'previous_cashier' => $originalCashier->name,
-                        'next_cashier_selected' => $newCashier->name,
-                        'shift_date' => $shiftModel->shift_date->format('Y-m-d'),
-                        'start_time' => $shiftModel->shift->start_time,
-                        'end_time' => $shiftModel->shift->end_time,
-                        'reason' => $request->reason, // ممكن يكون null
-                        'reassigned_at' => now()->format('Y-m-d H:i:s'),
-                        'handover_details' => [
-                            'handover_amount' => (float) $request->handover_amount,
-                            'handover_notes' => $request->handover_notes,
-                            'current_sales' => (float) ($request->current_sales ?? 0),
-                            'handover_status' => 'pending_acceptance',
-                        ],
-                    ],
-                    'shift' => new ShiftDetailResource($shiftModel->fresh([
-                        'cashier',
-                        'shift',
-                        'nextCashier',
-                        'originalCashier',
-                        'reassignedBy',
-                        'handoverStatus',
-                        'salesBreakdown.aggregator',
-                        'varianceDetails.responsibleCashier',
-                    ])),
-                ],
-            ]);
-        } catch (\Exception $e) {
-            DB::rollBack();
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to reassign shift with handover',
-                'error' => $e->getMessage(),
-            ], 500);
+            return HandoverErrorResponse::from($e, 'reassign shift with handover');
         }
     }
 

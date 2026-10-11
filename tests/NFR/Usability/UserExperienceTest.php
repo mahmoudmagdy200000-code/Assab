@@ -183,7 +183,8 @@ class UserExperienceTest extends TestCase
         $this->assertEquals(422, $response->status(), 'Validation errors should be returned immediately');
 
         $data = $response->json();
-        $this->assertFalse($data['success'] ?? true, 'Success should be false on validation error');
+        $this->assertArrayHasKey('errors', $data, 'Validation response should contain field errors');
+        $this->assertNotEmpty($data['errors'], 'Validation response should describe the invalid input');
     }
 
     /**

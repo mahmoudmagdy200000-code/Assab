@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Services;
 
+use App\Support\ShiftFinancialCalculator;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Shift;
 use Modules\Branch\Models\Branch;
@@ -82,7 +83,7 @@ class LegacyShiftMirror
             'status' => 'active',
             'orders_count' => 0,
             'sales_amount' => 0,
-            'opening_float' => (int) round(((float) $legacy->opening_balance) * 100),
+            'opening_float' => ShiftFinancialCalculator::storedSarToHalalas($legacy->opening_balance),
             'legacy_shift_id' => $legacy->id,
         ]);
 

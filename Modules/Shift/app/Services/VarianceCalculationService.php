@@ -13,16 +13,14 @@ use Modules\Shift\Models\ShiftVarianceDetail;
 class VarianceCalculationService
 {
     public function __construct(
-        private ShiftNotificationService $notificationService
+        private ShiftNotificationService $notificationService,
+        private ShiftReportRevisionSnapshotService $snapshots
     ) {}
 
     public function recordVariance(CashierShift $shift, array $varianceData): void
     {
         DB::beginTransaction();
         try {
-            // Delete existing variance details to prevent duplicates
-            ShiftVarianceDetail::where('cashier_shift_id', $shift->id)->delete();
-
             $varianceAmount = abs($shift->calculateVariance());
             $varianceType = $shift->calculateVariance() > 0
                 ? VarianceType::OVER
@@ -32,6 +30,12 @@ class VarianceCalculationService
             $shift->update([
                 'variance' => $shift->calculateVariance(),
             ]);
+
+            // Preserve any reviewed evidence for the previous revision before purging current projection
+            $this->snapshots->preserveVarianceReviews($shift);
+
+            // Purge old projection rows so removed assignees or responsibility types are excluded from current sum
+            ShiftVarianceDetail::where('cashier_shift_id', $shift->id)->delete();
 
             // Handle different responsibility types
             switch ($varianceData['responsibility_type']) {
@@ -69,7 +73,7 @@ class VarianceCalculationService
             DB::commit();
 
             // Custody ledger entries are created only after responsibility is approved (VarianceRecorded from controllers / handover approval).
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('Variance recording failed', [
                 'shift_id' => $shift->id,
@@ -87,15 +91,20 @@ class VarianceCalculationService
         array $data = []
     ): void {
         $reason = $data['reason'] ?? $data['notes'] ?? null;
+        $supportingFiles = null;
+        if (! empty($data['supporting_files'])) {
+            $supportingFiles = $this->uploadSupportingFiles($data['supporting_files'], $shift->id);
+        }
+
         ShiftVarianceDetail::create([
             'cashier_shift_id' => $shift->id,
-            'variance_amount' => $amount,
-            'variance_type' => $type,
             'responsibility_type' => ResponsibilityType::I_WAS_RESPONSIBLE,
             'responsible_cashier_id' => $shift->cashier_id,
+            'variance_amount' => $amount,
+            'variance_type' => $type,
             'assigned_amount' => $amount,
             'reason' => $reason,
-            'supporting_files' => null,
+            'supporting_files' => $supportingFiles,
         ]);
     }
 
@@ -126,10 +135,10 @@ class VarianceCalculationService
 
         ShiftVarianceDetail::create([
             'cashier_shift_id' => $shift->id,
-            'variance_amount' => $amount,
-            'variance_type' => $type,
             'responsibility_type' => ResponsibilityType::ME_AND_OTHER_FACTORS,
             'responsible_cashier_id' => $shift->cashier_id,
+            'variance_amount' => $amount,
+            'variance_type' => $type,
             'assigned_amount' => $currentCashierAmount,
             'reason' => $reason,
             'supporting_files' => $supportingFiles,
@@ -140,10 +149,10 @@ class VarianceCalculationService
             foreach ($otherCashiers as $otherCashier) {
                 ShiftVarianceDetail::create([
                     'cashier_shift_id' => $shift->id,
-                    'variance_amount' => $amount,
-                    'variance_type' => $type,
                     'responsibility_type' => ResponsibilityType::ME_AND_OTHER_FACTORS,
                     'responsible_cashier_id' => $otherCashier['cashier_id'],
+                    'variance_amount' => $amount,
+                    'variance_type' => $type,
                     'assigned_amount' => $otherCashier['amount'],
                     'reason' => $otherCashier['notes'] ?? null,
                     'supporting_files' => null,
@@ -165,10 +174,10 @@ class VarianceCalculationService
 
         ShiftVarianceDetail::create([
             'cashier_shift_id' => $shift->id,
-            'variance_amount' => $amount,
-            'variance_type' => $type,
             'responsibility_type' => ResponsibilityType::OTHER_FACTORS,
             'responsible_cashier_id' => null,
+            'variance_amount' => $amount,
+            'variance_type' => $type,
             'assigned_amount' => $amount,
             'reason' => $data['reason'] ?? null,
             'supporting_files' => $supportingFiles,
@@ -201,10 +210,10 @@ class VarianceCalculationService
             foreach ($cashiers as $cashier) {
                 ShiftVarianceDetail::create([
                     'cashier_shift_id' => $shift->id,
-                    'variance_amount' => $amount,
-                    'variance_type' => $type,
                     'responsibility_type' => ResponsibilityType::MIXED_FACTORS,
                     'responsible_cashier_id' => $cashier['cashier_id'],
+                    'variance_amount' => $amount,
+                    'variance_type' => $type,
                     'assigned_amount' => $cashier['amount'],
                     'reason' => $cashier['notes'] ?? null,
                     'supporting_files' => null,
@@ -219,10 +228,10 @@ class VarianceCalculationService
         if ($externalAmount > 0) {
             ShiftVarianceDetail::create([
                 'cashier_shift_id' => $shift->id,
-                'variance_amount' => $amount,
-                'variance_type' => $type,
                 'responsibility_type' => ResponsibilityType::MIXED_FACTORS,
                 'responsible_cashier_id' => null,
+                'variance_amount' => $amount,
+                'variance_type' => $type,
                 'assigned_amount' => $externalAmount,
                 'reason' => $data['external_reason'] ?? $data['reason'] ?? null,
                 'supporting_files' => $supportingFiles,
@@ -262,15 +271,26 @@ class VarianceCalculationService
 
     private function uploadSupportingFiles(array $files, string $shiftId): string
     {
+        return json_encode($this->stageSupportingFiles($files, $shiftId));
+    }
+
+    /** Store supporting files before a caller acquires financial locks. */
+    public function stageSupportingFiles(array $files, string $shiftId): array
+    {
         $uploadedFiles = [];
 
         foreach ($files as $file) {
+            if (is_string($file)) {
+                $uploadedFiles[] = $file;
+
+                continue;
+            }
+
             $filename = 'variance_'.$shiftId.'_'.time().'_'.uniqid().'.'.$file->getClientOriginalExtension();
-            $path = $file->storeAs('variance/supporting-files', $filename, 'public');
-            $uploadedFiles[] = $path;
+            $uploadedFiles[] = $file->storeAs('variance/supporting-files', $filename, 'public');
         }
 
-        return json_encode($uploadedFiles);
+        return $uploadedFiles;
     }
 
     /**

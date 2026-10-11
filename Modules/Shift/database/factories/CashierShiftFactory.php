@@ -2,6 +2,7 @@
 
 namespace Modules\Shift\Database\Factories;
 
+use App\Support\ShiftFinancialCalculator;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
@@ -52,8 +53,9 @@ class CashierShiftFactory extends Factory
     public function completed(): static
     {
         $totalSales = $this->faker->randomFloat(2, 1000, 10000);
-        $vatAmount = $totalSales * 0.15;
-        $netSales = $totalSales - $vatAmount;
+        $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($totalSales);
+        $vatAmount = $salesCalculation['vat'];
+        $netSales = $salesCalculation['net'];
         $cashCollected = $this->faker->randomFloat(2, 500, 5000);
         $cardPayments = $totalSales - $cashCollected;
 
@@ -74,8 +76,9 @@ class CashierShiftFactory extends Factory
     public function withVariance(): static
     {
         $totalSales = $this->faker->randomFloat(2, 1000, 10000);
-        $vatAmount = $totalSales * 0.15;
-        $netSales = $totalSales - $vatAmount;
+        $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($totalSales);
+        $vatAmount = $salesCalculation['vat'];
+        $netSales = $salesCalculation['net'];
         $cashCollected = $this->faker->randomFloat(2, 500, 5000);
         $cardPayments = $totalSales - $cashCollected - 100; // Create variance
         $variance = 100;

@@ -3,6 +3,7 @@
 namespace Tests\NFR\Scalability;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Purchase\Models\PurchaseOrder;
@@ -227,6 +228,11 @@ class LoadTest extends TestCase
      */
     public function test_response_time_consistency(): void
     {
+        // Let route/container caches warm before measuring steady-state latency.
+        $this->actingAs($this->manager, 'sanctum')
+            ->getJson('/api/v1/branch-manager/dashboard')
+            ->assertStatus(200);
+
         $responseTimes = [];
         $samples = 20;
 

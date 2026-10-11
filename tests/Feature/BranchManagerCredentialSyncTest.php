@@ -177,7 +177,7 @@ class BranchManagerCredentialSyncTest extends TestCase
     {
         Notification::fake();
         // branch_managers.phone is UNIQUE (unlike suppliers.phone).
-        BranchManager::factory()->create(['phone' => '+966500000099', 'branch_id' => $this->branch->id]);
+        BranchManager::factory()->create(['phone' => '+966500000099', 'branch_id' => Branch::factory()->create()->id]);
 
         $this->createBranchUser('phone@bm.test', null, ['phone' => '+966500000099'])->assertCreated();
 

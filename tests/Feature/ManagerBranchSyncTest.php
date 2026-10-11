@@ -100,6 +100,21 @@ class ManagerBranchSyncTest extends TestCase
         $this->assertSame($newBranch->id, $manager->fresh()->branch_id);
     }
 
+    public function test_reassigning_into_an_occupied_branch_rolls_back_dashboard_and_mobile_assignment(): void
+    {
+        $oldBranch = Branch::factory()->create(['asab_company_id' => $this->company->id]);
+        [$user, $manager] = $this->linkedManager($oldBranch);
+        $occupiedBranch = Branch::factory()->create(['asab_company_id' => $this->company->id]);
+        BranchManager::factory()->create(['branch_id' => $occupiedBranch->id]);
+
+        $this->actingAs($this->admin, 'sanctum')
+            ->patchJson("/api/v1/admin/branches/{$occupiedBranch->id}", ['managerUserId' => $user->id])
+            ->assertStatus(422);
+
+        $this->assertNull($occupiedBranch->fresh()->asab_manager_user_id);
+        $this->assertSame($oldBranch->id, $manager->fresh()->branch_id);
+    }
+
     public function test_the_repair_command_repoints_mismatched_logins(): void
     {
         $oldBranch = Branch::factory()->create(['asab_company_id' => $this->company->id]);

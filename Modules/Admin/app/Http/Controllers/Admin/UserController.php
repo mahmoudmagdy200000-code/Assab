@@ -270,13 +270,11 @@ class UserController extends AsabController
                 if ($assignment && ($updates = $this->assignmentUpdates($roleKey, $data)) !== []) {
                     $assignment->update($updates);
                 }
-            });
 
-            // Moving a branch manager here changed the DASHBOARD scope only —
-            // their phone kept opening the old branch (2026-08-03).
-            if ($roleKey === 'branch' && ! empty($data['branches'][0])) {
-                $this->managerSync->sync($user->id, $data['branches'][0]);
-            }
+                if ($roleKey === 'branch' && ! empty($data['branches'][0])) {
+                    $this->managerSync->sync($user->id, $data['branches'][0]);
+                }
+            });
 
             return $this->ok($this->present($user->fresh(['roleAssignments', 'reportsTo:id,name'])));
         });

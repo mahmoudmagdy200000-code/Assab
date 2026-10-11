@@ -8,6 +8,7 @@ use Modules\Admin\Models\ApprovalStep;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Support\OperationEnums;
+use Psr\Log\LoggerInterface;
 
 /**
  * The shared approval-pipeline state machine (BACKEND_API_SPEC.md §5).
@@ -19,6 +20,8 @@ class OperationService
     public function __construct(
         private readonly RealtimeBroadcaster $rt,
         private readonly NotificationService $notifications,
+        private readonly ShiftCloseService $shiftClose,
+        private readonly LoggerInterface $log,
     ) {}
 
     public function approve(Operation $op, AsabUser $actor, ?string $note = null): Operation
@@ -142,9 +145,9 @@ class OperationService
      */
     public function finalApprove(Operation $op, AsabUser $actor, bool $conditional = false, ?string $conditionalNote = null, array $conditions = []): Operation
     {
-        $this->assertStatus($op, Operation::STATUS_APPROVED, 'OP_NOT_APPROVED');
-
         $fresh = DB::transaction(function () use ($op, $actor, $conditional, $conditionalNote, $conditions) {
+            $op = Operation::query()->whereKey($op->id)->lockForUpdate()->firstOrFail();
+            $this->assertStatus($op, Operation::STATUS_APPROVED, 'OP_NOT_APPROVED');
             $op->update([
                 'status' => Operation::STATUS_FINAL,
                 'final_approved_by_id' => $actor->id,
@@ -157,18 +160,37 @@ class OperationService
                 'conditions' => $conditional ? array_values($conditions) : null,
             ], fn ($v) => $v !== null));
 
+            // A shifts operation owns a required employee allocation and native
+            // shift close. Keep both in this transaction with final state/audit;
+            // a failed ledger write must not leave a final-approved operation.
+            if ($op->module_key === 'shifts') {
+                $this->shiftClose->onFinalApproved($op, $actor);
+            }
+
             return $op->fresh();
         });
 
-        $this->rt->operationStatusChanged($fresh, Operation::STATUS_APPROVED, Operation::STATUS_FINAL, $actor);
-        if ($fresh->submitted_by_id) {
-            $this->notifications->push(
-                $fresh->submitted_by_id, 'operation.final_approved',
-                'تم اعتماد عمليتك نهائياً', $fresh->public_id.($conditional ? ' (اعتماد مشروط)' : ''),
-                null, ['type' => 'operation', 'id' => $fresh->id],
-            );
+        try {
+            // Remaining listeners mirror already-committed state or maintain
+            // projections. The required shift close/allocation ran above in
+            // the approval transaction, so an optional bridge failure cannot
+            // make a committed approval appear to fail.
+            $this->rt->operationStatusChanged($fresh, Operation::STATUS_APPROVED, Operation::STATUS_FINAL, $actor);
+            if ($fresh->submitted_by_id) {
+                $this->notifications->push(
+                    $fresh->submitted_by_id, 'operation.final_approved',
+                    'تم اعتماد عمليتك نهائياً', $fresh->public_id.($conditional ? ' (اعتماد مشروط)' : ''),
+                    null, ['type' => 'operation', 'id' => $fresh->id],
+                );
+            }
+            event(new \Modules\Admin\Events\OperationFinalApproved($fresh, $actor));
+        } catch (\Throwable $exception) {
+            $this->log->error('Final approval projection failed after commit', [
+                'operation_id' => $fresh->id,
+                'module_key' => $fresh->module_key,
+                'error' => $exception->getMessage(),
+            ]);
         }
-        event(new \Modules\Admin\Events\OperationFinalApproved($fresh, $actor));
 
         return $fresh;
     }

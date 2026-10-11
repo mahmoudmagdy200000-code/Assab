@@ -10,6 +10,7 @@ enum TransactionType: string
     case TOTAL_SALES = 'Total Sales';
     case HANDOVER_TO_BRAND_OWNER = 'Handover to Brand Owner';
     case TRANSFER_TO_CUSTODY = 'Transfer to Custody';
+    case HANDOVER_TO_CASHIER = 'Handover to Cashier';
     case VARIANCE_FROM_CASHIER = 'Variance from Cashier';
 
     /**
@@ -21,6 +22,7 @@ enum TransactionType: string
             self::TOTAL_SALES => 'Total Sales',
             self::HANDOVER_TO_BRAND_OWNER => 'Handover to Brand Owner',
             self::TRANSFER_TO_CUSTODY => 'Transfer to Custody',
+            self::HANDOVER_TO_CASHIER => 'Handover to Cashier',
             self::VARIANCE_FROM_CASHIER => 'Variance from Cashier',
         };
     }

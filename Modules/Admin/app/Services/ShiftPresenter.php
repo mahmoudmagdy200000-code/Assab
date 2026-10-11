@@ -69,6 +69,10 @@ class ShiftPresenter
             'cashActual' => $s->cash_actual,               // deprecated alias
             'varianceHalalas' => $s->variance,
             'variance' => $s->variance,                    // deprecated alias
+            // S1-10: 'counted' = a real physical count; 'unknown' = legacy mobile projection (not
+            // evidence); null = not set by the mobile bridge. Pending incoming is integer halalas.
+            'cashCountState' => $s->cash_count_state,
+            'pendingIncomingCountedHalalas' => $s->pending_incoming_counted,
             'notes' => $s->notes,
         ];
     }

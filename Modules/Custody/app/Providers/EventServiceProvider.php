@@ -12,9 +12,6 @@ class EventServiceProvider extends ServiceProvider
      * @var array<string, array<int, string>>
      */
     protected $listen = [
-        \Modules\Custody\Events\HandoverApproved::class => [
-            \Modules\Custody\Listeners\CreatePersonalLedgerTransactionFromHandover::class,
-        ],
         \Modules\Shift\Events\VarianceRecorded::class => [
             \Modules\Custody\Listeners\CreateCustodyLedgerEntriesForVariance::class,
         ],

@@ -96,7 +96,7 @@ class CompletedShiftController extends BaseController
                 'success' => true,
                 'message' => 'Shift details retrieved successfully',
                 'data' => [
-                    'shift' => new ShiftDetailResource($shift),
+                    'shift' => new ShiftDetailResource(app(\Modules\Shift\Services\ShiftCashCountService::class)->attachReconciliation($shift)),
                     'progress' => $progress,
                     'variance' => $variance,
                 ],

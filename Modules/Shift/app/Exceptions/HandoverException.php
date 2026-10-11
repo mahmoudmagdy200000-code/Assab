@@ -6,6 +6,16 @@ use RuntimeException;
 
 class HandoverException extends RuntimeException
 {
+    public function __construct(string $message, private int $statusCode = 409)
+    {
+        parent::__construct($message);
+    }
+
+    public function statusCode(): int
+    {
+        return $this->statusCode;
+    }
+
     public static function cannotBeRejected(string $currentStatus): self
     {
         return new self("This handover cannot be rejected. Current status: {$currentStatus}");
@@ -18,12 +28,12 @@ class HandoverException extends RuntimeException
 
     public static function notAuthorizedToAccept(): self
     {
-        return new self('You are not authorized to accept this handover.');
+        return new self('You are not authorized to accept this handover.', 403);
     }
 
     public static function notAuthorizedToReject(): self
     {
-        return new self('You are not authorized to reject this handover.');
+        return new self('You are not authorized to reject this handover.', 403);
     }
 
     public static function notInReassignedStatus(): self
@@ -33,7 +43,7 @@ class HandoverException extends RuntimeException
 
     public static function notAuthorizedForReassignment(): self
     {
-        return new self('You are not authorized to accept this reassigned shift.');
+        return new self('You are not authorized to accept this reassigned shift.', 403);
     }
 
     public static function noOriginalCashier(): self

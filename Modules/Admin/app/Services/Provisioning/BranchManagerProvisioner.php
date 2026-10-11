@@ -34,6 +34,9 @@ class BranchManagerProvisioner implements LegacyProvisioner
     public function provision(AsabUser $user, array $data, string $temporaryPassword): void
     {
         $branchId = $this->tenantBranchId($user, $data['branches'][0]);
+        // UserController provisions inside its transaction. Serialize active
+        // manager assignments for this branch before the observer checks it.
+        Branch::query()->whereKey($branchId)->lockForUpdate()->firstOrFail();
         $existing = $this->existingManager($user->email);
 
         $this->assertReusable($user, $existing);

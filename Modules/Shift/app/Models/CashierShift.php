@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Services\CashierShiftStartService;
 
 class CashierShift extends Model
 {
@@ -37,6 +38,8 @@ class CashierShift extends Model
         'card_payments',
         'pos_receipt',
         'actual_start_time',
+        'operational_chain_id',
+        'operational_ended_at',
         'actual_end_time',
         'next_cashier_id',
         'handed_over_at',
@@ -61,6 +64,7 @@ class CashierShift extends Model
         'cash_collected' => 'decimal:2',
         'card_payments' => 'decimal:2',
         'actual_start_time' => 'datetime',
+        'operational_ended_at' => 'datetime',
         'actual_end_time' => 'datetime',
         'handed_over_at' => 'datetime',
         'reassigned_at' => 'datetime',
@@ -121,7 +125,8 @@ class CashierShift extends Model
 
     public function handover(): HasOne
     {
-        return $this->hasOne(CashierShiftHandover::class, 'cashier_shift_id');
+        return $this->hasOne(CashierShiftHandover::class, 'cashier_shift_id')
+            ->active()->orderByDesc('created_at')->orderByDesc('id');
     }
 
     public function varianceDetails(): HasMany
@@ -139,7 +144,24 @@ class CashierShift extends Model
         return $this->hasMany(CashierShiftHistory::class);
     }
 
+    public function receivedHandoverReceipts(): HasMany
+    {
+        return $this->hasMany(CashierShiftHandoverReceipt::class, 'receiving_cashier_shift_id');
+    }
+
+    public function reportAggregate(): HasOne
+    {
+        return $this->hasOne(ShiftReportAggregate::class, 'source_id')
+            ->where('source_type', 'cashier_shift');
+    }
+
     // Scopes
+    public function scopeCurrentOperational($query)
+    {
+        return $query->whereNotNull('actual_start_time')->whereNull('operational_ended_at')
+            ->whereNull('actual_end_time')->whereNotIn('status', [ShiftStatus::COMPLETED->value, ShiftStatus::CANCELED->value]);
+    }
+
     public function scopePending($query)
     {
         return $query->where('status', ShiftStatus::NOT_STARTED->value);
@@ -173,15 +195,8 @@ class CashierShift extends Model
     // Methods
     public function startShift(): void
     {
-        $this->update([
-            'status' => ShiftStatus::IN_PROGRESS,
-            'actual_start_time' => now(),
-        ]);
-
-        $this->recordHistory('started', null, [
-            'status' => ShiftStatus::IN_PROGRESS->value,
-            'actual_start_time' => now(),
-        ]);
+        $started = app(CashierShiftStartService::class)->startShift($this);
+        $this->setRawAttributes($started->getAttributes(), true);
     }
 
     public function endShift(array $data): void
@@ -206,17 +221,32 @@ class CashierShift extends Model
     }
 
     /**
-     * Calculate variance as the difference between total sales and total collected payments
-     * Variance = Total Sales - (Cash Collected + Card Payments + Delivery Apps)
+     * Legacy channel difference between total sales and collected payments breakdown.
+     * Retained strictly for legacy display/backcompat; must NOT drive shortage, surplus,
+     * liability, approval, correction, or daily-close readiness.
+     */
+    public function calculateChannelDifference(): float
+    {
+        $totalCollected = (float) $this->cash_collected + (float) $this->card_payments;
+
+        // Add delivery apps (aggregators) payments
+        $deliveryAppsTotal = (float) $this->salesBreakdown()->sum('amount');
+
+        return (float) $this->total_sales - ($totalCollected + $deliveryAppsTotal);
+    }
+
+    /**
+     * Authoritative financial variance from the CURRENT report revision's stored physical-count evidence.
+     * Negative represents shortage, positive represents surplus.
      */
     public function calculateVariance(): float
     {
-        $totalCollected = $this->cash_collected + $this->card_payments;
+        $count = app(\Modules\Shift\Services\ShiftCashCountService::class)->currentFor($this->id);
+        if ($count !== null) {
+            return $count->variance_halalas / 100;
+        }
 
-        // Add delivery apps (aggregators) payments
-        $deliveryAppsTotal = $this->salesBreakdown()->sum('amount');
-
-        return $this->total_sales - ($totalCollected + $deliveryAppsTotal);
+        return $this->calculateChannelDifference();
     }
 
     public function recordHistory(string $action, ?array $oldValue, array $newValue): void
@@ -243,7 +273,7 @@ class CashierShift extends Model
 
     public function hasVariance(): bool
     {
-        return abs($this->calculateVariance()) > 0.01;
+        return abs($this->calculateVariance()) > 0.001;
     }
 
     public function creator()

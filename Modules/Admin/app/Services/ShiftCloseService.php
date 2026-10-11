@@ -3,11 +3,14 @@
 namespace Modules\Admin\Services;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\Shift;
+use Modules\Shift\Models\CashierShift;
+use Modules\Shift\Models\ShiftLiabilityAllocation;
 
 /**
  * SRS ACC-6.4 / HEAD-2.5 — the shift close → approval chain.
@@ -38,43 +41,30 @@ class ShiftCloseService
     /**
      * Close a shift into the review pipeline.
      *
-     * @param  array{cashActualHalalas:int, cardTotalHalalas?:int, aggregatorTotalsHalalas?:int, aggregatorBreakdown?:array<int, array{aggregator:?string, amountHalalas:int}>, notes?:string}  $data
+     * @param  array{cashActualHalalas:int, cashCountState?:string, countEvidence?:array{expectedHalalas:int, varianceHalalas:int, pendingIncomingCountedHalalas:int}, cardTotalHalalas?:int, aggregatorTotalsHalalas?:int, aggregatorBreakdown?:array<int, array{aggregator:?string, amountHalalas:int}>, notes?:string}  $data
      * @return array{shift: Shift, operation: Operation}
      */
     public function close(Shift $shift, array $data, AsabUser $actor, string $origin = 'mobile'): array
     {
-        // A manager's mirrored workday is display-only: its money already reaches
-        // the accountant as the branch's daily sales statement, so closing it
-        // here would review the same riyals twice and charge a phantom cash gap.
-        if ($shift->isBranchManagerShift()) {
-            throw new AsabException(
-                'SHIFT_NOT_CLOSABLE',
-                'A branch manager workday is closed from the mobile daily report, not the shift pipeline',
-                'وردية مدير الفرع تُغلق من التقرير اليومي في التطبيق، وليس من هنا',
-                422,
-                ['role' => $shift->role],
-            );
-        }
-
-        if (! in_array($shift->status, ['active', 'late'], true)) {
-            throw new AsabException(
-                'SHIFT_ALREADY_CLOSED',
-                'Shift is no longer open',
-                'تم إغلاق هذه الوردية مسبقاً',
-                409,
-                ['currentStatus' => $shift->status],
-            );
-        }
-
         $cashActual = (int) $data['cashActualHalalas'];
         $card = (int) ($data['cardTotalHalalas'] ?? 0);
         $aggregator = (int) ($data['aggregatorTotalsHalalas'] ?? 0);
-        // Server-derived expected cash: the float plus the cash portion of sales
-        // (total sales minus what was taken by card / delivery apps).
-        $expectedCash = (int) ($shift->opening_float ?? 0) + max(0, (int) $shift->sales_amount - $card - $aggregator);
-        $variance = $cashActual - $expectedCash;
 
-        return DB::transaction(function () use ($shift, $actor, $origin, $cashActual, $card, $aggregator, $expectedCash, $variance, $data) {
+        return DB::transaction(function () use ($shift, $actor, $origin, $cashActual, $card, $aggregator, $data) {
+            $this->assertFreshLegacyCount($shift);
+            $shift = Shift::query()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
+            $this->assertClosable($shift);
+
+            // Derive committed financial facts from the locked, current row.
+            $expectedCash = (int) ($shift->opening_float ?? 0) + max(0, (int) $shift->sales_amount - $card - $aggregator);
+            $variance = $cashActual - $expectedCash;
+            // S1-10: a stored physical count carries its own server-calculated expected cash and variance
+            // (confirmed opening only; pending incoming cash excluded). Never recomputed from sales here.
+            $evidence = $data['countEvidence'] ?? null;
+            if (is_array($evidence)) {
+                $expectedCash = (int) $evidence['expectedHalalas'];
+                $variance = (int) $evidence['varianceHalalas'];
+            }
             $shift->update([
                 'status' => 'pending_review',
                 'ended_at' => now(),
@@ -82,6 +72,8 @@ class ShiftCloseService
                 'cash_expected' => $expectedCash,
                 'variance' => $variance,
                 'notes' => $data['notes'] ?? null,
+                'cash_count_state' => $data['cashCountState'] ?? null,
+                'pending_incoming_counted' => is_array($evidence) ? (int) $evidence['pendingIncomingCountedHalalas'] : null,
             ]);
 
             $op = $this->factory->createFromUpload('shifts', [
@@ -99,7 +91,9 @@ class ShiftCloseService
                 'cashActualHalalas' => $cashActual,
                 'varianceHalalas' => $variance,
                 'legacyShiftId' => $shift->legacy_shift_id,
-            ], $actor, $shift->branch_id, (int) $shift->sales_amount, $origin);
+            ] + (isset($data['cashCountState']) ? ['cashCountState' => (string) $data['cashCountState']] : [])
+              + (is_array($evidence) ? ['pendingIncomingCountedHalalas' => (int) $evidence['pendingIncomingCountedHalalas']] : []),
+                $actor, $shift->branch_id, (int) $shift->sales_amount, $origin);
 
             return ['shift' => $shift->fresh(), 'operation' => $op];
         });
@@ -114,24 +108,130 @@ class ShiftCloseService
      */
     public function setVarianceAllocations(Operation $op, array $allocations, AsabUser $actor): array
     {
-        $shift = $this->shiftFor($op);
-        $target = abs((int) $shift->variance);
-
-        $rows = [];
-        $amounts = [];
-        foreach ($allocations as $a) {
-            $emp = $this->allocations->resolveEmployee($op, $a);
-            $amount = (int) $a['amountHalalas'];
-            $amounts[] = $amount;
-            $rows[] = ['employeeId' => $emp->id, 'employeeName' => $emp->name, 'amountHalalas' => $amount];
+        // 1. Resolve mapping preliminarily without holding locks
+        $shiftStub = $this->shiftFor($op);
+        if ($shiftStub === null) {
+            throw new AsabException('SHIFT_NOT_FOUND', 'Shift operation has no current shift', 'الوردية المرتبطة بالعملية غير موجودة', 409);
         }
-        $this->allocations->assertSum($amounts, $target);
 
-        $payload = $op->payload ?? [];
-        $payload['varianceAllocations'] = array_map(fn ($r) => ['employeeId' => $r['employeeId'], 'amountHalalas' => $r['amountHalalas']], $rows);
-        $op->update(['payload' => $payload]);
+        $isCountedCashierShift = false;
+        $legacyShiftId = $shiftStub->legacy_shift_id;
+        $cashierShift = null;
 
-        return $rows;
+        if ($legacyShiftId !== null && ! $shiftStub->isBranchManagerShift() && $shiftStub->cash_count_state === 'counted') {
+            $cashierShift = \Modules\Shift\Models\CashierShift::find($legacyShiftId);
+            if ($cashierShift !== null) {
+                $isCountedCashierShift = true;
+            }
+        }
+
+        if ($isCountedCashierShift) {
+            // Counted cashier shift: delegate to AccountantReportCorrectionService
+            return DB::transaction(function () use ($op, $shiftStub, $cashierShift, $allocations, $actor): array {
+                app(\Modules\Shift\Services\ShiftReportCorrectionActorPolicy::class)->authorize($actor, $cashierShift);
+
+                $shares = [];
+                $rows = [];
+                $amounts = [];
+                foreach ($allocations as $allocation) {
+                    $employee = $this->allocations->resolveEmployee($op, $allocation);
+                    $amount = (int) $allocation['amountHalalas'];
+                    $amounts[] = $amount;
+                    $shares[] = [
+                        'type' => 'employee',
+                        'id' => $employee->id,
+                        'amount' => $amount,
+                    ];
+                    $rows[] = ['employeeId' => $employee->id, 'employeeName' => $employee->name, 'amountHalalas' => $amount];
+                }
+
+                $target = abs((int) $shiftStub->variance);
+                $this->allocations->assertSum($amounts, $target);
+
+                $aggregate = \Modules\Shift\Models\ShiftReportAggregate::where('source_type', 'cashier_shift')->where('source_id', $cashierShift->id)->first();
+                $expectedRevision = $aggregate?->current_revision_number ?? 1;
+                $activeAllocation = \Modules\Shift\Models\ShiftLiabilityAllocation::where('cashier_shift_id', $cashierShift->id)
+                    ->whereNull('superseded_at')
+                    ->first();
+                $expectedAllocationVersion = $activeAllocation?->version;
+
+                app(\Modules\Shift\Services\AccountantReportCorrectionService::class)->correct(
+                    $cashierShift,
+                    $actor,
+                    changes: [],
+                    shares: $shares,
+                    expectedRevision: $expectedRevision,
+                    expectedAllocationVersion: $expectedAllocationVersion,
+                    reason: 'Accountant variance allocation from admin operations',
+                    operationId: (string) $op->id
+                );
+
+                $shift = Shift::query()->whereKey($shiftStub->id)->lockForUpdate()->firstOrFail();
+                $lockedOp = Operation::query()->whereKey($op->id)->lockForUpdate()->firstOrFail();
+
+                if ($lockedOp->module_key !== 'shifts') {
+                    throw new AsabException('NOT_A_SHIFT_OPERATION', 'Variance allocations require a shift operation', 'تخصيص الفارق يتطلب عملية وردية', 409);
+                }
+                if (in_array($lockedOp->status, [Operation::STATUS_FINAL, Operation::STATUS_REJECTED], true)) {
+                    throw new AsabException('OP_ALREADY_FINAL', 'Operation is locked and can no longer be modified', 'لا يمكن تعديل عملية مُغلقة', 409);
+                }
+
+                $payload = $lockedOp->payload ?? [];
+                $payload['varianceAllocations'] = array_map(fn ($row) => ['employeeId' => $row['employeeId'], 'amountHalalas' => $row['amountHalalas']], $rows);
+                $lockedOp->update(['payload' => $payload]);
+                $lockedOp->steps()->create([
+                    'stage_id' => 'allocation',
+                    'action' => 'حدث المحاسب توزيع عجز الوردية',
+                    'actor_user_id' => $actor->id,
+                    'actor_label' => $actor->name,
+                    'note' => null,
+                    'meta' => ['varianceAllocations' => $payload['varianceAllocations']],
+                    'occurred_at' => now(),
+                ]);
+
+                return $rows;
+            });
+        }
+
+        // Standard / non-counted shift: lock shift first, then op
+        return DB::transaction(function () use ($op, $shiftStub, $allocations, $actor): array {
+            $shift = Shift::query()->whereKey($shiftStub->id)->lockForUpdate()->firstOrFail();
+            $lockedOp = Operation::query()->whereKey($op->id)->lockForUpdate()->firstOrFail();
+
+            if ($lockedOp->module_key !== 'shifts') {
+                throw new AsabException('NOT_A_SHIFT_OPERATION', 'Variance allocations require a shift operation', 'تخصيص الفارق يتطلب عملية وردية', 409);
+            }
+            if (in_array($lockedOp->status, [Operation::STATUS_FINAL, Operation::STATUS_REJECTED], true)) {
+                throw new AsabException('OP_ALREADY_FINAL', 'Operation is locked and can no longer be modified', 'لا يمكن تعديل عملية مُغلقة', 409);
+            }
+
+            $target = abs((int) $shift->variance);
+
+            $rows = [];
+            $amounts = [];
+            foreach ($allocations as $allocation) {
+                $employee = $this->allocations->resolveEmployee($lockedOp, $allocation);
+                $amount = (int) $allocation['amountHalalas'];
+                $amounts[] = $amount;
+                $rows[] = ['employeeId' => $employee->id, 'employeeName' => $employee->name, 'amountHalalas' => $amount];
+            }
+            $this->allocations->assertSum($amounts, $target);
+
+            $payload = $lockedOp->payload ?? [];
+            $payload['varianceAllocations'] = array_map(fn ($row) => ['employeeId' => $row['employeeId'], 'amountHalalas' => $row['amountHalalas']], $rows);
+            $lockedOp->update(['payload' => $payload]);
+            $lockedOp->steps()->create([
+                'stage_id' => 'allocation',
+                'action' => 'حدث المحاسب توزيع عجز الوردية',
+                'actor_user_id' => $actor->id,
+                'actor_label' => $actor->name,
+                'note' => null,
+                'meta' => ['varianceAllocations' => $payload['varianceAllocations']],
+                'occurred_at' => now(),
+            ]);
+
+            return $rows;
+        });
     }
 
     /**
@@ -141,23 +241,73 @@ class ShiftCloseService
      */
     public function onFinalApproved(Operation $op, AsabUser $actor): void
     {
-        $shift = $this->shiftFor($op);
-        if ($shift === null) {
-            return;
-        }
-
-        DB::transaction(function () use ($op, $actor, $shift) {
+        DB::transaction(function () use ($op, $actor) {
+            $lockedOperation = Operation::query()->whereKey($op->id)->lockForUpdate()->firstOrFail();
+            if ($lockedOperation->status !== Operation::STATUS_FINAL || $lockedOperation->module_key !== 'shifts') {
+                throw new AsabException('OP_NOT_FINAL', 'Shift operation is not final-approved', 'العملية ليست معتمدة نهائياً', 409);
+            }
+            $shift = $this->shiftFor($lockedOperation);
+            if ($shift === null) {
+                throw new AsabException('SHIFT_NOT_FOUND', 'Shift operation has no current shift', 'الوردية المرتبطة بالعملية غير موجودة', 409);
+            }
+            $this->assertFreshLegacyCount($shift);
+            $shift = Shift::query()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
+            if ($shift->status !== 'pending_review') {
+                throw new AsabException('SHIFT_NOT_PENDING_REVIEW', 'Shift is no longer pending review', 'الوردية لم تعد بانتظار المراجعة', 409);
+            }
             $variance = (int) $shift->variance;
-            if ($variance < 0) {
-                $rows = $this->resolveAllocationRows($op, $shift, abs($variance));
-                if ($rows !== []) {
-                    $this->allocations->post($op, self::CATEGORY, self::CATEGORY_LABEL_AR, $rows, $actor);
+            if ($variance < 0 && $shift->cash_count_state === 'counted') {
+                if ($shift->isBranchManagerShift() || $shift->legacy_shift_id === null) {
+                    throw new AsabException('BRANCH_LIABILITY_APPROVAL_PENDING', 'The shortage is governed by the branch liability allocation and its manager approval', 'عجز هذه الوردية يُحدَّد بتوزيع الفرع واعتماد مدير الفرع', 409);
                 }
+
+                $cashierShift = CashierShift::query()->whereKey($shift->legacy_shift_id)->lockForUpdate()->first();
+                $legacyBranchId = $cashierShift?->shift()->value('branch_id');
+                $legacyCompanyId = $legacyBranchId === null
+                    ? null
+                    : DB::table('branches')->where('id', $legacyBranchId)->value('asab_company_id');
+                if ($cashierShift === null
+                    || (string) $legacyBranchId !== (string) $shift->branch_id
+                    || (string) $legacyCompanyId !== (string) $shift->company_id) {
+                    throw new AsabException('BRANCH_LIABILITY_APPROVAL_PENDING', 'The shortage does not have an exact, valid legacy cashier-shift mapping', 'لا يوجد ربط مؤكد وصحيح بين العجز ووردية الكاشير', 409);
+                }
+
+                $activeAlloc = ShiftLiabilityAllocation::query()
+                    ->where('cashier_shift_id', $cashierShift->id)
+                    ->whereNull('superseded_at')
+                    ->first();
+
+                if (! $activeAlloc || $activeAlloc->manager_approval_status !== 'approved') {
+                    throw new AsabException('BRANCH_LIABILITY_APPROVAL_PENDING', 'The shortage is governed by the branch liability allocation and its manager approval', 'عجز هذه الوردية يُحدَّد بتوزيع الفرع واعتماد مدير الفرع', 409);
+                }
+
+                app(\Modules\Shift\Services\ShortagePostingService::class)->reconcile(
+                    $cashierShift,
+                    $actor,
+                    (int) $activeAlloc->report_revision,
+                    $activeAlloc->version,
+                    (string) \Illuminate\Support\Str::uuid()
+                );
+            } elseif ($variance < 0) {
+                $rows = $this->resolveAllocationRows($lockedOperation, $shift, abs($variance));
+                if ($rows === []) {
+                    throw new AsabException('SHIFT_ALLOCATION_REQUIRED', 'A shortage requires an employee allocation', 'يتطلب العجز تخصيصاً لموظف', 409);
+                }
+                $this->allocations->post($lockedOperation, self::CATEGORY, self::CATEGORY_LABEL_AR, $rows, $actor);
             }
             $shift->update(['status' => 'closed']);
+            $shiftId = $shift->id;
+            DB::afterCommit(function () use ($shiftId): void {
+                try {
+                    $this->rt->shiftChanged(Shift::query()->findOrFail($shiftId), 'closed');
+                } catch (\Throwable $exception) {
+                    Log::error('Final-approved shift projection failed after commit', [
+                        'shift_id' => $shiftId,
+                        'error' => $exception->getMessage(),
+                    ]);
+                }
+            });
         });
-
-        $this->rt->shiftChanged($shift->fresh(), 'closed');
     }
 
     /** On rejection: reopen the shift and notify its branch manager. */
@@ -209,5 +359,46 @@ class ShiftCloseService
         $shiftId = $op->payload['shiftId'] ?? null;
 
         return $shiftId ? Shift::where('id', $shiftId)->first() : null;
+    }
+
+    private function assertFreshLegacyCount(Shift $shift): void
+    {
+        if ($shift->legacy_shift_id === null || $shift->isBranchManagerShift()) {
+            return;
+        }
+        // Match physical-return serialization: authoritative legacy row before its projection.
+        $legacy = \Modules\Shift\Models\CashierShift::withoutEagerLoads()
+            ->whereKey($shift->legacy_shift_id)->lockForUpdate()->first();
+        if ($legacy === null) {
+            return;
+        }
+        try {
+            app(\Modules\Shift\Services\ShiftReportRevisionService::class)->assertFreshCount($legacy);
+        } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $error) {
+            throw new AsabException($error->getMessage(), 'A fresh physical count is required before financial close', 'يلزم عدّ نقدي جديد قبل الإقفال المالي', 409);
+        }
+    }
+
+    private function assertClosable(Shift $shift): void
+    {
+        if ($shift->isBranchManagerShift()) {
+            throw new AsabException(
+                'SHIFT_NOT_CLOSABLE',
+                'A branch manager workday is closed from the mobile daily report, not the shift pipeline',
+                'وردية مدير الفرع تُغلق من التقرير اليومي في التطبيق، وليس من هنا',
+                422,
+                ['role' => $shift->role],
+            );
+        }
+
+        if (! in_array($shift->status, ['active', 'late'], true)) {
+            throw new AsabException(
+                'SHIFT_ALREADY_CLOSED',
+                'Shift is no longer open',
+                'تم إغلاق هذه الوردية مسبقاً',
+                409,
+                ['currentStatus' => $shift->status],
+            );
+        }
     }
 }
