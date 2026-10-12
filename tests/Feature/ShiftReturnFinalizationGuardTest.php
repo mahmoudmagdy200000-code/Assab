@@ -59,7 +59,7 @@ class ShiftReturnFinalizationGuardTest extends TestCase
             'legacy_shift_id' => $this->legacy->id, 'sales_amount' => 10000, 'opening_float' => 0]);
         $this->actingAs($this->accountant, 'sanctum')->postJson("/api/v1/accountant/shifts/{$mirror->id}/close", [
             'cashActualHalalas' => 10000,
-        ])->assertStatus(409)->assertJsonPath('error.code', 'PHYSICAL_RECOUNT_REQUIRED');
+        ])->assertStatus(409)->assertJsonPath('error.code', 'MOBILE_SHIFT_CLOSES_ON_MOBILE');
         $this->assertSame('active', $mirror->fresh()->status);
         $this->assertSame(0, Operation::where('module_key', 'shifts')->count());
     }

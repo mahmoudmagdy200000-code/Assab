@@ -89,33 +89,92 @@ class ShiftPhase1ReviewIntegrityTest extends TestCase
         $this->assertSame(0, ShiftVarianceReviewEvidence::count());
     }
 
+    /**
+     * Historical review fixture. The legacy manager "approve" endpoint is retired (BRC-04b, 409), so a past
+     * review event is reproduced the way that endpoint recorded it: the detail's review fields change and the
+     * transition is preserved through the existing snapshot service with its reviewed detail id.
+     */
+    private function recordHistoricalReview(ShiftVarianceDetail $detail, string $status, ?string $reason = null): void
+    {
+        $detail->update([
+            'responsibility_status' => $status,
+            'rejection_reason' => $reason,
+            'reviewed_by_id' => $this->manager->id,
+            'reviewed_by_type' => get_class($this->manager),
+            'reviewed_at' => now(),
+        ]);
+        $this->shift->recordHistory('responsibility_'.$status, ['responsibility_status' => 'pending'], ['responsibility_status' => $status, 'reviewed_by_id' => $this->manager->id]);
+        app(ShiftReportRevisionSnapshotService::class)->preserveVarianceReviews($this->shift, null, [$detail->id]);
+    }
+
+    private function legacyFinancialRows(): array
+    {
+        return [
+            'cashier_variance' => \Modules\Custody\Models\CashierCustodyTransaction::withTrashed()->where('transaction_type', 'Variance')->count(),
+            'manager_mirror' => \Modules\Custody\Models\PersonalLedgerTransaction::withTrashed()->where('transaction_type', 'Variance from Cashier')->count(),
+            'postings' => DB::table('shift_liability_postings')->count(),
+        ];
+    }
+
+    /**
+     * Old expectation: manager `approve -> reject -> approve` through the live endpoints.
+     * Business-rule conflict: the legacy approve fires the legacy ledger writer without S1-10 manager-approved
+     * liability (BRC-04b retires it; repeated legacy reject is blocked by the controller once rejected).
+     * New expectation: three independent historical review events with an identical timestamp stay three
+     * immutable evidence records, in order, bound to the original revision and reviewer, with no financial posting.
+     */
     public function test_each_distinct_review_event_is_preserved_even_with_identical_timestamp(): void
     {
         $this->submitShortage();
         $revision = app(ShiftReportRevisionService::class)->currentCashierRevision($this->shift);
+        $detail = ShiftVarianceDetail::where('cashier_shift_id', $this->shift->id)->firstOrFail();
         $this->freezeTime();
-        $path = "/api/v1/branch-manager/shifts/{$this->shift->id}/responsibility";
-        $this->actingAs($this->manager, 'sanctum')->postJson("{$path}/approve")->assertOk();
-        $this->postJson("{$path}/reject", ['reason' => 'Revised review'])->assertOk();
-        $this->postJson("{$path}/approve")->assertOk();
+
+        $this->recordHistoricalReview($detail, 'approved');
+        $this->recordHistoricalReview($detail->fresh(), 'rejected', 'Revised review');
+        $this->recordHistoricalReview($detail->fresh(), 'approved');
+
         $reviews = ShiftVarianceReviewEvidence::where('cashier_shift_id', $this->shift->id)->orderBy('id')->get();
         $this->assertSame(['approved', 'rejected', 'approved'], $reviews->pluck('responsibility_status')->all());
         $this->assertSame([$revision->id], $reviews->pluck('report_revision_id')->unique()->values()->all());
+        $this->assertSame([null, 'Revised review', null], $reviews->pluck('rejection_reason')->all());
+        $this->assertSame([(string) $this->manager->id], $reviews->pluck('reviewed_by_id')->unique()->values()->all());
+        $this->assertSame([get_class($this->manager)], $reviews->pluck('reviewed_by_type')->unique()->values()->all());
+        $this->assertCount(1, $reviews->pluck('reviewed_at')->map->toIso8601String()->unique(), 'identical timestamps are kept as separate events');
+        $this->assertSame(3, $reviews->pluck('id')->unique()->count());
+
         app(ShiftReportRevisionSnapshotService::class)->preserveVarianceReviews($this->shift);
         $this->assertSame(3, ShiftVarianceReviewEvidence::count(), 'Preservation must not duplicate the latest review event.');
+        $this->assertSame(['cashier_variance' => 0, 'manager_mirror' => 0, 'postings' => 0], $this->legacyFinancialRows());
     }
 
+    /**
+     * Old expectation: a live manager `approve` is the "old approval" that must not leak into the corrected revision.
+     * Business-rule conflict: that endpoint is retired (BRC-04b). New expectation: the old approval is prepared as a
+     * historical fixture on the original revision and preserved by the snapshot service; the original correction
+     * scenario then proves it stays on the original revision, is not inherited, and is not mutated.
+     */
     public function test_correction_does_not_copy_old_approval_into_current_revision(): void
     {
         $this->submitShortage();
         $original = app(ShiftReportRevisionService::class)->currentCashierRevision($this->shift);
-        $this->actingAs($this->manager, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$this->shift->id}/responsibility/approve")->assertOk();
-        $this->postJson("/api/v1/branch-manager/shifts/{$this->shift->id}/handover/reject", ['rejection_reason' => 'Recount'])->assertOk();
+        $this->recordHistoricalReview(ShiftVarianceDetail::where('cashier_shift_id', $this->shift->id)->firstOrFail(), 'approved');
+        $oldApproval = ShiftVarianceReviewEvidence::where('cashier_shift_id', $this->shift->id)->sole();
+        $oldApprovalBefore = $oldApproval->getAttributes();
+        $this->assertSame($original->id, $oldApproval->report_revision_id);
+        $this->assertSame((string) $this->manager->id, $oldApproval->reviewed_by_id);
+        $this->assertNotNull($oldApproval->reviewed_at);
+
+        $this->actingAs($this->manager, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$this->shift->id}/handover/reject", ['rejection_reason' => 'Recount'])->assertOk();
         $this->actingAs($this->cashier, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->shift->id}/end", ['total_sales' => '500.00', 'cash_collected' => '500.00', 'counted_cash' => '500.00'])->assertOk();
+
         $current = app(ShiftReportRevisionService::class)->currentCashierRevision($this->shift);
+        $this->assertNotSame($original->id, $current->id);
         $this->assertSame(0, ShiftVarianceReviewEvidence::where('report_revision_id', $current->id)->count());
         $this->assertSame([$original->id], ShiftVarianceReviewEvidence::where('cashier_shift_id', $this->shift->id)->pluck('report_revision_id')->unique()->values()->all());
+        $this->assertSame($oldApprovalBefore, ShiftVarianceReviewEvidence::findOrFail($oldApproval->id)->getAttributes(), 'old approval evidence is unchanged');
         $this->assertSame(0, ShiftVarianceDetail::where('cashier_shift_id', $this->shift->id)->count());
+        $this->assertSame(['cashier_variance' => 0, 'manager_mirror' => 0, 'postings' => 0], $this->legacyFinancialRows());
     }
 
     public function test_handover_snapshot_preserves_original_notes_after_correction(): void

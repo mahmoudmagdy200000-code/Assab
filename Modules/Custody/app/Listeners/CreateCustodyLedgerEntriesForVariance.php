@@ -18,6 +18,11 @@ class CreateCustodyLedgerEntriesForVariance
 {
     public function handle(VarianceRecorded $event): void
     {
+        // BRC-04b: fail closed. Shortage liability is posted only by the S1-10 flow after the manager-approved
+        // allocation (ShortagePostingService). This legacy writer must never create, delete or re-create ledger
+        // rows; existing rows remain as financial history.
+        return;
+
         DB::transaction(function () use ($event): void {
             // Approval callers already own this row; this also serializes
             // direct/backfill dispatches before replacing the legacy ledger set.

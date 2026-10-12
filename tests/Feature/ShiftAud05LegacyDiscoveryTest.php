@@ -121,7 +121,7 @@ class ShiftAud05LegacyDiscoveryTest extends TestCase
     public function test_aud05b_manager_custody_mirror_is_not_manager_liability(): void
     {
         $shift = $this->fixture('cashierShift');
-        \Modules\Shift\Models\CashierShiftHandover::create([
+        $handover = \Modules\Shift\Models\CashierShiftHandover::create([
             'cashier_shift_id' => $shift->id, 'handover_to_type' => 'branch_manager',
             'handover_to_id' => $this->fixture('manager')->id, 'handover_amount' => '0.00',
             'handover_date' => today(), 'handover_time' => now(), 'status' => 'approved',
@@ -131,8 +131,18 @@ class ShiftAud05LegacyDiscoveryTest extends TestCase
             'responsibility_type' => 'self', 'responsible_cashier_id' => $shift->cashier_id,
             'assigned_amount' => '100.00', 'reason' => 'Historical shortage', 'responsibility_status' => 'approved',
         ]);
-        app(\Modules\Custody\Listeners\CreateCustodyLedgerEntriesForVariance::class)
-            ->handle(new \Modules\Shift\Events\VarianceRecorded($shift));
+        // Historical ledger fixture. The legacy listener is retired (BRC-04b: it writes nothing), so the rows it used to
+        // leave behind for this approved 100.00 shortage are created directly with the same attributes.
+        \Modules\Custody\Models\CashierCustodyTransaction::create([
+            'cashier_id' => $shift->cashier_id, 'transaction_type' => 'Variance', 'amount' => '100.00', 'is_cash_in' => false,
+            'counterpart_name' => $this->fixture('manager')->name, 'related_shift_id' => $shift->id,
+            'related_handover_id' => $handover->id, 'transaction_date' => $handover->handover_time,
+        ]);
+        PersonalLedgerTransaction::create([
+            'branch_manager_id' => $this->fixture('manager')->id, 'transaction_type' => 'Variance from Cashier',
+            'amount' => '100.00', 'is_cash_in' => true, 'cashier_name' => $shift->cashier?->name,
+            'related_shift_id' => $shift->id, 'related_handover_id' => $handover->id, 'transaction_date' => $handover->handover_time,
+        ]);
         $mirror = PersonalLedgerTransaction::where('related_shift_id', $shift->id)->sole();
         $this->assertSame('Variance from Cashier', $mirror->transaction_type);
         $this->assertTrue($mirror->is_cash_in);

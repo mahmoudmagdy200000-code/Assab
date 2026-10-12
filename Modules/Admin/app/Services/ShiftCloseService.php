@@ -256,7 +256,7 @@ class ShiftCloseService
                 throw new AsabException('SHIFT_NOT_PENDING_REVIEW', 'Shift is no longer pending review', 'الوردية لم تعد بانتظار المراجعة', 409);
             }
             $variance = (int) $shift->variance;
-            if ($variance < 0 && $shift->cash_count_state === 'counted') {
+            if ($variance < 0 && ($shift->cash_count_state === 'counted' || $shift->legacy_shift_id !== null)) {
                 if ($shift->isBranchManagerShift() || $shift->legacy_shift_id === null) {
                     throw new AsabException('BRANCH_LIABILITY_APPROVAL_PENDING', 'The shortage is governed by the branch liability allocation and its manager approval', 'عجز هذه الوردية يُحدَّد بتوزيع الفرع واعتماد مدير الفرع', 409);
                 }

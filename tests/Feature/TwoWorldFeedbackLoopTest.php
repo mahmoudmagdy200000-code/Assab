@@ -73,9 +73,9 @@ class TwoWorldFeedbackLoopTest extends TestCase
     }
 
     /** Bridge a legacy mobile shift into the pipeline and return its SHF op. */
-    private function bridgeLegacyShift(): array
+    private function bridgeLegacyShift(float $cashCollected = 470.00): array
     {
-        $legacy = CashierShift::factory()->create(['total_sales' => 500.00, 'cash_collected' => 470.00, 'opening_balance' => 0.00]);
+        $legacy = CashierShift::factory()->create(['total_sales' => 500.00, 'cash_collected' => $cashCollected, 'opening_balance' => 0.00]);
         $this->cashier->forceFill(['legacy_cashier_id' => $legacy->cashier_id])->save();
 
         event(new ShiftEndedEvent($legacy, false));
@@ -90,7 +90,9 @@ class TwoWorldFeedbackLoopTest extends TestCase
 
     public function test_final_approved_shift_marks_legacy_review_approved_without_touching_status(): void
     {
-        [$legacy, $op] = $this->bridgeLegacyShift();
+        // No shortage (cash 500 of 500): this test covers the review write-back, not shortage liability. A mobile
+        // shortage without a manager-approved allocation is refused by DashboardMobileShiftCloseGuardTest (BRC-04).
+        [$legacy, $op] = $this->bridgeLegacyShift(500.00);
         $originalStatus = $legacy->status->value;
 
         $this->ops()->approve($op, $this->accountant);
@@ -101,6 +103,25 @@ class TwoWorldFeedbackLoopTest extends TestCase
         $this->assertNotNull($legacy->reviewed_at);
         // Frozen status is never mutated — the mobile till stays closed.
         $this->assertSame($originalStatus, $legacy->status->value);
+    }
+
+    public function test_mobile_shortage_of_30_sar_without_approved_allocation_is_refused_409_with_no_posting(): void
+    {
+        [$legacy, $op] = $this->bridgeLegacyShift(); // 500.00 sales, 470.00 cash => 30.00 SAR shortage
+        $this->ops()->approve($op, $this->accountant);
+
+        try {
+            $this->ops()->finalApprove($op->fresh(), $this->head);
+            $this->fail('A mobile shortage was finalised without a manager-approved liability allocation.');
+        } catch (\Modules\Admin\Exceptions\AsabException $e) {
+            $this->assertSame('BRANCH_LIABILITY_APPROVAL_PENDING', $e->errorCode);
+            $this->assertSame(409, $e->status);
+        }
+
+        $this->assertSame(Operation::STATUS_APPROVED, $op->fresh()->status);
+        $this->assertSame(0, \Modules\Admin\Models\EmployeeMovement::count());
+        $this->assertSame(0, \Modules\Custody\Models\CashierCustodyTransaction::count());
+        $this->assertNotSame('approved', $legacy->fresh()->review_status);
     }
 
     public function test_rejected_shift_marks_legacy_review_rejected_with_reason(): void

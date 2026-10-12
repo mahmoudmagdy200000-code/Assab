@@ -276,7 +276,13 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
         ]);
     }
 
-    public function test_variance_custody_listener_only_writes_when_responsibility_approved(): void
+    /**
+     * Old expectation: once the legacy responsibility is `approved` the listener creates a cashier `Variance` cash-out.
+     * Business-rule conflict: a cashier shortage charge needs the S1-10 manager-approved allocation (v3.2); a legacy
+     * "approved" flag is not that approval (BRC-04b retires the writer).
+     * New expectation: pending OR approved legacy responsibility, dispatched repeatedly, creates/deletes nothing.
+     */
+    public function test_legacy_variance_listener_writes_nothing_for_pending_or_approved_responsibility(): void
     {
         $branch = Branch::factory()->create();
         $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
@@ -302,24 +308,28 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
         ]);
 
         $listener = app(CreateCustodyLedgerEntriesForVariance::class);
+        $count = fn () => [
+            CashierCustodyTransaction::withTrashed()->where('related_shift_id', $cashierShift->id)->count(),
+            \Modules\Custody\Models\PersonalLedgerTransaction::withTrashed()->where('related_shift_id', $cashierShift->id)->count(),
+        ];
         $listener->handle(new VarianceRecorded($cashierShift->fresh(['varianceDetails', 'handover'])));
-
-        $this->assertEquals(0, CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)
-            ->where('transaction_type', 'Variance')
-            ->count());
+        $this->assertSame([0, 0], $count());
 
         $detail->update(['responsibility_status' => 'approved']);
         $listener->handle(new VarianceRecorded($cashierShift->fresh(['varianceDetails', 'handover'])));
+        $listener->handle(new VarianceRecorded($cashierShift->fresh(['varianceDetails', 'handover'])));
 
-        $txn = CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)
-            ->where('transaction_type', 'Variance')
-            ->first();
-        $this->assertNotNull($txn);
-        $this->assertFalse($txn->is_cash_in);
-        $this->assertEquals(50.0, (float) $txn->amount);
+        $this->assertSame([0, 0], $count(), 'no legacy cashier charge without an S1-10 manager-approved allocation');
+        $this->assertNull(CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)->where('transaction_type', 'Variance')->first());
+        $this->assertEquals(0.0, (float) CashierCustodyTransaction::where('cashier_id', $cashier->id)->where('is_cash_in', false)->sum('amount'));
     }
 
-    public function test_variance_over_uses_cash_in_for_cashier(): void
+    /**
+     * Old expectation: an approved legacy OVER variance is credited to the cashier (cash-in), idempotently.
+     * Business-rule conflict: a surplus belongs to the branch and never increases a cashier balance (v3.2).
+     * New expectation: repeated dispatch writes nothing; the cashier balance does not move.
+     */
+    public function test_legacy_surplus_variance_is_never_credited_to_a_cashier(): void
     {
         $branch = Branch::factory()->create();
         $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
@@ -348,13 +358,9 @@ class ShiftHandoverVarianceCustodyTest extends TestCase
         $listener->handle(new VarianceRecorded($cashierShift->fresh(['varianceDetails', 'handover'])));
         $listener->handle(new VarianceRecorded($cashierShift->fresh(['varianceDetails', 'handover'])));
 
-        $txn = CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)
-            ->where('transaction_type', 'Variance')
-            ->first();
-        $this->assertNotNull($txn);
-        $this->assertTrue($txn->is_cash_in);
-        $this->assertSame(1, CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)
-            ->where('transaction_type', 'Variance')->count());
+        $this->assertNull(CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)->where('transaction_type', 'Variance')->first());
+        $this->assertSame(0, CashierCustodyTransaction::withTrashed()->where('related_shift_id', $cashierShift->id)->count());
+        $this->assertSame(0, CashierCustodyTransaction::where('cashier_id', $cashier->id)->where('is_cash_in', true)->count(), 'surplus is not added to the cashier balance');
     }
 
     public function test_manager_handover_receipt_writes_sales_credit_without_finalizing_legacy_variance(): void

@@ -318,6 +318,11 @@ class ShiftVarianceController extends Controller
      */
     public function cashierApproveResponsibility(Request $request, string $shift): JsonResponse
     {
+        // BRC-04b: the legacy responsibility approval is retired. It changed responsibility state and fired the
+        // legacy ledger writer without S1-10 manager-approved liability. Employee accept/object is recorded
+        // by POST shift-reports/{shift}/liability/respond. Answered before any write.
+        return $this->legacyResponsibilityApprovalRetired();
+
         try {
             $cashier = auth()->user();
 
@@ -456,6 +461,11 @@ class ShiftVarianceController extends Controller
      */
     public function approveResponsibility(Request $request, string $shift): JsonResponse
     {
+        // BRC-04b: the legacy responsibility approval is retired. It changed responsibility state and fired the
+        // legacy ledger writer without S1-10 manager-approved liability. Employee accept/object is recorded
+        // by POST shift-reports/{shift}/liability/respond. Answered before any write.
+        return $this->legacyResponsibilityApprovalRetired();
+
         try {
             $manager = auth()->user();
 
@@ -675,5 +685,14 @@ class ShiftVarianceController extends Controller
                 'error' => $e->getMessage(),
             ], 500);
         }
+    }
+
+    private function legacyResponsibilityApprovalRetired(): JsonResponse
+    {
+        return response()->json([
+            'success' => false,
+            'code' => 'LEGACY_RESPONSIBILITY_APPROVAL_RETIRED',
+            'message' => 'Legacy responsibility approval is retired; use the shift liability flow.',
+        ], 409);
     }
 }

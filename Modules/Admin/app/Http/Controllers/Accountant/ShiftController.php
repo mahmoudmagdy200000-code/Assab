@@ -105,6 +105,13 @@ class ShiftController extends AsabController
     public function close(Request $request, \Modules\Admin\Services\ShiftCloseService $closeService, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $closeService, $id) {
+            $shift = $this->scopeToAssignedBranches(Shift::query())->findOrFail($id);
+            // Mobile-origin shifts (mirror of a mobile CashierShift) are closed on mobile by the cashier and the
+            // branch manager. The guard precedes validation and any financial write.
+            if ($shift->legacy_shift_id !== null) {
+                throw new \Modules\Admin\Exceptions\AsabException('MOBILE_SHIFT_CLOSES_ON_MOBILE', 'Mobile-origin shifts are closed on mobile by the cashier and branch manager', 'ورديات الموبايل تُقفل من الموبايل بواسطة الكاشير ومدير الفرع', 409);
+            }
+
             // Doc alias: cashInDrawer(Halalas) → cashActualHalalas.
             $request->merge([
                 'cashActualHalalas' => $request->input('cashActualHalalas',
@@ -116,7 +123,6 @@ class ShiftController extends AsabController
                 'aggregatorTotalsHalalas' => 'sometimes|integer|min:0',
                 'notes' => 'nullable|string',
             ]);
-            $shift = $this->scopeToAssignedBranches(Shift::query())->findOrFail($id);
 
             $result = $closeService->close($shift, $data, $request->user(), 'system');
 

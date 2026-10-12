@@ -275,15 +275,31 @@ class ShiftPhase1RemainingAuditTest extends TestCase
         $handover = CashierShiftHandover::where('cashier_shift_id', $shift->id)->firstOrFail();
         $originalRevisionId = $handover->report_revision_id;
 
-        // 2. Manager approves responsibility via the real route
-        $approveRes = $this->actingAs($this->manager, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$shift->id}/responsibility/approve");
-        $approveRes->assertOk();
+        // 2. Historical approval fixture. The manager approve endpoint is retired (BRC-04b: 409, no write), so the
+        //    approved state a past approval left behind is built directly and preserved by the existing service.
+        $detail = ShiftVarianceDetail::where('cashier_shift_id', $shift->id)->firstOrFail();
+        $detail->update([
+            'responsibility_status' => 'approved',
+            'rejection_reason' => null,
+            'reviewed_by_id' => $this->manager->id,
+            'reviewed_by_type' => get_class($this->manager),
+            'reviewed_at' => now(),
+        ]);
+        $shift->recordHistory('responsibility_approved', ['responsibility_status' => 'pending'], ['responsibility_status' => 'approved', 'reviewed_by_id' => $this->manager->id]);
+        app(\Modules\Shift\Services\ShiftReportRevisionSnapshotService::class)->preserveVarianceReviews($shift, null, [$detail->id]);
 
-        // Verify the responsibility detail was approved with reviewer metadata
+        // The retired endpoint can no longer re-run the approval or touch any ledger.
+        $ledgerBefore = [\Modules\Custody\Models\CashierCustodyTransaction::withTrashed()->count(), \Modules\Custody\Models\PersonalLedgerTransaction::withTrashed()->count()];
+        $this->actingAs($this->manager, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$shift->id}/responsibility/approve")
+            ->assertStatus(409)->assertJsonPath('code', 'LEGACY_RESPONSIBILITY_APPROVAL_RETIRED');
+
+        // Verify the responsibility detail carries the approval with reviewer metadata
         $detail = ShiftVarianceDetail::where('cashier_shift_id', $shift->id)->firstOrFail();
         $this->assertSame('approved', $detail->responsibility_status);
         $this->assertSame($this->manager->id, $detail->reviewed_by_id);
+        $this->assertSame(get_class($this->manager), $detail->reviewed_by_type);
         $this->assertNotNull($detail->reviewed_at);
+        $preservedBefore = ShiftVarianceReviewEvidence::where('cashier_shift_id', $shift->id)->sole()->getAttributes();
 
         // 3. Manager rejects handover
         $this->actingAs($this->manager, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$shift->id}/handover/reject", [
@@ -315,6 +331,11 @@ class ShiftPhase1RemainingAuditTest extends TestCase
         // Verify old snapshot was NOT mutated
         $oldSnapshot = ShiftReportRevisionSnapshot::where('report_revision_id', $originalRevisionId)->firstOrFail();
         $this->assertNotNull($oldSnapshot);
+
+        // The evidence recorded before the reject/correction is identical afterwards, and no financial row appeared.
+        $this->assertSame($preservedBefore, ShiftVarianceReviewEvidence::findOrFail($preservedBefore['id'])->getAttributes());
+        $this->assertSame($ledgerBefore, [\Modules\Custody\Models\CashierCustodyTransaction::withTrashed()->count(), \Modules\Custody\Models\PersonalLedgerTransaction::withTrashed()->count()]);
+        $this->assertSame(0, \Modules\Shift\Models\ShiftLiabilityPosting::count());
     }
 
     /**

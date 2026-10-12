@@ -33,6 +33,14 @@ class CustodyHandoverController extends BaseController
      */
     public function handover(Request $request): JsonResponse
     {
+        if (auth()->user() instanceof Cashier) {
+            return $this->errorResponse(
+                'Legacy custody handover is retired for cashiers; use the shift handover flow.',
+                409,
+                ['code' => 'LEGACY_CUSTODY_HANDOVER_RETIRED']
+            );
+        }
+
         $validator = Validator::make($request->all(), [
             'recipientId' => 'required|string',
             'recipientType' => 'required|in:Cashier,Branch Manager,Brand Owner,Custody',
@@ -206,6 +214,10 @@ class CustodyHandoverController extends BaseController
      */
     public function transfer(Request $request): JsonResponse
     {
+        if (! auth()->user() instanceof BranchManager) {
+            return $this->errorResponse('Only branch managers can transfer to custody', 403);
+        }
+
         $validator = Validator::make($request->all(), [
             'transferAmount' => 'required_without:isFullTransfer|numeric|min:1',
             'isFullTransfer' => 'sometimes|boolean',
@@ -338,6 +350,12 @@ class CustodyHandoverController extends BaseController
             if (! $user instanceof Cashier) {
                 return $this->errorResponse('Only cashiers can accept custody handover requests', 403);
             }
+
+            return $this->errorResponse(
+                'Legacy custody handover is retired for cashiers; use the shift handover flow.',
+                409,
+                ['code' => 'LEGACY_CUSTODY_HANDOVER_RETIRED']
+            );
 
             $req = CustodyHandoverRequest::with(['fromCashier', 'toCashier'])->findOrFail($id);
             if ($req->to_cashier_id !== $user->id) {
