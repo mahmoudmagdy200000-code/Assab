@@ -117,72 +117,102 @@ class ExpenseApprovalChainTest extends TestCase
         return [$expense->fresh(), $op->fresh()];
     }
 
-    // ── Cycle 2: accountant → head ───────────────────────────────────────────
+    // ── Cycle 2 (accountant → head) — RETIRED by BRC-03 / EXP-06 (TD-2) ───────
+    //
+    // The dashboard accountant and head of accounts are not expense approvers. Each
+    // former Cycle 2 test below now asserts the refusal (409 EXPENSE_DECISION_NOT_AUTHORIZED)
+    // and that the mobile expense is left exactly as it was. Where a historical in-flight
+    // shape is needed (an operation already `approved`, a record already rejected by the
+    // accountant) it is seeded directly, as data that predates the retirement.
 
-    public function test_accountant_approval_leaves_the_mobile_record_pending_but_names_the_reviewer(): void
+    /** The mobile expense must be exactly as submitted: nothing decided, nobody named. */
+    private function assertExpenseUntouched(Expense $expense): void
     {
-        [$expense, $op] = $this->submitted();
-
-        $this->ops()->approve($op, $this->accountant);
-
         $expense->refresh();
-        // NOT approved yet — the head of accounts still has to act.
         $this->assertSame('pending', $expense->status);
-        $this->assertSame(ExpenseApprovalStage::ACCOUNTANT_APPROVED, $expense->approval_stage);
-        $this->assertSame('محاسب الفرع', $expense->decided_by_name);
-        $this->assertSame('accountant', $expense->decided_by_role);
+        $this->assertNull($expense->approval_stage);
+        $this->assertNull($expense->decided_by_name);
+        $this->assertNull($expense->decided_by_role);
+        $this->assertNull($expense->approved_at);
+        $this->assertNull($expense->rejected_at);
+        $this->assertNull($expense->rejection_reason);
+        $this->assertFalse($expense->isDecisionLocked());
     }
 
-    public function test_head_final_approval_closes_the_record_under_the_head_name(): void
+    private function assertNotAuthorized(callable $call): void
+    {
+        try {
+            $call();
+            $this->fail('Expected EXPENSE_DECISION_NOT_AUTHORIZED but the dashboard decision succeeded');
+        } catch (\Modules\Admin\Exceptions\AsabException $e) {
+            $this->assertSame('EXPENSE_DECISION_NOT_AUTHORIZED', $e->errorCode);
+            $this->assertSame(409, $e->status);
+        }
+    }
+
+    public function test_accountant_approval_is_refused_and_leaves_the_mobile_record_untouched(): void
     {
         [$expense, $op] = $this->submitted();
 
-        $this->ops()->approve($op, $this->accountant);
-        $this->ops()->finalApprove($op->fresh(), $this->head);
+        $this->assertNotAuthorized(fn () => $this->ops()->approve($op, $this->accountant));
 
-        $expense->refresh();
-        $this->assertSame('approved', $expense->status);
-        $this->assertSame(ExpenseApprovalStage::HEAD_APPROVED, $expense->approval_stage);
-        $this->assertSame('رئيس الحسابات', $expense->decided_by_name);
-        $this->assertTrue($expense->isDecisionLocked());
-        // The legacy actor FK still points at the mobile `users` table only.
-        $this->assertNull($expense->approved_by);
+        $this->assertExpenseUntouched($expense);
+        $this->assertSame(Operation::STATUS_PENDING, $op->fresh()->status);
+        $this->assertNull($op->fresh()->approved_by_id);
     }
 
-    public function test_accountant_rejection_returns_the_record_to_the_branch_manager(): void
+    public function test_head_final_approval_is_refused_and_does_not_approve_the_mobile_record(): void
+    {
+        [$expense, $op] = $this->submitted();
+        // Historical shape: an operation the accountant had already approved.
+        \Illuminate\Support\Facades\DB::table('asab_operations')->where('id', $op->id)->update(['status' => Operation::STATUS_APPROVED]);
+
+        $this->assertNotAuthorized(fn () => $this->ops()->finalApprove($op->fresh(), $this->head));
+
+        $this->assertExpenseUntouched($expense);
+        $this->assertSame(Operation::STATUS_APPROVED, $op->fresh()->status);
+        $this->assertNull($op->fresh()->final_approved_by_id);
+    }
+
+    public function test_accountant_rejection_is_refused_and_does_not_reject_the_mobile_record(): void
     {
         [$expense, $op] = $this->submitted();
 
-        $this->ops()->reject($op, $this->accountant, 'incomplete_data');
+        $this->assertNotAuthorized(fn () => $this->ops()->reject($op, $this->accountant, 'incomplete_data'));
 
-        $expense->refresh();
-        $this->assertSame('rejected', $expense->status);
-        $this->assertSame(ExpenseApprovalStage::ACCOUNTANT_REJECTED, $expense->approval_stage);
-        $this->assertSame('محاسب الفرع', $expense->decided_by_name);
-        $this->assertSame('بيانات غير مكتملة', $expense->rejection_reason);
+        $this->assertExpenseUntouched($expense);
+        $this->assertSame(Operation::STATUS_PENDING, $op->fresh()->status);
+        $this->assertNull($op->fresh()->rejected_by_id);
     }
 
-    public function test_head_rejecting_an_approved_record_sends_it_back_to_the_accountant_not_the_branch(): void
+    public function test_head_rejecting_an_approved_record_is_refused_and_no_return_to_the_accountant_happens(): void
     {
         [$expense, $op] = $this->submitted();
-        $this->ops()->approve($op, $this->accountant);
+        \Illuminate\Support\Facades\DB::table('asab_operations')->where('id', $op->id)->update([
+            'status' => Operation::STATUS_APPROVED, 'approved_by_id' => $this->accountant->id,
+        ]);
 
-        $this->ops()->rejectAs($op->fresh(), $this->head, 'incomplete_data');
+        $this->assertNotAuthorized(fn () => $this->ops()->rejectAs($op->fresh(), $this->head, 'incomplete_data'));
 
         $op->refresh();
-        $this->assertSame(Operation::STATUS_PENDING, $op->status, 'the head returns it to the accountant queue');
-
-        $expense->refresh();
-        $this->assertSame('pending', $expense->status);
-        $this->assertSame(ExpenseApprovalStage::RETURNED_TO_ACCOUNTANT, $expense->approval_stage);
-        $this->assertSame('رئيس الحسابات', $expense->decided_by_name, 'the returning head is named');
-        $this->assertNull($expense->rejection_reason);
+        $this->assertSame(Operation::STATUS_APPROVED, $op->status, 'no return-for-review: the mirror is read-only');
+        $this->assertSame($this->accountant->id, $op->approved_by_id);
+        $this->assertExpenseUntouched($expense);
     }
 
     public function test_a_resubmitted_expense_reopens_its_rejected_operation(): void
     {
         [$expense, $op] = $this->submitted();
-        $this->ops()->reject($op, $this->accountant, 'incomplete_data');
+        // Historical shape: a record the accountant had rejected before the retirement
+        // (expense rejected + stage, mirror rejected). Original assertions are unchanged.
+        \Illuminate\Support\Facades\DB::table('expenses')->where('id', $expense->id)->update([
+            'status' => 'rejected', 'approval_stage' => ExpenseApprovalStage::ACCOUNTANT_REJECTED->value,
+            'decided_by_name' => 'محاسب الفرع', 'decided_by_role' => 'accountant',
+            'rejected_at' => now(), 'rejection_reason' => 'بيانات غير مكتملة',
+        ]);
+        \Illuminate\Support\Facades\DB::table('asab_operations')->where('id', $op->id)->update([
+            'status' => Operation::STATUS_REJECTED, 'rejected_by_id' => $this->accountant->id,
+        ]);
         $this->assertSame(Operation::STATUS_REJECTED, $op->fresh()->status);
 
         // The resubmission is the manager's action — expense_timelines stamps
@@ -231,7 +261,11 @@ class ExpenseApprovalChainTest extends TestCase
     public function test_the_brand_owner_cannot_decide_a_record_the_accountant_already_took(): void
     {
         [$expense, $op] = $this->submitted();
-        $this->ops()->approve($op, $this->accountant);
+        // Historical shape: a record the accountant had already taken before BRC-03 retired the
+        // dashboard decision (the dashboard can no longer produce this stage itself).
+        \Illuminate\Support\Facades\DB::table('expenses')->where('id', $expense->id)->update([
+            'approval_stage' => ExpenseApprovalStage::ACCOUNTANT_APPROVED->value,
+        ]);
         $owner = $this->brandOwner();
 
         $this->expectException(\Exception::class);

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
@@ -311,41 +312,54 @@ class TwoWorldFeedbackLoopTest extends TestCase
         return [$expense, $op];
     }
 
-    public function test_final_approved_expense_marks_legacy_expense_approved_leaving_actor_null(): void
+    public function test_dashboard_final_approval_of_an_expense_no_longer_writes_the_legacy_expense(): void
     {
+        // BRC-03 / EXP-06: the reverse bridge (dashboard decision -> legacy expense) is retired.
         [$expense, $op] = $this->bridgeLegacyExpense('EXP-FB-1');
+        DB::table('asab_operations')->where('id', $op->id)->update(['status' => Operation::STATUS_APPROVED]);
 
-        $this->ops()->approve($op, $this->accountant);
-        $this->ops()->finalApprove($op->fresh(), $this->head);
+        try {
+            $this->ops()->finalApprove($op->fresh(), $this->head);
+            $this->fail('the dashboard may not final-approve an expense');
+        } catch (\Modules\Admin\Exceptions\AsabException $e) {
+            $this->assertSame('EXPENSE_DECISION_NOT_AUTHORIZED', $e->errorCode);
+        }
 
         $expense->refresh();
-        $this->assertSame('approved', $expense->status);
-        $this->assertNotNull($expense->approved_at);
-        // approved_by FKs to the legacy users table — an AsabUser id must NOT land here.
+        $this->assertSame('pending', $expense->status);
+        $this->assertNull($expense->approved_at);
         $this->assertNull($expense->approved_by);
+        $this->assertSame(Operation::STATUS_APPROVED, $op->fresh()->status);
     }
 
-    public function test_rejected_expense_marks_legacy_expense_rejected_with_reason(): void
+    public function test_dashboard_rejection_of_an_expense_no_longer_writes_the_legacy_expense(): void
     {
         [$expense, $op] = $this->bridgeLegacyExpense('EXP-FB-2');
 
-        $this->ops()->reject($op, $this->head, 'incomplete_data');
+        try {
+            $this->ops()->reject($op, $this->head, 'incomplete_data');
+            $this->fail('the dashboard may not reject an expense');
+        } catch (\Modules\Admin\Exceptions\AsabException $e) {
+            $this->assertSame('EXPENSE_DECISION_NOT_AUTHORIZED', $e->errorCode);
+        }
 
         $expense->refresh();
-        $this->assertSame('rejected', $expense->status);
-        $this->assertSame('بيانات غير مكتملة', $expense->rejection_reason);
+        $this->assertSame('pending', $expense->status);
+        $this->assertNull($expense->rejection_reason);
         $this->assertNull($expense->rejected_by);
+        $this->assertSame(Operation::STATUS_PENDING, $op->fresh()->status);
     }
 
-    public function test_expense_write_back_is_idempotent_and_ignores_non_expense_ops(): void
+    public function test_expense_reverse_bridge_fails_closed_and_still_ignores_non_expense_ops(): void
     {
         [$expense, $op] = $this->bridgeLegacyExpense('EXP-FB-3');
-        $this->ops()->approve($op, $this->accountant);
-        $this->ops()->finalApprove($op->fresh(), $this->head);
+        // A decision that reached the operation by some route other than the service.
+        DB::table('asab_operations')->where('id', $op->id)->update(['status' => Operation::STATUS_FINAL, 'final_approved_by_id' => $this->head->id]);
 
-        // Re-running the bridge on the same op changes nothing and does not throw.
+        // Re-running the bridge changes nothing and does not throw (it is retired).
         app(ExpenseFeedbackBridgeService::class)->syncFromOperation($op->fresh());
-        $this->assertSame('approved', $expense->fresh()->status);
+        app(ExpenseFeedbackBridgeService::class)->syncFromOperation($op->fresh());
+        $this->assertSame('pending', $expense->fresh()->status);
 
         // A non-expense operation is a no-op.
         $shiftOp = Operation::create([
@@ -355,6 +369,6 @@ class TwoWorldFeedbackLoopTest extends TestCase
             'operation_date' => now(),
         ]);
         app(ExpenseFeedbackBridgeService::class)->syncFromOperation($shiftOp);
-        $this->assertSame('approved', $expense->fresh()->status); // untouched
+        $this->assertSame('pending', $expense->fresh()->status); // untouched
     }
 }

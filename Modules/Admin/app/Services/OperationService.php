@@ -31,6 +31,7 @@ class OperationService
             // (same pattern as finalApprove) so a stale request cannot act on a
             // state another actor already moved.
             $op = $this->lockOperation($op);
+            $this->assertDecisionAuthorized($op);
             $this->assertStatus($op, Operation::STATUS_PENDING);
 
             $op->update([
@@ -109,6 +110,7 @@ class OperationService
     {
         [$fresh, $prev, $label] = DB::transaction(function () use ($op, $actor, $reasonKey, $notes, $expectedStatus) {
             $op = $this->lockOperation($op);
+            $this->assertDecisionAuthorized($op);
             if ($expectedStatus !== null) {
                 // The head's request was routed as a terminal rejection because the
                 // snapshot was not "approved". If the accountant approved it meanwhile,
@@ -167,6 +169,7 @@ class OperationService
     {
         $fresh = DB::transaction(function () use ($op, $actor, $conditional, $conditionalNote, $conditions) {
             $op = $this->lockOperation($op);
+            $this->assertDecisionAuthorized($op);
             $this->assertStatus($op, Operation::STATUS_APPROVED, 'OP_NOT_APPROVED');
             $op->update([
                 'status' => Operation::STATUS_FINAL,
@@ -227,6 +230,7 @@ class OperationService
             // move a row that has since become final-approved (or returned) back to
             // pending — re-check on the locked row.
             $op = $this->lockOperation($op);
+            $this->assertDecisionAuthorized($op);
             $this->assertStatus($op, Operation::STATUS_APPROVED, 'OP_NOT_APPROVED');
 
             $accountantId = $op->approved_by_id; // capture before clearing
@@ -462,6 +466,28 @@ class OperationService
     private function lockOperation(Operation $op): Operation
     {
         return Operation::query()->whereKey($op->id)->lockForUpdate()->firstOrFail();
+    }
+
+    /**
+     * BRC-03 / EXP-06 (TD-2): an expense is decided by the brand owner / brand
+     * manager in the mobile flow, never by the dashboard accountant or head of
+     * accounts. The `expenses` operation is a read-only approval mirror, so every
+     * decision transition is refused here — on the locked row and before any state
+     * change, audit step, event, notification or financial write. The mirror is
+     * still closed by the owner's decision via ExpenseBridgeService (which does
+     * not go through these transitions).
+     */
+    private function assertDecisionAuthorized(Operation $op): void
+    {
+        if ($op->module_key === 'expenses') {
+            throw new AsabException(
+                'EXPENSE_DECISION_NOT_AUTHORIZED',
+                'Expense decisions belong to the brand owner; the dashboard shows expenses read-only',
+                'قرار المصروف للمالك أو مدير العلامة التجارية فقط — الداشبورد للعرض والمتابعة',
+                409,
+                ['moduleKey' => $op->module_key],
+            );
+        }
     }
 
     private function assertStatus(Operation $op, string $expected, string $code = 'OP_NOT_PENDING'): void

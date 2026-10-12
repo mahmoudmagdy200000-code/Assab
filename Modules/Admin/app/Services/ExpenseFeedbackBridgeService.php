@@ -41,6 +41,11 @@ class ExpenseFeedbackBridgeService
      */
     public function syncFromOperation(Operation $op, ?AsabUser $actor = null): void
     {
+        // BRC-03 / EXP-06 (TD-2): retired — fail closed. A dashboard decision must never
+        // write the legacy expense (it bypassed every custody debit/reversal, PRB-05).
+        // The body below is intentionally unreachable until the pre-merge cleanup.
+        return;
+
         if ($op->source_module !== ExpenseBridgeService::SOURCE || $op->source_id === null) {
             return;
         }

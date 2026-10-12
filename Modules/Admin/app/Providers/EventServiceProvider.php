@@ -5,7 +5,6 @@ namespace Modules\Admin\Providers;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
 use Modules\Admin\Events\OperationFinalApproved;
 use Modules\Admin\Events\OperationRejected;
-use Modules\Admin\Listeners\BridgeExpenseDecisionToLegacy;
 use Modules\Admin\Listeners\BridgeLegacyCashierShift;
 use Modules\Admin\Listeners\BridgeLegacyShiftStart;
 use Modules\Admin\Listeners\BridgeManagerDailyClose;
@@ -43,21 +42,15 @@ class EventServiceProvider extends ServiceProvider
         ExpenseApprovedEvent::class => [SyncLegacyExpenseOperation::class],
         \Modules\Expense\Events\ExpenseRejectedEvent::class => [SyncLegacyExpenseOperation::class],
 
-        // Cycle 2 (accountant → head): each dashboard stage is mirrored back
-        // onto the mobile expense so the branch manager and the brand owner see
-        // who decided and where the record stands.
-        \Modules\Admin\Events\OperationApproved::class => [
-            [BridgeExpenseDecisionToLegacy::class, 'handleApproved'],
-        ],
-        \Modules\Admin\Events\OperationReturnedForReview::class => [
-            [BridgeExpenseDecisionToLegacy::class, 'handleReturnedForReview'],
-        ],
+        // BRC-03 / EXP-06: the former Cycle 2 reverse bridge (dashboard accountant /
+        // head decision -> legacy expense row) is retired. An expense is decided only
+        // by the brand owner in the mobile flow; the dashboard operation is a read-only
+        // mirror and OperationService refuses every decision on it.
 
         // Final-approval listeners are post-commit bridges/projections. The
         // required native shift close and allocation run inside OperationService.
         OperationFinalApproved::class => [
             [BridgeShiftDecisionToLegacy::class, 'handleFinalApproved'],
-            [BridgeExpenseDecisionToLegacy::class, 'handleFinalApproved'],
             [\Modules\Admin\Listeners\BridgePurchaseDecisionToLegacy::class, 'handleFinalApproved'],
             // SRS §14.3 ERP-1: seed the (day × module) ready batch for export.
             SyncErpReadyBatch::class,
@@ -65,7 +58,6 @@ class EventServiceProvider extends ServiceProvider
         OperationRejected::class => [
             [ProcessShiftOperationDecision::class, 'handleRejected'],
             [BridgeShiftDecisionToLegacy::class, 'handleRejected'],
-            [BridgeExpenseDecisionToLegacy::class, 'handleRejected'],
             [\Modules\Admin\Listeners\BridgePurchaseDecisionToLegacy::class, 'handleRejected'],
         ],
 

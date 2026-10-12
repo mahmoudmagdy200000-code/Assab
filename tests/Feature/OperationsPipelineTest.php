@@ -185,11 +185,14 @@ class OperationsPipelineTest extends TestCase
 
     public function test_reject_refuses_a_reason_outside_the_module_list(): void
     {
-        $expense = $this->op(['module_key' => 'expenses', 'public_id' => OperationSequence::next('EXP')]);
+        // BRC-03: an `expenses` operation is a read-only mirror (its decisions are refused with
+        // 409 before the reason is even examined), so a different non-sales module carries
+        // this per-module-reason-list check. The reason-list behaviour itself is unchanged.
+        $inventory = $this->op(['module_key' => 'inventory', 'public_id' => OperationSequence::next('INV')]);
 
-        // Sales-only reason on an expenses operation.
+        // Sales-only reason on a non-sales operation.
         $this->actingAs($this->accountant, 'sanctum')
-            ->postJson("/api/v1/operations/{$expense->id}/reject", ['reason' => 'missing_pos_report'])
+            ->postJson("/api/v1/operations/{$inventory->id}/reject", ['reason' => 'missing_pos_report'])
             ->assertStatus(422)->assertJsonPath('error.code', 'INVALID_REJECT_REASON');
 
         $sales = $this->op();
