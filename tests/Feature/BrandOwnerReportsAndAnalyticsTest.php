@@ -196,6 +196,13 @@ class BrandOwnerReportsAndAnalyticsTest extends TestCase
     {
         $this->seed(BrandOwnerReportsDemoSeeder::class);
 
+        // A-1: reports are now brand-scoped, so the demo data is only visible
+        // to an owner it belongs to. The seeder builds a generic (unbranded)
+        // demo, so attach its branches to the acting owner's brand — this makes
+        // the assertions prove SCOPED visibility rather than the old global leak.
+        $demoBranches = Branch::query()->where('name', 'like', '%(Demo)')->get()->all();
+        $this->tagBranchesWithBrand($this->brand, ...$demoBranches);
+
         // Branches show up for report filters.
         $this->actingAs($this->owner, 'sanctum')
             ->getJson('/api/brand-owner/branches')

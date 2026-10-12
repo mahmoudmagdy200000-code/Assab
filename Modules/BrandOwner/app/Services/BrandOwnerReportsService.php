@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Modules\Branch\Models\Branch;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\BrandOwner\Models\BrandOwnerReportExport;
 use Modules\Custody\Models\CustodyTransaction;
 use Modules\Expense\Models\Expense;
@@ -75,9 +76,11 @@ class BrandOwnerReportsService
     /**
      * GET /brand-owner/reports/expense/{reportId}
      *
-     * When $filters['scope_branch_only'] is set (branch-manager callers), the
-     * whole payload — including branch comparisons and the default branch — is
-     * restricted to $filters['branch_id'] so no other branch's data leaks.
+     * $filters['allowed_branch_ids'] is the authorised branch scope (resolved
+     * server-side); $filters['branch_id'] is an optional client narrowing that
+     * is honoured only when it is inside that scope. The whole payload —
+     * summary, comparisons, cash log, quick summary and the default branch — is
+     * restricted to the resulting scope, so no other tenant's data can leak.
      */
     public function getExpenseReportDetails(string $reportId, array $filters): array
     {
@@ -85,22 +88,36 @@ class BrandOwnerReportsService
         $year = $filters['year'] ?? (int) now()->year;
         $type = $filters['type'] ?? null;
         $status = $filters['status'] ?? null;
-        $branchId = $filters['branch_id'] ?? null;
-        $scopeBranchOnly = ! empty($filters['scope_branch_only']) && $branchId !== null;
+        $allowedBranchIds = $filters['allowed_branch_ids'] ?? [];
+        $requestedBranchId = $filters['branch_id'] ?? null;
+
+        // Authorisation scope resolved server-side; a client branch_id can only
+        // narrow it. Every aggregation below runs over $scopeIds ONLY, so an
+        // unlinked actor (empty scope) gets zeros, never another tenant's data.
+        $scopeIds = $this->effectiveBranchIds($allowedBranchIds, $requestedBranchId);
 
         $periodStart = Carbon::create($year, $month, 1)->startOfMonth();
         $prevStart = (clone $periodStart)->subMonth();
 
-        $current = $this->monthExpenses($type, $status, $branchId, $month, $year);
-        $previous = $this->monthExpenses($type, $status, $branchId, $prevStart->month, $prevStart->year);
+        $current = $this->monthExpenses($type, $status, $scopeIds, $month, $year);
+        $previous = $this->monthExpenses($type, $status, $scopeIds, $prevStart->month, $prevStart->year);
 
         $totalAmount = (float) $current->sum('total_amount');
         $trend = $this->trend($totalAmount, (float) $previous->sum('total_amount'));
 
-        $branch = $branchId ? Branch::find($branchId) : null;
-        $defaultBranch = $scopeBranchOnly && $branch
-            ? $branch
-            : Branch::query()->orderBy('name')->first();
+        // The narrowing branch is honoured only when it is inside the
+        // authorised scope; otherwise there is no branch and no data.
+        $branch = ($requestedBranchId !== null && in_array($requestedBranchId, $scopeIds, true))
+            ? Branch::find($requestedBranchId)
+            : null;
+        // default_branch is derived from the EFFECTIVE scope ($scopeIds), not the
+        // full authorised set — so an out-of-scope requested branch_id (empty
+        // effective scope, zero aggregates) yields default_branch = null rather
+        // than pointing at some other allowed branch the caller did not ask for
+        // (IR-PKG2-03). With no branch_id the effective scope equals the
+        // authorised set, so the default is unchanged.
+        $defaultBranch = $branch
+            ?? Branch::query()->whereIn('id', $scopeIds)->orderBy('name')->first();
         $summaryBranch = $branch ?? $defaultBranch;
 
         return [
@@ -116,16 +133,16 @@ class BrandOwnerReportsService
             'payment_methods' => $this->paymentMethods($current),
             'top_suppliers' => $this->topSuppliers($current),
             'expense_ratios' => $this->expenseRatios($current),
-            'branch_comparisons' => $this->branchComparisons($type, $status, $month, $year, $scopeBranchOnly ? $branchId : null),
-            'cash_transfer_log' => $this->cashTransferLog($month, $year, $branchId),
-            'quick_summary' => $this->quickSummary($branchId, $month, $year, $prevStart),
+            'branch_comparisons' => $this->branchComparisons($type, $status, $month, $year, $scopeIds),
+            'cash_transfer_log' => $this->cashTransferLog($month, $year, $scopeIds),
+            'quick_summary' => $this->quickSummary($scopeIds, $month, $year, $prevStart),
             'default_branch' => $this->branchShort($defaultBranch),
             'filters' => [
                 'type' => $type,
                 'status' => $status,
                 'month' => $month,
                 'year' => $year,
-                'branch_id' => $branchId,
+                'branch_id' => $requestedBranchId,
                 'branch_name' => $branch?->name,
             ],
         ];
@@ -134,10 +151,14 @@ class BrandOwnerReportsService
     /**
      * GET /brand-owner/reports/custody/{reportId}
      *
-     * When $branchId is provided (branch-manager callers) only that branch is
-     * returned; brand owners pass null and receive every branch.
+     * Only branches inside the authorised scope are returned (the actor's own
+     * branch for a branch-level manager, their brand's branches for a brand
+     * actor); an optional $requestedBranchId narrows within that scope. An
+     * empty scope returns no branches — never every branch.
+     *
+     * @param  string[]  $allowedBranchIds  authorised branch scope (server-resolved)
      */
-    public function getCustodyReportDetails(string $reportId, ?int $month, ?int $year, ?string $branchId = null): array
+    public function getCustodyReportDetails(string $reportId, ?int $month, ?int $year, array $allowedBranchIds = [], ?string $requestedBranchId = null): array
     {
         $month = $month ?? (int) now()->month;
         $year = $year ?? (int) now()->year;
@@ -147,7 +168,7 @@ class BrandOwnerReportsService
         $monthName = $monthStart->format('F');
 
         $branches = Branch::query()
-            ->when($branchId, fn ($q) => $q->where('id', $branchId))
+            ->whereIn('id', $this->effectiveBranchIds($allowedBranchIds, $requestedBranchId))
             ->orderBy('name')
             ->get()
             ->map(function (Branch $b) use ($monthStart, $monthEnd, $monthName) {
@@ -188,28 +209,26 @@ class BrandOwnerReportsService
     /**
      * POST /brand-owner/reports/expense/export
      *
-     * $owner is a BrandOwner or BranchManager. When $branchId is provided
-     * (branch-manager callers) the generated file covers that branch only.
+     * $owner is a BrandOwner / BrandManager or BranchManager. The generated
+     * file is produced from getExpenseReportDetails, so it inherits the same
+     * tenant scope — only the actor's authorised branches are exported.
+     *
+     * @param  string[]  $allowedBranchIds  authorised branch scope (server-resolved)
      */
-    public function exportExpenseReport(Model $owner, array $data, ?string $branchId = null): array
+    public function exportExpenseReport(Model $owner, array $data, array $allowedBranchIds = [], ?string $requestedBranchId = null): array
     {
         $year = (int) $data['year'];
         $month = (int) $data['month_number'];
         $type = $data['expense_type'];
         $format = $data['format_type'];
 
-        $filters = [
+        $details = $this->getExpenseReportDetails('expenses', [
             'type' => $type,
             'month' => $month,
             'year' => $year,
-        ];
-
-        if ($branchId !== null) {
-            $filters['branch_id'] = $branchId;
-            $filters['scope_branch_only'] = true;
-        }
-
-        $details = $this->getExpenseReportDetails('expenses', $filters);
+            'allowed_branch_ids' => $allowedBranchIds,
+            'branch_id' => $requestedBranchId,
+        ]);
 
         $periodLabel = Carbon::create($year, $month, 1)->format('F Y');
         $title = ucfirst(str_replace('_', ' ', $type)).' Expense Report - '.$periodLabel;
@@ -231,16 +250,19 @@ class BrandOwnerReportsService
     /**
      * POST /brand-owner/reports/custody/export
      *
-     * $owner is a BrandOwner or BranchManager. When $branchId is provided
-     * (branch-manager callers) the generated file covers that branch only.
+     * $owner is a BrandOwner / BrandManager or BranchManager. The generated
+     * file inherits the same tenant scope as getCustodyReportDetails — only the
+     * actor's authorised branches are exported.
+     *
+     * @param  string[]  $allowedBranchIds  authorised branch scope (server-resolved)
      */
-    public function exportCustodyReport(Model $owner, array $data, ?string $branchId = null): array
+    public function exportCustodyReport(Model $owner, array $data, array $allowedBranchIds = [], ?string $requestedBranchId = null): array
     {
         $year = (int) $data['year'];
         $month = (int) $data['month_number'];
         $format = $data['format_type'];
 
-        $details = $this->getCustodyReportDetails('custody', $month, $year, $branchId);
+        $details = $this->getCustodyReportDetails('custody', $month, $year, $allowedBranchIds, $requestedBranchId);
 
         $periodLabel = Carbon::create($year, $month, 1)->format('F Y');
         $title = 'Custody Report - '.$periodLabel;
@@ -289,18 +311,58 @@ class BrandOwnerReportsService
     // Internal helpers
     // ----------------------------------------------------------------
 
-    /** Expenses for one month with the brand-owner filters applied. */
-    private function monthExpenses(?string $type, ?string $status, ?string $branchId, int $month, int $year)
+    /**
+     * The branch ids to aggregate over: the authorised scope, narrowed to a
+     * requested branch only when that branch is itself inside the scope. A
+     * requested branch outside the scope (or an empty scope) yields [] — which
+     * every query below turns into "no rows", so nothing leaks.
+     *
+     * @param  string[]  $allowedBranchIds
+     * @return string[]
+     */
+    private function effectiveBranchIds(array $allowedBranchIds, ?string $requestedBranchId): array
     {
-        return $this->baseExpenseQuery($type, $status, $branchId)
+        if ($requestedBranchId !== null) {
+            return in_array($requestedBranchId, $allowedBranchIds, true) ? [$requestedBranchId] : [];
+        }
+
+        return array_values($allowedBranchIds);
+    }
+
+    /**
+     * Expenses for one month, confined to $branchIds.
+     *
+     * @param  string[]  $branchIds
+     */
+    private function monthExpenses(?string $type, ?string $status, array $branchIds, int $month, int $year)
+    {
+        return $this->baseExpenseQuery($type, $status, $branchIds)
             ->whereYear('created_at', $year)
             ->whereMonth('created_at', $month)
             ->get();
     }
 
-    private function baseExpenseQuery(?string $type, ?string $status, ?string $branchId): Builder
+    /**
+     * Base expense query, ALWAYS confined to $branchIds (tenant isolation).
+     *
+     * The scope is matched through the (possibly soft-deleted) branch manager so
+     * a departed manager's historical expenses stay with the branch that owns
+     * them. An empty $branchIds matches nothing — never every branch.
+     *
+     * @param  string[]  $branchIds
+     */
+    private function baseExpenseQuery(?string $type, ?string $status, array $branchIds): Builder
     {
-        $query = Expense::query()->with(['branchManager.branch', 'supplier:id,name']);
+        $query = Expense::query()
+            // Load the manager (and its branch) even when soft-deleted: the scope
+            // subquery below includes trashed managers, so without withTrashed here
+            // their expenses would count in the tenant total yet group under
+            // "Unassigned" in branch_comparisons (FU-01).
+            ->with(['branchManager' => fn ($q) => $q->withTrashed()->with('branch'), 'supplier:id,name'])
+            ->whereIn(
+                'branch_manager_id',
+                BranchManager::withTrashed()->whereIn('branch_id', $branchIds)->select('id')
+            );
 
         if ($type === 'quick_cash') {
             $query->where('expense_type', 'quick_cash');
@@ -310,10 +372,6 @@ class BrandOwnerReportsService
 
         if ($status) {
             $query->where('status', $status);
-        }
-
-        if ($branchId) {
-            $query->whereHas('branchManager', fn (Builder $m) => $m->where('branch_id', $branchId));
         }
 
         return $query;
@@ -369,13 +427,13 @@ class BrandOwnerReportsService
 
     /**
      * Per-branch totals for the period; max_amount lets the client draw bars.
+     * Confined to $branchIds, so only authorised branches are compared.
      *
-     * $branchId restricts the comparison to a single branch (branch-manager
-     * callers); brand owners pass null to compare every branch.
+     * @param  string[]  $branchIds
      */
-    private function branchComparisons(?string $type, ?string $status, int $month, int $year, ?string $branchId = null): array
+    private function branchComparisons(?string $type, ?string $status, int $month, int $year, array $branchIds): array
     {
-        $expenses = $this->monthExpenses($type, $status, $branchId, $month, $year);
+        $expenses = $this->monthExpenses($type, $status, $branchIds, $month, $year);
 
         $byBranch = $expenses
             ->groupBy(fn (Expense $e) => $e->branchManager?->branch_id ?: 'unassigned')
@@ -393,18 +451,16 @@ class BrandOwnerReportsService
             ->all();
     }
 
-    private function cashTransferLog(int $month, int $year, ?string $branchId): array
+    /** @param  string[]  $branchIds */
+    private function cashTransferLog(int $month, int $year, array $branchIds): array
     {
-        $query = CustodyTransaction::query()
+        $transactions = CustodyTransaction::query()
             ->with('branch:id,name')
+            ->whereIn('branch_id', $branchIds)
             ->whereYear('transaction_date', $year)
-            ->whereMonth('transaction_date', $month);
-
-        if ($branchId) {
-            $query->where('branch_id', $branchId);
-        }
-
-        $transactions = $query->orderByDesc('transaction_date')->get();
+            ->whereMonth('transaction_date', $month)
+            ->orderByDesc('transaction_date')
+            ->get();
 
         $logs = $transactions->map(fn (CustodyTransaction $t) => [
             'method' => $t->handover_method ?: $t->type,
@@ -422,14 +478,15 @@ class BrandOwnerReportsService
         ];
     }
 
-    private function quickSummary(?string $branchId, int $month, int $year, Carbon $prevStart): array
+    /** @param  string[]  $branchIds */
+    private function quickSummary(array $branchIds, int $month, int $year, Carbon $prevStart): array
     {
-        $current = (float) $this->quickCashQuery($branchId)
+        $current = (float) $this->quickCashQuery($branchIds)
             ->whereYear('created_at', $year)
             ->whereMonth('created_at', $month)
             ->sum('total_amount');
 
-        $previous = (float) $this->quickCashQuery($branchId)
+        $previous = (float) $this->quickCashQuery($branchIds)
             ->whereYear('created_at', $prevStart->year)
             ->whereMonth('created_at', $prevStart->month)
             ->sum('total_amount');
@@ -444,14 +501,19 @@ class BrandOwnerReportsService
         ];
     }
 
-    private function quickCashQuery(?string $branchId): Builder
+    /**
+     * Quick-cash expenses, ALWAYS confined to $branchIds (tenant isolation).
+     *
+     * @param  string[]  $branchIds
+     */
+    private function quickCashQuery(array $branchIds): Builder
     {
         return Expense::query()
             ->where('expense_type', 'quick_cash')
-            ->when($branchId, fn (Builder $q) => $q->whereHas(
-                'branchManager',
-                fn (Builder $m) => $m->where('branch_id', $branchId)
-            ));
+            ->whereIn(
+                'branch_manager_id',
+                BranchManager::withTrashed()->whereIn('branch_id', $branchIds)->select('id')
+            );
     }
 
     /** Net custody balance for a branch from all transactions before $date. */

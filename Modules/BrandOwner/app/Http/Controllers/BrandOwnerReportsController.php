@@ -5,6 +5,7 @@ namespace Modules\BrandOwner\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Modules\Admin\Services\MobileBranchScopeService;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BrandOwner\Http\Requests\BrandOwnerExpenseReportFilterRequest;
 use Modules\BrandOwner\Http\Requests\ExportCustodyReportRequest;
@@ -16,17 +17,43 @@ use Modules\BrandOwner\Services\BrandOwnerReportsService;
  * Brand Owner Reports & Analytics screen.
  *
  * Every endpoint is guarded by the `branch.manager.or.brand.owner` middleware,
- * so the authenticated user is always a BrandOwner or a BranchManager.
+ * so the authenticated user is always a BrandOwner / BrandManager (brand actor)
+ * or a BranchManager (branch-level).
  *
- * A branch manager is fully scoped to their own branch — report details,
- * exports and export history all cover that branch only. A brand owner keeps
- * the original cross-branch behaviour.
+ * TENANT ISOLATION (A-1): every report, detail and export is confined to the
+ * branches the authenticated actor is actually assigned to, resolved
+ * server-side and applied INSIDE the DB query before any aggregation, grouping
+ * or export — never from a client-supplied id.
+ *   - brand owner / brand manager → the branches of the brands they own
+ *     (MobileBranchScopeService); an unlinked actor fails closed (empty scope,
+ *     no data), and a BrandManager inherits NOTHING extra from BrandOwner.
+ *   - branch-level manager        → their own branch only (unchanged).
+ * A client-supplied branch_id can only NARROW the authorised scope.
  */
 class BrandOwnerReportsController extends BaseController
 {
     public function __construct(
-        private BrandOwnerReportsService $service
+        private BrandOwnerReportsService $service,
+        private MobileBranchScopeService $branchScope
     ) {}
+
+    /**
+     * Branch ids the authenticated actor may report on (empty = fail closed).
+     *
+     * A branch-level manager stays locked to exactly their own branch (no
+     * regression, no brand widening); a brand owner / brand manager gets the
+     * branches of the brands they are assigned to.
+     *
+     * @return string[]
+     */
+    private function allowedBranchIds(mixed $user): array
+    {
+        if ($user instanceof BranchManager) {
+            return $user->branch_id ? [$user->branch_id] : [];
+        }
+
+        return $this->branchScope->visibleBranchIds($user);
+    }
 
     /**
      * GET /brand-owner/reports-and-analytics
@@ -60,12 +87,12 @@ class BrandOwnerReportsController extends BaseController
         }
 
         $filters = $request->filters();
+        $filters['allowed_branch_ids'] = $this->allowedBranchIds($user);
 
-        // Branch managers only ever see their own branch — ignore any
-        // client-supplied branch_id and force tenant isolation.
+        // A branch-level manager is pinned to their own branch — the client's
+        // branch_id is ignored and the summary/filters echo that branch.
         if ($user instanceof BranchManager) {
             $filters['branch_id'] = $user->branch_id;
-            $filters['scope_branch_only'] = true;
         }
 
         return $this->successResponse(
@@ -91,11 +118,11 @@ class BrandOwnerReportsController extends BaseController
         $month = $request->filled('month') ? (int) $request->input('month') : null;
         $year = $request->filled('year') ? (int) $request->input('year') : null;
 
-        // Branch managers are locked to their own branch; brand owners see all.
-        $branchId = $user instanceof BranchManager ? $user->branch_id : null;
-
+        // Custody has no client branch filter; the actor's authorised branches
+        // (own branch for a branch-level manager, own brand for a brand actor)
+        // are the only ones returned.
         return $this->successResponse(
-            $this->service->getCustodyReportDetails($reportId, $month, $year, $branchId),
+            $this->service->getCustodyReportDetails($reportId, $month, $year, $this->allowedBranchIds($user)),
             'Custody report retrieved successfully'
         );
     }
@@ -114,10 +141,8 @@ class BrandOwnerReportsController extends BaseController
             return $this->forbiddenResponse('Brand owner or branch manager access required.');
         }
 
-        $branchId = $user instanceof BranchManager ? $user->branch_id : null;
-
         return $this->successResponse(
-            $this->service->exportExpenseReport($user, $request->validated(), $branchId),
+            $this->service->exportExpenseReport($user, $request->validated(), $this->allowedBranchIds($user)),
             'Expense report exported successfully'
         );
     }
@@ -136,10 +161,8 @@ class BrandOwnerReportsController extends BaseController
             return $this->forbiddenResponse('Brand owner or branch manager access required.');
         }
 
-        $branchId = $user instanceof BranchManager ? $user->branch_id : null;
-
         return $this->successResponse(
-            $this->service->exportCustodyReport($user, $request->validated(), $branchId),
+            $this->service->exportCustodyReport($user, $request->validated(), $this->allowedBranchIds($user)),
             'Custody report exported successfully'
         );
     }
