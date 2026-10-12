@@ -6,6 +6,7 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Request;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\Expense\Models\Expense;
 
 /**
@@ -67,11 +68,72 @@ class ExpenseRepository
     }
 
     /**
-     * Recent expenses for Brand Owner view (non-draft, across all managers), limit 10.
+     * Expenses of the given branches only (brand owner / brand manager scope).
+     *
+     * Every brand-actor read goes through here. An empty scope matches nothing, and the
+     * branch-manager subquery includes soft-deleted managers so a departed manager's
+     * historical expenses stay reachable by the brand that owns the branch.
+     *
+     * @param  string[]  $branchIds  resolved server-side (ExpenseBrandScopeService), never from the request
      */
-    public function getRecentForBrandOwner(int $limit = 10): Collection
+    private function inBranchScope(array $branchIds): Builder
     {
-        return Expense::whereIn('status', ['pending', 'approved', 'rejected'])
+        $query = Expense::query();
+
+        if ($branchIds === []) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereIn(
+            'branch_manager_id',
+            BranchManager::withTrashed()->whereIn('branch_id', $branchIds)->select('id')
+        );
+    }
+
+    /**
+     * One expense inside the branch scope, or null (out-of-scope and non-existent are indistinguishable).
+     *
+     * @param  string[]  $branchIds
+     */
+    public function findInBranchScope(string $id, array $branchIds): ?Expense
+    {
+        return $this->inBranchScope($branchIds)->whereKey($id)->first();
+    }
+
+    /**
+     * Brand actor view of a single expense with every relation the detail resource needs.
+     *
+     * @param  string[]  $branchIds
+     */
+    public function findForShowInBranchScope(string $id, array $branchIds): ?Expense
+    {
+        return $this->inBranchScope($branchIds)->with([
+            'quickCashExpense.items.category',
+            'invoiceDetails.supplier',
+            'invoiceDetails.items.category',
+            'invoiceDetails.expenseLines.category',
+            'groupedInvoice.invoiceDetails.supplier',
+            'groupedInvoice.invoiceDetails.items.category',
+            'groupedInvoice.invoiceDetails.expenseLines.category',
+            'preApprovalRequest',
+            'items.category',
+            'expenseLines.category',
+            'attachments',
+            'supplier',
+            'branchManager',
+            'timelines' => fn ($q) => $q->orderBy('created_at', 'asc'),
+        ])->whereKey($id)->first();
+    }
+
+    /**
+     * Recent expenses (non-draft) for a brand actor, limit 10.
+     *
+     * @param  string[]  $branchIds
+     */
+    public function getRecentInBranchScope(array $branchIds, int $limit = 10): Collection
+    {
+        return $this->inBranchScope($branchIds)
+            ->whereIn('status', ['pending', 'approved', 'rejected'])
             ->with(['quickCashExpense', 'invoiceDetails', 'groupedInvoice.invoiceDetails', 'preApprovalRequest', 'branchManager'])
             ->orderBy('created_at', 'desc')
             ->limit($limit)
@@ -79,11 +141,14 @@ class ExpenseRepository
     }
 
     /**
-     * Brand Owner summary: approved expenses across all managers for month/year.
+     * Brand actor summary: approved expenses inside the scope for month/year.
+     *
+     * @param  string[]  $branchIds
      */
-    public function getSummaryForBrandOwner(int $month, int $year): Collection
+    public function getSummaryInBranchScope(array $branchIds, int $month, int $year): Collection
     {
-        return Expense::where('status', 'approved')
+        return $this->inBranchScope($branchIds)
+            ->where('status', 'approved')
             ->whereYear('created_at', $year)
             ->whereMonth('created_at', $month)
             ->get();
@@ -272,11 +337,15 @@ class ExpenseRepository
     }
 
     /**
-     * Brand owner approval list: pending/approved/rejected with relations.
+     * Brand actor approval list: pending/approved/rejected inside the scope, with relations.
+     * A client-supplied `branch_manager_id` can only narrow the scope, never widen it.
+     *
+     * @param  string[]  $branchIds
      */
-    public function getPaginatedForApproval(Request $request): LengthAwarePaginator
+    public function getPaginatedForApprovalInBranchScope(Request $request, array $branchIds): LengthAwarePaginator
     {
-        $query = Expense::whereIn('status', ['pending', 'approved', 'rejected'])
+        $query = $this->inBranchScope($branchIds)
+            ->whereIn('status', ['pending', 'approved', 'rejected'])
             ->with(['quickCashExpense', 'invoiceDetails', 'groupedInvoice.invoiceDetails', 'preApprovalRequest', 'branchManager']);
 
         if ($request->has('status')) {

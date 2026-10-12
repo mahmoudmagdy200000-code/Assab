@@ -7,21 +7,49 @@ use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Modules\BrandOwner\Models\BrandOwner;
+use Modules\Expense\Enums\ExpenseDecisionRole;
+use Modules\Expense\Models\Expense;
 use Modules\Expense\Repositories\ExpenseRepository;
 use Modules\Expense\Services\ExpenseApprovalService;
+use Modules\Expense\Services\ExpenseBrandScopeService;
 use Modules\Expense\Transformers\ExpenseDetailResource;
 use Modules\Expense\Transformers\ExpenseResource;
 
 /**
  * Expense Approval Controller
- * For Brand Owner to approve/reject expenses. Data access via ExpenseRepository.
+ * For Brand Owner / Brand Manager to approve/reject expenses. Data access via ExpenseRepository.
+ *
+ * Every lookup is confined to the branches the authenticated actor is assigned to
+ * (ExpenseBrandScopeService). An out-of-scope id is a uniform 404 — indistinguishable
+ * from a non-existent one — and returns BEFORE anything is written.
  */
 class ExpenseApprovalController extends BaseController
 {
     public function __construct(
         private ExpenseApprovalService $approvalService,
-        private ExpenseRepository $expenseRepository
+        private ExpenseRepository $expenseRepository,
+        private ExpenseBrandScopeService $scope
     ) {}
+
+    /** @return string[] branch ids the authenticated brand actor may access (empty = fail closed) */
+    private function branchScope(): array
+    {
+        $actor = auth()->user();
+
+        return $actor instanceof BrandOwner ? $this->scope->branchIdsFor($actor) : [];
+    }
+
+    /** The expense if it is inside the actor's scope, else null (callers answer 404). */
+    private function scopedExpense(string $id): ?Expense
+    {
+        return $this->expenseRepository->findInBranchScope($id, $this->branchScope());
+    }
+
+    private function expenseNotFound(): JsonResponse
+    {
+        return $this->errorResponse('Expense not found', 404);
+    }
 
     /**
      * Get all pending expenses for approval
@@ -29,7 +57,7 @@ class ExpenseApprovalController extends BaseController
      */
     public function index(Request $request): JsonResponse
     {
-        $expenses = $this->expenseRepository->getPaginatedForApproval($request);
+        $expenses = $this->expenseRepository->getPaginatedForApprovalInBranchScope($request, $this->branchScope());
 
         return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
@@ -43,7 +71,11 @@ class ExpenseApprovalController extends BaseController
      */
     public function show(string $expense): JsonResponse
     {
-        $expenseModel = $this->expenseRepository->findForShow($expense);
+        $expenseModel = $this->expenseRepository->findForShowInBranchScope($expense, $this->branchScope());
+
+        if (! $expenseModel) {
+            return $this->expenseNotFound();
+        }
 
         return $this->successResponse(
             new ExpenseDetailResource($expenseModel),
@@ -57,9 +89,13 @@ class ExpenseApprovalController extends BaseController
      */
     public function markAsViewed(string $expense): JsonResponse
     {
-        try {
-            $expenseModel = $this->expenseRepository->findOrFail($expense);
+        $expenseModel = $this->scopedExpense($expense);
 
+        if (! $expenseModel) {
+            return $this->expenseNotFound();
+        }
+
+        try {
             $this->approvalService->markAsViewed($expenseModel, auth()->id());
 
             return response()->json([
@@ -82,10 +118,19 @@ class ExpenseApprovalController extends BaseController
             return $this->errorResponse('Only brand owners can approve expenses', 403);
         }
 
-        try {
-            $expenseModel = $this->expenseRepository->findOrFail($expense);
+        $expenseModel = $this->scopedExpense($expense);
 
-            $this->approvalService->approveExpense($expenseModel, auth()->id(), auth()->user()->name);
+        if (! $expenseModel) {
+            return $this->expenseNotFound();
+        }
+
+        try {
+            $this->approvalService->approveExpense(
+                $expenseModel,
+                auth()->id(),
+                auth()->user()->name,
+                ExpenseDecisionRole::forActor(auth()->user())
+            );
 
             return $this->successResponse(
                 new ExpenseDetailResource($expenseModel->fresh()),
@@ -121,10 +166,20 @@ class ExpenseApprovalController extends BaseController
             );
         }
 
-        try {
-            $expenseModel = $this->expenseRepository->findOrFail($expense);
+        $expenseModel = $this->scopedExpense($expense);
 
-            $this->approvalService->rejectExpense($expenseModel, auth()->id(), $request->reason, auth()->user()->name);
+        if (! $expenseModel) {
+            return $this->expenseNotFound();
+        }
+
+        try {
+            $this->approvalService->rejectExpense(
+                $expenseModel,
+                auth()->id(),
+                $request->reason,
+                auth()->user()->name,
+                ExpenseDecisionRole::forActor(auth()->user())
+            );
 
             return $this->successResponse(
                 new ExpenseDetailResource($expenseModel->fresh()),
@@ -144,9 +199,13 @@ class ExpenseApprovalController extends BaseController
         // This allows brand owner to make minor corrections
         // Implementation depends on what fields can be edited
 
-        try {
-            $expenseModel = $this->expenseRepository->findOrFail($expense);
+        $expenseModel = $this->scopedExpense($expense);
 
+        if (! $expenseModel) {
+            return $this->expenseNotFound();
+        }
+
+        try {
             // Record the edit in timeline
             $this->approvalService->recordEdit($expenseModel, auth()->id(), $request->all());
 
@@ -165,7 +224,11 @@ class ExpenseApprovalController extends BaseController
      */
     public function timeline(string $expense): JsonResponse
     {
-        $expenseModel = $this->expenseRepository->findOrFail($expense);
+        $expenseModel = $this->scopedExpense($expense);
+
+        if (! $expenseModel) {
+            return $this->expenseNotFound();
+        }
 
         $timeline = $expenseModel->timelines()
             ->orderBy('created_at', 'asc')

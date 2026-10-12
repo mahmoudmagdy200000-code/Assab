@@ -3,6 +3,7 @@
 namespace Modules\Expense\Services;
 
 use Modules\Expense\Enums\ExpenseApprovalStage;
+use Modules\Expense\Enums\ExpenseDecisionRole;
 use Modules\Expense\Models\Expense;
 
 /**
@@ -47,13 +48,22 @@ class ExpenseApprovalService
     }
 
     /**
-     * Approve expense (Brand Owner).
+     * Approve expense (Brand Owner or Brand Manager — `$role` is who actually decided).
+     *
+     * The approval STAGE stays `brand_owner_approved` for both (a state-machine value shared
+     * with the clients); the actor is attributed in `decided_by_role`. The timeline row keeps
+     * `performed_by_type = brand_owner` because expense_timelines.performed_by_type is a DB enum
+     * without `brand_manager` — its `performed_by` carries the real actor id (see report G-1).
      *
      * Terminal for everyone: the accountant and the head of accounts see the
      * record as «موافق عليه من <العلامة التجارية>» and can take no action on it.
      */
-    public function approveExpense(Expense $expense, string $brandOwnerId, ?string $brandOwnerName = null): void
-    {
+    public function approveExpense(
+        Expense $expense,
+        string $brandOwnerId,
+        ?string $brandOwnerName = null,
+        ExpenseDecisionRole $role = ExpenseDecisionRole::BRAND_OWNER
+    ): void {
         $this->assertBrandOwnerMayDecide($expense, 'approved');
 
         $expense->update([
@@ -62,7 +72,7 @@ class ExpenseApprovalService
             'approved_at' => now(),
             'approval_stage' => ExpenseApprovalStage::BRAND_OWNER_APPROVED,
             'decided_by_name' => $brandOwnerName,
-            'decided_by_role' => 'brand_owner',
+            'decided_by_role' => $role->value,
             'decided_at' => now(),
         ]);
 
@@ -77,8 +87,13 @@ class ExpenseApprovalService
     /**
      * Reject expense (Brand Owner). Terminal, like the approval above.
      */
-    public function rejectExpense(Expense $expense, string $brandOwnerId, string $reason, ?string $brandOwnerName = null): void
-    {
+    public function rejectExpense(
+        Expense $expense,
+        string $brandOwnerId,
+        string $reason,
+        ?string $brandOwnerName = null,
+        ExpenseDecisionRole $role = ExpenseDecisionRole::BRAND_OWNER
+    ): void {
         $this->assertBrandOwnerMayDecide($expense, 'rejected');
 
         $expense->update([
@@ -88,7 +103,7 @@ class ExpenseApprovalService
             'rejection_reason' => $reason,
             'approval_stage' => ExpenseApprovalStage::BRAND_OWNER_REJECTED,
             'decided_by_name' => $brandOwnerName,
-            'decided_by_role' => 'brand_owner',
+            'decided_by_role' => $role->value,
             'decided_at' => now(),
         ]);
 

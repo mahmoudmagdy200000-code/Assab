@@ -9,6 +9,7 @@ use Modules\Admin\Models\Attachment;
 use Modules\Admin\Models\Operation;
 use Modules\Branch\Models\Branch;
 use Modules\Expense\Enums\ExpenseApprovalStage;
+use Modules\Expense\Enums\ExpenseDecisionRole;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Models\ExpenseAttachment;
 use Modules\Expense\Models\InvoiceDetail;
@@ -190,16 +191,18 @@ class ExpenseBridgeService
 
         $approved = $stage === ExpenseApprovalStage::BRAND_OWNER_APPROVED;
         $by = $expense->decided_by_name;
+        // Owner or manager: the evidence must say who really decided (EXP-06 / G-1).
+        $role = ExpenseDecisionRole::fromStored($expense->decided_by_role);
 
-        DB::transaction(function () use ($op, $expense, $stage, $approved, $by) {
+        DB::transaction(function () use ($op, $expense, $stage, $approved, $by, $role) {
             $payload = $op->payload ?? [];
             $payload['legacyStatus'] = $expense->status;
             $payload['legacyDecision'] = [
                 'stage' => $stage->value,
                 'stageLabelAr' => $stage->labelAr(),
                 'byName' => $by,
-                'byRole' => 'brand_owner',
-                'byRoleLabelAr' => 'مالك العلامة التجارية',
+                'byRole' => $role->value,
+                'byRoleLabelAr' => $role->labelAr(),
                 'decidedAt' => optional($expense->decided_at)->toIso8601String(),
             ];
 
@@ -214,9 +217,9 @@ class ExpenseBridgeService
             ApprovalStep::create([
                 'operation_id' => $op->id,
                 'stage_id' => $approved ? 'final' : 'rejected',
-                'action' => ($approved ? 'اعتمدها مالك العلامة التجارية من التطبيق' : 'رفضها مالك العلامة التجارية من التطبيق')
+                'action' => ($approved ? 'اعتمدها '.$role->labelAr().' من التطبيق' : 'رفضها '.$role->labelAr().' من التطبيق')
                     .($approved || ! $expense->rejection_reason ? '' : ' — السبب: '.$expense->rejection_reason),
-                'actor_label' => $by ?? 'مالك العلامة التجارية',
+                'actor_label' => $by ?? $role->labelAr(),
                 'note' => $approved ? null : $expense->rejection_reason,
                 'meta' => ['legacyDecision' => $stage->value],
                 'occurred_at' => $expense->decided_at ?? now(),

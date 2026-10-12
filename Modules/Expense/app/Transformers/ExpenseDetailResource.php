@@ -385,7 +385,9 @@ class ExpenseDetailResource extends JsonResource
             ];
         }
 
-        $brandOwner = \Modules\BrandOwner\Models\BrandOwner::find($actorId);
+        // The decider lives in brand_owners or brand_managers depending on who decided.
+        $decider = \Modules\Expense\Enums\ExpenseDecisionRole::fromStored($this->decided_by_role);
+        $brandOwner = $decider->actorModel()::find($actorId);
 
         return [
             'id' => $actorId,
@@ -418,7 +420,8 @@ class ExpenseDetailResource extends JsonResource
             ];
         }
 
-        $brandOwner = \Modules\BrandOwner\Models\BrandOwner::find($this->rejected_by);
+        $decider = \Modules\Expense\Enums\ExpenseDecisionRole::fromStored($this->decided_by_role);
+        $brandOwner = $decider->actorModel()::find($this->rejected_by);
 
         return [
             'cancellation_reason' => $this->rejection_reason,
@@ -426,7 +429,7 @@ class ExpenseDetailResource extends JsonResource
             'cancelled_by' => [
                 'id' => $this->rejected_by,
                 'name' => $brandOwner?->name,
-                'type' => 'brand_owner',
+                'type' => $decider->value,
             ],
         ];
     }

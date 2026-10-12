@@ -14,6 +14,7 @@ use Modules\Expense\Enums\ExpenseTimelineStatus;
 use Modules\Expense\Enums\PaymentMethod;
 use Modules\Expense\Repositories\ExpenseRepository;
 use Modules\Expense\Services\ExpenseApprovalService;
+use Modules\Expense\Services\ExpenseBrandScopeService;
 use Modules\Expense\Services\ExpenseHelperService;
 use Modules\Expense\Transformers\ExpenseDetailResource;
 use Modules\Expense\Transformers\ExpenseResource;
@@ -28,7 +29,8 @@ class ExpenseController extends BaseController
         private CustodyBalanceService $custodyBalanceService,
         private ExpenseApprovalService $approvalService,
         private ExpenseHelperService $helperService,
-        private ExpenseRepository $expenseRepository
+        private ExpenseRepository $expenseRepository,
+        private ExpenseBrandScopeService $brandScope
     ) {}
 
     /**
@@ -42,7 +44,7 @@ class ExpenseController extends BaseController
 
         $user = auth()->user();
         if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
-            $expenses = $this->expenseRepository->getSummaryForBrandOwner($month, $year);
+            $expenses = $this->expenseRepository->getSummaryInBranchScope($this->brandScope->branchIdsFor($user), $month, $year);
         } else {
             $expenses = $this->expenseRepository->getSummaryForManager(auth()->id(), $month, $year);
         }
@@ -114,7 +116,7 @@ class ExpenseController extends BaseController
         $user = auth()->user();
 
         if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
-            $expenses = $this->expenseRepository->getRecentForBrandOwner(10);
+            $expenses = $this->expenseRepository->getRecentInBranchScope($this->brandScope->branchIdsFor($user), 10);
         } else {
             $expenses = $this->expenseRepository->getRecentForManager(auth()->id(), 10);
         }
@@ -135,7 +137,7 @@ class ExpenseController extends BaseController
 
         // Brand Owner: list non-draft expenses across all managers (drafts excluded by contract)
         if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
-            $expenses = $this->expenseRepository->getPaginatedForApproval($request);
+            $expenses = $this->expenseRepository->getPaginatedForApprovalInBranchScope($request, $this->brandScope->branchIdsFor($user));
         } else {
             $expenses = $this->expenseRepository->getPaginatedForManager(auth()->id(), $request);
         }
@@ -152,16 +154,26 @@ class ExpenseController extends BaseController
      */
     public function show(string $expense): JsonResponse
     {
-        $expenseModel = $this->expenseRepository->findForShow($expense);
         $user = auth()->user();
 
-        // Brand Owner may view any non-draft expense
+        // Brand owner / brand manager: only expenses of the branches they are assigned to.
+        // Out-of-scope and non-existent ids answer the same uniform 404.
         if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
+            $expenseModel = $this->expenseRepository->findForShowInBranchScope($expense, $this->brandScope->branchIdsFor($user));
+
+            if (! $expenseModel) {
+                return $this->errorResponse('Expense not found', 404);
+            }
+
             if ($expenseModel->status === 'draft') {
                 return $this->errorResponse('Draft expenses are not accessible to brand owners', 403);
             }
-        } elseif ($expenseModel->branch_manager_id !== auth()->id()) {
-            return $this->errorResponse('Unauthorized access', 403);
+        } else {
+            $expenseModel = $this->expenseRepository->findForShow($expense);
+
+            if ($expenseModel->branch_manager_id !== auth()->id()) {
+                return $this->errorResponse('Unauthorized access', 403);
+            }
         }
 
         return $this->successResponse(
