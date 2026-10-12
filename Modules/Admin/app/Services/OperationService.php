@@ -26,9 +26,13 @@ class OperationService
 
     public function approve(Operation $op, AsabUser $actor, ?string $note = null): Operation
     {
-        $this->assertStatus($op, Operation::STATUS_PENDING);
-
         $fresh = DB::transaction(function () use ($op, $actor, $note) {
+            // BRC-05: lock the row, THEN validate and write on the locked copy
+            // (same pattern as finalApprove) so a stale request cannot act on a
+            // state another actor already moved.
+            $op = $this->lockOperation($op);
+            $this->assertStatus($op, Operation::STATUS_PENDING);
+
             $op->update([
                 'status' => Operation::STATUS_APPROVED,
                 'approved_by_id' => $actor->id,
@@ -73,16 +77,22 @@ class OperationService
      * accounts rejecting a record the accountant already approved does not send
      * it back to the branch — it goes back to the ACCOUNTANT to review again.
      * Every other case is the ordinary terminal rejection.
+     *
+     * BRC-05: the role-dependent route is chosen from the caller's snapshot, but
+     * the row is locked and the snapshot re-verified before anything is written;
+     * if the operation moved in between, the request is refused (409) instead of
+     * being silently re-interpreted as a different transition.
      */
     public function rejectAs(Operation $op, AsabUser $actor, string $reasonKey, ?string $notes = null): Operation
     {
-        if ($op->status === Operation::STATUS_APPROVED && $actor->hasAnyAsabRole(['head'])) {
+        $snapshot = $op->status;
+        if ($snapshot === Operation::STATUS_APPROVED && $actor->hasAnyAsabRole(['head'])) {
             $reason = OperationEnums::resolveRejectionReason($reasonKey, $op->module_key);
 
             return $this->returnForReview($op, $actor, trim(($reason['labelAr'] ?? $reasonKey).($notes ? ' — '.$notes : '')));
         }
 
-        return $this->reject($op, $actor, $reasonKey, $notes);
+        return $this->reject($op, $actor, $reasonKey, $notes, $actor->hasAnyAsabRole(['head']) ? $snapshot : null);
     }
 
     /**
@@ -91,25 +101,35 @@ class OperationService
      * canonical Arabic label is what lands in `reject_reason` so existing
      * readers (head lists, exports) keep working, while the key is preserved in
      * the audit step's meta for analytics.
+     *
+     * @param  string|null  $expectedStatus  set only by rejectAs for a head whose snapshot was not
+     *                                       "approved": the locked row must still be in that status.
      */
-    public function reject(Operation $op, AsabUser $actor, string $reasonKey, ?string $notes = null): Operation
+    public function reject(Operation $op, AsabUser $actor, string $reasonKey, ?string $notes = null, ?string $expectedStatus = null): Operation
     {
-        $this->assertMutable($op, 'لا يمكن رفض العملية');
+        [$fresh, $prev, $label] = DB::transaction(function () use ($op, $actor, $reasonKey, $notes, $expectedStatus) {
+            $op = $this->lockOperation($op);
+            if ($expectedStatus !== null) {
+                // The head's request was routed as a terminal rejection because the
+                // snapshot was not "approved". If the accountant approved it meanwhile,
+                // the same request would now mean "return to accountant" — refuse.
+                $this->assertStatus($op, $expectedStatus, $expectedStatus === Operation::STATUS_APPROVED ? 'OP_NOT_APPROVED' : 'OP_NOT_PENDING');
+            }
+            $this->assertMutable($op, 'لا يمكن رفض العملية');
 
-        $reason = OperationEnums::resolveRejectionReason($reasonKey, $op->module_key);
-        if ($reason === null) {
-            throw new AsabException(
-                'INVALID_REJECT_REASON',
-                'Unknown rejection reason for this module',
-                'سبب الرفض غير معروف لهذا الموديول',
-                422,
-                ['allowed' => array_keys(OperationEnums::rejectionReasons($op->module_key))],
-            );
-        }
+            $reason = OperationEnums::resolveRejectionReason($reasonKey, $op->module_key);
+            if ($reason === null) {
+                throw new AsabException(
+                    'INVALID_REJECT_REASON',
+                    'Unknown rejection reason for this module',
+                    'سبب الرفض غير معروف لهذا الموديول',
+                    422,
+                    ['allowed' => array_keys(OperationEnums::rejectionReasons($op->module_key))],
+                );
+            }
 
-        $prev = $op->status;
-        $label = $reason['labelAr'];
-        $fresh = DB::transaction(function () use ($op, $actor, $reason, $label, $notes) {
+            $prev = $op->status;
+            $label = $reason['labelAr'];
             $op->update([
                 'status' => Operation::STATUS_REJECTED,
                 'reject_reason' => $label,
@@ -124,7 +144,7 @@ class OperationService
                 'details' => $notes,
             ]);
 
-            return $op->fresh();
+            return [$op->fresh(), $prev, $label];
         });
 
         $this->rt->operationStatusChanged($fresh, $prev, Operation::STATUS_REJECTED, $actor);
@@ -146,7 +166,7 @@ class OperationService
     public function finalApprove(Operation $op, AsabUser $actor, bool $conditional = false, ?string $conditionalNote = null, array $conditions = []): Operation
     {
         $fresh = DB::transaction(function () use ($op, $actor, $conditional, $conditionalNote, $conditions) {
-            $op = Operation::query()->whereKey($op->id)->lockForUpdate()->firstOrFail();
+            $op = $this->lockOperation($op);
             $this->assertStatus($op, Operation::STATUS_APPROVED, 'OP_NOT_APPROVED');
             $op->update([
                 'status' => Operation::STATUS_FINAL,
@@ -202,10 +222,14 @@ class OperationService
      */
     public function returnForReview(Operation $op, AsabUser $actor, ?string $note = null): Operation
     {
-        $this->assertStatus($op, Operation::STATUS_APPROVED, 'OP_NOT_APPROVED');
+        [$fresh, $accountantId] = DB::transaction(function () use ($op, $actor, $note) {
+            // BRC-05: a request prepared against an "approved" snapshot must not
+            // move a row that has since become final-approved (or returned) back to
+            // pending — re-check on the locked row.
+            $op = $this->lockOperation($op);
+            $this->assertStatus($op, Operation::STATUS_APPROVED, 'OP_NOT_APPROVED');
 
-        $accountantId = $op->approved_by_id; // capture before clearing
-        $fresh = DB::transaction(function () use ($op, $actor, $note) {
+            $accountantId = $op->approved_by_id; // capture before clearing
             $op->update([
                 'status' => Operation::STATUS_PENDING,
                 'approved_by_id' => null,
@@ -213,7 +237,7 @@ class OperationService
             ]);
             $this->step($op, 'review', 'أعادها رئيس الحسابات للمراجعة'.($note ? ' — '.$note : ''), $actor, $note, ['returnedForReview' => true]);
 
-            return $op->fresh();
+            return [$op->fresh(), $accountantId];
         });
 
         $this->rt->operationStatusChanged($fresh, Operation::STATUS_APPROVED, Operation::STATUS_PENDING, $actor);
@@ -236,9 +260,13 @@ class OperationService
      */
     public function requestClarification(Operation $op, AsabUser $actor, string $message): Operation
     {
-        $this->assertMutable($op, 'لا يمكن طلب توضيح على عملية مُغلقة');
-
         $fresh = DB::transaction(function () use ($op, $actor, $message) {
+            // BRC-05: closed-record check on the locked row, so a stale request
+            // cannot add evidence/notifications to an operation that was
+            // finalised or rejected meanwhile.
+            $op = $this->lockOperation($op);
+            $this->assertMutable($op, 'لا يمكن طلب توضيح على عملية مُغلقة');
+
             $this->step($op, 'review', 'طلب توضيح: '.$message, $actor, $message, ['clarification' => true]);
 
             return $op->fresh();
@@ -263,9 +291,13 @@ class OperationService
      */
     public function document(Operation $op, AsabUser $actor, ?string $note = null): Operation
     {
-        $this->assertMutable($op, 'لا يمكن توثيق عملية مُغلقة');
-
         $fresh = DB::transaction(function () use ($op, $actor, $note) {
+            // BRC-05: lock, check the closed-record rule on the locked row and
+            // merge into the LATEST payload (not the caller's possibly stale copy),
+            // so a concurrent line edit is never overwritten.
+            $op = $this->lockOperation($op);
+            $this->assertMutable($op, 'لا يمكن توثيق عملية مُغلقة');
+
             $payload = $op->payload ?? [];
             $payload['documentation'] = [
                 'documentedAt' => now()->toIso8601String(),
@@ -421,6 +453,15 @@ class OperationService
                 ['currentStatus' => $op->status],
             );
         }
+    }
+
+    /**
+     * Re-read the operation with a row lock. Must be called inside a transaction;
+     * every status check and write of a transition then runs on this locked copy.
+     */
+    private function lockOperation(Operation $op): Operation
+    {
+        return Operation::query()->whereKey($op->id)->lockForUpdate()->firstOrFail();
     }
 
     private function assertStatus(Operation $op, string $expected, string $code = 'OP_NOT_PENDING'): void
