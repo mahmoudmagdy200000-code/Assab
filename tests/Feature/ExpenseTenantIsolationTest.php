@@ -162,9 +162,14 @@ class ExpenseTenantIsolationTest extends TestCase
         $this->assertStringContainsString('مدير العلامة التجارية', $managerStep->action);
         $this->assertSame('Manager A1', $managerStep->actor_label);
 
-        // Timeline keeps the real actor id (the type column is an enum without brand_manager — see report G-1)
+        // Timeline attributes the brand manager by type AND keeps the real actor id (G-1).
         $line = DB::table('expense_timelines')->where('expense_id', $byManager->id)->where('action', 'approve')->first();
+        $this->assertSame('brand_manager', $line->performed_by_type);
         $this->assertSame($this->managerA1->id, $line->performed_by);
+
+        // And an owner decision still records brand_owner.
+        $ownerLine = DB::table('expense_timelines')->where('expense_id', $byOwner->id)->where('action', 'approve')->first();
+        $this->assertSame('brand_owner', $ownerLine->performed_by_type);
     }
 
     public function test_multi_brand_owner_decides_each_owned_brand_but_not_another_company(): void

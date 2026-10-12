@@ -9,6 +9,7 @@ enum ExpenseTimelinePerformedByType: string
 {
     case BRANCH_MANAGER = 'branch_manager';
     case BRAND_OWNER = 'brand_owner';
+    case BRAND_MANAGER = 'brand_manager';
     case SYSTEM = 'system';
 
     public function label(): string
@@ -16,6 +17,7 @@ enum ExpenseTimelinePerformedByType: string
         return match ($this) {
             self::BRANCH_MANAGER => 'Branch Manager',
             self::BRAND_OWNER => 'Brand Owner',
+            self::BRAND_MANAGER => 'Brand Manager',
             self::SYSTEM => 'System',
         };
     }

@@ -4,6 +4,7 @@ namespace Modules\Expense\Services;
 
 use Modules\Expense\Enums\ExpenseApprovalStage;
 use Modules\Expense\Enums\ExpenseDecisionRole;
+use Modules\Expense\Enums\ExpenseTimelinePerformedByType;
 use Modules\Expense\Models\Expense;
 
 /**
@@ -51,9 +52,9 @@ class ExpenseApprovalService
      * Approve expense (Brand Owner or Brand Manager — `$role` is who actually decided).
      *
      * The approval STAGE stays `brand_owner_approved` for both (a state-machine value shared
-     * with the clients); the actor is attributed in `decided_by_role`. The timeline row keeps
-     * `performed_by_type = brand_owner` because expense_timelines.performed_by_type is a DB enum
-     * without `brand_manager` — its `performed_by` carries the real actor id (see report G-1).
+     * with the clients); the actor is attributed in `decided_by_role` and in the timeline row's
+     * `performed_by_type` (`brand_owner` vs `brand_manager`, see G-1 migration), while
+     * `performed_by` always carries the real actor id.
      *
      * Terminal for everyone: the accountant and the head of accounts see the
      * record as «موافق عليه من <العلامة التجارية>» and can take no action on it.
@@ -77,7 +78,7 @@ class ExpenseApprovalService
         ]);
 
         // Create timeline entry
-        $this->createTimelineEntry($expense, 'approve', 'approved', $brandOwnerId, 'brand_owner');
+        $this->createTimelineEntry($expense, 'approve', 'approved', $brandOwnerId, $this->timelinePerformedByType($role));
 
         // Fire event for notifications + the ASAB bridge, which closes the
         // mirrored operation so the dashboard cannot decide it a second time.
@@ -108,7 +109,7 @@ class ExpenseApprovalService
         ]);
 
         // Create timeline entry
-        $this->createTimelineEntry($expense, 'reject', 'rejected', $brandOwnerId, 'brand_owner', $reason);
+        $this->createTimelineEntry($expense, 'reject', 'rejected', $brandOwnerId, $this->timelinePerformedByType($role), $reason);
 
         // Fire event for notifications
         event(new \Modules\Expense\Events\ExpenseRejectedEvent($expense->fresh(), $brandOwnerId, $reason));
@@ -186,6 +187,17 @@ class ExpenseApprovalService
             'brand_owner',
             json_encode($changes)
         );
+    }
+
+    /**
+     * Map the deciding role to the timeline actor type. Requires the G-1
+     * migration (performed_by_type widened from enum to string) to be deployed.
+     */
+    private function timelinePerformedByType(ExpenseDecisionRole $role): string
+    {
+        return $role === ExpenseDecisionRole::BRAND_MANAGER
+            ? ExpenseTimelinePerformedByType::BRAND_MANAGER->value
+            : ExpenseTimelinePerformedByType::BRAND_OWNER->value;
     }
 
     private function createTimelineEntry(

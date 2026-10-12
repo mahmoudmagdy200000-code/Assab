@@ -188,6 +188,13 @@ class UnifiedTimelineResource extends JsonResource
 
             return $manager?->name ?? '';
         }
+        if ($timeline->performed_by_type === 'brand_manager') {
+            // G-1: a brand manager decided — show the actual manager, not the
+            // generic brand-owner label.
+            $manager = \Modules\BrandOwner\Models\BrandManager::find($timeline->performed_by);
+
+            return $manager?->name ?? 'Brand Manager';
+        }
         if ($timeline->performed_by_type === 'brand_owner') {
             return 'Brand Owner';
         }
@@ -199,6 +206,12 @@ class UnifiedTimelineResource extends JsonResource
     {
         if ($timeline->performed_by_type === 'branch_manager') {
             $manager = \Modules\BranchManagers\Models\BranchManager::find($timeline->performed_by);
+            $image = $manager?->image ?? null;
+
+            return $image ? $this->actorImageUrl($image) : null;
+        }
+        if ($timeline->performed_by_type === 'brand_manager') {
+            $manager = \Modules\BrandOwner\Models\BrandManager::find($timeline->performed_by);
             $image = $manager?->image ?? null;
 
             return $image ? $this->actorImageUrl($image) : null;

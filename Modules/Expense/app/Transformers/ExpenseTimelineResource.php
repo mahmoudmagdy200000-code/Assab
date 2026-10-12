@@ -55,8 +55,14 @@ class ExpenseTimelineResource extends JsonResource
             return $manager?->name ?? 'Unknown';
         }
 
+        if ($this->performed_by_type === 'brand_manager') {
+            // G-1: a brand manager decided — resolve the actual manager.
+            $manager = \Modules\BrandOwner\Models\BrandManager::find($this->performed_by);
+
+            return $manager?->name ?? 'Brand Manager';
+        }
+
         if ($this->performed_by_type === 'brand_owner') {
-            // TODO: Implement BrandOwner model
             return 'Brand Owner';
         }
 
@@ -67,6 +73,12 @@ class ExpenseTimelineResource extends JsonResource
     {
         if ($this->performed_by_type === 'branch_manager') {
             $manager = \Modules\BranchManagers\Models\BranchManager::find($this->performed_by);
+
+            return $manager?->image;
+        }
+
+        if ($this->performed_by_type === 'brand_manager') {
+            $manager = \Modules\BrandOwner\Models\BrandManager::find($this->performed_by);
 
             return $manager?->image;
         }
