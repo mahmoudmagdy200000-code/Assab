@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Modules\Expense\Models\Expense;
+use Modules\Expense\Services\ExpenseOriginGuard;
 use Modules\Expense\Services\PreApprovalRequestService;
 use Modules\Expense\Transformers\ExpenseDetailResource;
 use Modules\Expense\Transformers\ExpenseDetailWithoutTimelinesResource;
@@ -66,6 +67,10 @@ class PreApprovalRequestController extends BaseController
         if ($request->estimated_amount < 500) {
             return $this->errorResponse('Pre-approval requests must be for amounts >= 500 SAR', 400);
         }
+
+        // F-04: refuse a submission (non-draft) whose immutable origin cannot be
+        // fully/consistently resolved — before any write, event, or transaction.
+        ExpenseOriginGuard::assertResolvableForCreation(auth()->id(), $request->boolean('is_draft'));
 
         DB::beginTransaction();
         try {
@@ -156,6 +161,11 @@ class PreApprovalRequestController extends BaseController
                 422,
                 ['attachments' => ['The attachments field is required for submission.']]
             );
+        }
+
+        // F-04: a draft->pending flip must carry a usable stored origin.
+        if ($request->has('is_draft') && ! $request->boolean('is_draft')) {
+            ExpenseOriginGuard::assertStoredOriginUsable($expenseModel, 'submitted');
         }
 
         DB::beginTransaction();

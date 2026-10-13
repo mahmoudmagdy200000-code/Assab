@@ -56,6 +56,22 @@ class BrandOwnerReportsController extends BaseController
     }
 
     /**
+     * Brand ids a brand actor may report on — the immutable-origin expense
+     * authority (R-01). NULL for a branch-level manager, who is scoped by their
+     * own branch's origin instead (no brand widening).
+     *
+     * @return string[]|null
+     */
+    private function allowedBrandIds(mixed $user): ?array
+    {
+        if ($user instanceof BranchManager) {
+            return null;
+        }
+
+        return $this->branchScope->visibleBrandIds($user);
+    }
+
+    /**
      * GET /brand-owner/reports-and-analytics
      */
     public function index(): JsonResponse
@@ -88,6 +104,7 @@ class BrandOwnerReportsController extends BaseController
 
         $filters = $request->filters();
         $filters['allowed_branch_ids'] = $this->allowedBranchIds($user);
+        $filters['allowed_brand_ids'] = $this->allowedBrandIds($user);
 
         // A branch-level manager is pinned to their own branch — the client's
         // branch_id is ignored and the summary/filters echo that branch.
@@ -142,7 +159,7 @@ class BrandOwnerReportsController extends BaseController
         }
 
         return $this->successResponse(
-            $this->service->exportExpenseReport($user, $request->validated(), $this->allowedBranchIds($user)),
+            $this->service->exportExpenseReport($user, $request->validated(), $this->allowedBranchIds($user), null, $this->allowedBrandIds($user)),
             'Expense report exported successfully'
         );
     }

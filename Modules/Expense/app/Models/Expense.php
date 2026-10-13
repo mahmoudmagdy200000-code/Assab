@@ -20,6 +20,42 @@ class Expense extends Model
         return \Modules\Expense\Database\Factories\ExpenseFactory::new();
     }
 
+    /**
+     * FU-02: stamp the immutable originating branch/brand/company exactly once,
+     * when the expense row is first created — the single authoritative capture
+     * point for every writer (QuickCash / SingleInvoice / GroupedInvoice /
+     * PreApproval / drafts / resubmits / factories / imports).
+     *
+     * It only fires on `creating`, so submitting a draft or resubmitting a
+     * rejected expense (updates to the same row) never restamps ownership; and
+     * a fresh row created by a resubmit flow correctly gets its own origin. If
+     * origin is already set (explicit, server-side only) or no manager is
+     * present it is left as-is. origin_* are NOT fillable, so a client/request
+     * can never mass-assign them — the value is always server-derived here.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (self $expense): void {
+            if ($expense->origin_branch_id !== null || $expense->branch_manager_id === null) {
+                return;
+            }
+
+            // Single source of truth for the resolution (shared with ExpenseOriginGuard,
+            // which also pre-checks it at the operational submission paths). Any
+            // element stays NULL when the branch is not fully linked — readers fail
+            // closed and the F-04 guard blocks such a row from becoming pending.
+            $triplet = \Modules\Expense\Services\ExpenseOriginGuard::resolveForManager((string) $expense->branch_manager_id);
+
+            if ($triplet['branch_id'] === null) {
+                return;
+            }
+
+            $expense->origin_branch_id = $triplet['branch_id'];
+            $expense->origin_asab_brand_id = $triplet['brand_id'];
+            $expense->origin_asab_company_id = $triplet['company_id'];
+        });
+    }
+
     protected $fillable = [
         'branch_manager_id',
         'expense_type',

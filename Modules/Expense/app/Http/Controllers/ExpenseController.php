@@ -44,7 +44,7 @@ class ExpenseController extends BaseController
 
         $user = auth()->user();
         if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
-            $expenses = $this->expenseRepository->getSummaryInBranchScope($this->brandScope->branchIdsFor($user), $month, $year);
+            $expenses = $this->expenseRepository->getSummaryInBrandScope($this->brandScope->brandIdsFor($user), $month, $year);
         } else {
             $expenses = $this->expenseRepository->getSummaryForManager(auth()->id(), $month, $year);
         }
@@ -116,7 +116,7 @@ class ExpenseController extends BaseController
         $user = auth()->user();
 
         if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
-            $expenses = $this->expenseRepository->getRecentInBranchScope($this->brandScope->branchIdsFor($user), 10);
+            $expenses = $this->expenseRepository->getRecentInBrandScope($this->brandScope->brandIdsFor($user), 10);
         } else {
             $expenses = $this->expenseRepository->getRecentForManager(auth()->id(), 10);
         }
@@ -137,7 +137,7 @@ class ExpenseController extends BaseController
 
         // Brand Owner: list non-draft expenses across all managers (drafts excluded by contract)
         if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
-            $expenses = $this->expenseRepository->getPaginatedForApprovalInBranchScope($request, $this->brandScope->branchIdsFor($user));
+            $expenses = $this->expenseRepository->getPaginatedForApprovalInBrandScope($request, $this->brandScope->brandIdsFor($user));
         } else {
             $expenses = $this->expenseRepository->getPaginatedForManager(auth()->id(), $request);
         }
@@ -159,7 +159,7 @@ class ExpenseController extends BaseController
         // Brand owner / brand manager: only expenses of the branches they are assigned to.
         // Out-of-scope and non-existent ids answer the same uniform 404.
         if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
-            $expenseModel = $this->expenseRepository->findForShowInBranchScope($expense, $this->brandScope->branchIdsFor($user));
+            $expenseModel = $this->expenseRepository->findForShowInBrandScope($expense, $this->brandScope->brandIdsFor($user));
 
             if (! $expenseModel) {
                 return $this->errorResponse('Expense not found', 404);

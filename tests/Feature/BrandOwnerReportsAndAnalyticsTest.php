@@ -203,6 +203,20 @@ class BrandOwnerReportsAndAnalyticsTest extends TestCase
         $demoBranches = Branch::query()->where('name', 'like', '%(Demo)')->get()->all();
         $this->tagBranchesWithBrand($this->brand, ...$demoBranches);
 
+        // R-01: brand visibility keys on each expense's IMMUTABLE origin brand
+        // (stamped at creation), not the branch's CURRENT brand. The seeder's
+        // generic demo rows were created unbranded (NULL origin brand), so make
+        // them this owner's history by stamping the origin to the owner's brand —
+        // the origin branch already is the demo branch. (A raw query-builder
+        // update, not a model save, so this is a deliberate backfill, not the
+        // create-only stamping path.)
+        Expense::query()
+            ->whereIn('origin_branch_id', collect($demoBranches)->pluck('id')->all())
+            ->update([
+                'origin_asab_brand_id' => $this->brand->id,
+                'origin_asab_company_id' => $this->brand->company_id,
+            ]);
+
         // Branches show up for report filters.
         $this->actingAs($this->owner, 'sanctum')
             ->getJson('/api/brand-owner/branches')

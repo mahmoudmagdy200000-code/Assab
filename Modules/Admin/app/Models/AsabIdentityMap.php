@@ -39,6 +39,15 @@ class AsabIdentityMap extends Model
     /** asab_user -> branch_manager: the branch manager's login. */
     public const ENTITY_BRANCH_MANAGER = 'branch_manager';
 
+    /**
+     * asab_user -> brand_manager (mobile BrandManager login): the EXPLICIT,
+     * per-manager delegation link (D-2). Distinct from ENTITY_BRAND_OWNER, so a
+     * brand manager never inherits a matching owner's brands, and distinct from
+     * ENTITY_BRANCH_MANAGER (the branch-level role). The unique
+     * (entity_type, legacy_id) index makes each manager's delegation singular.
+     */
+    public const ENTITY_BRAND_MANAGER = 'brand_manager';
+
     protected $fillable = [
         'company_id', 'entity_type', 'dashboard_type', 'dashboard_id',
         'legacy_type', 'legacy_id', 'match_method', 'linked_email', 'source', 'linked_at',

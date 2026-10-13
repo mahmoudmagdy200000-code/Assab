@@ -2,12 +2,14 @@
 
 namespace Modules\Admin\Services;
 
+use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabIdentityMap;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\BrandOwner\Models\BrandManager;
 use Modules\BrandOwner\Models\BrandOwner;
 use Modules\Cashier\Models\Cashier;
 
@@ -40,6 +42,14 @@ class MobileBranchScopeService
      */
     public function visibleBranchIds(mixed $user): array
     {
+        // D-2: a BrandManager EXTENDS BrandOwner, so it must be resolved FIRST
+        // and through its own explicit delegation — never the owner same-email
+        // fallback below. Order matters: the BrandOwner branch would otherwise
+        // capture a manager and hand it an owner's inherited brands.
+        if ($user instanceof BrandManager) {
+            return $this->branchIdsForBrands($this->brandIdsForManager($user));
+        }
+
         if ($user instanceof BrandOwner) {
             return $this->branchIdsForBrands($this->brandIdsForOwner($user));
         }
@@ -106,6 +116,85 @@ class MobileBranchScopeService
             ->unique()
             ->values()
             ->all();
+    }
+
+    /**
+     * The dashboard brands EXPLICITLY delegated to a mobile brand manager (D-2).
+     *
+     * Unlike the owner path there is NO same-email fallback: a manager is
+     * authorised only through a verified `brand_manager` identity-map entry to a
+     * dashboard user that carries a `brand-manager` role, and only for the brands
+     * on that role that belong to the mapped user's company. Missing map, missing
+     * role, empty brand set, or a cross-company brand all resolve to [] (fail
+     * closed). Resolution is live on every request, so a revoked assignment
+     * (deleted map or emptied role) denies access immediately — never via token
+     * expiry or a cached scope.
+     *
+     * @return string[]
+     */
+    private function brandIdsForManager(BrandManager $manager): array
+    {
+        // Load the whole map row so the identity can be VALIDATED, not just
+        // dereferenced (R-03). A soft-deleted (revoked) map is excluded by the
+        // default scope, so a revoked manager resolves nothing.
+        $map = AsabIdentityMap::where('entity_type', AsabIdentityMap::ENTITY_BRAND_MANAGER)
+            ->where('legacy_id', $manager->id)
+            ->first();
+
+        if ($map === null || $map->dashboard_type !== 'asab_user' || ! $map->dashboard_id) {
+            return [];
+        }
+
+        $user = AsabUser::withoutGlobalScope('tenant')->find($map->dashboard_id);
+        // The dashboard user must exist AND be active — a disabled account grants
+        // nothing — and the map's company tag must agree with the user's company.
+        if ($user === null || $user->status !== 'active') {
+            return [];
+        }
+        if ($map->company_id !== null && $map->company_id !== $user->company_id) {
+            return [];
+        }
+
+        $brandIds = AsabUserRole::where('user_id', $user->id)
+            ->where('role_key', 'brand-manager')
+            ->where('scope', 'brand')
+            ->pluck('brand_ids')
+            ->flatten()
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($brandIds === []) {
+            return [];
+        }
+
+        // Company consistency (fail-closed against a crafted cross-company brand):
+        // keep only brands that belong to the mapped dashboard user's company.
+        return AsabBrand::whereIn('id', $brandIds)
+            ->where('company_id', $user->company_id)
+            ->pluck('id')
+            ->all();
+    }
+
+    /**
+     * The dashboard brands a mobile brand actor may currently access (D-2 / FU-02
+     * read authority). Brand owner → owned brands; brand manager → explicitly
+     * delegated brands; anyone else (branch-level manager, cashier) has no brand
+     * scope (their expense access, where any, is branch-scoped elsewhere).
+     *
+     * @return string[]
+     */
+    public function visibleBrandIds(mixed $user): array
+    {
+        if ($user instanceof BrandManager) {
+            return $this->brandIdsForManager($user);
+        }
+        if ($user instanceof BrandOwner) {
+            return $this->brandIdsForOwner($user);
+        }
+
+        return [];
     }
 
     /**

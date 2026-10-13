@@ -99,8 +99,10 @@ trait BuildsExpenseTenantFixtures
 
         $this->managerA1 = $this->makeBrandManager('manager.a1@tenant.test', 'Manager A1');
         $this->managerUnassigned = $this->makeBrandManager('manager.none@tenant.test', 'Manager Unassigned');
-        // Brand managers are never in the identity map: e-mail coupling only.
-        $this->linkToBrands($this->managerA1, $this->companyA, [$this->brandA1->id], withIdentityMap: false);
+        // D-2: a brand manager is authorised ONLY through an explicit per-manager
+        // delegation (brand_manager identity map + brand-manager role), never by
+        // e-mail match to a brand owner. managerUnassigned gets none (fail closed).
+        $this->assignBrandManager($this->managerA1, $this->companyA, [$this->brandA1->id]);
     }
 
     protected function makeBrandOwner(string $email, string $name): BrandOwner
@@ -142,6 +144,41 @@ trait BuildsExpenseTenantFixtures
         }
 
         return $user;
+    }
+
+    /**
+     * D-2 explicit brand-manager delegation: a verified brand_manager identity
+     * map to a dashboard user holding a brand-manager role with the given brands.
+     *
+     * @param  string[]  $brandIds
+     */
+    protected function assignBrandManager(BrandManager $manager, AsabCompany $company, array $brandIds): AsabUser
+    {
+        $user = AsabUser::create([
+            'company_id' => $company->id, 'name' => $manager->name, 'email' => $manager->email,
+            'password' => 'scope-password', 'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $user->id, 'role_key' => 'brand-manager', 'scope' => 'brand', 'brand_ids' => $brandIds]);
+        AsabIdentityMap::create([
+            'company_id' => $company->id, 'entity_type' => AsabIdentityMap::ENTITY_BRAND_MANAGER,
+            'dashboard_type' => 'asab_user', 'dashboard_id' => $user->id, 'legacy_type' => 'brand_manager',
+            'legacy_id' => $manager->id, 'match_method' => 'explicit', 'linked_email' => $manager->email,
+            'source' => 'test', 'linked_at' => now(),
+        ]);
+
+        return $user;
+    }
+
+    /** Revoke a brand-manager delegation (delete the map + role) — fail-closed on the next request. */
+    protected function revokeBrandManager(BrandManager $manager): void
+    {
+        $userId = AsabIdentityMap::where('entity_type', AsabIdentityMap::ENTITY_BRAND_MANAGER)
+            ->where('legacy_id', $manager->id)->value('dashboard_id');
+        AsabIdentityMap::where('entity_type', AsabIdentityMap::ENTITY_BRAND_MANAGER)
+            ->where('legacy_id', $manager->id)->delete();
+        if ($userId) {
+            AsabUserRole::where('user_id', $userId)->where('role_key', 'brand-manager')->delete();
+        }
     }
 
     /** A submitted (pending) mobile expense plus its read-only dashboard mirror operation. */

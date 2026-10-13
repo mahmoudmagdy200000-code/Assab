@@ -41,6 +41,7 @@ class BrandOwnerHomeController extends BaseController
             $this->service->getDashboard(
                 $request->filters(),
                 $this->branchScope->visibleBranchIds(auth()->user()),
+                $this->branchScope->visibleBrandIds(auth()->user()),
             ),
             'Dashboard retrieved successfully'
         );

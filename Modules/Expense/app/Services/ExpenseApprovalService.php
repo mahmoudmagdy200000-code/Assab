@@ -36,6 +36,12 @@ class ExpenseApprovalService
             throw new \Exception('Only draft expenses can be submitted');
         }
 
+        // F-04: a draft may be captured without a resolved owner, but submitting
+        // it makes it financially accountable — block the transition unless the
+        // immutable origin (branch+brand+company) is complete and consistent
+        // (never guessed from the manager's current branch). Throws before any write.
+        ExpenseOriginGuard::assertStoredOriginUsable($expense, 'submitted');
+
         $expense->update([
             'status' => 'pending',
             'submitted_at' => now(),
@@ -66,6 +72,12 @@ class ExpenseApprovalService
         ExpenseDecisionRole $role = ExpenseDecisionRole::BRAND_OWNER
     ): void {
         $this->assertBrandOwnerMayDecide($expense, 'approved');
+
+        // F-04: never commit (approve) an expense whose immutable origin is
+        // unresolved or inconsistent — it would be invisible to the owning brand's
+        // readers and escape brand-scoped accountability. Rejection stays allowed
+        // so the record can be sent back and fixed rather than stranded.
+        ExpenseOriginGuard::assertStoredOriginUsable($expense, 'approved');
 
         $expense->update([
             'status' => 'approved',
@@ -144,6 +156,9 @@ class ExpenseApprovalService
         if ($expense->status !== 'rejected') {
             throw new \Exception('Only rejected expenses can be resubmitted');
         }
+
+        // F-04: resubmission re-enters the accountable cycle — same origin gate as submit.
+        ExpenseOriginGuard::assertStoredOriginUsable($expense, 'resubmitted');
 
         $expense->update([
             'status' => 'pending',

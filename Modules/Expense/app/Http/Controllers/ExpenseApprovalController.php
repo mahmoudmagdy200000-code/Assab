@@ -20,9 +20,10 @@ use Modules\Expense\Transformers\ExpenseResource;
  * Expense Approval Controller
  * For Brand Owner / Brand Manager to approve/reject expenses. Data access via ExpenseRepository.
  *
- * Every lookup is confined to the branches the authenticated actor is assigned to
- * (ExpenseBrandScopeService). An out-of-scope id is a uniform 404 — indistinguishable
- * from a non-existent one — and returns BEFORE anything is written.
+ * Every lookup is confined to the brands the authenticated actor is assigned to
+ * (ExpenseBrandScopeService) and matched against each expense's immutable origin
+ * brand. An out-of-scope id is a uniform 404 — indistinguishable from a
+ * non-existent one — and returns BEFORE anything is written.
  */
 class ExpenseApprovalController extends BaseController
 {
@@ -32,18 +33,18 @@ class ExpenseApprovalController extends BaseController
         private ExpenseBrandScopeService $scope
     ) {}
 
-    /** @return string[] branch ids the authenticated brand actor may access (empty = fail closed) */
-    private function branchScope(): array
+    /** @return string[] brand ids the authenticated brand actor may access (empty = fail closed) */
+    private function brandScope(): array
     {
         $actor = auth()->user();
 
-        return $actor instanceof BrandOwner ? $this->scope->branchIdsFor($actor) : [];
+        return $actor instanceof BrandOwner ? $this->scope->brandIdsFor($actor) : [];
     }
 
     /** The expense if it is inside the actor's scope, else null (callers answer 404). */
     private function scopedExpense(string $id): ?Expense
     {
-        return $this->expenseRepository->findInBranchScope($id, $this->branchScope());
+        return $this->expenseRepository->findInBrandScope($id, $this->brandScope());
     }
 
     private function expenseNotFound(): JsonResponse
@@ -57,7 +58,7 @@ class ExpenseApprovalController extends BaseController
      */
     public function index(Request $request): JsonResponse
     {
-        $expenses = $this->expenseRepository->getPaginatedForApprovalInBranchScope($request, $this->branchScope());
+        $expenses = $this->expenseRepository->getPaginatedForApprovalInBrandScope($request, $this->brandScope());
 
         return $this->paginatedResponse(
             ExpenseResource::collection($expenses),
@@ -71,7 +72,7 @@ class ExpenseApprovalController extends BaseController
      */
     public function show(string $expense): JsonResponse
     {
-        $expenseModel = $this->expenseRepository->findForShowInBranchScope($expense, $this->branchScope());
+        $expenseModel = $this->expenseRepository->findForShowInBrandScope($expense, $this->brandScope());
 
         if (! $expenseModel) {
             return $this->expenseNotFound();

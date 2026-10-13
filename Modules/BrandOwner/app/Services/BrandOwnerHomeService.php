@@ -55,12 +55,13 @@ class BrandOwnerHomeService
      * GET /brand-owner/dashboard
      *
      * @param  array{branch_id: ?string, month: ?int, year: ?int, granularity: ?string}  $filters
-     * @param  string[]  $allowedBranchIds  the owner's own brand's branches
+     * @param  string[]  $allowedBranchIds  the owner's own brand's current branches (for the selector)
+     * @param  string[]  $allowedBrandIds  the owner's authorised brands (immutable-origin expense authority, R-01)
      */
-    public function getDashboard(array $filters, array $allowedBranchIds): array
+    public function getDashboard(array $filters, array $allowedBranchIds, array $allowedBrandIds): array
     {
-        // Default branch = the first branch when none is supplied. Both paths
-        // stay inside the owner's brand, so a foreign branch_id resolves to
+        // Default branch = the first branch when none is supplied. The selector
+        // stays inside the owner's brand, so a foreign branch_id resolves to
         // nothing rather than to another brand's figures.
         $branch = Branch::query()
             ->whereIn('id', $allowedBranchIds)
@@ -71,9 +72,12 @@ class BrandOwnerHomeService
             )
             ->first();
 
-        // A selected branch narrows to itself; "all" still means the owner's
-        // OWN brand, never every brand's expenses.
-        $branchIds = $branch !== null ? [$branch->id] : $allowedBranchIds;
+        // R-01: expenses are confined by their IMMUTABLE origin brand (the actor's
+        // authorised brands) — never by the manager's current branch — and
+        // narrowed to the selected branch's origin_branch_id. So a branch
+        // re-tagged into this brand cannot surface its previous brand's historic
+        // expenses, and a manager who moves does not drag their old expenses here.
+        $originScope = $this->expenseOriginScope($allowedBrandIds, $branch?->id);
 
         // Default the period to the current month / year.
         $month = $filters['month'] ?? (int) now()->month;
@@ -82,8 +86,8 @@ class BrandOwnerHomeService
         $periodStart = Carbon::create($year, $month, 1)->startOfMonth();
         $periodEnd = (clone $periodStart)->endOfMonth();
 
-        $invoices = $this->statusSummary(self::INVOICE_TYPES, $branchIds, $periodStart, $periodEnd);
-        $expenses = $this->statusSummary(self::EXPENSE_TYPES, $branchIds, $periodStart, $periodEnd);
+        $invoices = $this->statusSummary(self::INVOICE_TYPES, $originScope, $periodStart, $periodEnd);
+        $expenses = $this->statusSummary(self::EXPENSE_TYPES, $originScope, $periodStart, $periodEnd);
 
         return [
             'approved_invoices' => $invoices['approved_count'],
@@ -93,9 +97,9 @@ class BrandOwnerHomeService
             'total_expense_amount' => $expenses['approved_amount'],
             'pending_expenses' => $expenses['pending_count'],
             'granularity_chart_data' => [
-                'daily' => $this->dailyTrend($branchIds, $month, $year),
-                'weekly' => $this->weeklyTrend($branchIds, $month, $year),
-                'monthly' => $this->monthlyTrend($branchIds, $month, $year),
+                'daily' => $this->dailyTrend($originScope, $month, $year),
+                'weekly' => $this->weeklyTrend($originScope, $month, $year),
+                'monthly' => $this->monthlyTrend($originScope, $month, $year),
             ],
             'response_month' => $month,
             'response_year' => $year,
@@ -116,9 +120,9 @@ class BrandOwnerHomeService
      * @param  array<int, string>  $types
      * @return array{approved_count: int, approved_amount: float, pending_count: int}
      */
-    private function statusSummary(array $types, array $branchIds, Carbon $start, Carbon $end): array
+    private function statusSummary(array $types, \Closure $originScope, Carbon $start, Carbon $end): array
     {
-        $rows = $this->expenseQuery($types, $branchIds, $start, $end)
+        $rows = $this->expenseQuery($types, $originScope, $start, $end)
             ->selectRaw('status, COUNT(*) as items, COALESCE(SUM(total_amount), 0) as amount')
             ->groupBy('status')
             ->get()
@@ -132,19 +136,47 @@ class BrandOwnerHomeService
     }
 
     /**
-     * Base expense query scoped to types, branch and a date window.
+     * The immutable-origin WHERE for every dashboard expense query (R-01).
+     *
+     * Confines expenses to their own origin_asab_brand_id against the actor's
+     * authorised brands, optionally narrowed to the selected branch's
+     * origin_branch_id. Never keys on the manager's current branch. An empty
+     * brand scope matches nothing (fail closed); a legacy NULL-origin row is not
+     * attributed to any brand.
+     *
+     * @param  string[]  $brandIds
+     */
+    private function expenseOriginScope(array $brandIds, ?string $selectedBranchId): \Closure
+    {
+        $brandIds = array_values(array_unique(array_filter($brandIds)));
+
+        return function (Builder $query) use ($brandIds, $selectedBranchId): void {
+            if ($brandIds === []) {
+                $query->whereRaw('1 = 0');
+
+                return;
+            }
+            $query->whereIn('origin_asab_brand_id', $brandIds);
+            if ($selectedBranchId !== null) {
+                $query->where('origin_branch_id', $selectedBranchId);
+            }
+        };
+    }
+
+    /**
+     * Base expense query scoped to types, the immutable-origin scope and a date
+     * window.
      *
      * @param  array<int, string>  $types
      */
-    private function expenseQuery(array $types, array $branchIds, Carbon $start, Carbon $end): Builder
+    private function expenseQuery(array $types, \Closure $originScope, Carbon $start, Carbon $end): Builder
     {
-        return Expense::query()
+        $query = Expense::query()
             ->whereIn('expense_type', $types)
-            ->whereBetween('created_at', [$start, $end])
-            ->whereHas(
-                'branchManager',
-                fn (Builder $m) => $m->whereIn('branch_id', $branchIds)
-            );
+            ->whereBetween('created_at', [$start, $end]);
+        $originScope($query);
+
+        return $query;
     }
 
     // ----------------------------------------------------------------
@@ -152,7 +184,7 @@ class BrandOwnerHomeService
     // ----------------------------------------------------------------
 
     /** Daily granularity: the week around the reference day, day-by-day. */
-    private function dailyTrend(array $branchIds, int $month, int $year): array
+    private function dailyTrend(\Closure $originScope, int $month, int $year): array
     {
         $monthStart = Carbon::create($year, $month, 1)->startOfMonth();
         $daysInMonth = $monthStart->daysInMonth;
@@ -167,7 +199,7 @@ class BrandOwnerHomeService
         $start = $monthStart->copy()->day($firstDay)->startOfDay();
         $end = $monthStart->copy()->day($lastDay)->endOfDay();
 
-        $rows = $this->approvedExpenseRows($branchIds, $start, $end);
+        $rows = $this->approvedExpenseRows($originScope, $start, $end);
 
         $chart = [];
         for ($day = $firstDay; $day <= $lastDay; $day++) {
@@ -176,7 +208,7 @@ class BrandOwnerHomeService
 
         $total = (float) $rows->sum('total_amount');
         $previous = $this->approvedExpenseSum(
-            $branchIds,
+            $originScope,
             $start->copy()->subDays(7),
             $start->copy()->subDay()->endOfDay()
         );
@@ -191,14 +223,14 @@ class BrandOwnerHomeService
     }
 
     /** Weekly granularity: the selected month, broken into 7-day weeks. */
-    private function weeklyTrend(array $branchIds, int $month, int $year): array
+    private function weeklyTrend(\Closure $originScope, int $month, int $year): array
     {
         $monthStart = Carbon::create($year, $month, 1)->startOfMonth();
         $monthEnd = (clone $monthStart)->endOfMonth();
         $daysInMonth = $monthStart->daysInMonth;
         $weekCount = (int) ceil($daysInMonth / 7);
 
-        $rows = $this->approvedExpenseRows($branchIds, $monthStart, $monthEnd);
+        $rows = $this->approvedExpenseRows($originScope, $monthStart, $monthEnd);
 
         $chart = [];
         for ($week = 0; $week < $weekCount; $week++) {
@@ -212,7 +244,7 @@ class BrandOwnerHomeService
 
         $total = (float) $rows->sum('total_amount');
         $prevStart = $monthStart->copy()->subMonthNoOverflow()->startOfMonth();
-        $previous = $this->approvedExpenseSum($branchIds, $prevStart, (clone $prevStart)->endOfMonth());
+        $previous = $this->approvedExpenseSum($originScope, $prevStart, (clone $prevStart)->endOfMonth());
 
         return [
             'trend_period' => $monthStart->format('F Y').' (Week 1-'.$weekCount.')',
@@ -224,12 +256,12 @@ class BrandOwnerHomeService
     }
 
     /** Monthly granularity: the selected year, broken into 12 months. */
-    private function monthlyTrend(array $branchIds, int $month, int $year): array
+    private function monthlyTrend(\Closure $originScope, int $month, int $year): array
     {
         $yearStart = Carbon::create($year, 1, 1)->startOfYear();
         $yearEnd = (clone $yearStart)->endOfYear();
 
-        $rows = $this->approvedExpenseRows($branchIds, $yearStart, $yearEnd);
+        $rows = $this->approvedExpenseRows($originScope, $yearStart, $yearEnd);
 
         $chart = [];
         for ($m = 1; $m <= 12; $m++) {
@@ -238,7 +270,7 @@ class BrandOwnerHomeService
 
         $total = (float) $rows->sum('total_amount');
         $prevStart = Carbon::create($year - 1, 1, 1)->startOfYear();
-        $previous = $this->approvedExpenseSum($branchIds, $prevStart, (clone $prevStart)->endOfYear());
+        $previous = $this->approvedExpenseSum($originScope, $prevStart, (clone $prevStart)->endOfYear());
 
         return [
             'trend_period' => Carbon::create($year, $month, 1)->format('F Y'),
@@ -250,27 +282,26 @@ class BrandOwnerHomeService
     }
 
     /** Approved expenses (any type) in a window — rows kept for bucketing. */
-    private function approvedExpenseRows(array $branchIds, Carbon $start, Carbon $end): Collection
+    private function approvedExpenseRows(\Closure $originScope, Carbon $start, Carbon $end): Collection
     {
-        return $this->approvedExpenseQuery($branchIds, $start, $end)
+        return $this->approvedExpenseQuery($originScope, $start, $end)
             ->get(['total_amount', 'created_at']);
     }
 
     /** Approved expense total (any type) in a window. */
-    private function approvedExpenseSum(array $branchIds, Carbon $start, Carbon $end): float
+    private function approvedExpenseSum(\Closure $originScope, Carbon $start, Carbon $end): float
     {
-        return (float) $this->approvedExpenseQuery($branchIds, $start, $end)->sum('total_amount');
+        return (float) $this->approvedExpenseQuery($originScope, $start, $end)->sum('total_amount');
     }
 
-    private function approvedExpenseQuery(array $branchIds, Carbon $start, Carbon $end): Builder
+    private function approvedExpenseQuery(\Closure $originScope, Carbon $start, Carbon $end): Builder
     {
-        return Expense::query()
+        $query = Expense::query()
             ->where('status', 'approved')
-            ->whereBetween('created_at', [$start, $end])
-            ->whereHas(
-                'branchManager',
-                fn (Builder $m) => $m->whereIn('branch_id', $branchIds)
-            );
+            ->whereBetween('created_at', [$start, $end]);
+        $originScope($query);
+
+        return $query;
     }
 
     /** Sum total_amount over the rows matching the predicate. */

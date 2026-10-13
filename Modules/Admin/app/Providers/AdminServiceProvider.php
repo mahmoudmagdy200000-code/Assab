@@ -105,6 +105,8 @@ class AdminServiceProvider extends ServiceProvider
             \Modules\Admin\Console\Commands\StorageDoctorCommand::class,
             \Modules\Admin\Console\Commands\GenerateRemindersCommand::class,
             \Modules\Admin\Console\Commands\DispatchRemindersCommand::class,
+            \Modules\Admin\Console\Commands\Pkg2OwnershipCensusCommand::class,
+            \Modules\Admin\Console\Commands\BrandManagerAssignmentCommand::class,
         ]);
     }
 

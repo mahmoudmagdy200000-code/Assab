@@ -304,16 +304,20 @@ class FinancialDataService
         return (float) $this->expenseQuery($branchId, $start, $end)->sum('vat_amount');
     }
 
-    /** Approved base expense query scoped to a branch and creation window. */
+    /**
+     * Approved base expense query scoped to a branch and creation window.
+     *
+     * F-01 / FU-02: a branch filter matches the expense's IMMUTABLE
+     * origin_branch_id (captured at creation), NOT the manager's current branch —
+     * so a manager reassignment cannot retroactively move an expense into or out
+     * of a branch's financial statements. A null branch is whole-brand (unchanged).
+     */
     private function expenseQuery(?string $branchId, Carbon $start, Carbon $end): Builder
     {
         return Expense::query()
             ->where('status', 'approved')
             ->whereBetween('created_at', [$start, $end])
-            ->when($branchId, fn (Builder $q) => $q->whereHas(
-                'branchManager',
-                fn (Builder $m) => $m->where('branch_id', $branchId)
-            ));
+            ->when($branchId, fn (Builder $q) => $q->where('origin_branch_id', $branchId));
     }
 
     /**
@@ -330,10 +334,8 @@ class FinancialDataService
             ->where('payment_method', 'supplier')
             ->whereIn('expense_type', self::DIRECT_COST_TYPES)
             ->whereBetween('created_at', [$start, $end])
-            ->when($branchId, fn (Builder $q) => $q->whereHas(
-                'branchManager',
-                fn (Builder $m) => $m->where('branch_id', $branchId)
-            ))
+            // F-01 / FU-02: match the immutable origin branch, not the manager's current branch.
+            ->when($branchId, fn (Builder $q) => $q->where('origin_branch_id', $branchId))
             ->get(['id', 'supplier_id', 'total_amount']);
 
         $items = $rows
