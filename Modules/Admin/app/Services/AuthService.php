@@ -1021,11 +1021,13 @@ class AuthService
     {
         if (Str::isUuid($id)) {
             DB::transaction(function () use ($user, $id) {
+                // Lock 1: User
                 $lockedUser = AsabUser::where('id', $user->id)->lockForUpdate()->first();
                 if (! $lockedUser) {
                     return;
                 }
 
+                // Lock 2: Session
                 $session = AdminSession::where('id', $id)
                     ->where('user_id', $lockedUser->id)
                     ->lockForUpdate()
@@ -1033,6 +1035,7 @@ class AuthService
 
                 if ($session) {
                     $session->forceFill(['revoked_at' => now()])->save();
+                    // Lock 3: Tokens (in deterministic ascending ID order)
                     PersonalAccessToken::where('session_id', $session->id)
                         ->orderBy('id', 'asc')
                         ->lockForUpdate()
@@ -1046,39 +1049,65 @@ class AuthService
 
         if (is_numeric($id)) {
             DB::transaction(function () use ($user, $id) {
+                $numericId = (int) $id;
+
+                // Lock 1: User
                 $lockedUser = AsabUser::where('id', $user->id)->lockForUpdate()->first();
                 if (! $lockedUser) {
                     return;
                 }
 
-                $token = $lockedUser->tokens()
-                    ->where('id', (int) $id)
+                // Branch A: Check if numeric ID matches an immutable legacy_access_token_id alias for this user
+                // Lock 2: Session
+                $session = AdminSession::where('legacy_access_token_id', $numericId)
+                    ->where('user_id', $lockedUser->id)
                     ->lockForUpdate()
                     ->first();
 
-                if (! $token) {
+                if ($session) {
+                    $session->forceFill(['revoked_at' => now()])->save();
+                    // Lock 3: Tokens (in deterministic ascending ID order)
+                    PersonalAccessToken::where('session_id', $session->id)
+                        ->orderBy('id', 'asc')
+                        ->lockForUpdate()
+                        ->get()
+                        ->each->delete();
+
                     return;
                 }
 
-                if ($token->session_id !== null) {
-                    // Part of an Admin Session Family: revoke whole family to prevent half-family corruption
-                    $session = AdminSession::where('id', $token->session_id)
+                // Branch B: Target is an existing PersonalAccessToken for this user
+                // To enforce D04 canonical lock order (User -> Session -> Token):
+                // Look up token's session_id first without inverting lock tier
+                $tokenPrelim = $lockedUser->tokens()->where('id', $numericId)->first();
+                if (! $tokenPrelim) {
+                    return; // Idempotent no-op
+                }
+
+                if ($tokenPrelim->session_id !== null) {
+                    // Lock 2: Session
+                    $linkedSession = AdminSession::where('id', $tokenPrelim->session_id)
                         ->where('user_id', $lockedUser->id)
                         ->lockForUpdate()
                         ->first();
 
-                    if ($session) {
-                        $session->forceFill(['revoked_at' => now()])->save();
-                        PersonalAccessToken::where('session_id', $session->id)
+                    if ($linkedSession) {
+                        $linkedSession->forceFill(['revoked_at' => now()])->save();
+                        // Lock 3: Tokens
+                        PersonalAccessToken::where('session_id', $linkedSession->id)
                             ->orderBy('id', 'asc')
                             ->lockForUpdate()
                             ->get()
                             ->each->delete();
                     } else {
-                        $token->delete();
+                        // Orphaned token fallback: Lock 3 Token
+                        $token = $lockedUser->tokens()->where('id', $numericId)->lockForUpdate()->first();
+                        $token?->delete();
                     }
                 } else {
-                    $token->delete();
+                    // Genuinely familyless token: Lock 3 Token
+                    $token = $lockedUser->tokens()->where('id', $numericId)->lockForUpdate()->first();
+                    $token?->delete();
                 }
             });
 
