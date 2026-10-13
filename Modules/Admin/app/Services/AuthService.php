@@ -468,19 +468,54 @@ class AuthService
 
         // Case A: Genuinely familyless legacy Admin refresh in Compatibility Mode
         if ($candidateToken->session_id === null) {
-            if ($candidateToken->abilities !== ['*'] && ! in_array('admin:refresh', $candidateToken->abilities, true)) {
-                throw new AsabException('INVALID_TOKEN', 'Invalid refresh token abilities', 'صلاحيات الرمز غير صحيحة', 401);
-            }
+            return DB::transaction(function () use ($candidateToken, $candidateUser, $testHook) {
+                // Match revocation and credential mutation: User -> Token.
+                $user = AsabUser::where('id', $candidateUser->id)->lockForUpdate()->first();
+                if (! $user) {
+                    throw new AsabException('INVALID_TOKEN', 'User not found', 'المستخدم غير موجود', 401);
+                }
 
-            $candidateToken->delete();
-            $issued = $this->issueTokens($candidateUser);
+                if ($user->status !== 'active') {
+                    throw new AsabException('USER_INACTIVE', 'User account is not active', 'الحساب غير مُفعّل', 403);
+                }
 
-            return [
-                'accessToken' => $issued['accessToken'],
-                'refreshToken' => $issued['refreshToken'],
-                'expiresIn' => $issued['expiresIn'],
-                'user' => $this->userPayload($candidateUser),
-            ];
+                // Ordinary company read preserves the current R1 suspension limits.
+                if ($user->company_id !== null) {
+                    $company = AsabCompany::where('id', $user->company_id)->first();
+                    if (! $company || $company->status === 'suspended') {
+                        throw new AsabException('USER_INACTIVE', 'Company is not active', 'الشركة غير نشطة', 403);
+                    }
+                }
+
+                $token = $user->tokens()->where('id', $candidateToken->id)->lockForUpdate()->first();
+                if (! $token || (int) $token->id !== (int) $candidateToken->id
+                    || (string) $token->tokenable_id !== (string) $user->id
+                    || $token->tokenable_type !== $user->getMorphClass()
+                    || ! hash_equals($candidateToken->token, $token->token)
+                    || $token->name !== 'refresh' || $token->session_id !== null) {
+                    throw new AsabException('INVALID_TOKEN', 'Refresh token already consumed or changed', 'رمز التحديث مستهلك أو غير صالح', 401);
+                }
+
+                if ($token->abilities !== ['*'] && ! in_array('admin:refresh', $token->abilities, true)) {
+                    throw new AsabException('INVALID_TOKEN', 'Invalid refresh token abilities', 'صلاحيات الرمز غير صحيحة', 401);
+                }
+
+                if ($token->expires_at && now()->greaterThanOrEqualTo($token->expires_at)) {
+                    throw new AsabException('SESSION_EXPIRED', 'Refresh token expired', 'انتهت صلاحية رمز التحديث', 401);
+                }
+
+                $token->delete();
+                $this->invokeTestHook($testHook, 'after_delete_old_tokens');
+                $issued = $this->issueTokens($user);
+                $this->invokeTestHook($testHook, 'before_commit');
+
+                return [
+                    'accessToken' => $issued['accessToken'],
+                    'refreshToken' => $issued['refreshToken'],
+                    'expiresIn' => $issued['expiresIn'],
+                    'user' => $this->userPayload($user),
+                ];
+            });
         }
 
         // Case B: Family-linked token (strictly follows family rules regardless of feature flag state)

@@ -309,4 +309,137 @@ class AdminSessionRefreshTest extends TestCase
         $sessionAfter = AdminSession::findOrFail($sessionId);
         $this->assertSame(2, $sessionAfter->generation);
     }
+
+    public function test_legacy_expired_refresh_is_rejected_without_consuming_it(): void
+    {
+        $token = $this->adminUser->createToken('refresh', ['*'], now()->subSecond());
+        $this->postJson('/api/v1/auth/refresh', ['refreshToken' => $token->plainTextToken])
+            ->assertStatus(401)->assertJsonPath('error.code', 'SESSION_EXPIRED');
+        $this->assertDatabaseHas('personal_access_tokens', ['id' => $token->accessToken->id]);
+        $this->assertSame(1, $this->adminUser->tokens()->count());
+    }
+
+    public function test_legacy_refresh_rejects_inactive_user_without_consuming_token(): void
+    {
+        $token = $this->adminUser->createToken('refresh');
+        $this->adminUser->update(['status' => 'inactive']);
+        $this->postJson('/api/v1/auth/refresh', ['refreshToken' => $token->plainTextToken])
+            ->assertStatus(403)->assertJsonPath('error.code', 'USER_INACTIVE');
+        $this->assertSame(1, $this->adminUser->tokens()->count());
+    }
+
+    public function test_legacy_refresh_rejects_suspended_company_without_consuming_token(): void
+    {
+        $token = $this->adminUser->createToken('refresh');
+        $this->company->update(['status' => 'suspended']);
+        $this->postJson('/api/v1/auth/refresh', ['refreshToken' => $token->plainTextToken])
+            ->assertStatus(403)->assertJsonPath('error.code', 'USER_INACTIVE');
+        $this->assertSame(1, $this->adminUser->tokens()->count());
+    }
+
+    public function test_legacy_wildcard_rotation_keeps_response_and_familyless_successor(): void
+    {
+        config(['admin.session_families_enabled' => true]);
+        $token = $this->adminUser->createToken('refresh');
+        // Sanctum also accepts the historical secret-only form.
+        $plain = explode('|', $token->plainTextToken, 2)[1];
+        $result = $this->authService->refresh($plain);
+        $this->assertSame(['accessToken', 'refreshToken', 'expiresIn', 'user'], array_keys($result));
+        $this->assertSame(900, $result['expiresIn']);
+        $this->assertSame($this->adminUser->id, $result['user']['id']);
+        $this->assertSame(2, $this->adminUser->tokens()->count());
+        foreach ($this->adminUser->tokens()->get() as $successor) {
+            $this->assertNull($successor->session_id);
+            $this->assertSame(['*'], $successor->abilities);
+        }
+        $this->assertSame(0, AdminSession::count());
+        $this->assertNull(PersonalAccessToken::find($token->accessToken->id));
+        $this->postJson('/api/v1/auth/refresh', ['refreshToken' => $token->plainTextToken])->assertStatus(401);
+        $this->assertSame(2, $this->adminUser->tokens()->count());
+    }
+
+    public function test_legacy_rotation_rolls_back_deleted_token_and_successors(): void
+    {
+        $token = $this->adminUser->createToken('refresh');
+        foreach (['after_delete_old_tokens', 'before_commit'] as $point) {
+            try {
+                $this->authService->refresh($token->plainTextToken, function ($current) use ($point) {
+                    if ($current === $point) {
+                        throw new \RuntimeException('LEGACY_ROLLBACK_'.$point);
+                    }
+                });
+                $this->fail('Expected legacy rollback at '.$point);
+            } catch (\RuntimeException $e) {
+                $this->assertSame('LEGACY_ROLLBACK_'.$point, $e->getMessage());
+            }
+            $this->assertSame(1, $this->adminUser->tokens()->count());
+            $this->assertDatabaseHas('personal_access_tokens', ['id' => $token->accessToken->id]);
+        }
+    }
+
+    public function test_legacy_refresh_rechecks_candidate_after_resolution(): void
+    {
+        $other = AsabUser::create([
+            'name' => 'Other legacy owner', 'email' => 'other_legacy@example.com',
+            'password' => 'TestPassword123!', 'status' => 'active',
+        ]);
+        $mutations = [
+            'deleted' => null,
+            'hash' => ['token' => hash('sha256', 'different-secret')],
+            'owner' => ['tokenable_id' => $other->id],
+            'type' => ['tokenable_type' => 'OtherModel'],
+            'name' => ['name' => 'access'],
+            'family' => ['session_id' => (string) \Illuminate\Support\Str::uuid()],
+            'abilities' => ['abilities' => json_encode(['admin:access'])],
+            'expiry' => ['expires_at' => now()->subSecond()],
+        ];
+        foreach ($mutations as $label => $mutation) {
+            $token = $this->adminUser->createToken('refresh');
+            $state = (object) ['armed' => true];
+            // Mutate after the unlocked owner query, before refresh can acquire its locks.
+            \Illuminate\Support\Facades\DB::listen(function ($query) use ($state, $mutation, $token) {
+                if ($state->armed && str_contains($query->sql, 'select')
+                    && str_contains($query->sql, 'asab_users') && ! str_contains($query->sql, 'for update')) {
+                    $state->armed = false;
+                    $row = \Illuminate\Support\Facades\DB::table('personal_access_tokens')->where('id', $token->accessToken->id);
+                    $mutation === null ? $row->delete() : $row->update($mutation);
+                }
+            });
+            try {
+                $this->authService->refresh($token->plainTextToken);
+                $this->fail('Stale candidate accepted after '.$label);
+            } catch (\Modules\Admin\Exceptions\AsabException $e) {
+                $this->assertSame($label === 'expiry' ? 'SESSION_EXPIRED' : 'INVALID_TOKEN', $e->errorCode);
+            } finally {
+                $state->armed = false;
+            }
+            $this->assertSame(0, $this->adminUser->tokens()->where('name', 'access')->where('id', '!=', $token->accessToken->id)->count(), $label);
+            PersonalAccessToken::where('id', $token->accessToken->id)->delete();
+        }
+    }
+
+
+    public function test_legacy_refresh_uses_locked_user_state_after_candidate_resolution(): void
+    {
+        $token = $this->adminUser->createToken('refresh');
+        $state = (object) ['armed' => true];
+        \Illuminate\Support\Facades\DB::listen(function ($query) use ($state) {
+            if ($state->armed && str_contains($query->sql, 'select')
+                && str_contains($query->sql, 'asab_users') && ! str_contains($query->sql, 'for update')) {
+                $state->armed = false;
+                \Illuminate\Support\Facades\DB::table('asab_users')->where('id', $this->adminUser->id)
+                    ->update(['status' => 'inactive']);
+            }
+        });
+        try {
+            $this->authService->refresh($token->plainTextToken);
+            $this->fail('Stale active user was accepted');
+        } catch (\Modules\Admin\Exceptions\AsabException $e) {
+            $this->assertSame('USER_INACTIVE', $e->errorCode);
+        } finally {
+            $state->armed = false;
+        }
+        $this->assertSame(1, $this->adminUser->tokens()->count());
+    }
+
 }
