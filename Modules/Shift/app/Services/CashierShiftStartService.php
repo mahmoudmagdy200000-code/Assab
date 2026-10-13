@@ -42,9 +42,15 @@ final class CashierShiftStartService
                 && CashierShift::withoutEagerLoads()->whereKey($linkedId)->lockForUpdate()->firstOrFail()->operational_chain_id !== $linkedSnapshot->operational_chain_id) {
                 throw new ConflictHttpException('OPERATIONAL_CHAIN_CHANGED');
             }
+            // A reassigned row is still an offer to the replacement cashier.
+            // Only the existing accept endpoint can move it to NOT_STARTED;
+            // neither cashier nor manager start may accept it implicitly.
+            if ($shift->status === ShiftStatus::REASSIGNED) {
+                throw new ConflictHttpException('ASSIGNMENT_ACCEPTANCE_REQUIRED');
+            }
             if ($shift->cashier_id !== $expected->cashier_id
                 || $shift->operational_ended_at !== null
-                || ! in_array($shift->status, [ShiftStatus::NOT_STARTED, ShiftStatus::REASSIGNED], true)) {
+                || $shift->status !== ShiftStatus::NOT_STARTED) {
                 throw new ConflictHttpException('SHIFT_NO_LONGER_PENDING');
             }
             $shift = app(ReassignmentReportOwnershipService::class)->separate($shift);

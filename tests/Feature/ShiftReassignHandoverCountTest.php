@@ -114,6 +114,7 @@ class ShiftReassignHandoverCountTest extends TestCase
         $beforeCount = ShiftReportCashCount::where('cashier_shift_id', $this->shift->id)->sole()->getAttributes();
         $beforeAllocation = ShiftLiabilityAllocation::where('cashier_shift_id', $this->shift->id)->sole()->getAttributes();
 
+        $this->actingAs($this->incoming, 'sanctum')->postJson("/api/v1/cashier/shifts/{$incomingId}/reassign/accept")->assertOk();
         $this->actingAs($this->incoming, 'sanctum')->postJson("/api/v1/cashier/shifts/{$incomingId}/start")->assertOk();
         $incoming = CashierShift::findOrFail($incomingId);
         $this->assertSame('0.00', (string) $incoming->opening_balance);
@@ -174,6 +175,7 @@ class ShiftReassignHandoverCountTest extends TestCase
     {
         $this->reassign(['new_cashier_id' => $this->incoming->id, 'handover_amount' => '30.00'])->assertOk();
         $incomingId = $this->incomingShift->id;
+        $this->actingAs($this->incoming, 'sanctum')->postJson("/api/v1/cashier/shifts/{$incomingId}/reassign/accept")->assertOk();
         $this->actingAs($this->incoming, 'sanctum')->postJson("/api/v1/cashier/shifts/{$incomingId}/start")->assertOk();
         $this->actingAs($this->outgoing, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->shift->id}/end-with-handover", [
             'total_sales' => '100.00', 'cash_collected' => '100.00', 'counted_cash' => '90.00',
@@ -223,6 +225,7 @@ class ShiftReassignHandoverCountTest extends TestCase
         $request = \Modules\Shift\Models\CashierShiftHandover::where('cashier_shift_id', $this->shift->id)->sole();
         $before = $request->getAttributes();
         $this->reassign(['new_cashier_id' => $this->incoming->id, 'handover_amount' => '30.00'])->assertOk();
+        $this->actingAs($this->incoming, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->incomingShift->id}/reassign/accept")->assertOk();
         $this->actingAs($this->incoming, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->incomingShift->id}/start")->assertOk();
         $this->assertSame($before, $request->fresh()->getAttributes());
         $this->assertSame('0.00', (string) $this->incomingShift->fresh()->opening_balance);
@@ -234,6 +237,7 @@ class ShiftReassignHandoverCountTest extends TestCase
     {
         $this->reassign($this->report())->assertOk();
         $middleId = $this->incomingShift->id;
+        $this->actingAs($this->incoming, 'sanctum')->postJson("/api/v1/cashier/shifts/{$middleId}/reassign/accept")->assertOk();
         $this->actingAs($this->incoming, 'sanctum')->postJson("/api/v1/cashier/shifts/{$middleId}/start")->assertOk();
         $third = Cashier::factory()->create(['branch_id' => $this->branch->id, 'created_by' => $this->manager->id]);
         $response = $this->actingAs($this->manager, 'sanctum')->postJson("/api/branch-manager/shifts/{$middleId}/reassign-with-handover", [
@@ -244,6 +248,7 @@ class ShiftReassignHandoverCountTest extends TestCase
         $this->assertNotSame($middleId, $thirdId);
         $this->assertSame($this->incoming->id, CashierShift::findOrFail($middleId)->cashier_id);
         $before = ShiftReportCashCount::where('cashier_shift_id', $middleId)->sole()->getAttributes();
+        $this->actingAs($third, 'sanctum')->postJson("/api/v1/cashier/shifts/{$thirdId}/reassign/accept")->assertOk();
         $this->actingAs($third, 'sanctum')->postJson("/api/v1/cashier/shifts/{$thirdId}/start")->assertOk();
         $this->actingAs($third, 'sanctum')->postJson("/api/v1/cashier/shifts/{$thirdId}/end-with-handover", [
             'total_sales' => '50.00', 'cash_collected' => '50.00', 'counted_cash' => '50.00',
@@ -473,6 +478,7 @@ class ShiftReassignHandoverCountTest extends TestCase
     {
         $this->reassign($this->report())->assertOk();
         $count = ShiftReportCashCount::where('cashier_shift_id', $this->shift->id)->sole()->getAttributes();
+        $this->actingAs($this->incoming, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->incomingShift->id}/reassign/accept")->assertOk();
         $this->actingAs($this->manager, 'sanctum')->postJson("/api/branch-manager/shifts/start-by-manager/{$this->incomingShift->id}")->assertOk();
         $this->assertSame(ShiftStatus::IN_PROGRESS, $this->incomingShift->fresh()->status);
         $this->assertSame('0.00', (string) $this->incomingShift->fresh()->opening_balance);
@@ -534,16 +540,18 @@ class ShiftReassignHandoverCountTest extends TestCase
         $this->assertSame($before, $this->financialSnapshot());
     }
 
-    public function test_no_report_reassignment_can_still_start_directly_by_cashier(): void
+    public function test_no_report_reassignment_can_start_by_cashier_after_acceptance(): void
     {
         $this->reassign(['new_cashier_id' => $this->incoming->id, 'handover_amount' => '30.00'])->assertOk();
+        $this->actingAs($this->incoming, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->incomingShift->id}/reassign/accept")->assertOk();
         $this->actingAs($this->incoming, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->incomingShift->id}/start")->assertOk();
         $this->assertSame(ShiftStatus::IN_PROGRESS, $this->incomingShift->fresh()->status);
     }
 
-    public function test_no_report_reassignment_can_still_start_by_manager(): void
+    public function test_no_report_reassignment_can_start_by_manager_after_cashier_acceptance(): void
     {
         $this->reassign(['new_cashier_id' => $this->incoming->id, 'handover_amount' => '30.00'])->assertOk();
+        $this->actingAs($this->incoming, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->incomingShift->id}/reassign/accept")->assertOk();
         $this->actingAs($this->manager, 'sanctum')->postJson("/api/branch-manager/shifts/start-by-manager/{$this->incomingShift->id}")->assertOk();
         $this->assertSame(ShiftStatus::IN_PROGRESS, $this->incomingShift->fresh()->status);
     }
