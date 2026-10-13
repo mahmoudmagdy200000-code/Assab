@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\PersonalAccessToken;
 use Modules\Admin\Exceptions\AsabException;
+use Modules\Admin\Models\AdminSession;
+use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Notifications\PasswordResetLinkNotification;
 
@@ -28,17 +30,62 @@ class AuthService
     ) {}
 
     /**
+     * Determine whether the new Admin Session Family issuance lifecycle is enabled.
+     * Defaults to false (Compatibility Mode).
+     */
+    public function isSessionFamiliesEnabled(): bool
+    {
+        return (bool) config('admin.session_families_enabled', false);
+    }
+
+    /**
+     * Compute a security version fingerprint for a user to detect changed credentials.
+     */
+    public function computeCredentialVersion(AsabUser $user): string
+    {
+        return hash('sha256', implode('|', [
+            $user->id,
+            $user->password,
+            $user->status,
+            $user->company_id ?? '',
+            $user->two_factor_secret ?? '',
+            $user->two_factor_confirmed_at?->timestamp ?? '',
+            $user->updated_at?->timestamp ?? '',
+        ]));
+    }
+
+    /**
      * Password (and optional 2FA) login (FE completion request §3.1).
      * When 2FA is enabled and no code is supplied, returns
      * { requires2fa:true, twoFactorToken } — no access token yet.
      *
-     * @return array spec-exact { accessToken, refreshToken, expiresIn, user } | { requires2fa, twoFactorToken }
+     * @return array spec-exact { accessToken, refreshToken, expiresIn, user, ... } | { requires2fa, twoFactorToken }
      */
-    public function login(string $email, string $password, ?string $code = null, ?string $twoFactorToken = null): array
+    public function login(
+        string $email,
+        string $password,
+        ?string $code = null,
+        ?string $twoFactorToken = null,
+        bool $rememberMe = false,
+        ?string $deviceName = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): array {
+        if (! $this->isSessionFamiliesEnabled()) {
+            return $this->legacyLogin($email, $password, $code, $twoFactorToken);
+        }
+
+        return $this->familyLogin($email, $password, $code, $twoFactorToken, $rememberMe, $deviceName, $ipAddress, $userAgent);
+    }
+
+    /**
+     * Legacy Compatibility Mode login flow.
+     */
+    private function legacyLogin(string $email, string $password, ?string $code = null, ?string $twoFactorToken = null): array
     {
         // Step-up path: client returns with the interim token + a code.
         if ($twoFactorToken) {
-            return $this->completeTwoFactorLogin($twoFactorToken, $code);
+            return $this->legacyCompleteTwoFactorLogin($twoFactorToken, $code);
         }
 
         $user = AsabUser::where('email', $email)->first();
@@ -71,9 +118,19 @@ class AuthService
         return $this->issueTokens($user);
     }
 
-    /** Resolve the interim token + verify the code, then issue tokens. */
-    private function completeTwoFactorLogin(string $twoFactorToken, ?string $code): array
+    /**
+     * Legacy Compatibility Mode 2FA completion.
+     */
+    private function legacyCompleteTwoFactorLogin(string $twoFactorToken, ?string $code): array
     {
+        // Guard against cross-mode replay: reject if this token is a family challenge or already consumed
+        if (Cache::has('2fa-consumed:'.$twoFactorToken) || Cache::has('2fa-challenge:'.$twoFactorToken)) {
+            Cache::forget('2fa-login:'.$twoFactorToken);
+            Cache::forget('2fa-challenge:'.$twoFactorToken);
+            Cache::put('2fa-consumed:'.$twoFactorToken, true, self::TWO_FACTOR_TOKEN_TTL);
+            throw new AsabException('TWO_FACTOR_TOKEN_INVALID', 'Two-factor session expired', 'انتهت جلسة المصادقة الثنائية', 401);
+        }
+
         $userId = Cache::get('2fa-login:'.$twoFactorToken);
         if (! $userId) {
             throw new AsabException('TWO_FACTOR_TOKEN_INVALID', 'Two-factor session expired', 'انتهت جلسة المصادقة الثنائية', 401);
@@ -87,36 +144,477 @@ class AuthService
         }
 
         Cache::forget('2fa-login:'.$twoFactorToken);
+        Cache::put('2fa-consumed:'.$twoFactorToken, true, self::TWO_FACTOR_TOKEN_TTL);
         $user->forceFill(['last_login_at' => now()])->saveQuietly();
 
         return $this->issueTokens($user);
     }
 
     /**
-     * Rotate a refresh token: revoke it and issue a fresh access+refresh pair.
+     * Slice 03 Admin Session Family login with admission locking & concurrency protection.
      */
-    public function refresh(string $refreshToken): array
+    private function familyLogin(
+        string $email,
+        string $password,
+        ?string $code = null,
+        ?string $twoFactorToken = null,
+        bool $rememberMe = false,
+        ?string $deviceName = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): array {
+        if ($twoFactorToken) {
+            return $this->completeTwoFactorFamilyLogin($twoFactorToken, $code, $deviceName, $ipAddress, $userAgent);
+        }
+
+        $preliminaryUser = AsabUser::where('email', $email)->first();
+        if (! $preliminaryUser || ! Hash::check($password, $preliminaryUser->password)) {
+            throw new AsabException('INVALID_CREDENTIALS', 'Invalid email or password', 'بيانات الدخول غير صحيحة', 401);
+        }
+
+        if ($preliminaryUser->status !== 'active') {
+            throw new AsabException('USER_INACTIVE', 'User account is not active', 'الحساب غير مُفعّل', 403);
+        }
+
+        if ($preliminaryUser->company_id !== null) {
+            $company = AsabCompany::where('id', $preliminaryUser->company_id)->first();
+            if (! $company || $company->status === 'suspended') {
+                throw new AsabException('USER_INACTIVE', 'Company is not active', 'الشركة غير نشطة', 403);
+            }
+        }
+
+        if ($preliminaryUser->twoFactorEnabled()) {
+            if ($code === null || $code === '') {
+                $token = Str::random(48);
+                $ttl = self::TWO_FACTOR_TOKEN_TTL;
+                $challengeData = [
+                    'user_id' => $preliminaryUser->id,
+                    'remember_me' => $rememberMe,
+                    'credential_version' => $this->computeCredentialVersion($preliminaryUser),
+                    'created_at' => now()->timestamp,
+                    'expires_at' => now()->addSeconds($ttl)->timestamp,
+                    'state' => 'pending',
+                ];
+
+                Cache::put('2fa-challenge:'.$token, $challengeData, $ttl);
+
+                if ($preliminaryUser->two_factor_method === 'sms') {
+                    $this->twoFactor->sendSmsCode($preliminaryUser);
+                }
+
+                return ['requires2fa' => true, 'twoFactorToken' => $token];
+            }
+
+            // Direct Password + Code path with 2FA enabled
+            return DB::transaction(function () use ($preliminaryUser, $password, $code, $rememberMe, $deviceName, $ipAddress, $userAgent) {
+                $user = AsabUser::where('id', $preliminaryUser->id)->lockForUpdate()->first();
+                if (! $user || ! Hash::check($password, $user->password)) {
+                    throw new AsabException('INVALID_CREDENTIALS', 'Invalid email or password', 'بيانات الدخول غير صحيحة', 401);
+                }
+                if ($user->status !== 'active') {
+                    throw new AsabException('USER_INACTIVE', 'User account is not active', 'الحساب غير مُفعّل', 403);
+                }
+                if ($user->company_id !== null) {
+                    $company = AsabCompany::where('id', $user->company_id)->first();
+                    if (! $company || $company->status === 'suspended') {
+                        throw new AsabException('USER_INACTIVE', 'Company is not active', 'الشركة غير نشطة', 403);
+                    }
+                }
+                if (! $this->twoFactor->verify($user, $code)) {
+                    throw new AsabException('TWO_FACTOR_INVALID_CODE', 'Invalid verification code', 'رمز التحقق غير صحيح', 422);
+                }
+
+                $user->forceFill(['last_login_at' => now()])->saveQuietly();
+
+                return $this->issueSessionFamily($user, $rememberMe, $deviceName, $ipAddress, $userAgent);
+            });
+        }
+
+        // Standard Password path without 2FA
+        return DB::transaction(function () use ($preliminaryUser, $password, $code, $rememberMe, $deviceName, $ipAddress, $userAgent) {
+            $user = AsabUser::where('id', $preliminaryUser->id)->lockForUpdate()->first();
+            if (! $user || ! Hash::check($password, $user->password)) {
+                throw new AsabException('INVALID_CREDENTIALS', 'Invalid email or password', 'بيانات الدخول غير صحيحة', 401);
+            }
+            if ($user->status !== 'active') {
+                throw new AsabException('USER_INACTIVE', 'User account is not active', 'الحساب غير مُفعّل', 403);
+            }
+            if ($user->company_id !== null) {
+                $company = AsabCompany::where('id', $user->company_id)->first();
+                if (! $company || $company->status === 'suspended') {
+                    throw new AsabException('USER_INACTIVE', 'Company is not active', 'الشركة غير نشطة', 403);
+                }
+            }
+
+            // P1 Audit Fix: Re-evaluate 2FA requirement under the user lock
+            if ($user->twoFactorEnabled()) {
+                if ($code === null || $code === '') {
+                    $token = Str::random(48);
+                    $ttl = self::TWO_FACTOR_TOKEN_TTL;
+                    $challengeData = [
+                        'user_id' => $user->id,
+                        'remember_me' => $rememberMe,
+                        'credential_version' => $this->computeCredentialVersion($user),
+                        'created_at' => now()->timestamp,
+                        'expires_at' => now()->addSeconds($ttl)->timestamp,
+                        'state' => 'pending',
+                    ];
+
+                    Cache::put('2fa-challenge:'.$token, $challengeData, $ttl);
+
+                    if ($user->two_factor_method === 'sms') {
+                        $this->twoFactor->sendSmsCode($user);
+                    }
+
+                    return ['requires2fa' => true, 'twoFactorToken' => $token];
+                }
+
+                if (! $this->twoFactor->verify($user, $code)) {
+                    throw new AsabException('TWO_FACTOR_INVALID_CODE', 'Invalid verification code', 'رمز التحقق غير صحيح', 422);
+                }
+            }
+
+            $user->forceFill(['last_login_at' => now()])->saveQuietly();
+
+            return $this->issueSessionFamily($user, $rememberMe, $deviceName, $ipAddress, $userAgent);
+        });
+    }
+
+    /**
+     * Slice 03 Secure 2FA Challenge Completion with atomic store primitive and User row lock.
+     */
+    private function completeTwoFactorFamilyLogin(
+        string $twoFactorToken,
+        ?string $code,
+        ?string $deviceName = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+    ): array {
+        if ($code === null || $code === '') {
+            throw new AsabException('TWO_FACTOR_INVALID_CODE', 'Invalid verification code', 'رمز التحقق غير صحيح', 422);
+        }
+
+        // P2 Audit Fix: Atomic conditional reservation in shared store.
+        // Cache::add() succeeds if and only if key did NOT previously exist.
+        // NOTE: This atomic reservation guarantee relies on a shared cache store that supports atomic conditional writes.
+        // It has been empirically proven on Laravel Database Cache with MariaDB (via INSERT IGNORE on unique key),
+        // and does NOT apply to in-memory Array Cache across independent PHP processes.
+        if (! Cache::add('2fa-consumed:'.$twoFactorToken, true, self::TWO_FACTOR_TOKEN_TTL)) {
+            throw new AsabException('TWO_FACTOR_TOKEN_INVALID', 'Two-factor session already consumed or concurrent attempt', 'جلسة المصادقة الثنائية غير صالحة', 401);
+        }
+
+        // Secondary mutual exclusion lock around challenge retrieval
+        $consumeLock = Cache::lock('2fa-consume-lock:'.$twoFactorToken, 30);
+        if (! $consumeLock->get()) {
+            throw new AsabException('TWO_FACTOR_TOKEN_INVALID', 'Two-factor session already consumed or concurrent attempt', 'جلسة المصادقة الثنائية غير صالحة', 401);
+        }
+
+        try {
+            // Retrieve and clear challenge from store (Cache::add above provides the atomic mutual exclusivity).
+            $challenge = Cache::pull('2fa-challenge:'.$twoFactorToken);
+            Cache::forget('2fa-login:'.$twoFactorToken);
+
+            if (! is_array($challenge) || ($challenge['state'] ?? '') !== 'pending') {
+                throw new AsabException('TWO_FACTOR_TOKEN_INVALID', 'Two-factor session expired or invalid', 'انتهت جلسة المصادقة الثنائية', 401);
+            }
+
+            if (now()->timestamp >= ($challenge['expires_at'] ?? 0)) {
+                throw new AsabException('TWO_FACTOR_TOKEN_INVALID', 'Two-factor session expired', 'انتهت جلسة المصادقة الثنائية', 401);
+            }
+
+            $userId = $challenge['user_id'];
+            $rememberMe = (bool) ($challenge['remember_me'] ?? false);
+            $expectedVersion = $challenge['credential_version'] ?? null;
+        } finally {
+            if ($consumeLock->isOwnedByCurrentProcess()) {
+                $consumeLock->release();
+            }
+        }
+
+        return DB::transaction(function () use ($userId, $code, $rememberMe, $expectedVersion, $deviceName, $ipAddress, $userAgent) {
+            $user = AsabUser::where('id', $userId)->lockForUpdate()->first();
+            if (! $user) {
+                throw new AsabException('TWO_FACTOR_TOKEN_INVALID', 'User not found', 'المستخدم غير موجود', 401);
+            }
+
+            if ($user->status !== 'active') {
+                throw new AsabException('USER_INACTIVE', 'User account is not active', 'الحساب غير مُفعّل', 403);
+            }
+
+            if ($user->company_id !== null) {
+                $company = AsabCompany::where('id', $user->company_id)->first();
+                if (! $company || $company->status === 'suspended') {
+                    throw new AsabException('USER_INACTIVE', 'Company is not active', 'الشركة غير نشطة', 403);
+                }
+            }
+
+            if ($expectedVersion !== null) {
+                $currentVersion = $this->computeCredentialVersion($user);
+                if (! hash_equals($expectedVersion, $currentVersion)) {
+                    throw new AsabException('TWO_FACTOR_TOKEN_INVALID', 'Credentials or security state have changed', 'تم تغيير بيانات الاعتماد أو حالة الأمان', 401);
+                }
+            }
+
+            if (! $this->twoFactor->verify($user, $code)) {
+                throw new AsabException('TWO_FACTOR_INVALID_CODE', 'Invalid verification code', 'رمز التحقق غير صحيح', 422);
+            }
+
+            $user->forceFill(['last_login_at' => now()])->saveQuietly();
+
+            return $this->issueSessionFamily($user, $rememberMe, $deviceName, $ipAddress, $userAgent);
+        });
+    }
+
+    /**
+     * Slice 03 Admin Session Family issuance using existing Sanctum architecture.
+     */
+    public function issueSessionFamily(
+        AsabUser $user,
+        bool $rememberMe = false,
+        ?string $deviceName = null,
+        ?string $ipAddress = null,
+        ?string $userAgent = null,
+        ?\DateTimeInterface $overrideExpiresAt = null,
+    ): array {
+        return DB::transaction(function () use ($user, $rememberMe, $deviceName, $ipAddress, $userAgent, $overrideExpiresAt) {
+            $now = now();
+            $maxTtlHours = $rememberMe ? (7 * 24) : 24;
+            $maxPolicyExpiresAt = $now->copy()->addHours($maxTtlHours);
+
+            if ($overrideExpiresAt !== null) {
+                $requestedExpiresAt = \Carbon\Carbon::instance($overrideExpiresAt);
+                // Strict policy invariant: override may ONLY shorten approved lifetime, never extend beyond policy maximum
+                if ($requestedExpiresAt->gt($maxPolicyExpiresAt)) {
+                    throw new AsabException(
+                        'EXPIRATION_OVERRIDE_EXCEEDED',
+                        'Session expiration cannot exceed policy maximum of ' . ($rememberMe ? '7 days' : '24 hours'),
+                        'لا يمكن تمديد مدة الجلسة عن الحد الأقصى للسياسة',
+                        422
+                    );
+                }
+                $sessionExpiresAt = $requestedExpiresAt;
+            } else {
+                $sessionExpiresAt = $maxPolicyExpiresAt;
+            }
+
+            $remainingSeconds = (int) max(0, $now->diffInSeconds($sessionExpiresAt, false));
+            if ($remainingSeconds <= 0) {
+                throw new AsabException('SESSION_EXPIRED', 'Session has expired', 'انتهت الجلسة', 401);
+            }
+
+            $expiresIn = (int) min(900, $remainingSeconds);
+            $accessExpiresAt = $now->copy()->addSeconds($expiresIn);
+            $refreshExpiresAt = $sessionExpiresAt->copy();
+
+            $sessionId = (string) Str::uuid();
+
+            // 1. Create AdminSession
+            $session = new AdminSession();
+            $session->id = $sessionId;
+            $session->user_id = $user->id;
+            $session->company_id = $user->company_id;
+            $session->device_name = $deviceName;
+            $session->ip_address = $ipAddress;
+            $session->user_agent = $userAgent;
+            $session->is_remember_me = $rememberMe;
+            $session->generation = 0;
+            $session->last_active_at = $now;
+            $session->expires_at = $sessionExpiresAt;
+            $session->revoked_at = null;
+            $session->save();
+
+            // 2. Issue Access Token with exact ability ['admin:access']
+            $accessNewToken = $user->createToken('access', ['admin:access'], $accessExpiresAt);
+            $accessNewToken->accessToken->forceFill(['session_id' => $sessionId])->save();
+
+            // 3. Issue Refresh Token with exact ability ['admin:refresh']
+            $refreshNewToken = $user->createToken('refresh', ['admin:refresh'], $refreshExpiresAt);
+            $refreshNewToken->accessToken->forceFill(['session_id' => $sessionId])->save();
+
+            // 4. Update AdminSession pointers and legacy alias once
+            $session->forceFill([
+                'current_access_token_id' => $accessNewToken->accessToken->id,
+                'current_refresh_token_id' => $refreshNewToken->accessToken->id,
+                'legacy_access_token_id' => $accessNewToken->accessToken->id,
+            ])->save();
+
+            return [
+                'accessToken' => $accessNewToken->plainTextToken,
+                'refreshToken' => $refreshNewToken->plainTextToken,
+                'expiresIn' => $expiresIn,
+                'sessionId' => $sessionId,
+                'expiresAt' => $accessExpiresAt->toIso8601String(),
+                'sessionExpiresAt' => $sessionExpiresAt->toIso8601String(),
+                'user' => $this->userPayload($user),
+            ];
+        });
+    }
+
+    /**
+     * Slice 04 Atomic Admin Session Family refresh with User -> Session -> Token locking.
+     */
+    public function refresh(string $refreshToken, ?\Closure $testHook = null): array
     {
-        $token = PersonalAccessToken::findToken($refreshToken);
+        $candidateToken = PersonalAccessToken::findToken($refreshToken);
 
-        if (! $token || $token->name !== 'refresh') {
+        if (! $candidateToken || $candidateToken->name !== 'refresh') {
             throw new AsabException('INVALID_TOKEN', 'Invalid refresh token', 'رمز التحديث غير صالح', 401);
         }
 
-        $user = $token->tokenable;
-        if (! $user instanceof AsabUser) {
+        $candidateUser = $candidateToken->tokenable;
+        if (! $candidateUser instanceof AsabUser) {
             throw new AsabException('INVALID_TOKEN', 'Invalid refresh token', 'رمز التحديث غير صالح', 401);
         }
 
-        $token->delete(); // rotate
+        // Case A: Genuinely familyless legacy Admin refresh in Compatibility Mode
+        if ($candidateToken->session_id === null) {
+            if ($candidateToken->abilities !== ['*'] && ! in_array('admin:refresh', $candidateToken->abilities, true)) {
+                throw new AsabException('INVALID_TOKEN', 'Invalid refresh token abilities', 'صلاحيات الرمز غير صحيحة', 401);
+            }
 
-        $issued = $this->issueTokens($user);
+            $candidateToken->delete();
+            $issued = $this->issueTokens($candidateUser);
 
-        return [
-            'accessToken' => $issued['accessToken'],
-            'refreshToken' => $issued['refreshToken'],
-            'expiresIn' => $issued['expiresIn'],
-        ];
+            return [
+                'accessToken' => $issued['accessToken'],
+                'refreshToken' => $issued['refreshToken'],
+                'expiresIn' => $issued['expiresIn'],
+                'user' => $this->userPayload($candidateUser),
+            ];
+        }
+
+        // Case B: Family-linked token (strictly follows family rules regardless of feature flag state)
+        return DB::transaction(function () use ($candidateToken, $candidateUser, $testHook) {
+            // Lock 1: User
+            $user = AsabUser::where('id', $candidateUser->id)->lockForUpdate()->first();
+            if (! $user) {
+                throw new AsabException('INVALID_TOKEN', 'User not found', 'المستخدم غير موجود', 401);
+            }
+
+            if ($user->status !== 'active') {
+                throw new AsabException('USER_INACTIVE', 'User account is not active', 'الحساب غير مُفعّل', 403);
+            }
+
+            if ($user->company_id !== null) {
+                $company = AsabCompany::where('id', $user->company_id)->first();
+                if (! $company || $company->status === 'suspended') {
+                    throw new AsabException('USER_INACTIVE', 'Company is not active', 'الشركة غير نشطة', 403);
+                }
+            }
+
+            // Lock 2: Session
+            $session = AdminSession::where('id', $candidateToken->session_id)
+                ->where('user_id', $user->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $session) {
+                throw new AsabException('INVALID_TOKEN', 'Session family not found', 'جلسة الإدارة غير موجودة', 401);
+            }
+
+            if ($session->revoked_at !== null) {
+                throw new AsabException('SESSION_EXPIRED', 'Session has been revoked', 'تم إلغاء الجلسة', 401);
+            }
+
+            $now = now();
+            if ($now->greaterThanOrEqualTo($session->expires_at)) {
+                throw new AsabException('SESSION_EXPIRED', 'Session has expired', 'انتهت الجلسة', 401);
+            }
+
+            // Stale / already rotated check: is the presented token still the current refresh token?
+            if ((int) $candidateToken->id !== (int) $session->current_refresh_token_id) {
+                throw new AsabException('INVALID_TOKEN', 'Refresh token already rotated or consumed', 'رمز التحديث مستهلك أو غير صالح', 401);
+            }
+
+            // Lock 3: Tokens in deterministic ascending ID order
+            $tokenIds = array_values(array_filter([$session->current_access_token_id, $session->current_refresh_token_id]));
+            sort($tokenIds);
+
+            $lockedTokens = PersonalAccessToken::whereIn('id', $tokenIds)
+                ->orderBy('id', 'asc')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            /** @var PersonalAccessToken|null $currentRefreshToken */
+            $currentRefreshToken = $lockedTokens->get($session->current_refresh_token_id);
+            if (! $currentRefreshToken) {
+                throw new AsabException('INVALID_TOKEN', 'Refresh token not found', 'رمز التحديث غير موجود', 401);
+            }
+
+            // Exact stored ability invariant: ['admin:refresh'] only
+            if ($currentRefreshToken->abilities !== ['admin:refresh']) {
+                throw new AsabException('INVALID_TOKEN', 'Invalid refresh token abilities', 'صلاحيات الرمز غير صحيحة', 401);
+            }
+
+            if ($currentRefreshToken->expires_at && $now->greaterThanOrEqualTo($currentRefreshToken->expires_at)) {
+                throw new AsabException('SESSION_EXPIRED', 'Refresh token expired', 'انتهت صلاحية رمز التحديث', 401);
+            }
+
+            // Remaining absolute lifetime
+            $remainingSeconds = (int) max(0, $now->diffInSeconds($session->expires_at, false));
+            if ($remainingSeconds <= 0) {
+                throw new AsabException('SESSION_EXPIRED', 'Session has expired', 'انتهت الجلسة', 401);
+            }
+
+            $expiresIn = (int) min(900, $remainingSeconds);
+            $accessExpiresAt = $now->copy()->addSeconds($expiresIn);
+            $refreshExpiresAt = $session->expires_at->copy();
+
+            // Step 1: Invalidate former token pair
+            foreach ($lockedTokens as $t) {
+                $t->delete();
+            }
+
+            $this->invokeTestHook($testHook, 'after_delete_old_tokens');
+
+            // Step 2: Issue successor Access Token with exact ability ['admin:access']
+            $newAccessToken = $user->createToken('access', ['admin:access'], $accessExpiresAt);
+            $newAccessToken->accessToken->forceFill(['session_id' => $session->id])->save();
+
+            $this->invokeTestHook($testHook, 'after_create_access_token');
+
+            // Step 3: Issue successor Refresh Token with exact ability ['admin:refresh']
+            $newRefreshToken = $user->createToken('refresh', ['admin:refresh'], $refreshExpiresAt);
+            $newRefreshToken->accessToken->forceFill(['session_id' => $session->id])->save();
+
+            // Step 4: Advance generation once and update pointers
+            $session->forceFill([
+                'current_access_token_id' => $newAccessToken->accessToken->id,
+                'current_refresh_token_id' => $newRefreshToken->accessToken->id,
+                'generation' => $session->generation + 1,
+                'last_active_at' => $now,
+            ])->save();
+
+            $this->invokeTestHook($testHook, 'after_update_session_pointers');
+            $this->invokeTestHook($testHook, 'before_commit');
+
+            return [
+                'accessToken' => $newAccessToken->plainTextToken,
+                'refreshToken' => $newRefreshToken->plainTextToken,
+                'expiresIn' => $expiresIn,
+                'sessionId' => $session->id,
+                'expiresAt' => $accessExpiresAt->toIso8601String(),
+                'sessionExpiresAt' => $session->expires_at->toIso8601String(),
+                'user' => $this->userPayload($user),
+            ];
+        });
+    }
+
+    /**
+     * Strictly guard fault-injection test hooks so they can NEVER be triggered in production.
+     */
+    private function invokeTestHook(?\Closure $testHook, string $point): void
+    {
+        if ($testHook === null) {
+            return;
+        }
+
+        if (! app()->environment('testing')) {
+            throw new \LogicException('Fault injection test hooks are strictly forbidden outside testing.');
+        }
+
+        $testHook($point);
     }
 
     public function userPayload(AsabUser $user, bool $withPermissions = false): array
@@ -193,17 +691,199 @@ class AuthService
         ];
     }
 
-    public function changePassword(AsabUser $user, string $current, string $new): void
+    /**
+     * Slice 05 Atomic Family Logout via Bearer Access Token.
+     */
+    public function logout(AsabUser $user, ?PersonalAccessToken $token = null): void
     {
-        if (! Hash::check($current, $user->password)) {
-            throw new AsabException('INVALID_PASSWORD', 'Current password is incorrect', 'كلمة المرور الحالية غير صحيحة', 422);
+        if (! $token) {
+            $token = $user->currentAccessToken();
         }
 
-        $user->forceFill(['password' => $new])->save();
-        $user->tokens()->delete(); // revoke all other sessions
-        // The user chose this password, so the mobile side takes it as-is
-        // rather than being flagged for another forced reset.
-        $this->credentials->pushToMobile($user);
+        if (! $token) {
+            return;
+        }
+
+        // Case A: Genuinely familyless legacy token
+        if ($token->session_id === null) {
+            $token->delete();
+
+            return;
+        }
+
+        // Case B: Family-linked token: User -> Session -> Tokens lock ordering
+        DB::transaction(function () use ($user, $token) {
+            $lockedUser = AsabUser::where('id', $user->id)->lockForUpdate()->first();
+            if (! $lockedUser) {
+                return;
+            }
+
+            $session = AdminSession::where('id', $token->session_id)
+                ->where('user_id', $lockedUser->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($session) {
+                $session->forceFill(['revoked_at' => now()])->save();
+
+                PersonalAccessToken::where('session_id', $session->id)
+                    ->orderBy('id', 'asc')
+                    ->lockForUpdate()
+                    ->get()
+                    ->each->delete();
+            } else {
+                $token->delete();
+            }
+        });
+    }
+
+    /**
+     * Slice 05 Expired-Access Logout (D08) via valid Refresh Token secret proof.
+     */
+    public function logoutWithRefreshToken(string $refreshToken, ?callable $onUserResolved = null): void
+    {
+        $candidateToken = PersonalAccessToken::findToken($refreshToken);
+
+        if (! $candidateToken || $candidateToken->name !== 'refresh') {
+            throw new AsabException('INVALID_TOKEN', 'Invalid refresh token', 'رمز التحديث غير صالح', 401);
+        }
+
+        $candidateUser = $candidateToken->tokenable;
+        if (! $candidateUser instanceof AsabUser) {
+            throw new AsabException('INVALID_TOKEN', 'Invalid refresh token', 'رمز التحديث غير صالح', 401);
+        }
+
+        if ($onUserResolved) {
+            $onUserResolved($candidateUser);
+        }
+
+        // Case A: Legacy familyless token
+        if ($candidateToken->session_id === null) {
+            if ($candidateToken->abilities !== ['*'] && ! in_array('admin:refresh', $candidateToken->abilities, true)) {
+                throw new AsabException('INVALID_TOKEN', 'Invalid refresh token abilities', 'صلاحيات الرمز غير صحيحة', 401);
+            }
+            $candidateToken->delete();
+
+            return;
+        }
+
+        // Case B: Family-linked token: User -> Session -> Tokens lock ordering
+        DB::transaction(function () use ($candidateToken, $candidateUser) {
+            // Lock 1: User
+            $user = AsabUser::where('id', $candidateUser->id)->lockForUpdate()->first();
+            if (! $user) {
+                throw new AsabException('INVALID_TOKEN', 'User not found', 'المستخدم غير موجود', 401);
+            }
+
+            if ($user->status !== 'active') {
+                throw new AsabException('USER_INACTIVE', 'User account is not active', 'الحساب غير مُفعّل', 403);
+            }
+
+            if ($user->company_id !== null) {
+                $company = AsabCompany::where('id', $user->company_id)->first();
+                if (! $company || $company->status === 'suspended') {
+                    throw new AsabException('USER_INACTIVE', 'Company is not active', 'الشركة غير نشطة', 403);
+                }
+            }
+
+            // Lock 2: Session
+            $session = AdminSession::where('id', $candidateToken->session_id)
+                ->where('user_id', $user->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $session) {
+                throw new AsabException('INVALID_TOKEN', 'Session family not found', 'جلسة الإدارة غير موجودة', 401);
+            }
+
+            if ($session->revoked_at !== null) {
+                throw new AsabException('SESSION_EXPIRED', 'Session has been revoked', 'تم إلغاء الجلسة', 401);
+            }
+
+            $now = now();
+            if ($now->greaterThanOrEqualTo($session->expires_at)) {
+                throw new AsabException('SESSION_EXPIRED', 'Session has expired', 'انتهت الجلسة', 401);
+            }
+
+            // Stale check
+            if ((int) $candidateToken->id !== (int) $session->current_refresh_token_id) {
+                throw new AsabException('INVALID_TOKEN', 'Refresh token already rotated or consumed', 'رمز التحديث مستهلك أو غير صالح', 401);
+            }
+
+            // Lock 3: Tokens in deterministic ascending order
+            $tokenIds = array_values(array_filter([$session->current_access_token_id, $session->current_refresh_token_id]));
+            sort($tokenIds);
+
+            $lockedTokens = PersonalAccessToken::whereIn('id', $tokenIds)
+                ->orderBy('id', 'asc')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            /** @var PersonalAccessToken|null $currentRefreshToken */
+            $currentRefreshToken = $lockedTokens->get($session->current_refresh_token_id);
+            if (! $currentRefreshToken) {
+                throw new AsabException('INVALID_TOKEN', 'Refresh token not found', 'رمز التحديث غير موجود', 401);
+            }
+
+            if ($currentRefreshToken->abilities !== ['admin:refresh']) {
+                throw new AsabException('INVALID_TOKEN', 'Invalid refresh token abilities', 'صلاحيات الرمز غير صحيحة', 401);
+            }
+
+            if ($currentRefreshToken->expires_at && $now->greaterThanOrEqualTo($currentRefreshToken->expires_at)) {
+                throw new AsabException('SESSION_EXPIRED', 'Refresh token expired', 'انتهت صلاحية رمز التحديث', 401);
+            }
+
+            // Mark session revoked
+            $session->forceFill(['revoked_at' => $now])->save();
+
+            // Invalidate all tokens belonging to this session
+            PersonalAccessToken::where('session_id', $session->id)
+                ->orderBy('id', 'asc')
+                ->lockForUpdate()
+                ->get()
+                ->each->delete();
+        });
+    }
+
+    public function changePassword(AsabUser $user, string $current, string $new): void
+    {
+        DB::transaction(function () use ($user, $current, $new) {
+            // Lock 1: User
+            $lockedUser = AsabUser::where('id', $user->id)->lockForUpdate()->first();
+            if (! $lockedUser) {
+                throw new AsabException('USER_INACTIVE', 'User not found', 'المستخدم غير موجود', 404);
+            }
+
+            if (! Hash::check($current, $lockedUser->password)) {
+                throw new AsabException('INVALID_PASSWORD', 'Current password is incorrect', 'كلمة المرور الحالية غير صحيحة', 422);
+            }
+
+            $lockedUser->forceFill(['password' => $new])->save();
+
+            // Lock 2: Ordered Sessions
+            $sessions = AdminSession::where('user_id', $lockedUser->id)
+                ->whereNull('revoked_at')
+                ->orderBy('id', 'asc')
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($sessions as $session) {
+                $session->forceFill(['revoked_at' => now()])->save();
+            }
+
+            // Lock 3: Ordered Tokens
+            $tokens = $lockedUser->tokens()
+                ->orderBy('id', 'asc')
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($tokens as $token) {
+                $token->delete();
+            }
+
+            $this->credentials->pushToMobile($lockedUser);
+        });
     }
 
     /**
@@ -258,21 +938,72 @@ class AuthService
 
     public function resetPassword(string $token, string $newPassword): void
     {
-        $row = DB::table('password_reset_tokens')->where('token', $token)->first();
+        $candidateRow = DB::table('password_reset_tokens')->where('token', $token)->first();
 
-        if (! $row || now()->diffInMinutes($row->created_at) > 60) {
+        if (! $candidateRow) {
             throw new AsabException('INVALID_TOKEN', 'Reset token is invalid or expired', 'رمز إعادة التعيين غير صالح أو منتهي', 422);
         }
 
-        $user = AsabUser::where('email', $row->email)->first();
-        if (! $user) {
+        $candidateUser = AsabUser::where('email', $candidateRow->email)->first();
+        if (! $candidateUser) {
             throw new AsabException('INVALID_TOKEN', 'Reset token is invalid', 'رمز إعادة التعيين غير صالح', 422);
         }
 
-        $user->forceFill(['password' => $newPassword])->save();
-        $user->tokens()->delete();
-        $this->credentials->pushToMobile($user);
-        DB::table('password_reset_tokens')->where('email', $row->email)->delete();
+        DB::transaction(function () use ($candidateUser, $token, $newPassword) {
+            // Lock 1: User
+            $lockedUser = AsabUser::where('id', $candidateUser->id)->lockForUpdate()->first();
+            if (! $lockedUser) {
+                throw new AsabException('INVALID_TOKEN', 'Reset token is invalid', 'رمز إعادة التعيين غير صالح', 422);
+            }
+
+            // Lock 2: Reset record by token
+            $resetRecord = DB::table('password_reset_tokens')
+                ->where('token', $token)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $resetRecord) {
+                throw new AsabException('INVALID_TOKEN', 'Reset token is invalid or expired', 'رمز إعادة التعيين غير صالح أو منتهي', 422);
+            }
+
+            if ($resetRecord->email !== $lockedUser->email) {
+                throw new AsabException('INVALID_TOKEN', 'Reset token is invalid', 'رمز إعادة التعيين غير صالح', 422);
+            }
+
+            // Exact boundary check: now >= created_at + 60 minutes
+            $createdAt = \Illuminate\Support\Carbon::parse($resetRecord->created_at);
+            if (now()->greaterThanOrEqualTo($createdAt->copy()->addMinutes(60))) {
+                throw new AsabException('INVALID_TOKEN', 'Reset token is invalid or expired', 'رمز إعادة التعيين غير صالح أو منتهي', 422);
+            }
+
+            $lockedUser->forceFill(['password' => $newPassword])->save();
+
+            // Lock 3: Ordered Sessions
+            $sessions = AdminSession::where('user_id', $lockedUser->id)
+                ->whereNull('revoked_at')
+                ->orderBy('id', 'asc')
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($sessions as $session) {
+                $session->forceFill(['revoked_at' => now()])->save();
+            }
+
+            // Lock 4: Ordered Tokens
+            $tokens = $lockedUser->tokens()
+                ->orderBy('id', 'asc')
+                ->lockForUpdate()
+                ->get();
+
+            foreach ($tokens as $t) {
+                $t->delete();
+            }
+
+            // Single-use: delete ONLY this specific token record
+            DB::table('password_reset_tokens')->where('token', $token)->delete();
+
+            $this->credentials->pushToMobile($lockedUser);
+        });
     }
 
     /** @return array list of active sessions for the user */
@@ -288,7 +1019,71 @@ class AuthService
 
     public function revokeSession(AsabUser $user, string $id): void
     {
-        $user->tokens()->where('id', $id)->delete();
+        if (Str::isUuid($id)) {
+            DB::transaction(function () use ($user, $id) {
+                $lockedUser = AsabUser::where('id', $user->id)->lockForUpdate()->first();
+                if (! $lockedUser) {
+                    return;
+                }
+
+                $session = AdminSession::where('id', $id)
+                    ->where('user_id', $lockedUser->id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($session) {
+                    $session->forceFill(['revoked_at' => now()])->save();
+                    PersonalAccessToken::where('session_id', $session->id)
+                        ->orderBy('id', 'asc')
+                        ->lockForUpdate()
+                        ->get()
+                        ->each->delete();
+                }
+            });
+
+            return;
+        }
+
+        if (is_numeric($id)) {
+            DB::transaction(function () use ($user, $id) {
+                $lockedUser = AsabUser::where('id', $user->id)->lockForUpdate()->first();
+                if (! $lockedUser) {
+                    return;
+                }
+
+                $token = $lockedUser->tokens()
+                    ->where('id', (int) $id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $token) {
+                    return;
+                }
+
+                if ($token->session_id !== null) {
+                    // Part of an Admin Session Family: revoke whole family to prevent half-family corruption
+                    $session = AdminSession::where('id', $token->session_id)
+                        ->where('user_id', $lockedUser->id)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if ($session) {
+                        $session->forceFill(['revoked_at' => now()])->save();
+                        PersonalAccessToken::where('session_id', $session->id)
+                            ->orderBy('id', 'asc')
+                            ->lockForUpdate()
+                            ->get()
+                            ->each->delete();
+                    } else {
+                        $token->delete();
+                    }
+                } else {
+                    $token->delete();
+                }
+            });
+
+            return;
+        }
     }
 
     public function issueTokens(AsabUser $user): array

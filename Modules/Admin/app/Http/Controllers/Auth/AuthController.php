@@ -4,6 +4,7 @@ namespace Modules\Admin\Http\Controllers\Auth;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Services\AuthService;
@@ -34,6 +35,10 @@ class AuthController extends AsabController
                 $data['password'] ?? '',
                 $data['code'] ?? null,
                 $data['twoFactorToken'] ?? null,
+                (bool) ($data['rememberMe'] ?? false),
+                $request->header('User-Agent'),
+                $request->ip(),
+                $request->userAgent(),
             );
 
             // Only register once sign-in is actually complete. A 2FA challenge
@@ -71,16 +76,32 @@ class AuthController extends AsabController
 
     public function logout(Request $request): JsonResponse
     {
-        // Release the device before the access token dies, or the client can no
-        // longer reach the device-token endpoint to clean up.
-        $this->revokeLoginDevice($request, $request->user());
+        return $this->run(function () use ($request) {
+            /** @var AsabUser|null $user */
+            $user = $request->user('sanctum') ?? $request->user();
 
-        $token = $request->user()?->currentAccessToken();
-        if ($token) {
-            $token->delete();
-        }
+            if ($user) {
+                // Mode 1: Authenticated Bearer logout
+                $this->revokeLoginDevice($request, $user);
+                $this->auth->logout($user, $user->currentAccessToken());
 
-        return $this->noContent();
+                return $this->noContent();
+            }
+
+            // Mode 2 (D08): Expired-access logout via valid refreshToken body proof
+            $refreshToken = $request->input('refreshToken');
+            if (is_string($refreshToken) && trim($refreshToken) !== '') {
+                $this->auth->logoutWithRefreshToken(trim($refreshToken), function (?AsabUser $resolvedUser) use ($request) {
+                    if ($resolvedUser) {
+                        $this->revokeLoginDevice($request, $resolvedUser);
+                    }
+                });
+
+                return $this->noContent();
+            }
+
+            throw new AsabException('UNAUTHENTICATED', 'Unauthenticated', 'غير مصرح', 401);
+        });
     }
 
     public function changePassword(Request $request): JsonResponse
