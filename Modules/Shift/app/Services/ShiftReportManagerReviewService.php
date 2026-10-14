@@ -63,11 +63,14 @@ class ShiftReportManagerReviewService
         string $operationId
     ): ShiftReportManagerReview {
         return DB::transaction(function () use ($shift, $manager, $expectedRevision, $expectedAllocationVersion, $reason, $operationId) {
+            $shift = app(ShiftReportReviewService::class)->lockCashier($shift);
+            app(ShiftReportReviewService::class)->assertReportEditable($shift);
             $branchId = $shift->shift()->value('branch_id') ?? $shift->branch_id;
             if ((string) $manager->branch_id !== (string) $branchId) {
                 throw new AccessDeniedHttpException('ONLY_REPORT_OWNER_OR_ASSIGNED_BRANCH_MANAGER');
             }
             $this->branchManagers->assertAssignedActiveManager($branchId, (string) $manager->id);
+            $returned = app(ShiftReportReviewService::class)->managerCorrectionAllowed($shift, $manager);
 
             /** @var ShiftReportAggregate $aggregate */
             $aggregate = ShiftReportAggregate::query()
@@ -100,6 +103,14 @@ class ShiftReportManagerReviewService
                 throw new ConflictHttpException('STALE_REPORT_REVISION');
             }
 
+            // A new balanced/surplus physical count cannot reuse a historical shortage target.
+            // The manager must record its replacement through the existing correction workflow;
+            // recount itself never changes allocations or financial effects.
+            if (! $review->has_shortage && ShiftLiabilityAllocation::query()
+                ->where('cashier_shift_id', $shift->id)->whereNull('superseded_at')->lockForUpdate()->exists()) {
+                throw new ConflictHttpException('LIABILITY_ALLOCATION_REQUIRED');
+            }
+
             if ($review->has_shortage) {
                 $currentCount = ShiftReportCashCount::query()
                     ->where('report_revision_id', $currentRevision->id)
@@ -118,9 +129,10 @@ class ShiftReportManagerReviewService
                     ->first();
 
                 if (! $allocation || $expectedAllocationVersion === null || $allocation->version !== $expectedAllocationVersion
-                    || $allocation->report_revision !== (string) $expectedRevision
+                    || ! in_array($allocation->report_revision, [(string) $expectedRevision, (string) $currentCount->evidence_revision_id], true)
                     || $allocation->variance_halalas !== $review->variance_halalas
-                    || $allocation->manager_approval_status !== 'pending') {
+                    || ! ($allocation->manager_approval_status === 'pending'
+                        || ($returned && $allocation->manager_approval_status === 'approved'))) {
                     throw new ConflictHttpException($allocation && $expectedAllocationVersion !== null && $allocation->version !== $expectedAllocationVersion
                         ? 'STALE_ALLOCATION_VERSION'
                         : 'LIABILITY_ALLOCATION_REQUIRED');
@@ -148,7 +160,7 @@ class ShiftReportManagerReviewService
                     $resolver->resolve($share->responsible_type, $share->responsible_id, $companyId, $branchId);
                 }
 
-                $allocation->update([
+                if ($allocation->manager_approval_status === 'pending') $allocation->update([
                     'manager_approval_status' => 'approved',
                     'manager_approved_by' => $manager->id,
                     'manager_approved_at' => now(),

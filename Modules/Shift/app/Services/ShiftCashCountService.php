@@ -310,7 +310,7 @@ class ShiftCashCountService
                 $cardsHalalas,
                 $appsHalalas,
                 $opening,
-                $sourceCount->counted_halalas,
+                $financialInputs['counted_halalas'] ?? $sourceCount->counted_halalas,
                 $pending
             );
         } catch (InvalidArgumentException) {
@@ -329,7 +329,7 @@ class ShiftCashCountService
             'apps_halalas' => $appsHalalas,
             'confirmed_opening_halalas' => $opening,
             'pending_incoming_counted_halalas' => $pending,
-            'counted_halalas' => $sourceCount->counted_halalas,
+            'counted_halalas' => $financialInputs['counted_halalas'] ?? $sourceCount->counted_halalas,
             'expected_halalas' => $result['expected'],
             'variance_halalas' => $result['variance'],
         ]);

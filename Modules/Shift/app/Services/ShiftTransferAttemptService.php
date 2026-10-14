@@ -316,11 +316,13 @@ class ShiftTransferAttemptService
     public function recount(CashierShift $shift, Model $actor, int $amount): Model
     {
         return DB::transaction(function () use ($shift, $actor, $amount) {
-            $snapshot = CashierShift::withoutEagerLoads()->findOrFail($shift->id);
-            $managerDays = BranchManagerShift::where('branch_id', $snapshot->shift()->value('branch_id'))->whereDate('shift_date', $snapshot->shift_date)->orderBy('id')->lockForUpdate()->get();
-            $shift = CashierShift::withoutEagerLoads()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
+            // The shared root acquires owners before workdays, sources and report evidence.
+            $review = app(ShiftReportReviewService::class);
+            $shift = $review->lockCashier($shift);
             $this->assertActor($actor, 'cashier', $shift->cashier_id);
-            $this->assertEditable($shift, $managerDays);
+            $review->assertMutableCashier($shift);
+            [$operation, $membership, $day] = $this->assertRecountEligible($shift);
+            if ($amount < 0 || $amount > 99999999999) throw new ConflictHttpException('INVALID_PHYSICAL_COUNT');
             if (! DB::table('shift_report_aggregates')->where('source_type', 'cashier_shift')->where('source_id', $shift->id)->lockForUpdate()->value('fresh_count_required')) {
                 throw new ConflictHttpException('PHYSICAL_RECOUNT_NOT_REQUIRED');
             }
@@ -330,11 +332,93 @@ class ShiftTransferAttemptService
             if (! $old) {
                 throw new ConflictHttpException('PHYSICAL_COUNT_EVIDENCE_REQUIRED');
             }
+            $previous = $this->revisions->currentCashierRevision($shift);
+            if (! $previous) {
+                throw new ConflictHttpException('REPORT_CURRENT_EVIDENCE_REQUIRED');
+            }
+            $snapshots = app(ShiftReportRevisionSnapshotService::class);
+            $snapshots->preserveVarianceReviews($shift, $previous);
+            $snapshots->createSnapshotIfMissing($previous, $shift);
+            // A confirmed physical return advances the report to a revision with no count.
+            // Retain the last counted revision separately and keep revision ordering for ties.
+            $countedRevision = \Modules\Shift\Models\ShiftReportRevision::findOrFail($old->report_revision_id);
+            $snapshots->createSnapshotIfMissing($countedRevision, $shift);
+            $dayRevision = $day ? $this->revisions->currentManagerRevision($day) : null;
+            if ($dayRevision) $snapshots->createSnapshotIfMissing($dayRevision, $day);
             $revision = $this->revisions->recordCashierRevision($shift, 'cashier', $actor->getKey());
             $count = $this->counts->record($shift, $revision, $old->gross_halalas, $old->cards_halalas, $old->apps_halalas, $amount);
-            $shift->recordHistory('physical_return_recounted', null, ['report_revision_id' => $revision->id, 'count_id' => $count->id]);
+            if ($operation) {
+                // New physical evidence, not a receipt, custody transfer or liability settlement.
+                $shift->update(['variance' => number_format($count->variance_halalas / 100, 2, '.', '')]);
+                $admin = \Modules\Admin\Models\Shift::findOrFail($operation->payload['shiftId'] ?? $operation->source_id);
+                $admin->update(['cash_actual' => $count->counted_halalas, 'cash_expected' => $count->expected_halalas,
+                    'variance' => $count->variance_halalas, 'cash_count_state' => 'counted',
+                    'pending_incoming_counted' => $count->pending_incoming_counted_halalas]);
+                $payload = $operation->payload;
+                $payload = array_merge($payload, ['cashActualHalalas' => $count->counted_halalas,
+                    'cashExpectedHalalas' => $count->expected_halalas, 'varianceHalalas' => $count->variance_halalas,
+                    'pendingIncomingCountedHalalas' => $count->pending_incoming_counted_halalas, 'cashCountState' => 'counted']);
+                $payload['pkg6Review'] = array_merge($payload['pkg6Review'], ['revision_id' => $revision->id, 'count_id' => $count->id]);
+                $operation->update(['payload' => $payload]);
+                // Keep original membership identity/history; only replace the active evidence coordinate.
+                $membership->update(['superseded_at' => now(), 'reopened_at' => now(), 'reopened_by_type' => 'cashier',
+                    'reopened_by_id' => $actor->getKey(), 'reopen_reason' => 'Physical return recount']);
+                \Modules\Shift\Models\ShiftLiabilityDailyLock::create(['cashier_shift_id' => $shift->id,
+                    'branch_manager_shift_id' => $day->id, 'report_revision' => $count->evidence_revision_id,
+                    'allocation_version' => $membership->allocation_version, 'locked_by_id' => $membership->locked_by_id, 'locked_at' => now()]);
+                $nextDayRevision = $this->revisions->recordManagerRevision($day, 'cashier', (string) $actor->getKey(), $dayRevision?->revision_number);
+                $snapshots->createSnapshotIfMissing($nextDayRevision, $day);
+                $review->invalidateDaySnapshot($day, $shift, $actor, 'Physical return recount');
+                app(ShiftReportManagerReviewService::class)->requireFor($shift, $revision, $count->variance_halalas, 'Physical return recount');
+            }
+            $snapshots->createSnapshotIfMissing($revision, $shift);
+            $shift->history()->create(['action' => 'physical_return_recounted',
+                'old_value' => json_encode(['report_revision_id' => $previous->id, 'count_id' => $old->id], JSON_THROW_ON_ERROR),
+                'new_value' => json_encode(['report_revision_id' => $revision->id, 'count_id' => $count->id,
+                    'original_day_id' => $day?->id, 'return_cycle' => $operation?->payload['pkg6Review']['return_cycle'] ?? null], JSON_THROW_ON_ERROR),
+                'performed_by_type' => 'cashier', 'performed_by' => $actor->getKey(), 'created_at' => now()]);
 
             return $count;
         });
+    }
+
+    /** Called after the shared root locks. The general transfer edit fence stays unchanged. */
+    private function assertRecountEligible(CashierShift $shift): array
+    {
+        $admins = \Modules\Admin\Models\Shift::where('legacy_shift_id', $shift->id)->where('role', 'cashier')->orderBy('id')->get();
+        if ($admins->contains(fn ($row) => $row->status === 'closed')) throw new ConflictHttpException('REPORT_FINAL_APPROVED');
+        $members = \Modules\Shift\Models\ShiftLiabilityDailyLock::active()->where('cashier_shift_id', $shift->id)->orderBy('id')->get();
+        $operations = \Modules\Admin\Models\Operation::where('module_key', 'shifts')->whereNull('corrective_ref_id')
+            ->where(fn ($query) => $query->whereIn('payload->shiftId', $admins->pluck('id'))
+                ->orWhereIn('source_id', $admins->pluck('id'))->orWhere('payload->legacyShiftId', $shift->id))->orderBy('id')->get();
+        // Preserve the pre-existing, unsubmitted physical-return path without relaxing transfer edits.
+        if ($members->isEmpty() && ! $admins->contains(fn ($row) => $row->status === 'pending_review')) {
+            $this->assertEditable($shift);
+            return [null, null, null];
+        }
+        if ($operations->count() !== 1 || $members->count() !== 1 || $admins->count() !== 1) {
+            throw new ConflictHttpException('REPORT_WORKDAY_MEMBERSHIP_REQUIRED');
+        }
+        $operation = $operations->first(); $member = $members->first(); $state = $operation->payload['pkg6Review'] ?? [];
+        $day = BranchManagerShift::withoutEagerLoads()->findOrFail($member->branch_manager_shift_id);
+        $branch = DB::table('shifts')->join('branches', 'branches.id', '=', 'shifts.branch_id')
+            ->where('shifts.id', $shift->shift_id)->first(['branches.id', 'branches.asab_company_id']);
+        $sourceId = app(ShiftReportReviewService::class)->cashierSource($operation, current: true);
+        if (! $branch || (string) $branch->id !== (string) $operation->branch_id
+            || (string) $branch->asab_company_id !== (string) $operation->company_id
+            || $sourceId !== (string) $shift->id || $operation->status !== 'rejected'
+            || ($state['phase'] ?? null) !== 'manager_returned'
+            || ! \Illuminate\Support\Str::isUuid($state['return_cycle'] ?? '')
+            || empty($state['accountant_returned_by']) || $state['accountant_returned_by'] !== $operation->rejected_by_id
+            || empty($state['manager_returned_at']) || empty($state['assigned_manager_id'])
+            || ($state['original_day_id'] ?? null) !== (string) $day->id
+            || ! $day->daily_report_submitted || (string) $day->branch_id !== (string) $operation->branch_id
+            || $admins->first()->status !== 'pending_review'
+            || ! in_array($shift->getRawOriginal('status'), ['completed', 'reassigned'], true)
+            || ! $operation->steps()->where('stage_id', 'rejected')->where('actor_user_id', $operation->rejected_by_id)->exists()) {
+            throw new ConflictHttpException('REPORT_RETURN_CYCLE_REQUIRED');
+        }
+        app(\Modules\BranchManagers\Services\BranchManagerService::class)->assertAssignedActiveManager($operation->branch_id, $state['assigned_manager_id']);
+        return [$operation, $member, $day];
     }
 }

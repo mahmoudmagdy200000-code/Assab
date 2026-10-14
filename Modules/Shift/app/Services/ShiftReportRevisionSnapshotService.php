@@ -89,7 +89,7 @@ class ShiftReportRevisionSnapshotService
             $handover = CashierShiftHandover::where('report_revision_id', $revision->id)
                 ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())->first();
             $allocations = ShiftLiabilityAllocation::where('cashier_shift_id', $shift->id)
-                ->where('report_revision', $revision->id)
+                ->where(fn ($query) => $query->where('report_revision', $revision->id)->orWhere('report_revision', (string) $revision->revision_number))
                 ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())
                 ->with(['shares' => fn ($query) => $query->when(DB::transactionLevel() > 0, fn ($shares) => $shares->lockForUpdate())])
                 ->get()->toArray();
@@ -118,6 +118,10 @@ class ShiftReportRevisionSnapshotService
                 'variance_details' => $varianceDetails,
                 'variance_reviews' => $varianceReviews,
                 'cash_count' => $cashCount ? [
+                    'id' => $cashCount->id, 'report_revision_id' => $cashCount->report_revision_id,
+                    'counted_revision_id' => $cashCount->counted_revision_id, 'evidence_revision_id' => $cashCount->evidence_revision_id,
+                    'confirmed_opening_halalas' => $cashCount->confirmed_opening_halalas,
+                    'pending_incoming_counted_halalas' => $cashCount->pending_incoming_counted_halalas,
                     'counted_halalas' => $cashCount->counted_halalas,
                     'expected_halalas' => $cashCount->expected_halalas,
                     'variance_halalas' => $cashCount->variance_halalas,
@@ -152,6 +156,14 @@ class ShiftReportRevisionSnapshotService
                 'status' => $shift->status,
                 'shift_date' => (string) $shift->shift_date,
                 'cash_collected' => (string) ($shift->cash_collected ?? '0.00'),
+                'total_sales' => (string) $shift->total_sales, 'net_sales' => (string) $shift->net_sales,
+                'vat_amount' => (string) $shift->vat_amount, 'card_payments' => (string) $shift->card_payments,
+                'aggregator_payments' => (string) $shift->aggregator_payments, 'variance' => (string) $shift->variance,
+                'closing_balance' => (string) $shift->closing_balance,
+                'daily_report_submitted' => $shift->daily_report_submitted,
+                'member_evidence' => DB::table('shift_liability_daily_locks')->where('branch_manager_shift_id', $shift->id)
+                    ->whereNull('released_at')->whereNull('superseded_at')->orderBy('cashier_shift_id')
+                    ->get(['id', 'cashier_shift_id', 'report_revision', 'allocation_version'])->map(fn ($row) => (array) $row)->all(),
             ];
         }
 

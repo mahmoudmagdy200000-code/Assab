@@ -34,6 +34,16 @@ class OperationService
             $this->assertDecisionAuthorized($op);
             $this->assertStatus($op, Operation::STATUS_PENDING);
 
+            app(\Modules\Shift\Services\ShiftReportReviewService::class)->authorizeReview($op, $actor, 'accountant');
+            $snapshot = app(\Modules\Shift\Services\ShiftReportReviewService::class)->approvalSnapshot($op);
+            if ($snapshot !== null) {
+                $payload = $op->payload ?? [];
+                $payload['pkg6Review'] = array_merge($payload['pkg6Review'] ?? [], [
+                    'phase' => 'head_review', 'approved_snapshot' => $snapshot,
+                ]);
+                $op->update(['payload' => $payload]);
+            }
+
             $op->update([
                 'status' => Operation::STATUS_APPROVED,
                 'approved_by_id' => $actor->id,
@@ -118,6 +128,7 @@ class OperationService
                 $this->assertStatus($op, $expectedStatus, $expectedStatus === Operation::STATUS_APPROVED ? 'OP_NOT_APPROVED' : 'OP_NOT_PENDING');
             }
             $this->assertMutable($op, 'لا يمكن رفض العملية');
+            app(\Modules\Shift\Services\ShiftReportReviewService::class)->assertMutableOperation($op);
 
             $reason = OperationEnums::resolveRejectionReason($reasonKey, $op->module_key);
             if ($reason === null) {
@@ -132,6 +143,7 @@ class OperationService
 
             $prev = $op->status;
             $label = $reason['labelAr'];
+            app(\Modules\Shift\Services\ShiftReportReviewService::class)->returnToManager($op, $actor, $notes ?: $label);
             $op->update([
                 'status' => Operation::STATUS_REJECTED,
                 'reject_reason' => $label,
@@ -171,6 +183,8 @@ class OperationService
             $op = $this->lockOperation($op);
             $this->assertDecisionAuthorized($op);
             $this->assertStatus($op, Operation::STATUS_APPROVED, 'OP_NOT_APPROVED');
+            app(\Modules\Shift\Services\ShiftReportReviewService::class)->authorizeReview($op, $actor, 'head');
+            app(\Modules\Shift\Services\ShiftReportReviewService::class)->approvalSnapshot($op, final: true);
             $op->update([
                 'status' => Operation::STATUS_FINAL,
                 'final_approved_by_id' => $actor->id,
@@ -233,7 +247,9 @@ class OperationService
             $this->assertDecisionAuthorized($op);
             $this->assertStatus($op, Operation::STATUS_APPROVED, 'OP_NOT_APPROVED');
 
+            app(\Modules\Shift\Services\ShiftReportReviewService::class)->headReturned($op, $actor, $note);
             $accountantId = $op->approved_by_id; // capture before clearing
+            app(\Modules\Shift\Services\ShiftReportReviewService::class)->assertMutableOperation($op);
             $op->update([
                 'status' => Operation::STATUS_PENDING,
                 'approved_by_id' => null,
@@ -326,6 +342,16 @@ class OperationService
         $prefix = explode('-', $original->public_id)[0] ?: 'OPS';
 
         return OperationSequence::createWithPublicId($prefix, fn (string $publicId) => DB::transaction(function () use ($publicId, $original, $actor, $reason, $overrides) {
+            $review = app(\Modules\Shift\Services\ShiftReportReviewService::class);
+            if ($review->cashierSource($original) !== null || $review->managerSource($original) !== null) {
+                $original = $this->lockOperation($original);
+                $this->assertMutable($original, 'لا يمكن تعديل تقرير مُغلق');
+                $review->assertMutableOperation($original);
+                $sourceId = $review->cashierSource($original);
+                if ($sourceId !== null) {
+                    $review->assertReportEditable(\Modules\Shift\Models\CashierShift::withoutEagerLoads()->findOrFail($sourceId));
+                }
+            }
             $correction = Operation::create(array_merge([
                 'public_id' => $publicId,
                 'company_id' => $original->company_id,
@@ -402,6 +428,8 @@ class OperationService
                 $finalApproved[] = $op->public_id;
             } catch (AsabException $e) {
                 $failed[] = ['id' => $id, 'code' => $e->errorCode];
+            } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
+                $failed[] = ['id' => $id, 'code' => $e->getMessage()];
             } catch (\Throwable $e) {
                 // A non-domain error on one op must not abort the whole batch.
                 $failed[] = ['id' => $id, 'code' => 'INTERNAL_ERROR'];
@@ -465,7 +493,7 @@ class OperationService
      */
     private function lockOperation(Operation $op): Operation
     {
-        return Operation::query()->whereKey($op->id)->lockForUpdate()->firstOrFail();
+        return app(\Modules\Shift\Services\ShiftReportReviewService::class)->lockOperation($op);
     }
 
     /**

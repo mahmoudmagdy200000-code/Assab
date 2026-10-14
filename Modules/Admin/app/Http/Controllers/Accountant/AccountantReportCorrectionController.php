@@ -80,6 +80,7 @@ class AccountantReportCorrectionController extends AsabController
                 'changes' => 'sometimes|array',
                 'changes.card_payments' => 'sometimes|string',
                 'changes.cash_collected' => 'sometimes|string',
+                'changes.counted_cash' => 'sometimes|required|'.\App\Support\ShiftMoneyValidation::SAR,
                 'changes.handover_notes' => 'sometimes|nullable|string',
                 'changes.aggregators' => 'sometimes|array',
                 'shortage_allocations' => 'sometimes|nullable|array',

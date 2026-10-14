@@ -39,7 +39,8 @@ class ShiftReportCorrectionService
         int $expectedRevision,
         string $reason,
         string $operationId,
-        ?array $liabilityShares = null
+        ?array $liabilityShares = null,
+        bool $returnedOnly = false
     ): ShiftReportRevision {
         $reason = trim($reason);
         if ($reason === '') {
@@ -70,8 +71,17 @@ class ShiftReportCorrectionService
             'aggregators.*.notes' => 'nullable|string',
         ])->validate();
 
-        return DB::transaction(function () use ($source, $actor, $changes, $expectedRevision, $reason, $operationId, $liabilityShares) {
-            $shift = app(ShiftReportMutationGuard::class)->lockCorrection($source, $actor);
+        return DB::transaction(function () use ($source, $actor, $changes, $expectedRevision, $reason, $operationId, $liabilityShares, $returnedOnly) {
+            $extraOwners = [];
+            foreach ($liabilityShares ?? [] as $share) {
+                app(\Modules\Shift\Liability\ResponsibleActorResolver::class)->resolve($share['type'], $share['id'],
+                    $source->shift?->branch?->asab_company_id, $source->shift()->value('branch_id'));
+                $extraOwners[] = $share;
+            }
+            $shift = app(ShiftReportMutationGuard::class)->lockCorrection($source, $actor, [], $extraOwners);
+            if ($returnedOnly && ! app(ShiftReportReviewService::class)->managerCorrectionAllowed($shift, $actor)) {
+                throw new ConflictHttpException('REPORT_RETURN_CYCLE_REQUIRED');
+            }
             $branchId = $shift->shift()->value('branch_id');
 
             // Lock and verify report aggregate & expected revision
@@ -102,6 +112,8 @@ class ShiftReportCorrectionService
             }
 
             // Extract old values
+            $oldNet = ShiftFinancialCalculator::storedSarToHalalas($shift->net_sales ?? '0.00');
+            $oldVat = ShiftFinancialCalculator::storedSarToHalalas($shift->vat_amount ?? '0.00');
             $oldGrossHalalas = ShiftFinancialCalculator::storedSarToHalalas($shift->total_sales ?? '0.00');
             $oldCardsHalalas = ShiftFinancialCalculator::storedSarToHalalas($shift->card_payments ?? '0.00');
             $oldCashCollectedHalalas = ShiftFinancialCalculator::storedSarToHalalas($shift->cash_collected ?? '0.00');
@@ -454,6 +466,10 @@ class ShiftReportCorrectionService
 
             // Create snapshot for the new revision
             $this->snapshots->createSnapshotIfMissing($newRevision, $shift);
+            app(ShiftReportReviewService::class)->syncCorrection($shift, $newRevision, $actor, $reason, [
+                'total_sales' => $oldGrossHalalas, 'net_sales' => $oldNet, 'vat_amount' => $oldVat,
+                'cash_collected' => $oldCashCollectedHalalas, 'card_payments' => $oldCardsHalalas, 'aggregators' => $oldAppsHalalas,
+            ]);
             app(ShiftReportCacheInvalidator::class)->cashierReport($shift);
 
             return $newRevision;

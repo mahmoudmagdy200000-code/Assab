@@ -74,11 +74,13 @@ final class DailyLiabilityGuard
         if (trim($reason) === '') {
             throw ValidationException::withMessages(['reason' => 'Reopening a submitted day requires a reason.']);
         }
-        $workday = BranchManagerShift::withoutEagerLoads()->whereKey($workdayId)->lockForUpdate()->firstOrFail();
+        $workday = app(\Modules\Shift\Services\ShiftReportReviewService::class)->lockDay(
+            BranchManagerShift::withoutEagerLoads()->findOrFail($workdayId));
         if ($workday->branch_manager_id !== $manager->getKey()) {
             throw new AccessDeniedHttpException('ONLY_WORKDAY_MANAGER');
         }
 
+        app(\Modules\Shift\Services\ShiftReportReviewService::class)->assertMutableDay($workday);
         return ShiftLiabilityDailyLock::active()->where('branch_manager_shift_id', $workdayId)->update([
             'released_by_id' => (string) $manager->getKey(),
             'released_at' => now(),
@@ -104,7 +106,8 @@ final class DailyLiabilityGuard
         if (! $actor instanceof BranchManager) {
             throw new AccessDeniedHttpException('ONLY_WORKDAY_MANAGER');
         }
-        $shift = CashierShift::withoutEagerLoads()->findOrFail($shiftId);
+        $shift = app(\Modules\Shift\Services\ShiftReportReviewService::class)->lockCashier(CashierShift::withoutEagerLoads()->findOrFail($shiftId));
+        app(\Modules\Shift\Services\ShiftReportReviewService::class)->assertMutableCashier($shift);
         $branchId = $shift->shift()->value('branch_id');
         app(\Modules\BranchManagers\Services\BranchManagerService::class)
             ->assertAssignedActiveManager($branchId, (string) $actor->id);

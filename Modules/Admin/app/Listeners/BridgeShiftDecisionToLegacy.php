@@ -18,14 +18,14 @@ class BridgeShiftDecisionToLegacy
 
     public function handleFinalApproved(OperationFinalApproved $event): void
     {
-        if ($event->operation->module_key === 'shifts') {
+        if ($event->operation->module_key === 'shifts' && ! $event->operation->is_correction) {
             $this->bridge->syncDecision($event->operation, 'approved');
         }
     }
 
     public function handleRejected(OperationRejected $event): void
     {
-        if ($event->operation->module_key === 'shifts') {
+        if ($event->operation->module_key === 'shifts' && ! $event->operation->is_correction) {
             $this->bridge->syncDecision($event->operation, 'rejected', $event->reason);
         }
     }

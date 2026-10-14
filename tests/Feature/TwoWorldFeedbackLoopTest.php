@@ -76,7 +76,24 @@ class TwoWorldFeedbackLoopTest extends TestCase
     /** Bridge a legacy mobile shift into the pipeline and return its SHF op. */
     private function bridgeLegacyShift(float $cashCollected = 470.00): array
     {
-        $legacy = CashierShift::factory()->create(['total_sales' => 500.00, 'cash_collected' => $cashCollected, 'opening_balance' => 0.00]);
+        $manager = BranchManager::where('branch_id', $this->branch->id)->first()
+            ?? BranchManager::factory()->create(['branch_id' => $this->branch->id, 'is_active' => true, 'status' => 'active']);
+        $cashier = \Modules\Cashier\Models\Cashier::factory()->create(['branch_id' => $this->branch->id, 'created_by' => $manager->id]);
+        $template = \Modules\Shift\Models\Shift::factory()->create(['branch_id' => $this->branch->id]);
+        $legacy = CashierShift::withoutEvents(fn () => CashierShift::factory()->completed()->create([
+            'cashier_id' => $cashier->id, 'shift_id' => $template->id, 'shift_date' => today(),
+            'total_sales' => '500.00', 'card_payments' => '0.00', 'cash_collected' => $cashCollected, 'opening_balance' => '0.00']));
+        $count = DB::transaction(function () use ($legacy, $cashier, $cashCollected) {
+            $revision = app(\Modules\Shift\Services\ShiftReportRevisionService::class)->recordCashierRevision($legacy, 'cashier', $cashier->id);
+            return app(\Modules\Shift\Services\ShiftCashCountService::class)->record($legacy, $revision, 50000, 0, 0, (int) round($cashCollected * 100));
+        });
+        $legacy->update(['variance' => number_format($count->variance_halalas / 100, 2, '.', '')]);
+        $allocation = null;
+        if ($count->variance_halalas < 0) {
+            $service = app(\Modules\Shift\Liability\ShiftLiabilityService::class);
+            $allocation = $service->allocate($legacy->id, $cashier, [['type' => 'cashier', 'id' => $cashier->id, 'amount' => -$count->variance_halalas]], 0, true);
+            DB::transaction(fn () => $service->approve($legacy->id, $manager, $allocation->version));
+        }
         $this->cashier->forceFill(['legacy_cashier_id' => $legacy->cashier_id])->save();
 
         event(new ShiftEndedEvent($legacy, false));
@@ -84,7 +101,20 @@ class TwoWorldFeedbackLoopTest extends TestCase
         $shift = Shift::where('legacy_shift_id', $legacy->id)->firstOrFail();
         $op = Operation::where('module_key', 'shifts')->where('payload->shiftId', $shift->id)->firstOrFail();
 
+        $day = BranchManagerShift::where('branch_id', $this->branch->id)->whereDate('shift_date', today())->first()
+            ?? BranchManagerShift::create(['branch_manager_id' => $manager->id, 'branch_id' => $this->branch->id, 'shift_date' => today(), 'status' => 'completed']);
+        \Modules\Shift\Models\ShiftLiabilityDailyLock::create(['cashier_shift_id' => $legacy->id, 'branch_manager_shift_id' => $day->id,
+            'report_revision' => $count->evidence_revision_id, 'allocation_version' => $allocation?->version, 'locked_by_id' => $manager->id, 'locked_at' => now()]);
+        $day->update(['daily_report_submitted' => true, 'daily_report_submitted_at' => now()]);
+
         return [$legacy, $op];
+    }
+
+    private function returnThroughAccountant(Operation $op): Operation
+    {
+        $approved = $this->ops()->approve($op, $this->accountant);
+        $returned = $this->ops()->returnForReview($approved, $this->head, 'بيانات غير مكتملة');
+        return $this->ops()->reject($returned, $this->accountant, 'incomplete_data');
     }
 
     // ── WS1a: shift decision → legacy cashier_shifts.review_status ────────────
@@ -97,6 +127,7 @@ class TwoWorldFeedbackLoopTest extends TestCase
         $originalStatus = $legacy->status->value;
 
         $this->ops()->approve($op, $this->accountant);
+
         $this->ops()->finalApprove($op->fresh(), $this->head);
 
         $legacy->refresh();
@@ -110,6 +141,8 @@ class TwoWorldFeedbackLoopTest extends TestCase
     {
         [$legacy, $op] = $this->bridgeLegacyShift(); // 500.00 sales, 470.00 cash => 30.00 SAR shortage
         $this->ops()->approve($op, $this->accountant);
+        // Approval evidence became stale after the accountant snapshot; keep its historical row.
+        \Modules\Shift\Models\ShiftLiabilityAllocation::where('cashier_shift_id', $legacy->id)->whereNull('superseded_at')->update(['superseded_at' => now()]);
 
         try {
             $this->ops()->finalApprove($op->fresh(), $this->head);
@@ -129,7 +162,7 @@ class TwoWorldFeedbackLoopTest extends TestCase
     {
         [$legacy, $op] = $this->bridgeLegacyShift();
 
-        $this->ops()->reject($op, $this->head, 'incomplete_data');
+        $this->returnThroughAccountant($op);
 
         $legacy->refresh();
         $this->assertSame('rejected', $legacy->review_status);
@@ -245,7 +278,7 @@ class TwoWorldFeedbackLoopTest extends TestCase
     public function test_mobile_cashier_shift_resource_exposes_the_review_decision(): void
     {
         [$legacy, $op] = $this->bridgeLegacyShift();
-        $this->ops()->reject($op, $this->head, 'incomplete_data');
+        $this->returnThroughAccountant($op);
 
         $arr = (new CashierShiftResource($legacy->refresh()->loadFullRelationships()))->toArray(request());
 
@@ -254,19 +287,21 @@ class TwoWorldFeedbackLoopTest extends TestCase
         $this->assertNotNull($arr['reviewed_at']);
     }
 
-    public function test_rejecting_a_bridged_shift_notifies_the_mobile_cashier(): void
+    public function test_official_return_notifies_assigned_manager_once_and_preserves_cashier_identity(): void
     {
         Notification::fake();
         [$legacy, $op] = $this->bridgeLegacyShift();
-        $cashier = $legacy->cashier;
-
-        $this->ops()->reject($op, $this->head, 'incomplete_data');
-
-        Notification::assertSentTo(
-            $cashier,
-            BaseNotification::class,
-            fn (BaseNotification $n) => $n->type === NotificationType::SHIFT_SALES_REJECTED,
-        );
+        $cashierId = $legacy->cashier_id;
+        $returned = $this->returnThroughAccountant($op);
+        $manager = BranchManager::findOrFail($returned->payload['pkg6Review']['assigned_manager_id']);
+        $revision = app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentCashierRevision($legacy);
+        $notifications = app(\Modules\Shift\Services\ShiftReportCorrectionNotificationService::class);
+        $notifications->dispatchPending($revision->id);
+        $notifications->dispatchPending($revision->id);
+        Notification::assertSentToTimes($manager, \Modules\Shift\Notifications\ShiftReportCorrectionNotificationMessage::class, 1);
+        Notification::assertNotSentTo($legacy->cashier, BaseNotification::class);
+        $this->assertSame($cashierId, $legacy->fresh()->cashier_id);
+        $this->assertSame(1, DB::table('shift_report_correction_notifications')->where('event_type', 'report_returned:'.$returned->payload['pkg6Review']['return_cycle'])->count());
     }
 
     public function test_dashboard_native_shift_without_legacy_id_syncs_nothing_and_does_not_error(): void

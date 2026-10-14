@@ -65,7 +65,7 @@ class AccountantReportCorrectionService
             }
         }
 
-        $allowedKeys = ['card_payments', 'cash_collected', 'handover_notes', 'aggregators'];
+        $allowedKeys = ['card_payments', 'cash_collected', 'counted_cash', 'handover_notes', 'aggregators'];
         $unsupported = array_diff(array_keys($changes), $allowedKeys);
         if (! empty($unsupported)) {
             throw ValidationException::withMessages([
@@ -76,6 +76,7 @@ class AccountantReportCorrectionService
         Validator::make($changes, [
             'card_payments' => 'sometimes|required|'.ShiftMoneyValidation::SAR,
             'cash_collected' => 'sometimes|required|'.ShiftMoneyValidation::SAR,
+            'counted_cash' => 'sometimes|required|'.ShiftMoneyValidation::SAR,
             'handover_notes' => 'sometimes|nullable|string',
             'aggregators' => 'sometimes|required|array',
             'aggregators.*' => 'required|array:aggregator_id,amount,notes',
@@ -94,7 +95,13 @@ class AccountantReportCorrectionService
             $reason,
             $operationId
         ) {
-            $shift = $this->guard->lockCorrection($source, $actor);
+            app(ShiftReportCorrectionActorPolicy::class)->assertAllowed($source, $actor);
+            $sourceBranch = $source->shift()->value('branch_id');
+            $sourceCompany = DB::table('branches')->where('id', $sourceBranch)->value('asab_company_id');
+            foreach ($shares ?? [] as $share) {
+                $this->actorResolver->resolve((string) ($share['type'] ?? ''), (string) ($share['id'] ?? ''), (string) $sourceCompany, (string) $sourceBranch);
+            }
+            $shift = $this->guard->lockCorrection($source, $actor, [], $shares ?? []);
             $branchId = $shift->shift()->value('branch_id') ?? $shift->branch_id;
             $companyId = $shift->shift?->branch?->asab_company_id;
 
@@ -108,6 +115,9 @@ class AccountantReportCorrectionService
             if ($aggregate->current_revision_number !== $expectedRevision) {
                 throw new ConflictHttpException('STALE_REPORT_REVISION');
             }
+            if ($aggregate->fresh_count_required) {
+                throw new ConflictHttpException('PHYSICAL_RECOUNT_REQUIRED');
+            }
 
             $previousRevision = ShiftReportRevision::query()
                 ->where('report_aggregate_id', $aggregate->id)
@@ -117,12 +127,19 @@ class AccountantReportCorrectionService
 
             // Snapshot before
             if ($previousRevision) {
+                $this->snapshots->preserveVarianceReviews($shift, $previousRevision);
                 $this->snapshots->createSnapshotIfMissing($previousRevision, $shift);
             }
 
             $sourceCount = $previousRevision
                 ? ShiftReportCashCount::where('report_revision_id', $previousRevision->id)->lockForUpdate()->first()
                 : null;
+            if (array_key_exists('counted_cash', $changes) && $sourceCount === null) {
+                throw new ConflictHttpException('REPORT_CURRENT_EVIDENCE_REQUIRED');
+            }
+            $oldCountedHalalas = $sourceCount?->counted_halalas;
+            $newCountedHalalas = array_key_exists('counted_cash', $changes)
+                ? ShiftFinancialCalculator::sarToHalalas($changes['counted_cash']) : $oldCountedHalalas;
 
             // Prepare monetary figures
             $grossHalalas = ShiftFinancialCalculator::storedSarToHalalas($shift->total_sales ?? '0.00');
@@ -221,6 +238,7 @@ class AccountantReportCorrectionService
                         'gross_halalas' => $grossHalalas,
                         'cards_halalas' => $newCardsHalalas,
                         'apps_halalas' => $newAppsHalalas,
+                        'counted_halalas' => $newCountedHalalas,
                     ]
                 );
                 $newVarianceHalalas = $newCount->variance_halalas;
@@ -387,6 +405,10 @@ class AccountantReportCorrectionService
             if ($notesChanged) {
                 $recordCorrection('handover_notes', 'string', $oldHandoverNotes, $newHandoverNotes, null, null);
             }
+            if ($oldCountedHalalas !== $newCountedHalalas) {
+                $recordCorrection('counted_cash', 'monetary_halalas', number_format($oldCountedHalalas / 100, 2, '.', ''),
+                    number_format($newCountedHalalas / 100, 2, '.', ''), $oldCountedHalalas, $newCountedHalalas);
+            }
             if ($shares !== null) {
                 $recordCorrection('shortage_allocations', 'json', null, json_encode($shares), null, null);
             }
@@ -403,6 +425,10 @@ class AccountantReportCorrectionService
 
             // Snapshot after
             $this->snapshots->createSnapshotIfMissing($newRevision, $shift);
+            app(ShiftReportReviewService::class)->syncCorrection($shift, $newRevision, $actor, $reason, [
+                'cash_collected' => $oldCashCollectedHalalas, 'card_payments' => $oldCardsHalalas,
+                'aggregators' => $sourceCount?->apps_halalas ?? 0,
+            ]);
 
             // Invalidate cache
             app(ShiftReportCacheInvalidator::class)->cashierReport($shift);

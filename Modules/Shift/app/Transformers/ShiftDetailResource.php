@@ -24,6 +24,7 @@ class ShiftDetailResource extends JsonResource
             'shift_date' => $this->shift_date?->format('Y-m-d'),
             'status' => $this->status?->value ?? $this->status,
             'status_label' => $this->getStatusLabel(),
+            'report_review' => app(\Modules\Shift\Services\ShiftReportReviewService::class)->reportState($this->id),
 
             // Section A: Shift Progress
             'shift_progress' => $this->getShiftProgress(),

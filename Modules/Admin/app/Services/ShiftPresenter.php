@@ -71,6 +71,8 @@ class ShiftPresenter
             'variance' => $s->variance,                    // deprecated alias
             // S1-10: 'counted' = a real physical count; 'unknown' = legacy mobile projection (not
             // evidence); null = not set by the mobile bridge. Pending incoming is integer halalas.
+            'reportReview' => $s->legacy_shift_id && ! $s->isBranchManagerShift()
+                ? app(\Modules\Shift\Services\ShiftReportReviewService::class)->reportState($s->legacy_shift_id) : null,
             'cashCountState' => $s->cash_count_state,
             'pendingIncomingCountedHalalas' => $s->pending_incoming_counted,
             'notes' => $s->notes,

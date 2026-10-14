@@ -51,6 +51,10 @@ class ShiftCloseService
         $aggregator = (int) ($data['aggregatorTotalsHalalas'] ?? 0);
 
         return DB::transaction(function () use ($shift, $actor, $origin, $cashActual, $card, $aggregator, $data) {
+            if ($shift->legacy_shift_id !== null && ! $shift->isBranchManagerShift()) {
+                $legacy = CashierShift::withoutEagerLoads()->find($shift->legacy_shift_id);
+                if ($legacy) app(\Modules\Shift\Services\ShiftReportReviewService::class)->lockCashier($legacy);
+            }
             $this->assertFreshLegacyCount($shift);
             $shift = Shift::query()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
             $this->assertClosable($shift);
@@ -242,7 +246,7 @@ class ShiftCloseService
     public function onFinalApproved(Operation $op, AsabUser $actor): void
     {
         DB::transaction(function () use ($op, $actor) {
-            $lockedOperation = Operation::query()->whereKey($op->id)->lockForUpdate()->firstOrFail();
+            $lockedOperation = app(\Modules\Shift\Services\ShiftReportReviewService::class)->lockOperation($op);
             if ($lockedOperation->status !== Operation::STATUS_FINAL || $lockedOperation->module_key !== 'shifts') {
                 throw new AsabException('OP_NOT_FINAL', 'Shift operation is not final-approved', 'العملية ليست معتمدة نهائياً', 409);
             }
@@ -313,20 +317,28 @@ class ShiftCloseService
     /** On rejection: reopen the shift and notify its branch manager. */
     public function onRejected(Operation $op, ?string $reason): void
     {
-        $shift = $this->shiftFor($op);
-        if ($shift === null) {
-            return;
-        }
-
-        $shift->update(['status' => 'active', 'ended_at' => null]);
-        $this->rt->shiftChanged($shift->fresh(), 'reopened');
-        if ($shift->branch_id && $shift->company_id) {
-            $this->notifications->pushToBranch(
-                $shift->company_id, $shift->branch_id, 'branch', 'shift.reopened',
-                'أُعيدت الوردية للمراجعة', $reason ? ('السبب: '.$reason) : null,
-                null, ['type' => 'operation', 'id' => $op->id],
-            );
-        }
+        DB::transaction(function () use ($op, $reason) {
+            $current = app(\Modules\Shift\Services\ShiftReportReviewService::class)->lockOperation($op);
+            if ($current->status !== Operation::STATUS_REJECTED) {
+                return; // A delayed event cannot reopen a resubmitted or final-approved report.
+            }
+            $shift = $this->shiftFor($current);
+            if ($shift === null || $shift->status === 'closed') {
+                return;
+            }
+            if ($shift->legacy_shift_id !== null || isset($current->payload['pkg6Review']['return_cycle'])) {
+                return; // Individual report review never reopens operational cash or the manager day.
+            }
+            $shift->update(['status' => 'active', 'ended_at' => null]);
+            DB::afterCommit(function () use ($shift, $current, $reason) {
+                $this->rt->shiftChanged($shift->fresh(), 'reopened');
+                if ($shift->branch_id && $shift->company_id) {
+                    $this->notifications->pushToBranch($shift->company_id, $shift->branch_id, 'branch', 'shift.reopened',
+                        'أُعيدت الوردية للمراجعة', $reason ? ('السبب: '.$reason) : null,
+                        null, ['type' => 'operation', 'id' => $current->id]);
+                }
+            });
+        });
     }
 
     /**

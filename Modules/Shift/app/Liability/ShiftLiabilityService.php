@@ -218,7 +218,7 @@ final class ShiftLiabilityService
      */
     private function assertNotLockedByDailySubmit(string $shiftId): void
     {
-        if (ShiftLiabilityDailyLock::active()->where('cashier_shift_id', $shiftId)->exists()) {
+        if (ShiftLiabilityDailyLock::active()->where('cashier_shift_id', $shiftId)->orderBy('id')->lockForUpdate()->get()->isNotEmpty()) {
             throw new ConflictHttpException('LIABILITY_LOCKED_BY_DAILY_SUBMIT');
         }
     }

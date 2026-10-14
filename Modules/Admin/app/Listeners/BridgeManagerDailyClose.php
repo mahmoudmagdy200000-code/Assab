@@ -31,10 +31,7 @@ class BridgeManagerDailyClose
         DB::transaction(function () use ($event): void {
             // The source report row serializes this projection's duplicate check
             // with the operation insert below.
-            $shift = \Modules\Shift\Models\BranchManagerShift::query()
-                ->whereKey($event->managerShift->id)
-                ->lockForUpdate()
-                ->firstOrFail();
+            $shift = app(\Modules\Shift\Services\ShiftReportReviewService::class)->lockDay($event->managerShift);
             $this->bridge($shift);
         });
     }
@@ -92,6 +89,10 @@ class BridgeManagerDailyClose
             'appsHalalas' => $this->toHalalas($shift->aggregator_payments),
             'varianceHalalas' => $this->toHalalas($shift->variance),
             'notes' => $shift->daily_report_notes,
+            'pkg6Review' => ['phase' => 'accountant_review',
+                'submitted_day_revision_id' => app(\Modules\Shift\Services\ShiftReportRevisionService::class)->currentManagerRevision($shift)?->id,
+                'member_source_ids' => DB::table('shift_liability_daily_locks')->where('branch_manager_shift_id', $shift->id)
+                    ->whereNull('released_at')->whereNull('superseded_at')->orderBy('cashier_shift_id')->pluck('cashier_shift_id')->all()],
         ];
 
         $this->factory->createFromUpload(

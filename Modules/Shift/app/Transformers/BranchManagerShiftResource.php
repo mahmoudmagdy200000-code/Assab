@@ -42,6 +42,8 @@ class BranchManagerShiftResource extends JsonResource
 
             // Section E: Daily Close Summary
             'daily_close' => $this->getDailyCloseSummary(),
+            'report_memberships' => \Illuminate\Support\Facades\DB::table('shift_liability_daily_locks')->where('branch_manager_shift_id', $this->id)
+                ->whereNull('released_at')->whereNull('superseded_at')->orderBy('cashier_shift_id')->get(['cashier_shift_id', 'report_revision', 'allocation_version']),
 
             // Financial Summary
             'financial_summary' => $this->getFinancialSummary(),

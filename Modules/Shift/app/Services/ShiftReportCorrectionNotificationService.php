@@ -19,6 +19,25 @@ use Throwable;
 
 class ShiftReportCorrectionNotificationService
 {
+    public function enqueueReturn(ShiftReportRevision $revision, CashierShift $source, BranchManager $manager, string $cycle, string $reason): void
+    {
+        DB::table('shift_report_correction_notifications')->insertOrIgnore([
+            'id' => (string) Str::uuid(), 'report_revision_id' => $revision->id,
+            'event_type' => 'report_returned:'.$cycle, 'recipient_type' => 'branch_manager',
+            'recipient_id' => $manager->id, 'status' => 'pending', 'attempts' => 0,
+            'payload' => json_encode(['shift_id' => $source->id, 'revision_number' => $revision->revision_number,
+                'return_cycle' => $cycle, 'reason' => $reason], JSON_THROW_ON_ERROR),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        DB::afterCommit(function () use ($revision) {
+            try {
+                dispatch(new DispatchShiftReportCorrectionNotificationsJob($revision->id));
+            } catch (Throwable $error) {
+                Log::warning('Return notification dispatch deferred', ['revision_id' => $revision->id, 'error' => $error->getMessage()]);
+            }
+        });
+    }
+
     /**
      * Records notification intents inside the correction transaction and schedules post-commit dispatch.
      */

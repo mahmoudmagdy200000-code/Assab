@@ -32,38 +32,27 @@ class ShiftFeedbackBridgeService
      */
     public function syncDecision(Operation $op, string $reviewStatus, ?string $reason = null): void
     {
-        $shiftId = $op->payload['shiftId'] ?? null;
-        if ($shiftId === null) {
-            return;
-        }
-
-        // Resolve by primary key; drop tenant scopes so this also works from a
-        // queued/no-context listener without leaking the lookup.
-        $shift = Shift::withoutGlobalScopes()->whereKey($shiftId)->first(['id', 'legacy_shift_id']);
-        $legacyId = $shift?->legacy_shift_id;
-        if ($legacyId === null) {
-            return; // dashboard-native shift — no mobile row exists to update.
-        }
-
-        $legacy = CashierShift::find($legacyId);
-        if ($legacy === null || $legacy->review_status === $reviewStatus) {
-            return; // gone, or already synced (idempotent).
-        }
-
-        $legacy->update([
-            'review_status' => $reviewStatus,
-            'reviewed_at' => now(),
-            'review_reason' => $reason,
-        ]);
-
-        // On rejection the sheet returns to its mobile owner — push an in-app
-        // notification into the mobile world so the cashier learns of it without
-        // polling. Previously the only signal was a dashboard-side 'branch' push
-        // the mobile app never reads. Best-effort: a notification failure must
-        // never roll back the review decision it accompanies.
-        if ($reviewStatus === 'rejected') {
-            $this->notifyMobileOwner($legacy, $reason);
-        }
+        \Illuminate\Support\Facades\DB::transaction(function () use ($op, $reviewStatus, $reason) {
+            $current = app(\Modules\Shift\Services\ShiftReportReviewService::class)->lockOperation($op);
+            $required = $reviewStatus === 'approved' ? Operation::STATUS_FINAL : Operation::STATUS_REJECTED;
+            if ($current->status !== $required) {
+                return;
+            }
+            $legacyId = app(\Modules\Shift\Services\ShiftReportReviewService::class)->cashierSource($current);
+            if ($legacyId === null) {
+                return;
+            }
+            $legacy = CashierShift::withoutEagerLoads()->whereKey($legacyId)->lockForUpdate()->first();
+            if ($legacy === null || $legacy->review_status === $reviewStatus) {
+                return;
+            }
+            $legacy->update(['review_status' => $reviewStatus, 'reviewed_at' => now(), 'review_reason' => $reason]);
+            // The return command writes the assigned manager's durable outbox intent.
+            // Legacy cashier notifications remain for inherited non-cycle decisions.
+            if ($reviewStatus === 'rejected' && ! isset($current->payload['pkg6Review']['return_cycle'])) {
+                \Illuminate\Support\Facades\DB::afterCommit(fn () => $this->notifyMobileOwner($legacy, $reason));
+            }
+        });
     }
 
     private function notifyMobileOwner(CashierShift $legacy, ?string $reason): void

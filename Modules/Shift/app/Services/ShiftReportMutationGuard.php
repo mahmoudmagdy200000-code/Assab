@@ -24,6 +24,8 @@ class ShiftReportMutationGuard
         $snapshot = CashierShift::withoutEagerLoads()->findOrFail($source->id);
         $branchId = $snapshot->shift()->value('branch_id');
         $this->assertActor($snapshot, $actor, $branchId);
+        app(ShiftReportReviewService::class)->lockCashier($snapshot, $additionalCashierIds, $additionalWorkdayDates);
+        app(ShiftReportReviewService::class)->assertReportEditable($snapshot);
         $this->lockCashOwners($snapshot, $additionalCashierIds);
         $membershipDates = $this->membershipDates($snapshot, $additionalWorkdayDates);
 
@@ -80,14 +82,16 @@ class ShiftReportMutationGuard
         return $shift;
     }
 
-    public function lockCorrection(CashierShift $source, Model $actor, array $additionalCashierIds = []): CashierShift
+    public function lockCorrection(CashierShift $source, Model $actor, array $additionalCashierIds = [], array $additionalFinancialOwners = []): CashierShift
     {
         if (DB::transactionLevel() === 0) {
             throw new LogicException('Report mutation guard requires a transaction.');
         }
         $snapshot = CashierShift::withoutEagerLoads()->findOrFail($source->id);
         $branchId = $snapshot->shift()->value('branch_id');
-        app(ShiftReportCorrectionActorPolicy::class)->assertAllowed($snapshot, $actor);
+        $actorType = app(ShiftReportCorrectionActorPolicy::class)->assertAllowed($snapshot, $actor);
+        app(ShiftReportReviewService::class)->lockCashier($snapshot, $additionalCashierIds, [], $additionalFinancialOwners);
+        app(ShiftReportReviewService::class)->assertReportEditable($snapshot);
         $this->lockCashOwners($snapshot, $additionalCashierIds);
         $membershipDates = $this->membershipDates($snapshot, []);
 
@@ -122,6 +126,13 @@ class ShiftReportMutationGuard
             throw new ConflictHttpException('REPORT_SOURCE_CHANGED');
         }
         app(ShiftReportCorrectionActorPolicy::class)->assertAllowed($shift, $actor);
+
+        if ($actorType === 'branch_manager' && app(ShiftReportReviewService::class)->managerCorrectionAllowed($shift, $actor)) {
+            return $shift;
+        }
+        if ($actorType === 'accountant' && app(ShiftReportReviewService::class)->accountantCorrectionAllowed($shift)) {
+            return $shift;
+        }
 
         $requests = DB::table('cashier_shift_handovers')->where('cashier_shift_id', $shift->id)
             ->orderBy('id')->lockForUpdate()->get(['id', 'daily_closed_at']);

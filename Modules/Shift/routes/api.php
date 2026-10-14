@@ -340,6 +340,12 @@ Route::prefix('branch-manager/workday')
             ->name('workday.history');
 
         // Section F: Report Correction Review & Approval
+        Route::post('/shifts/{cashierShift}/report/correct', [BranchManagerShiftController::class, 'correctReturnedReport'])
+            ->name('workday.shifts.report.correct')
+            ->middleware('asab.idempotency:required,transaction,legacy');
+        Route::post('/shifts/{cashierShift}/report/resubmit', [BranchManagerShiftController::class, 'resubmitReport'])
+            ->name('workday.shifts.report.resubmit')
+            ->middleware('asab.idempotency:required,transaction,legacy');
         Route::post('/shifts/{cashierShift}/review-variance', [BranchManagerShiftController::class, 'approveReportCorrection'])
             ->name('workday.shifts.review-variance')
             ->middleware('asab.idempotency:required,transaction,legacy');

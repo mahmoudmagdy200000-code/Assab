@@ -520,6 +520,196 @@ class ShiftCashCountHttpTest extends TestCase
         $this->assertSame(0, ShiftReportCashCount::count());
     }
 
+    /** A submitted member must have the same current physical evidence as the SHF. */
+    private function submitCountedMember(CashierShift $source): \Modules\Shift\Models\ShiftLiabilityDailyLock
+    {
+        $allocation = ShiftLiabilityAllocation::where('cashier_shift_id', $source->id)->whereNull('superseded_at')->first();
+        if ($allocation && $allocation->manager_approval_status === 'pending') {
+            DB::transaction(fn () => app(\Modules\Shift\Liability\ShiftLiabilityService::class)->approve($source->id, $this->manager, $allocation->version, true));
+        }
+        $day = \Modules\Shift\Models\BranchManagerShift::where('branch_id', $this->branch->id)->whereDate('shift_date', $source->shift_date)->first()
+            ?? \Modules\Shift\Models\BranchManagerShift::create(['branch_manager_id' => $this->manager->id, 'branch_id' => $this->branch->id, 'shift_date' => $source->shift_date, 'status' => 'completed']);
+        $count = app(\Modules\Shift\Services\ShiftCashCountService::class)->currentFor($source->id);
+        $member = \Modules\Shift\Models\ShiftLiabilityDailyLock::create(['cashier_shift_id' => $source->id, 'branch_manager_shift_id' => $day->id,
+            'report_revision' => $count->evidence_revision_id, 'allocation_version' => $allocation?->version,
+            'locked_by_id' => $this->manager->id, 'locked_at' => now()]);
+        $day->update(['daily_report_submitted' => true, 'daily_report_submitted_at' => now()]);
+        return $member;
+    }
+
+    private function returnedRecountFixture(bool $forward = true): array
+    {
+        $this->confirmedOpening();
+        $this->end($this->fin01Payload(['counted_cash' => '50.00', 'shortage_allocations' => []]))->assertOk();
+        $member = $this->submitCountedMember($this->recipientShift);
+        $admin = AdminShift::where('legacy_shift_id', $this->recipientShift->id)->firstOrFail();
+        $op = Operation::where('module_key', 'shifts')->where('payload->shiftId', $admin->id)->sole();
+        $accountant = AsabUser::where('email', 'acc@s110.test')->sole();
+        $service = app(OperationService::class);
+        $op = $service->returnForReview($service->approve($op, $accountant), $this->headUser(), 'Verify physical evidence');
+        if ($forward) $op = $service->reject($op, $accountant, 'incomplete_data', 'Physical recount requested');
+        DB::table('shift_report_aggregates')->where('source_type', 'cashier_shift')->where('source_id', $this->recipientShift->id)->update(['fresh_count_required' => true]);
+        return [$admin, $op, $member];
+    }
+
+    public function test_official_return_recount_appends_real_cashier_evidence_and_resubmits_original_shf(): void
+    {
+        [$admin, $op, $member] = $this->returnedRecountFixture();
+        $count = app(\Modules\Shift\Services\ShiftCashCountService::class)->currentFor($this->recipientShift->id);
+        $oldCount = $count->getRawOriginal();
+        $oldRevision = ShiftReportRevision::findOrFail($count->report_revision_id)->getRawOriginal();
+        $receipts = CashierShiftHandoverReceipt::all()->map->getRawOriginal()->all();
+        $cash = $this->recipientShift->fresh()->only(['cash_collected', 'closing_balance', 'status']);
+        $url = '/api/shift-reports/'.$this->recipientShift->id.'/recount';
+        $this->actingAs($this->recipient, 'sanctum')->postJson($url, ['counted_halalas' => 5000])->assertOk();
+        $new = app(\Modules\Shift\Services\ShiftCashCountService::class)->currentFor($this->recipientShift->id);
+        $revision = ShiftReportRevision::findOrFail($new->report_revision_id);
+        $this->assertNotSame($count->id, $new->id);
+        $this->assertSame($revision->id, $new->counted_revision_id);
+        $this->assertSame('cashier', $revision->created_by_type);
+        $this->assertSame($this->recipient->id, $revision->created_by_id);
+        $this->assertSame($oldCount, $count->fresh()->getRawOriginal());
+        $this->assertSame($oldRevision, ShiftReportRevision::findOrFail($count->report_revision_id)->getRawOriginal());
+        $audit = $this->recipientShift->history()->where('action', 'physical_return_recounted')->sole();
+        $this->assertSame('cashier', $audit->performed_by_type);
+        $this->assertSame($this->recipient->id, $audit->performed_by);
+        $this->assertSame($receipts, CashierShiftHandoverReceipt::all()->map->getRawOriginal()->all());
+        $this->assertEquals($cash, $this->recipientShift->fresh()->only(['cash_collected', 'closing_balance', 'status']));
+        $this->assertNotNull($member->fresh()->superseded_at);
+        $this->assertNull($member->fresh()->released_at);
+        $current = \Modules\Shift\Models\ShiftLiabilityDailyLock::active()->where('cashier_shift_id', $this->recipientShift->id)->sole();
+        $this->assertSame($member->branch_manager_shift_id, $current->branch_manager_shift_id);
+        $this->assertSame($new->evidence_revision_id, $current->report_revision);
+        $this->assertSame('rejected', $op->fresh()->status);
+        $this->assertSame('pending_review', $admin->fresh()->status);
+        $this->postJson($url, ['counted_halalas' => 5000])->assertConflict();
+        $this->assertSame(2, ShiftReportCashCount::where('cashier_shift_id', $this->recipientShift->id)->count());
+        $result = app(\Modules\Shift\Services\ShiftReportReviewService::class)->resubmit($this->recipientShift, $this->manager,
+            $revision->revision_number, null, $op->fresh()->payload['pkg6Review']['return_cycle'], 'Count checked', (string) Str::uuid());
+        $this->assertSame($op->id, $result->id);
+        $this->assertSame($op->public_id, $result->public_id);
+        $this->assertSame(0, DB::table('shift_liability_postings')->count());
+        $this->assertSame('pending', $result->status);
+        $service = app(OperationService::class);
+        $final = $service->finalApprove($service->approve($result, AsabUser::where('email', 'acc@s110.test')->sole()), AsabUser::where('email', 'head@s110.test')->sole());
+        $this->assertSame(Operation::STATUS_FINAL, $final->status);
+        $this->assertSame('closed', $admin->fresh()->status);
+        $this->assertSame('completed', $this->recipientShift->fresh()->getRawOriginal('status'));
+        $this->assertSame($oldCount, $count->fresh()->getRawOriginal());
+    }
+
+    public function test_recount_cannot_skip_accountant_forward_or_change_cashier_actor(): void
+    {
+        [$admin, $op] = $this->returnedRecountFixture(false);
+        $url = '/api/shift-reports/'.$this->recipientShift->id.'/recount';
+        $before = ShiftReportCashCount::count();
+        $this->actingAs($this->recipient, 'sanctum')->postJson($url, ['counted_halalas' => 5000])->assertConflict();
+        $this->actingAs($this->manager, 'sanctum')->postJson($url, ['counted_halalas' => 5000])->assertForbidden();
+        $this->actingAs($this->sender, 'sanctum')->postJson($url, ['counted_halalas' => 5000])->assertForbidden();
+        $this->assertSame($before, ShiftReportCashCount::count());
+        $this->assertSame('head_returned', $op->fresh()->payload['pkg6Review']['phase']);
+        $this->assertSame('pending_review', $admin->fresh()->status);
+    }
+
+    public function test_recount_final_report_is_refused_without_reopening_evidence(): void
+    {
+        [, $op, $member] = $this->returnedRecountFixture();
+        $op->update(['status' => Operation::STATUS_FINAL]);
+        $before = ShiftReportCashCount::count();
+        $this->actingAs($this->recipient, 'sanctum')->postJson('/api/shift-reports/'.$this->recipientShift->id.'/recount', ['counted_halalas' => 5000])->assertConflict();
+        $this->assertSame($before, ShiftReportCashCount::count());
+        $this->assertSame(Operation::STATUS_FINAL, $op->fresh()->status);
+        $this->assertNull($member->fresh()->superseded_at);
+    }
+
+    public function test_official_recount_failure_rolls_back_all_new_evidence(): void
+    {
+        [, $op, $member] = $this->returnedRecountFixture();
+        $before = [ShiftReportCashCount::count(), ShiftReportRevision::count(), $op->fresh()->payload];
+        $mock = \Mockery::mock(\Modules\Shift\Services\ShiftReportManagerReviewService::class)->makePartial();
+        $mock->shouldReceive('requireFor')->once()->andThrow(new \RuntimeException('injected recount failure'));
+        $this->app->instance(\Modules\Shift\Services\ShiftReportManagerReviewService::class, $mock);
+        try {
+            app(\Modules\Shift\Services\ShiftTransferAttemptService::class)->recount($this->recipientShift, $this->recipient, 5000);
+            $this->fail('Recount did not roll back.');
+        } catch (\RuntimeException $error) {
+            $this->assertSame('injected recount failure', $error->getMessage());
+        }
+        $this->assertSame($before, [ShiftReportCashCount::count(), ShiftReportRevision::count(), $op->fresh()->payload]);
+        $this->assertNull($member->fresh()->superseded_at);
+        $this->assertTrue((bool) ShiftReportAggregate::where('source_id', $this->recipientShift->id)->value('fresh_count_required'));
+    }
+
+    public function test_balanced_recount_does_not_reuse_historical_shortage_allocation(): void
+    {
+        [, $op] = $this->countedShortageOperation();
+        $member = $this->submitCountedMember($this->recipientShift);
+        $accountant = AsabUser::where('email', 'acc@s110.test')->sole();
+        $service = app(OperationService::class);
+        $returned = $service->reject($service->returnForReview($service->approve($op, $accountant), $this->headUser(), 'Recount'), $accountant, 'incomplete_data');
+        $allocation = ShiftLiabilityAllocation::where('cashier_shift_id', $this->recipientShift->id)->sole();
+        $historical = $allocation->getRawOriginal();
+        DB::table('shift_report_aggregates')->where('source_id', $this->recipientShift->id)->update(['fresh_count_required' => true]);
+        $this->actingAs($this->recipient, 'sanctum')->postJson('/api/shift-reports/'.$this->recipientShift->id.'/recount', ['counted_halalas' => 5000])->assertOk();
+        $this->assertSame($historical, $allocation->fresh()->getRawOriginal());
+        $this->assertSame(0, DB::table('shift_liability_postings')->count());
+        try {
+            app(\Modules\Shift\Services\ShiftReportReviewService::class)->resubmit($this->recipientShift, $this->manager, 2, 1,
+                $returned->payload['pkg6Review']['return_cycle'], 'Physical count verified', (string) Str::uuid());
+            $this->fail('A balanced recount reused an obsolete shortage allocation.');
+        } catch (ConflictHttpException $error) {
+            $this->assertSame('LIABILITY_ALLOCATION_REQUIRED', $error->getMessage());
+        }
+        $this->assertSame('rejected', $op->fresh()->status);
+        $this->assertSame(0, DB::table('shift_liability_postings')->count());
+        // The authorized manager correction workflow records the replacement; recount never settles it.
+        $revision = app(\Modules\Shift\Services\ShiftReportCorrectionService::class)->correctCashierReport($this->recipientShift, $this->manager,
+            ['handover_notes' => 'Verified balanced physical recount'], 2, 'Current count verified', (string) Str::uuid());
+        $resubmitted = app(\Modules\Shift\Services\ShiftReportReviewService::class)->resubmit($this->recipientShift, $this->manager,
+            $revision->revision_number, null, $returned->payload['pkg6Review']['return_cycle'], 'Replacement approved', (string) Str::uuid());
+        $this->assertSame($op->id, $resubmitted->id);
+        $this->assertNotNull($allocation->fresh()->superseded_at);
+        $this->assertSame($historical['manager_approved_by'], $allocation->fresh()->getRawOriginal('manager_approved_by'));
+        $this->assertSame(0, DB::table('shift_liability_postings')->sum('delta_halalas'));
+        $this->assertSame($member->branch_manager_shift_id, \Modules\Shift\Models\ShiftLiabilityDailyLock::active()->where('cashier_shift_id', $this->recipientShift->id)->sole()->branch_manager_shift_id);
+    }
+
+    public function test_recount_without_official_return_preserves_pending_shf_and_count(): void
+    {
+        $this->confirmedOpening();
+        $this->end($this->fin01Payload(['counted_cash' => '50.00', 'shortage_allocations' => []]))->assertOk();
+        $member = $this->submitCountedMember($this->recipientShift);
+        DB::table('shift_report_aggregates')->where('source_id', $this->recipientShift->id)->update(['fresh_count_required' => true]);
+        $before = ShiftReportCashCount::count();
+        $this->actingAs($this->recipient, 'sanctum')->postJson('/api/shift-reports/'.$this->recipientShift->id.'/recount', ['counted_halalas' => 5000])->assertConflict();
+        $this->assertSame($before, ShiftReportCashCount::count());
+        $this->assertNull($member->fresh()->superseded_at);
+    }
+
+    public function test_recount_final_day_is_refused_without_reopening_member(): void
+    {
+        [, $op, $member] = $this->returnedRecountFixture();
+        Operation::create(['public_id' => 'SAL-'.Str::uuid(), 'company_id' => $op->company_id, 'branch_id' => $op->branch_id,
+            'module_key' => 'sales', 'origin' => 'mobile', 'status' => Operation::STATUS_FINAL,
+            'payload' => ['managerShiftId' => $member->branch_manager_shift_id], 'operation_date' => now()]);
+        $before = ShiftReportCashCount::count();
+        $this->actingAs($this->recipient, 'sanctum')->postJson('/api/shift-reports/'.$this->recipientShift->id.'/recount', ['counted_halalas' => 5000])->assertConflict();
+        $this->assertSame($before, ShiftReportCashCount::count());
+        $this->assertNull($member->fresh()->superseded_at);
+        $this->assertSame('rejected', $op->fresh()->status);
+    }
+
+    public function test_recount_requires_physical_flag_even_after_official_return(): void
+    {
+        [, $op, $member] = $this->returnedRecountFixture();
+        DB::table('shift_report_aggregates')->where('source_id', $this->recipientShift->id)->update(['fresh_count_required' => false]);
+        $before = ShiftReportCashCount::count();
+        $this->actingAs($this->recipient, 'sanctum')->postJson('/api/shift-reports/'.$this->recipientShift->id.'/recount', ['counted_halalas' => 5000])->assertConflict();
+        $this->assertSame($before, ShiftReportCashCount::count());
+        $this->assertNull($member->fresh()->superseded_at);
+        $this->assertSame('rejected', $op->fresh()->status);
+    }
+
     private function headUser(): AsabUser
     {
         $head = AsabUser::create(['company_id' => $this->branch->asab_company_id, 'name' => 'رئيس', 'email' => 'head@s110.test', 'password' => 'secret-password', 'status' => 'active']);
@@ -543,7 +733,10 @@ class ShiftCashCountHttpTest extends TestCase
     {
         [$admin, $op] = $this->countedShortageOperation();
         $accountant = AsabUser::where('email', 'acc@s110.test')->firstOrFail();
+        $this->submitCountedMember($this->recipientShift);
         app(OperationService::class)->approve($op, $accountant);
+        // Evidence accepted by the accountant subsequently becomes stale; preserve its audit row.
+        ShiftLiabilityAllocation::where('cashier_shift_id', $this->recipientShift->id)->whereNull('superseded_at')->update(['superseded_at' => now()]);
 
         try {
             app(OperationService::class)->finalApprove($op->fresh(), $this->headUser());
@@ -603,8 +796,11 @@ class ShiftCashCountHttpTest extends TestCase
         $balancedOp = Operation::where('module_key', 'shifts')->where('payload->shiftId', $balancedAdmin->id)->firstOrFail();
 
         $service = app(OperationService::class);
+        $this->submitCountedMember($this->recipientShift);
+        $this->submitCountedMember($thirdShift);
         $service->approve($shortageOp, $accountant);
         $service->approve($balancedOp, $accountant);
+        ShiftLiabilityAllocation::where('cashier_shift_id', $this->recipientShift->id)->whereNull('superseded_at')->update(['superseded_at' => now()]);
         $result = $service->bulkFinalApprove([$shortageOp->id, $balancedOp->id], $head);
 
         $this->assertSame([$balancedOp->public_id], $result['finalApproved']);

@@ -8,7 +8,7 @@ use Modules\Admin\Services\ShiftCloseService;
 /**
  * Bridges the operation pipeline back to the shift world (ACC-6.4 / HEAD-2.5):
  * a final-approved shifts operation closes its shift and posts the cash gap; a
- * rejected one reopens it. Keeps OperationService free of shift knowledge.
+ * returned mobile report retains operational finality and original membership. Keeps OperationService free of shift knowledge.
  */
 class ProcessShiftOperationDecision
 {

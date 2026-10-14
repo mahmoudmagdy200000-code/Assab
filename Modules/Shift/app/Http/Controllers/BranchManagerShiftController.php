@@ -550,6 +550,8 @@ class BranchManagerShiftController extends BaseController
             DB::beginTransaction();
 
             try {
+                $managerShift = app(\Modules\Shift\Services\ShiftReportReviewService::class)->lockDay($managerShift);
+                app(\Modules\Shift\Services\ShiftReportReviewService::class)->assertMutableDay($managerShift);
                 app(ShiftTransferReceiptService::class)->lockManagerCashOwner((string) $managerShift->branch_manager_id);
                 $this->shiftService->lockCashierFinancialOwners($managerShift);
                 $managerShift = BranchManagerShift::query()->whereKey($managerShift->id)->lockForUpdate()->firstOrFail();
@@ -738,6 +740,8 @@ class BranchManagerShiftController extends BaseController
             DB::beginTransaction();
 
             try {
+                $managerShift = app(\Modules\Shift\Services\ShiftReportReviewService::class)->lockDay($managerShift);
+                app(\Modules\Shift\Services\ShiftReportReviewService::class)->assertMutableDay($managerShift);
                 app(ShiftTransferReceiptService::class)->lockManagerCashOwner((string) $managerShift->branch_manager_id);
                 $this->shiftService->lockCashierFinancialOwners($managerShift);
                 $managerShift = BranchManagerShift::query()->whereKey($managerShift->id)->lockForUpdate()->firstOrFail();
@@ -860,6 +864,8 @@ class BranchManagerShiftController extends BaseController
             }
 
             DB::transaction(function () use ($managerShift, $request, $manager) {
+                $managerShift = app(\Modules\Shift\Services\ShiftReportReviewService::class)->lockDay($managerShift);
+                app(\Modules\Shift\Services\ShiftReportReviewService::class)->assertMutableDay($managerShift);
                 app(ShiftTransferReceiptService::class)->lockManagerCashOwner((string) $managerShift->branch_manager_id);
                 $this->shiftService->lockCashierFinancialOwners($managerShift);
                 $managerShift = BranchManagerShift::query()->whereKey($managerShift->id)->lockForUpdate()->firstOrFail();
@@ -1303,4 +1309,47 @@ class BranchManagerShiftController extends BaseController
             return HandoverErrorResponse::from($e, 'approve report correction');
         }
     }
+
+    public function resubmitReport(Request $request, string $cashierShiftId): JsonResponse
+    {
+        try {
+            $manager = $request->user();
+            if (! $manager instanceof BranchManager) {
+                throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('ONLY_REPORT_OWNER_OR_ASSIGNED_BRANCH_MANAGER');
+            }
+            $data = $request->validate(['expected_revision' => 'required|integer|min:1',
+                'expected_allocation_version' => 'nullable|integer|min:1', 'return_cycle' => 'required|uuid',
+                'reason' => 'required|string|max:1000']);
+            $operation = app(\Modules\Shift\Services\ShiftReportReviewService::class)->resubmit(
+                CashierShift::findOrFail($cashierShiftId), $manager, (int) $data['expected_revision'],
+                isset($data['expected_allocation_version']) ? (int) $data['expected_allocation_version'] : null,
+                $data['return_cycle'], $data['reason'], $request->header('Idempotency-Key'));
+
+            return response()->json(['success' => true, 'data' => ['operation_id' => $operation->id,
+                'public_id' => $operation->public_id, 'status' => $operation->status,
+                'report_review' => $operation->payload['pkg6Review']]]);
+        } catch (\Throwable $error) {
+            return HandoverErrorResponse::from($error, 'resubmit shift report');
+        }
+    }
+    public function correctReturnedReport(Request $request, string $cashierShiftId): JsonResponse
+    {
+        try {
+            $manager = $request->user();
+            if (! $manager instanceof BranchManager) throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('ONLY_REPORT_OWNER_OR_ASSIGNED_BRANCH_MANAGER');
+            $data = $request->validate(['expected_revision' => 'required|integer|min:1',
+                'changes' => 'required|array', 'reason' => 'required|string|max:1000',
+                'liability_shares' => 'nullable|array', 'liability_shares.*.type' => 'required|string',
+                'liability_shares.*.id' => 'required|uuid', 'liability_shares.*.amount' => 'required|integer|min:0']);
+            $revision = app(\Modules\Shift\Services\ShiftReportCorrectionService::class)->correctCashierReport(
+                CashierShift::findOrFail($cashierShiftId), $manager, $data['changes'], (int) $data['expected_revision'],
+                $data['reason'], $request->header('Idempotency-Key'), $data['liability_shares'] ?? null, returnedOnly: true);
+            $allocation = \Modules\Shift\Models\ShiftLiabilityAllocation::where('cashier_shift_id', $cashierShiftId)->whereNull('superseded_at')->first();
+            return response()->json(['success' => true, 'data' => ['revision_id' => $revision->id,
+                'revision_number' => $revision->revision_number, 'allocation_version' => $allocation?->version]]);
+        } catch (\Throwable $error) {
+            return HandoverErrorResponse::from($error, 'correct returned report');
+        }
+    }
+
 }

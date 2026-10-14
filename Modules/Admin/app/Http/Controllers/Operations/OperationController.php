@@ -556,6 +556,7 @@ class OperationController extends AsabController
             'originLabelAr' => $origin['labelAr'],
             'originIcon' => $origin['icon'],
             'attachmentCount' => $op->attachment_count,
+            'reportReview' => $op->payload['pkg6Review'] ?? null,
             'status' => $op->status,
             'statusLabelAr' => $status['labelAr'],
             'statusLabelShortAr' => $status['labelShortAr'],
