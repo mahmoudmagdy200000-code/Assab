@@ -140,7 +140,9 @@ class AdminLegacyRefreshConcurrencyTest extends TestCase
         $logout = $this->worker('token_w', 'logout', $user, $token->plainTextToken);
         $this->awaitFile('token_w.held');
         $this->release('token_r.candidate_go');
-        $this->awaitLockWait('token_r', 'personal_access_tokens');
+        // Production uses deterministic User -> Token ordering, so the stale
+        // refresh must first wait on the user-row lock held by logout.
+        $this->awaitLockWait('token_r', 'asab_users');
         $this->release('token_w.held_go');
         $written = $this->workerResult($logout, 'token_w');
         $rejected = $this->workerResult($refresh, 'token_r');

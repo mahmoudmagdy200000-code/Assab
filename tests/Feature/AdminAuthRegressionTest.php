@@ -19,8 +19,8 @@ use Tests\TestCase;
  * - Login response structure, access & refresh token issuance
  * - Invalid credentials & inactive user rejection
  * - Refresh token rotation, structure, and consumed-token rejection
- * - Logout via valid access token and single-token revocation
- * - Preservation of unrelated tokens (multi-device & cross-user)
+ * - Logout via valid access token and fail-closed legacy Admin-token revocation
+ * - Preservation of unrelated cross-user tokens
  * - Legacy token compatibility with session_id = NULL
  */
 class AdminAuthRegressionTest extends TestCase
@@ -259,21 +259,27 @@ class AdminAuthRegressionTest extends TestCase
             ->assertStatus(401);
     }
 
-    public function test_logout_preserves_unrelated_tokens_across_devices_and_users(): void
+    public function test_legacy_logout_revokes_same_user_familyless_admin_tokens_and_preserves_cross_user_tokens(): void
     {
+        config(['admin.session_families_enabled' => false]);
+
         // Session 1 for adminUser
         $res1 = $this->postJson('/api/v1/auth/login', [
             'email' => $this->adminUser->email,
             'password' => $this->password,
         ]);
+        $res1->assertOk();
         $tokenSession1 = $res1->json('accessToken');
+        $refreshSession1 = $res1->json('refreshToken');
 
         // Session 2 for adminUser (e.g., second browser / device)
         $res2 = $this->postJson('/api/v1/auth/login', [
             'email' => $this->adminUser->email,
             'password' => $this->password,
         ]);
+        $res2->assertOk();
         $tokenSession2 = $res2->json('accessToken');
+        $refreshSession2 = $res2->json('refreshToken');
 
         // Create a separate Cashier user with an active token
         $branch = Branch::create(['name' => 'Riyadh Central', 'location' => 'Riyadh']);
@@ -296,51 +302,31 @@ class AdminAuthRegressionTest extends TestCase
         ]);
         $cashierToken = $cashier->createToken('cashier-pos-device')->plainTextToken;
 
-        // Capture Session 2 model properties before Session 1 logout
-        $session2Before = PersonalAccessToken::findToken($tokenSession2);
-        $this->assertNotNull($session2Before);
-        $session2Id = $session2Before->id;
-        $session2TokenHash = $session2Before->token;
-        $session2ExpiresAt = $session2Before->expires_at;
-        $session2Name = $session2Before->name;
-        $session2Abilities = $session2Before->abilities;
-
         $this->assertNotNull(PersonalAccessToken::findToken($tokenSession1));
+        $this->assertNotNull(PersonalAccessToken::findToken($refreshSession1));
+        $this->assertNotNull(PersonalAccessToken::findToken($tokenSession2));
+        $this->assertNotNull(PersonalAccessToken::findToken($refreshSession2));
         $this->assertNotNull(PersonalAccessToken::findToken($cashierToken));
 
-        // Logout Session 1 ONLY
+        // A familyless legacy Access token cannot identify one device pair. Logout
+        // therefore fail-closes over every same-user familyless Admin token.
         $this->withToken($tokenSession1)->postJson('/api/v1/auth/logout')->assertStatus(204);
 
-        // Assert Session 1 token is revoked (deleted from database)
-        $this->assertNull(PersonalAccessToken::findToken($tokenSession1), 'Session 1 token must be revoked');
+        $this->assertNull(PersonalAccessToken::findToken($tokenSession1));
+        $this->assertNull(PersonalAccessToken::findToken($refreshSession1));
+        $this->assertNull(PersonalAccessToken::findToken($tokenSession2));
+        $this->assertNull(PersonalAccessToken::findToken($refreshSession2));
 
         // Reset cached authentication guards between requests
         $this->app['auth']->forgetGuards();
 
-        // Verify Session 1 token can no longer authenticate
+        // Neither same-user legacy Access credential may authenticate after logout.
         $this->withToken($tokenSession1)->getJson('/api/v1/auth/me')->assertStatus(401);
 
-        // Reset cached authentication guards again
         $this->app['auth']->forgetGuards();
+        $this->withToken($tokenSession2)->getJson('/api/v1/auth/me')->assertStatus(401);
 
-        // Assert unrelated Session 2 token retains stored properties (including expiration)
-        $session2After = PersonalAccessToken::findToken($tokenSession2);
-        $this->assertNotNull($session2After, 'Session 2 token must remain active after Session 1 logout');
-        $this->assertSame($session2Id, $session2After->id);
-        $this->assertSame($session2TokenHash, $session2After->token);
-        $this->assertSame($session2Name, $session2After->name);
-        $this->assertSame($session2Abilities, $session2After->abilities);
-        $this->assertEquals($session2ExpiresAt, $session2After->expires_at);
-        $this->assertNull($session2After->session_id);
-
-        // Verify unrelated Session 2 token still successfully authenticates after Session 1 logout
-        $this->withToken($tokenSession2)
-            ->getJson('/api/v1/auth/me')
-            ->assertOk()
-            ->assertJsonPath('id', $this->adminUser->id)
-            ->assertJsonPath('email', $this->adminUser->email);
-
-        // Assert Cashier legacy token is completely preserved
+        // A token belonging to a different authenticatable type remains unrelated.
         $this->assertNotNull(
             PersonalAccessToken::findToken($cashierToken),
             'Cashier legacy token must remain active after admin logout'
