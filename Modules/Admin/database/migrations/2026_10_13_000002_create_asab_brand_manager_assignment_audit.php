@@ -34,7 +34,9 @@ return new class extends Migration
             $table->timestamp('created_at')->useCurrent();
 
             $table->index('brand_manager_id');
-            $table->index(['brand_manager_id', 'created_at']);
+            // B-01: the generated name for this composite index is 71 characters, over the MySQL/MariaDB
+            // 64-character identifier limit, so a fresh install failed on those servers. Explicit short name.
+            $table->index(['brand_manager_id', 'created_at'], 'asab_bm_assign_audit_bm_created_idx');
         });
     }
 

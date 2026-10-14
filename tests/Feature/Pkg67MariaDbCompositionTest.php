@@ -141,14 +141,7 @@ class Pkg67MariaDbCompositionTest extends TestCase
         }
         $this->assertStringContainsString('MariaDB', DB::selectOne('SELECT VERSION() AS v')->v);
         if (! self::$migrated) {
-            // Environment shim (disposable DB only): the baseline PKG-2 migration 2026_10_13_000002 emits a 71-char
-            // index name that MariaDB/MySQL reject (limit 64). PKG67_SCHEMA_PREPARED=1 makes MariaDbSchemaShim pre-create
-            // that one table with short index names and then run `migrate`; no migration file is changed.
-            if (env('PKG67_SCHEMA_PREPARED') === '1') {
-                \Tests\Support\MariaDbSchemaShim::fresh();
-            } else {
-                $this->artisan('migrate:fresh', ['--force' => true])->assertExitCode(0);
-            }
+            $this->artisan('migrate:fresh', ['--force' => true])->assertExitCode(0);
             self::$migrated = true;
         }
         $this->assertSame(0, DB::transactionLevel(), 'Workers must see committed fixtures.');

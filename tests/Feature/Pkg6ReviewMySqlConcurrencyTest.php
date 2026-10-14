@@ -77,12 +77,7 @@ class Pkg6ReviewMySqlConcurrencyTest extends TestCase
         }
         $this->assertStringContainsString('MariaDB', DB::selectOne('SELECT VERSION() AS v')->v);
         // Existing approved migrations only, on the explicitly opted-in disposable schema.
-        // Integration shim: the baseline migration set cannot `migrate:fresh` on MariaDB (71-char index name).
-        if (env('PKG67_SCHEMA_PREPARED') === '1') {
-            \Tests\Support\MariaDbSchemaShim::fresh();
-        } else {
-            $this->artisan('migrate:fresh', ['--force' => true])->assertExitCode(0);
-        }
+        $this->artisan('migrate:fresh', ['--force' => true])->assertExitCode(0);
         DB::transaction(fn () => $this->initializeFixture());
         $this->assertSame(0, DB::transactionLevel()); // Workers must see committed fixtures.
     }
