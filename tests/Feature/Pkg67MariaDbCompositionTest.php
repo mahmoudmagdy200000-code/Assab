@@ -36,7 +36,7 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--pkg67-worker') {
         $manager = fn () => \Modules\BranchManagers\Models\BranchManager::findOrFail($in['manager']);
         $accountant = fn () => \Modules\Admin\Models\AsabUser::findOrFail($in['accountant'] ?? '');
         $touch('ready');
-        if ($in['command'] !== 'stale_correct') {
+        if (! in_array($in['command'], ['stale_correct', 'stale_scope'], true)) {
             $wait('go');
         }
         $started = microtime(true);
@@ -65,6 +65,20 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--pkg67-worker') {
                 try {
                     app(\Modules\Shift\Services\ShiftReportMutationGuard::class)->lockCorrection($shift($in['shift']), $accountant());
                     $result = ['status' => 'PASSED_FENCE'];
+                } finally {
+                    \Illuminate\Support\Facades\DB::rollBack();
+                }
+                break;
+            case 'stale_scope':
+                // Day-close discovery inside a transaction whose snapshot predates a committed no-work mark.
+                \Illuminate\Support\Facades\DB::beginTransaction();
+                \Illuminate\Support\Facades\DB::table('cashier_shifts')->where('id', $in['shift'])->first();
+                $touch('snapshot');
+                $wait('marked');
+                try {
+                    $day = \Modules\Shift\Models\BranchManagerShift::findOrFail($in['day']);
+                    $scope = app(\Modules\Shift\Services\ShiftDailyCloseScopeService::class)->resolve($day, true);
+                    $result = ['status' => 'RESOLVED', 'ids' => $scope['cashier_shift_ids']];
                 } finally {
                     \Illuminate\Support\Facades\DB::rollBack();
                 }
@@ -197,12 +211,28 @@ class Pkg67MariaDbCompositionTest extends TestCase
         return compact('company', 'branch', 'manager', 'cashier', 'a', 'b', 'day', 'operation', 'accountant', 'head', 'templateB');
     }
 
-    private function untouched(array $scope): CashierShift
+    /** A branch whose workday is still open (no submitted report), so a no-work mark on today is permitted. */
+    private function openDay(): array
     {
-        $template = Shift::factory()->create(['branch_id' => $scope['branch']->id]);
+        $tag = Str::lower(Str::random(8));
+        $company = AsabCompany::create(['name' => 'PKG67O-'.$tag, 'plan' => 'Professional', 'status' => 'active']);
+        $brand = AsabBrand::create(['company_id' => $company->id, 'name' => 'PKG67O-'.$tag, 'status' => 'active', 'sub_status' => 'active']);
+        $branch = Branch::factory()->create(['asab_company_id' => $company->id, 'asab_brand_id' => $brand->id]);
+        $manager = BranchManager::where('branch_id', $branch->id)->first() ?? BranchManager::factory()->create(['branch_id' => $branch->id]);
+        $cashier = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);
+        $day = BranchManagerShift::where('branch_id', $branch->id)->whereDate('shift_date', today())->first()
+            ?? BranchManagerShift::create(['branch_manager_id' => $manager->id, 'branch_id' => $branch->id, 'shift_date' => today(), 'status' => 'completed']);
+
+        return compact('company', 'branch', 'manager', 'cashier', 'day');
+    }
+
+    private function untouched(array $scope, ?\Carbon\CarbonInterface $date = null): CashierShift
+    {
+        $template = Shift::factory()->create(['branch_id' => $scope['branch']->id,
+            'start_time' => sprintf('%02d:00:00', random_int(0, 4)), 'end_time' => sprintf('%02d:30:00', random_int(5, 9))]);
 
         return CashierShift::factory()->create(['cashier_id' => $scope['cashier']->id, 'shift_id' => $template->id,
-            'shift_date' => today()->subDays(random_int(2, 400))]);
+            'shift_date' => $date ?? today()->subDays(random_int(2, 400))]);
     }
 
     private function launch(array $input): array
@@ -348,6 +378,28 @@ class Pkg67MariaDbCompositionTest extends TestCase
         $this->assertNotSame('INFRA_LOCK_ERROR', $result['status'], json_encode($result));
         $this->assertSame(['status' => 'conflict', 'code' => 'SHIFT_MARKED_NOT_WORKED'], array_intersect_key($result, array_flip(['status', 'code'])),
             'A correction whose snapshot predates the commit must still be fenced: '.json_encode($result));
+    }
+
+    public function test_daily_close_scope_excludes_a_mark_committed_after_the_transaction_snapshot(): void
+    {
+        $s = $this->openDay();
+        $this->assertFalse((bool) $s['day']->fresh()->daily_report_submitted);
+        $target = $this->untouched($s, today());
+        $barrier = storage_path('framework/testing/pkg67-'.Str::uuid());
+        if (! is_dir(dirname($barrier))) {
+            mkdir(dirname($barrier), 0700, true);
+        }
+        $this->barriers[] = $barrier;
+        [$stale, $staleBarrier] = $this->launch(['command' => 'stale_scope', 'day' => $s['day']->id,
+            'manager' => $s['manager']->id, 'shift' => $target->id, 'barrier' => $barrier.'.scope']);
+        $this->waitFor($staleBarrier.'.snapshot', $stale);
+        app(ShiftNotWorkedService::class)->mark($target, $s['manager'], 'Closed after the day-close snapshot');
+        file_put_contents($staleBarrier.'.marked', 'x');
+        $stale->wait();
+        $result = json_decode(file_get_contents($staleBarrier.'.json'), true);
+        $this->assertSame('RESOLVED', $result['status'], json_encode($result));
+        $this->assertNotContains((string) $target->id, $result['ids'],
+            'A committed no-work fact must not leave the shift in the day-close scope: '.json_encode($result));
     }
 
     // ---- durable idempotency, isolation and rollback on InnoDB (single process, real stack) ---------------
