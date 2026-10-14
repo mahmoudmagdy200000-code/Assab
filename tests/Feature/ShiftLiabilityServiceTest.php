@@ -73,6 +73,12 @@ class ShiftLiabilityServiceTest extends TestCase
             $t->uuid('shift_id');
             $t->uuid('cashier_id');
         });
+        // CashierShift eager-loads notWorkedHistory (PKG-7 BRC-11), so the isolated schema needs the audit table.
+        Schema::create('cashier_shift_history', function (Blueprint $t) {
+            $t->uuid('id')->primary();
+            $t->uuid('cashier_shift_id');
+            $t->string('action');
+        });
         Schema::create('branch_manager_shifts', function (Blueprint $t) {
             $t->uuid('id')->primary();
             $t->uuid('branch_id');
