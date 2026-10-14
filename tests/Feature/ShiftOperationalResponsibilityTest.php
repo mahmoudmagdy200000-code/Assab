@@ -22,6 +22,7 @@ class ShiftOperationalResponsibilityTest extends TestCase
         $recipient = \Modules\Cashier\Models\Cashier::factory()->create();
         $source->update(['original_cashier_id' => $source->cashier_id, 'cashier_id' => $recipient->id, 'status' => ShiftStatus::REASSIGNED]);
         $incoming = DB::transaction(fn () => app(ReassignmentReportOwnershipService::class)->separate($source));
+        $incoming = app(\Modules\Shift\Services\HandoverService::class)->acceptReassignedShift($incoming, $recipient->id);
 
         return [$source->fresh(), $incoming];
     }
@@ -180,7 +181,8 @@ class ShiftOperationalResponsibilityTest extends TestCase
         $source = CashierShift::factory()->create(['status' => ShiftStatus::IN_PROGRESS, 'actual_start_time' => now()->subHour()]);
         $recipient = \Modules\Cashier\Models\Cashier::factory()->create();
         $source->update(['original_cashier_id' => $source->cashier_id, 'cashier_id' => $recipient->id, 'status' => ShiftStatus::REASSIGNED]);
-        $incoming = app(CashierShiftStartService::class)->startShift($source);
+        $incoming = app(\Modules\Shift\Services\HandoverService::class)->acceptReassignedShift($source, $recipient->id);
+        $incoming = app(CashierShiftStartService::class)->startShift($incoming);
         $this->assertNotSame($source->id, $incoming->id);
         $this->assertSame($recipient->id, $incoming->cashier_id);
         $this->assertTrue($source->fresh()->operational_ended_at->equalTo($incoming->actual_start_time));

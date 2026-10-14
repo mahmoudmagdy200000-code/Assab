@@ -384,7 +384,12 @@ class ShiftDetailResource extends JsonResource
         $status = $this->status?->value ?? 'not_started';
 
         return [
-            'can_start' => $status === 'not_started' && $this->shift_date?->isToday(),
+            // Cashier self-start UI hint only; the manager start route has its own
+            // authorization and schedule behavior. Neither hint bypasses server checks.
+            'can_start' => $status === 'not_started' && $this->actual_start_time === null
+                && $this->operational_ended_at === null && $this->shift_date?->isToday(),
+            'can_accept_assignment' => $status === 'reassigned' && $this->actual_start_time === null
+                && ($this->handoverStatus === null || $this->handoverStatus->manager_approval_status === 'pending'),
             'can_end' => $status === 'in_progress',
             'can_handover' => $status === 'in_progress' || ($status === 'completed' && ! $this->handoverStatus?->isManagerApproved()),
             'can_reassign' => in_array($status, ['not_started', 'reassigned']),

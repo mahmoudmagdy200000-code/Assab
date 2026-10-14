@@ -172,7 +172,7 @@ class CashierShiftController extends BaseController
             ])
                 ->where('cashier_id', $cashier->id)
                 // «upcoming», not «not_started»: a shift a manager reassigned TO
-                // this cashier keeps status `reassigned` until it is started, so
+                // this cashier keeps status `reassigned` until it is accepted, so
                 // filtering on not_started alone dropped it out of the cashier's
                 // Pending tab entirely — the manager's own pending list
                 // (CashierShiftRepository::getUpcomingPaginated) always used both.
@@ -218,7 +218,11 @@ class CashierShiftController extends BaseController
                     'assigned_by' => $shift->assignedBy?->name ?? 'Branch Manager',
                     'assigned_by_user_type' => $shift->assigned_by ? 'branch_manager' : null,
                     'is_next_shift' => $isFirstShift,
-                    'can_start' => $shift->shift_date->isToday(),
+                    'can_start' => $shift->status === ShiftStatus::NOT_STARTED && $shift->actual_start_time === null
+                        && $shift->operational_ended_at === null && $shift->shift_date->isToday(),
+                    'can_accept_assignment' => $shift->status === ShiftStatus::REASSIGNED
+                        && $shift->actual_start_time === null
+                        && ($shift->handoverStatus === null || $shift->handoverStatus->manager_approval_status === 'pending'),
                     'actions' => [
                         'view_details' => true,
                         'reassign_shift' => true,
