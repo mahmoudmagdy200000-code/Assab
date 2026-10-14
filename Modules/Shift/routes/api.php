@@ -35,6 +35,11 @@ Route::middleware('auth:sanctum')->group(function () {
 |--------------------------------------------------------------------------
 */
 
+// BRC-11 is manager-only; the existing general group also admits cashiers.
+Route::post('branch-manager/shifts/{shift}/mark-not-worked', [\Modules\Shift\Http\Controllers\ShiftNotWorkedController::class, 'mark'])
+    ->whereUuid('shift')->name('branch-manager.shifts.mark-not-worked')
+    ->middleware(['auth:sanctum', 'branch.manager', 'log.throttle', \Modules\Shift\Services\ShiftNotWorkedGuard::class, 'asab.idempotency:required,transaction,legacy']);
+
 Route::prefix('branch-manager')
     ->middleware(['auth:sanctum', 'branch.manager.or.cashier', 'log.throttle'])
     ->group(function () {

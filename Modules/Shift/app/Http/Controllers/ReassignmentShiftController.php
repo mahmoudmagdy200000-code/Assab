@@ -123,7 +123,7 @@ class ReassignmentShiftController extends Controller
             $branchId = $authUser->branch_id;
 
             // البحث مرة واحدة فقط داخل ال transaction
-            $shiftModel = CashierShift::with(['cashier', 'shift'])->find($shift);
+            $shiftModel = CashierShift::with(['cashier', 'shift'])->lockForUpdate()->find($shift);
 
             if (! $shiftModel) {
                 DB::rollBack();

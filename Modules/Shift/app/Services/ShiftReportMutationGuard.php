@@ -60,6 +60,7 @@ class ShiftReportMutationGuard
             throw new ConflictHttpException('REPORT_SOURCE_CHANGED');
         }
         $this->assertActor($shift, $actor, $shift->shift()->value('branch_id'));
+        app(ShiftNotWorkedGuard::class)->assertMutable($shift);
         $requests = DB::table('cashier_shift_handovers')->where('cashier_shift_id', $shift->id)
             ->orderBy('id')->lockForUpdate()->get(['id', 'daily_closed_at']);
         $locks = DB::table('shift_liability_daily_locks')->where(function ($query) use ($shift, $days) {
@@ -126,6 +127,10 @@ class ShiftReportMutationGuard
             throw new ConflictHttpException('REPORT_SOURCE_CHANGED');
         }
         app(ShiftReportCorrectionActorPolicy::class)->assertAllowed($shift, $actor);
+
+        // I6-01: BRC-11 no-work fence on the locked, re-read source. It must run before the
+        // BRC-07 manager/accountant early returns below, which otherwise skip all later checks.
+        app(ShiftNotWorkedGuard::class)->assertMutable($shift);
 
         if ($actorType === 'branch_manager' && app(ShiftReportReviewService::class)->managerCorrectionAllowed($shift, $actor)) {
             return $shift;

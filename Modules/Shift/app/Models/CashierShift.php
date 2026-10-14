@@ -72,7 +72,7 @@ class CashierShift extends Model
     ];
 
     // Default relationships to load
-    protected $with = ['cashier', 'shift', 'nextCashier'];
+    protected $with = ['cashier', 'shift', 'nextCashier', 'notWorkedHistory'];
 
     /**
      * Create a new factory instance for the model.
@@ -142,6 +142,26 @@ class CashierShift extends Model
     public function history(): HasMany
     {
         return $this->hasMany(CashierShiftHistory::class);
+    }
+
+    public function notWorkedHistory(): HasMany
+    {
+        return $this->history()->where('action', 'marked_not_worked');
+    }
+
+    public function notWorkedOutcome(): ?array
+    {
+        // One constrained relation; never infer no-work from ordinary cancellation.
+        $fact = $this->notWorkedHistory->first();
+        if (! $fact) {
+            return null;
+        }
+        return [
+            'outcome' => 'not_worked', 'reason' => $fact->notes,
+            'recorded_by' => (string) $fact->performed_by,
+            'recorded_by_type' => $fact->performed_by_type,
+            'recorded_at' => $fact->created_at?->toIso8601String(),
+        ];
     }
 
     public function receivedHandoverReceipts(): HasMany

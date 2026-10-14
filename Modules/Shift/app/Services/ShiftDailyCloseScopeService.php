@@ -49,6 +49,7 @@ class ShiftDailyCloseScopeService
             ->whereHas('shift', fn ($query) => $query->where('branch_id', $day->branch_id))
             ->where(function ($active) {
                 $active->where('status', '!=', 'not_started')
+                    ->orWhereHas('notWorkedHistory')
                     ->orWhereHas('handover')
                     ->orWhereIn('id', DB::table('shift_report_aggregates')->where('source_type', 'cashier_shift')->select('source_id'));
             });
@@ -58,6 +59,17 @@ class ShiftDailyCloseScopeService
         }
 
         $cashierShiftIds = $cashierShiftQuery->orderBy('id')->pluck('id')->map(fn ($id) => (string) $id)->all();
+        // Keep the existing scope predicate for ordinary canceled/financial rows.
+        // Explicit no-work facts are excluded only after integrity/evidence checks.
+        $marked = CashierShift::withoutEagerLoads()->whereIn('id', $cashierShiftIds)
+            ->whereHas('notWorkedHistory')->orderBy('id');
+        if ($lock) {
+            $marked->lockForUpdate();
+        }
+        foreach ($marked->get() as $noWork) {
+            app(ShiftNotWorkedGuard::class)->assertExcluded($noWork);
+            $cashierShiftIds = array_values(array_diff($cashierShiftIds, [(string) $noWork->id]));
+        }
         sort($cashierShiftIds);
 
         $handoverIds = [];

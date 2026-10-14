@@ -25,6 +25,7 @@ class ShiftDetailResource extends JsonResource
             'status' => $this->status?->value ?? $this->status,
             'status_label' => $this->getStatusLabel(),
             'report_review' => app(\Modules\Shift\Services\ShiftReportReviewService::class)->reportState($this->id),
+            'not_worked' => $this->resource->notWorkedOutcome(),
 
             // Section A: Shift Progress
             'shift_progress' => $this->getShiftProgress(),
@@ -394,6 +395,7 @@ class ShiftDetailResource extends JsonResource
             'can_end' => $status === 'in_progress',
             'can_handover' => $status === 'in_progress' || ($status === 'completed' && ! $this->handoverStatus?->isManagerApproved()),
             'can_reassign' => in_array($status, ['not_started', 'reassigned']),
+            'can_mark_not_worked' => app(\Modules\Shift\Services\ShiftNotWorkedGuard::class)->canMark($this->resource, auth()->user()),
             'can_view_details' => true,
             'can_approve_handover' => $this->handoverStatus?->canBeApproved() ?? false,
             'can_reject_handover' => $this->handoverStatus?->canBeRejected() ?? false,
@@ -429,6 +431,10 @@ class ShiftDetailResource extends JsonResource
      */
     private function getStatusLabel(): string
     {
+        if ($this->resource->notWorkedOutcome() !== null) {
+            return 'لم تعمل';
+        }
+
         return match ($this->status?->value ?? 'not_started') {
             'not_started' => 'Not Started',
             'in_progress' => 'In Progress',

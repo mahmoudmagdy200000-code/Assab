@@ -83,6 +83,7 @@ class PendingShiftController extends BaseController
                     'shift' => new ShiftDetailResource($shiftDetails),
                     'progress' => $progress,
                     'actions_available' => [
+                        'mark_not_worked' => app(\Modules\Shift\Services\ShiftNotWorkedGuard::class)->canMark($shiftDetails, auth()->user()),
                         'view_details' => true,
                         'reassign_shift' => true,
                         'start_shift' => $shiftDetails->shift_date->isToday(),

@@ -20,6 +20,7 @@ class CashierShiftResource extends JsonResource
             'id' => $this->id,
             'shift_date' => $this->shift_date?->format('Y-m-d'),
             'status' => $status,
+            'not_worked' => $this->resource->notWorkedOutcome(),
 
             // Cashier Info
             'cashier' => [

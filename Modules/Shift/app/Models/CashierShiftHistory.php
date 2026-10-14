@@ -23,6 +23,7 @@ class CashierShiftHistory extends Model
         'old_value',
         'new_value',
         'notes',
+        'created_at',
     ];
 
     protected $casts = [
@@ -74,6 +75,7 @@ class CashierShiftHistory extends Model
     public function getActionLabel(): string
     {
         return match ($this->action) {
+            'marked_not_worked' => 'لم تعمل',
             'assigned' => 'Assigned',
             'started' => 'Started',
             'completed' => 'Completed',
