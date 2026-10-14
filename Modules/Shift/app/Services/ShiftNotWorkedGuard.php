@@ -231,7 +231,11 @@ final class ShiftNotWorkedGuard
 
     public function assertMutable(CashierShift $shift): void
     {
-        if ($shift->notWorkedHistory()->exists()) {
+        // Integration hardening (I6-01 follow-up): inside a transaction this must be a locking read. A plain
+        // exists() is a consistent read against the REPEATABLE READ snapshot, so a mutation transaction that
+        // began (e.g. under the idempotency wrapper) before a no-work mark committed would not see the fact
+        // even though the locked shift re-read already blocked until that commit.
+        if ($this->hasRow($shift->notWorkedHistory()->toBase())) {
             throw new ConflictHttpException('SHIFT_MARKED_NOT_WORKED');
         }
     }
