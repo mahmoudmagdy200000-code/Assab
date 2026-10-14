@@ -21,9 +21,15 @@ class EnsureAdminAccessToken
         $token = $bearer ? PersonalAccessToken::findToken($bearer) : null;
 
         // Missing/invalid proof remains the existing guard/controller's responsibility.
-        // Genuinely familyless tokens retain their legacy authentication contract.
-        if (! $token || $token->session_id === null) {
+        if (! $token) {
             return $next($request);
+        }
+
+        // A legacy familyless Refresh credential is rotation/logout proof, never
+        // API access proof. Name is the durable legacy discriminator because both
+        // historical Access and Refresh credentials may carry wildcard abilities.
+        if ($token->session_id === null) {
+            return $token->name === 'refresh' ? $this->deny() : $next($request);
         }
 
         // Inspect stored proof directly: Sanctum discards expired bearers, and a

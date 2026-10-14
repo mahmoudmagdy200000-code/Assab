@@ -358,6 +358,26 @@ class AdminSessionRefreshTest extends TestCase
         $this->assertSame(2, $this->adminUser->tokens()->count());
     }
 
+    public function test_legacy_refresh_successor_cannot_resurrect_after_access_logout(): void
+    {
+        config(['admin.session_families_enabled' => false]);
+        $initial = $this->adminUser->createToken('refresh');
+        $rotated = $this->authService->refresh($initial->plainTextToken);
+
+        $this->withToken($rotated['accessToken'])
+            ->postJson('/api/v1/auth/logout')
+            ->assertNoContent();
+
+        $this->assertSame(
+            0,
+            $this->adminUser->tokens()->whereNull('session_id')->whereIn('name', ['access', 'refresh'])->count(),
+        );
+        $this->postJson('/api/v1/auth/refresh', ['refreshToken' => $rotated['refreshToken']])
+            ->assertStatus(401)
+            ->assertJsonPath('error.code', 'INVALID_TOKEN');
+        $this->assertSame(0, $this->adminUser->tokens()->count());
+    }
+
     public function test_legacy_rotation_rolls_back_deleted_token_and_successors(): void
     {
         $token = $this->adminUser->createToken('refresh');

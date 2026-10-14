@@ -741,7 +741,49 @@ class AuthService
 
         // Case A: Genuinely familyless legacy token
         if ($token->session_id === null) {
-            $token->delete();
+            DB::transaction(function () use ($user, $token) {
+                $lockedUser = AsabUser::where('id', $user->id)->lockForUpdate()->first();
+                if (! $lockedUser) {
+                    return;
+                }
+
+                // Include the presented credential in the same deterministic lock
+                // pass even when it is unrelated to the legacy Admin token pair.
+                $lockedTokens = $lockedUser->tokens()
+                    ->where(function ($query) use ($token) {
+                        $query->where('id', $token->id)
+                            ->orWhere(function ($legacy) {
+                                $legacy->whereNull('session_id')
+                                    ->whereIn('name', ['access', 'refresh']);
+                            });
+                    })
+                    ->orderBy('id', 'asc')
+                    ->lockForUpdate()
+                    ->get();
+
+                /** @var PersonalAccessToken|null $presentedToken */
+                $presentedToken = $lockedTokens->firstWhere('id', $token->id);
+                if (! $presentedToken
+                    || (string) $presentedToken->tokenable_id !== (string) $lockedUser->id
+                    || $presentedToken->tokenable_type !== $lockedUser->getMorphClass()
+                    || ! hash_equals($token->token, $presentedToken->token)
+                    || $presentedToken->session_id !== null) {
+                    return;
+                }
+
+                if ($presentedToken->name !== 'access') {
+                    // Preserve the legacy behavior for impersonation and other
+                    // unrelated familyless credentials: revoke only the bearer.
+                    $presentedToken->delete();
+
+                    return;
+                }
+
+                $lockedTokens
+                    ->filter(fn (PersonalAccessToken $lockedToken) => $lockedToken->session_id === null
+                        && in_array($lockedToken->name, ['access', 'refresh'], true))
+                    ->each->delete();
+            });
 
             return;
         }
@@ -788,22 +830,53 @@ class AuthService
             throw new AsabException('INVALID_TOKEN', 'Invalid refresh token', 'رمز التحديث غير صالح', 401);
         }
 
-        if ($onUserResolved) {
-            $onUserResolved($candidateUser);
-        }
-
         // Case A: Legacy familyless token
         if ($candidateToken->session_id === null) {
-            if ($candidateToken->abilities !== ['*'] && ! in_array('admin:refresh', $candidateToken->abilities, true)) {
-                throw new AsabException('INVALID_TOKEN', 'Invalid refresh token abilities', 'صلاحيات الرمز غير صحيحة', 401);
-            }
-            $candidateToken->delete();
+            DB::transaction(function () use ($candidateToken, $candidateUser, $onUserResolved) {
+                // Match refresh rotation and credential mutation: User -> Tokens.
+                $user = AsabUser::where('id', $candidateUser->id)->lockForUpdate()->first();
+                if (! $user) {
+                    throw new AsabException('INVALID_TOKEN', 'User not found', 'المستخدم غير موجود', 401);
+                }
+
+                $lockedTokens = $user->tokens()
+                    ->whereNull('session_id')
+                    ->whereIn('name', ['access', 'refresh'])
+                    ->orderBy('id', 'asc')
+                    ->lockForUpdate()
+                    ->get();
+
+                /** @var PersonalAccessToken|null $refreshProof */
+                $refreshProof = $lockedTokens->firstWhere('id', $candidateToken->id);
+                if (! $refreshProof
+                    || (string) $refreshProof->tokenable_id !== (string) $user->id
+                    || $refreshProof->tokenable_type !== $user->getMorphClass()
+                    || ! hash_equals($candidateToken->token, $refreshProof->token)
+                    || $refreshProof->name !== 'refresh'
+                    || $refreshProof->session_id !== null) {
+                    throw new AsabException('INVALID_TOKEN', 'Refresh token already consumed or changed', 'رمز التحديث مستهلك أو غير صالح', 401);
+                }
+
+                if ($refreshProof->abilities !== ['*'] && ! in_array('admin:refresh', $refreshProof->abilities, true)) {
+                    throw new AsabException('INVALID_TOKEN', 'Invalid refresh token abilities', 'صلاحيات الرمز غير صحيحة', 401);
+                }
+
+                if ($refreshProof->expires_at && now()->greaterThanOrEqualTo($refreshProof->expires_at)) {
+                    throw new AsabException('SESSION_EXPIRED', 'Refresh token expired', 'انتهت صلاحية رمز التحديث', 401);
+                }
+
+                if ($onUserResolved) {
+                    $onUserResolved($user);
+                }
+
+                $lockedTokens->each->delete();
+            });
 
             return;
         }
 
         // Case B: Family-linked token: User -> Session -> Tokens lock ordering
-        DB::transaction(function () use ($candidateToken, $candidateUser) {
+        DB::transaction(function () use ($candidateToken, $candidateUser, $onUserResolved) {
             // Lock 1: User
             $user = AsabUser::where('id', $candidateUser->id)->lockForUpdate()->first();
             if (! $user) {
@@ -861,12 +934,25 @@ class AuthService
                 throw new AsabException('INVALID_TOKEN', 'Refresh token not found', 'رمز التحديث غير موجود', 401);
             }
 
+            if ((int) $currentRefreshToken->id !== (int) $candidateToken->id
+                || (string) $currentRefreshToken->tokenable_id !== (string) $user->id
+                || $currentRefreshToken->tokenable_type !== $user->getMorphClass()
+                || ! hash_equals($candidateToken->token, $currentRefreshToken->token)
+                || $currentRefreshToken->name !== 'refresh'
+                || (string) $currentRefreshToken->session_id !== (string) $session->id) {
+                throw new AsabException('INVALID_TOKEN', 'Refresh token already consumed or changed', 'رمز التحديث مستهلك أو غير صالح', 401);
+            }
+
             if ($currentRefreshToken->abilities !== ['admin:refresh']) {
                 throw new AsabException('INVALID_TOKEN', 'Invalid refresh token abilities', 'صلاحيات الرمز غير صحيحة', 401);
             }
 
             if ($currentRefreshToken->expires_at && $now->greaterThanOrEqualTo($currentRefreshToken->expires_at)) {
                 throw new AsabException('SESSION_EXPIRED', 'Refresh token expired', 'انتهت صلاحية رمز التحديث', 401);
+            }
+
+            if ($onUserResolved) {
+                $onUserResolved($user);
             }
 
             // Mark session revoked

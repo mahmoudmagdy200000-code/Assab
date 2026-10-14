@@ -172,13 +172,13 @@ class AdminAccessTokenBoundaryTest extends TestCase
         $this->assertSame(0, PersonalAccessToken::where('session_id', $this->family['sessionId'])->count());
     }
 
-    public static function legacyCases(): array
+    public static function legacyAccessCases(): array
     {
-        return [['access', false], ['refresh', false], ['access', true], ['refresh', true]];
+        return [['access', false], ['access', true]];
     }
 
-    #[DataProvider('legacyCases')]
-    public function test_familyless_behavior_is_preserved(string $name, bool $flag): void
+    #[DataProvider('legacyAccessCases')]
+    public function test_familyless_access_compatibility_is_preserved(string $name, bool $flag): void
     {
         config(['admin.session_families_enabled' => $flag]);
         $legacy = $this->user->createToken($name);
@@ -187,6 +187,48 @@ class AdminAccessTokenBoundaryTest extends TestCase
         $this->withToken($legacy->plainTextToken)->postJson('/api/v1/auth/logout')->assertNoContent();
         $this->assertNull(PersonalAccessToken::find($legacy->accessToken->id));
         $this->assertNull(AdminSession::find($this->family['sessionId'])->revoked_at);
+    }
+
+    public static function familylessRefreshCases(): array
+    {
+        return [
+            [false, ['*']],
+            [false, ['admin:refresh']],
+            [true, ['*']],
+            [true, ['admin:refresh']],
+        ];
+    }
+
+    #[DataProvider('familylessRefreshCases')]
+    public function test_familyless_refresh_bearer_is_denied_on_protected_admin_apis(bool $flag, array $abilities): void
+    {
+        config(['admin.session_families_enabled' => $flag]);
+        $legacy = $this->user->createToken('refresh', $abilities);
+        $before = $this->state();
+
+        foreach (['/api/v1/auth/me', '/api/v1/auth/sessions', '/api/v1/admin/companies'] as $path) {
+            $this->app['auth']->forgetGuards();
+            $this->withToken($legacy->plainTextToken)->getJson($path)
+                ->assertStatus(401)
+                ->assertJsonPath('error.code', 'INVALID_TOKEN');
+        }
+
+        $this->assertSame($before, $this->state());
+    }
+
+    #[DataProvider('familylessRefreshCases')]
+    public function test_familyless_refresh_bearer_cannot_enter_logout_even_with_valid_body_proof(bool $flag, array $abilities): void
+    {
+        config(['admin.session_families_enabled' => $flag]);
+        $legacy = $this->user->createToken('refresh', $abilities);
+        $before = $this->state();
+
+        $this->withToken($legacy->plainTextToken)
+            ->postJson('/api/v1/auth/logout', ['refreshToken' => $legacy->plainTextToken])
+            ->assertStatus(401)
+            ->assertJsonPath('error.code', 'INVALID_TOKEN');
+
+        $this->assertSame($before, $this->state());
     }
 
     public function test_feature_flag_off_does_not_downgrade_family_boundary(): void
