@@ -52,12 +52,16 @@ class CashierShiftFactory extends Factory
 
     public function completed(): static
     {
-        $totalSales = $this->faker->randomFloat(2, 1000, 10000);
+        $totalSalesHalalas = $this->faker->numberBetween(100000, 1000000);
+        $cashCollectedHalalas = $this->faker->numberBetween(50000, min(500000, $totalSalesHalalas));
+        $cardPaymentsHalalas = $totalSalesHalalas - $cashCollectedHalalas;
+
+        $totalSales = number_format($totalSalesHalalas / 100, 2, '.', '');
         $salesCalculation = ShiftFinancialCalculator::calculateVatInclusiveSales($totalSales);
         $vatAmount = $salesCalculation['vat'];
         $netSales = $salesCalculation['net'];
-        $cashCollected = $this->faker->randomFloat(2, 500, 5000);
-        $cardPayments = $totalSales - $cashCollected;
+        $cashCollected = number_format($cashCollectedHalalas / 100, 2, '.', '');
+        $cardPayments = number_format($cardPaymentsHalalas / 100, 2, '.', '');
 
         return $this->state(fn (array $attributes) => [
             'status' => ShiftStatus::COMPLETED,
