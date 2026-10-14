@@ -55,7 +55,7 @@ trait Pkg6ReviewFixture
             'legacy_shift_id' => $this->source->id, 'cashier_name' => 'PKG6 Cashier', 'shift_type' => 'test',
             'status' => 'pending_review', 'sales_amount' => 10000, 'cash_count_state' => 'counted',
             'cash_actual' => 10000, 'cash_expected' => 10000, 'variance' => 0]);
-        $this->operation = Operation::create(['public_id' => 'SHF-'.Str::uuid(), 'company_id' => $company->id,
+        $this->operation = Operation::create(['public_id' => 'SHF-'.strtoupper(Str::random(10)), 'company_id' => $company->id,
             'branch_id' => $branch->id, 'module_key' => 'shifts', 'origin' => 'mobile', 'status' => 'pending',
             'payload' => ['shiftId' => $admin->id, 'legacyShiftId' => $this->source->id,
                 'salesHalalas' => 10000, 'cardTotalHalalas' => 0, 'aggregatorTotalsHalalas' => 0,
@@ -109,7 +109,7 @@ class Pkg6ApprovalStageGuardTest extends TestCase
     public function test_ambiguous_original_operation_is_refused(): void
     {
         $copy = $this->operation->replicate();
-        $copy->public_id = 'SHF-'.Str::uuid();
+        $copy->public_id = 'SHF-'.strtoupper(Str::random(10));
         $copy->save();
         $this->refused('REPORT_OPERATION_MAPPING_REQUIRED');
     }

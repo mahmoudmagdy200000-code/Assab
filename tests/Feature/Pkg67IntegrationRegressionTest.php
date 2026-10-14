@@ -19,7 +19,6 @@ use Modules\Shift\Models\ShiftReportCashCount;
 use Modules\Shift\Services\AccountantReportCorrectionService;
 use Modules\Shift\Services\ShiftNotWorkedService;
 use Modules\Shift\Services\ShiftReportCorrectionService;
-use Modules\Shift\Services\ShiftReportReviewService;
 use Modules\Shift\Transformers\ShiftDetailResource;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Tests\TestCase;
@@ -31,7 +30,7 @@ use Tests\TestCase;
  */
 class Pkg67IntegrationRegressionTest extends TestCase
 {
-    use RefreshDatabase, Pkg6ReviewFixture;
+    use Pkg6ReviewFixture, RefreshDatabase;
 
     private ?object $actor = null;
 

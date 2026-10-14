@@ -46,7 +46,7 @@ class Pkg6FinalityAndDayMembershipTest extends TestCase
         $admin->legacy_shift_id = $source->id;
         $admin->save();
         $operation = $this->operation->replicate();
-        $operation->public_id = 'SHF-'.Str::uuid();
+        $operation->public_id = 'SHF-'.strtoupper(Str::random(10));
         $payload = $operation->payload;
         $payload['shiftId'] = $admin->id;
         $payload['legacyShiftId'] = $source->id;
