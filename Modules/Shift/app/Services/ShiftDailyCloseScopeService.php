@@ -61,10 +61,17 @@ class ShiftDailyCloseScopeService
         $cashierShiftIds = $cashierShiftQuery->orderBy('id')->pluck('id')->map(fn ($id) => (string) $id)->all();
         // Keep the existing scope predicate for ordinary canceled/financial rows.
         // Explicit no-work facts are excluded only after integrity/evidence checks.
-        $marked = CashierShift::withoutEagerLoads()->whereIn('id', $cashierShiftIds)
-            ->whereHas('notWorkedHistory')->orderBy('id');
+        $marked = CashierShift::withoutEagerLoads()->whereIn('id', $cashierShiftIds)->orderBy('id');
         if ($lock) {
-            $marked->lockForUpdate();
+            // Integration hardening: a whereHas() sub-select is a consistent read against the REPEATABLE READ
+            // snapshot, so a no-work mark committed while this close waited on locks would be missed and the
+            // marked shift would stay in the close scope. Read the fact with a locking read instead.
+            $markedIds = DB::table('cashier_shift_history')->whereIn('cashier_shift_id', $cashierShiftIds)
+                ->where('action', 'marked_not_worked')->orderBy('id')->lockForUpdate()
+                ->pluck('cashier_shift_id')->map(fn ($id) => (string) $id)->unique()->values()->all();
+            $marked->whereIn('id', $markedIds)->lockForUpdate();
+        } else {
+            $marked->whereHas('notWorkedHistory');
         }
         foreach ($marked->get() as $noWork) {
             app(ShiftNotWorkedGuard::class)->assertExcluded($noWork);

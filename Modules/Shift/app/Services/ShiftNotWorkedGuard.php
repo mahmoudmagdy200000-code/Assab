@@ -208,7 +208,8 @@ final class ShiftNotWorkedGuard
     /** Exclusion requires a consistent terminal row AND a complete explicit audit fact. */
     public function assertExcluded(CashierShift $shift): void
     {
-        $facts = $shift->notWorkedHistory()->get();
+        // Locking read in a transaction: a snapshot read could miss a fact committed while the caller waited on locks.
+        $facts = DB::transactionLevel() > 0 ? $shift->notWorkedHistory()->lockForUpdate()->get() : $shift->notWorkedHistory()->get();
         $fact = $facts->first();
         $value = $fact?->new_value;
         if (is_string($value)) {
