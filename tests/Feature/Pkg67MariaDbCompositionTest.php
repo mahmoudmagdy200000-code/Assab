@@ -36,10 +36,27 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--pkg67-worker') {
         $manager = fn () => \Modules\BranchManagers\Models\BranchManager::findOrFail($in['manager']);
         $accountant = fn () => \Modules\Admin\Models\AsabUser::findOrFail($in['accountant'] ?? '');
         $touch('ready');
-        if (! in_array($in['command'], ['stale_correct', 'stale_scope'], true)) {
+        if (! in_array($in['command'], ['stale_correct', 'stale_scope', 'stale_manager_correct', 'stale_submit', 'stale_recount'], true)) {
             $wait('go');
         }
         $started = microtime(true);
+        $hold = (bool) ($in['hold'] ?? false);
+        if ($hold) {
+            // Own the outer transaction like the transactional idempotency wrapper does, and commit only on release.
+            \Illuminate\Support\Facades\DB::beginTransaction();
+        }
+        $submit = function () use ($manager, $in): array {
+            $token = $manager()->createToken('pkg67 submit')->plainTextToken;
+            $request = \Illuminate\Http\Request::create('/api/v1/branch-manager/workday/daily-close/submit', 'POST', [], [], [], [
+                'HTTP_AUTHORIZATION' => 'Bearer '.$token, 'HTTP_ACCEPT' => 'application/json', 'CONTENT_TYPE' => 'application/json',
+                'HTTP_IDEMPOTENCY_KEY' => $in['key'] ?? (string) \Illuminate\Support\Str::uuid(),
+            ], json_encode(['expected_revision' => (int) $in['revision'], 'final_notes' => 'Two-connection daily close'], JSON_THROW_ON_ERROR));
+            $response = app(\Illuminate\Contracts\Http\Kernel::class)->handle($request);
+            $body = json_decode($response->getContent(), true);
+
+            return ['status' => $response->getStatusCode() === 200 ? 'ok' : 'rejected', 'http' => $response->getStatusCode(),
+                'code' => $body['code'] ?? ($body['message'] ?? null), 'body' => $body];
+        };
         switch ($in['command']) {
             case 'mark':
                 app(\Modules\Shift\Services\ShiftNotWorkedService::class)->mark($shift($in['shift']), $manager(), 'Two-connection no-work');
@@ -69,6 +86,62 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--pkg67-worker') {
                     \Illuminate\Support\Facades\DB::rollBack();
                 }
                 break;
+            case 'manager_correct':
+                $revision = app(\Modules\Shift\Services\ShiftReportCorrectionService::class)->correctCashierReport(
+                    $shift($in['shift']), $manager(), ['handover_notes' => 'Verified document'], (int) ($in['revision'] ?? 1),
+                    'Two-connection manager correction', (string) \Illuminate\Support\Str::uuid(), null, true);
+                $result = ['status' => 'ok', 'revision' => $revision->revision_number];
+                break;
+            case 'recount':
+                $count = app(\Modules\Shift\Services\ShiftTransferAttemptService::class)->recount(
+                    $shift($in['shift']), \Modules\Cashier\Models\Cashier::findOrFail($in['cashier']), 10000);
+                $result = ['status' => 'ok', 'counted' => $count->counted_halalas];
+                break;
+            case 'submit':
+                $result = $submit();
+                break;
+            case 'stale_submit':
+                // The real daily-close request inside a transaction whose snapshot predates a committed no-work mark.
+                \Illuminate\Support\Facades\DB::beginTransaction();
+                \Illuminate\Support\Facades\DB::table('cashier_shifts')->where('id', $in['shift'])->first();
+                $touch('snapshot');
+                $wait('marked');
+                try {
+                    $result = $submit();
+                    $result['lock_ids'] = \Illuminate\Support\Facades\DB::table('shift_liability_daily_locks')->where('branch_manager_shift_id', $in['day'])
+                        ->whereNull('released_at')->whereNull('superseded_at')->orderBy('cashier_shift_id')->pluck('cashier_shift_id')->all();
+                } finally {
+                    \Illuminate\Support\Facades\DB::rollBack();
+                }
+                break;
+            case 'stale_recount':
+                \Illuminate\Support\Facades\DB::beginTransaction();
+                \Illuminate\Support\Facades\DB::table('cashier_shifts')->where('id', $in['shift'])->first();
+                $touch('snapshot');
+                $wait('marked');
+                try {
+                    $count = app(\Modules\Shift\Services\ShiftTransferAttemptService::class)->recount(
+                        $shift($in['shift']), \Modules\Cashier\Models\Cashier::findOrFail($in['cashier']), 10000);
+                    $result = ['status' => 'PASSED_FENCE', 'counted' => $count->counted_halalas];
+                } finally {
+                    \Illuminate\Support\Facades\DB::rollBack();
+                }
+                break;
+            case 'stale_manager_correct':
+                // The real returned-report manager correction inside a transaction whose snapshot predates a commit.
+                \Illuminate\Support\Facades\DB::beginTransaction();
+                \Illuminate\Support\Facades\DB::table('cashier_shifts')->where('id', $in['shift'])->first();
+                $touch('snapshot');
+                $wait('marked');
+                try {
+                    $revision = app(\Modules\Shift\Services\ShiftReportCorrectionService::class)->correctCashierReport(
+                        $shift($in['shift']), $manager(), ['handover_notes' => 'Verified document'], (int) ($in['revision'] ?? 1),
+                        'Stale-snapshot manager correction', (string) \Illuminate\Support\Str::uuid(), null, true);
+                    $result = ['status' => 'PASSED_FENCE', 'revision' => $revision->revision_number];
+                } finally {
+                    \Illuminate\Support\Facades\DB::rollBack();
+                }
+                break;
             case 'stale_scope':
                 // Day-close discovery inside a transaction whose snapshot predates a committed no-work mark.
                 \Illuminate\Support\Facades\DB::beginTransaction();
@@ -86,8 +159,16 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--pkg67-worker') {
             default:
                 throw new \LogicException('Unsupported worker command');
         }
+        if ($hold) {
+            $touch('held');
+            $wait('release', 45.0);
+            \Illuminate\Support\Facades\DB::commit();
+        }
         $result['ms'] = (int) ((microtime(true) - $started) * 1000);
     } catch (\Throwable $error) {
+        while (\Illuminate\Support\Facades\DB::transactionLevel() > 0) {
+            \Illuminate\Support\Facades\DB::rollBack();
+        }
         $result = $classify($error);
     }
     $touch('result');
@@ -279,6 +360,397 @@ class Pkg67MariaDbCompositionTest extends TestCase
         foreach ($results as $result) {
             $this->assertNotSame('INFRA_LOCK_ERROR', $result['status'], json_encode($result));
         }
+    }
+
+    /** A scope whose report A is officially returned to the manager (BRC-07 manager_returned), same SHF identity. */
+    private function returnedScope(): array
+    {
+        $s = $this->scope(approved: true);
+        $service = app(OperationService::class);
+        $returned = $service->returnForReview($s['operation']->fresh(), $s['head'], 'Verify report evidence');
+        $s['operation'] = $service->reject($returned, $s['accountant'],
+            array_key_first(\Modules\Admin\Support\OperationEnums::rejectionReasons('shifts')), 'Manager must verify');
+        $this->assertSame('manager_returned', $s['operation']->payload['pkg6Review']['phase']);
+
+        return $s;
+    }
+
+    /** An open workday with one finished, balanced report (S1) and one untouched assignment (U), ready for submission. */
+    private function dayFixture(): array
+    {
+        $s = $this->openDay();
+        // The sales bridge attributes the day statement to a company accountant (NO_ASAB_ACTOR otherwise).
+        $tag = Str::lower(Str::random(8));
+        $accountant = AsabUser::create(['company_id' => $s['company']->id, 'name' => 'Accountant', 'email' => "dayacc-$tag@test.invalid", 'password' => 'test', 'status' => 'active']);
+        AsabUserRole::create(['user_id' => $accountant->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        $template = Shift::factory()->create(['branch_id' => $s['branch']->id, 'start_time' => '06:00:00', 'end_time' => '10:00:00']);
+        $a = CashierShift::withoutEvents(fn () => CashierShift::factory()->completed()->create([
+            'cashier_id' => $s['cashier']->id, 'shift_id' => $template->id, 'shift_date' => today(),
+            'total_sales' => '100.00', 'card_payments' => '0.00', 'cash_collected' => '100.00']));
+        DB::transaction(function () use ($a, $s) {
+            $revision = app(ShiftReportRevisionService::class)->recordCashierRevision($a, 'cashier', $s['cashier']->id);
+            app(ShiftCashCountService::class)->record($a, $revision, 10000, 0, 0, 10000);
+        });
+        $dayRevision = DB::transaction(fn () => app(ShiftReportRevisionService::class)->recordManagerRevision($s['day'], 'branch_manager', (string) $s['manager']->id, null));
+        $s['a'] = $a;
+        $s['u'] = $this->untouched($s, today());
+        $s['dayRevision'] = $dayRevision->revision_number;
+
+        return $s;
+    }
+
+    /** Everything the submitted day must keep immutable, as one comparable value. */
+    private function daySnapshot(array $s): array
+    {
+        $day = DB::table('branch_manager_shifts')->where('id', $s['day']->id)->first();
+
+        return [
+            'submitted' => (bool) $day->daily_report_submitted,
+            'locks' => DB::table('shift_liability_daily_locks')->where('branch_manager_shift_id', $s['day']->id)->whereNull('released_at')->whereNull('superseded_at')
+                ->orderBy('cashier_shift_id')->get(['cashier_shift_id', 'report_revision', 'allocation_version'])->map(fn ($row) => (array) $row)->all(),
+            'sales_operations' => Operation::where('module_key', 'sales')->where('payload->managerShiftId', $s['day']->id)->count(),
+            'u_locks' => DB::table('shift_liability_daily_locks')->where('cashier_shift_id', $s['u']->id)->count(),
+            'u_aggregates' => DB::table('shift_report_aggregates')->where('source_id', $s['u']->id)->count(),
+            'allocations' => DB::table('shift_liability_allocations')->whereIn('cashier_shift_id', [$s['a']->id, $s['u']->id])->count(),
+            'postings' => DB::table('shift_liability_postings')->whereIn('cashier_shift_id', [$s['a']->id, $s['u']->id])->count(),
+            'custody' => DB::table('cashier_custody_transactions')->whereIn('related_shift_id', [$s['a']->id, $s['u']->id])->count(),
+            'u_status' => DB::table('cashier_shifts')->where('id', $s['u']->id)->value('status'),
+            'u_history' => DB::table('cashier_shift_history')->where('cashier_shift_id', $s['u']->id)->where('action', 'marked_not_worked')->count(),
+            'a_revisions' => DB::table('shift_report_revisions as r')->join('shift_report_aggregates as g', 'g.id', '=', 'r.report_aggregate_id')
+                ->where('g.source_type', 'cashier_shift')->where('g.source_id', $s['a']->id)->count(),
+            'a_counts' => DB::table('shift_report_cash_counts')->where('cashier_shift_id', $s['a']->id)->count(),
+            'day_revisions' => DB::table('shift_report_revisions as r')->join('shift_report_aggregates as g', 'g.id', '=', 'r.report_aggregate_id')
+                ->where('g.source_type', 'branch_manager_shift')->where('g.source_id', $s['day']->id)->count(),
+        ];
+    }
+
+    private function submitInProcess(array $s, ?string $key = null)
+    {
+        return $this->actingAs($s['manager'], 'sanctum')->postJson('/api/v1/branch-manager/workday/daily-close/submit',
+            ['expected_revision' => $s['dayRevision'], 'final_notes' => 'control'], ['Idempotency-Key' => $key ?? (string) Str::uuid()]);
+    }
+
+    /** Start $holder with its transaction held open after its work, then start $other against it, then release the holder. */
+    private function holdThen(array $holder, array $other): array
+    {
+        $barrier = storage_path('framework/testing/pkg67-'.Str::uuid());
+        if (! is_dir(dirname($barrier))) {
+            mkdir(dirname($barrier), 0700, true);
+        }
+        $this->barriers[] = $barrier;
+        [$p1, $b1] = $this->launch($holder + ['hold' => true, 'barrier' => $barrier.'.1']);
+        $this->waitFor($b1.'.ready', $p1);
+        file_put_contents($b1.'.go', 'go');
+        $this->waitFor($b1.'.held', $p1, 40.0);
+        [$p2, $b2] = $this->launch($other + ['barrier' => $barrier.'.2']);
+        $this->waitFor($b2.'.ready', $p2);
+        file_put_contents($b2.'.go', 'go');
+        usleep(2_000_000);
+        $blocked = ! file_exists($b2.'.result');
+        file_put_contents($b1.'.release', 'x');
+        $p1->wait();
+        $p2->wait();
+        $this->assertSame(0, $p1->getExitCode(), $p1->getErrorOutput());
+        $this->assertSame(0, $p2->getExitCode(), $p2->getErrorOutput());
+
+        return [json_decode(file_get_contents($b1.'.json'), true), json_decode(file_get_contents($b2.'.json'), true), $blocked];
+    }
+
+    private function submitCommand(array $s, array $extra = []): array
+    {
+        return $extra + ['command' => 'submit', 'manager' => $s['manager']->id, 'revision' => $s['dayRevision']];
+    }
+
+    private function markCommand(array $s, $target): array
+    {
+        return ['command' => 'mark', 'manager' => $s['manager']->id, 'shift' => $target->id];
+    }
+
+    public function test_control_the_day_fixture_submits_through_the_real_route(): void
+    {
+        $s = $this->dayFixture();
+        $response = $this->submitInProcess($s);
+        $this->assertSame(200, $response->getStatusCode(), $response->getContent());
+        $snapshot = $this->daySnapshot($s);
+        $this->assertTrue($snapshot['submitted']);
+        $this->assertCount(1, $snapshot['locks']);
+        $this->assertSame($s['a']->id, $snapshot['locks'][0]['cashier_shift_id']);
+        $this->assertSame(1, $snapshot['sales_operations']);
+        $this->assertSame(0, $snapshot['u_locks']);
+    }
+
+    // ======================= R-01 A: no-work vs the real manager correction ================================
+
+    public function test_a1_stale_transaction_cannot_manager_correct_a_marked_not_worked_shift(): void
+    {
+        // Control: the very same stale worker passes the fence on a shift that was never marked, so the fence
+        // assertion below cannot be vacuous. The BRC-07 manager early-return path is live (manager_returned).
+        $s = $this->returnedScope();
+        $barrier = storage_path('framework/testing/pkg67-'.Str::uuid());
+        if (! is_dir(dirname($barrier))) {
+            mkdir(dirname($barrier), 0700, true);
+        }
+        $this->barriers[] = $barrier;
+        [$control, $controlBarrier] = $this->launch(['command' => 'stale_manager_correct', 'manager' => $s['manager']->id,
+            'shift' => $s['a']->id, 'revision' => 1, 'barrier' => $barrier.'.control']);
+        $this->waitFor($controlBarrier.'.snapshot', $control);
+        file_put_contents($controlBarrier.'.marked', 'x');
+        $control->wait();
+        $controlResult = json_decode(file_get_contents($controlBarrier.'.json'), true);
+        $this->assertSame('PASSED_FENCE', $controlResult['status'], 'Control must reach the correction through the early-return path: '.json_encode($controlResult));
+
+        // Treatment: the mark commits after the stale snapshot and before the correction runs.
+        $target = $this->untouched($s);
+        [$stale, $staleBarrier] = $this->launch(['command' => 'stale_manager_correct', 'manager' => $s['manager']->id,
+            'shift' => $target->id, 'revision' => 1, 'barrier' => $barrier.'.stale']);
+        $this->waitFor($staleBarrier.'.snapshot', $stale);
+        app(ShiftNotWorkedService::class)->mark($target, $s['manager'], 'Closed after the manager correction took its snapshot');
+        file_put_contents($staleBarrier.'.marked', 'x');
+        $stale->wait();
+        $result = json_decode(file_get_contents($staleBarrier.'.json'), true);
+        $this->assertNotSame('INFRA_LOCK_ERROR', $result['status'], json_encode($result));
+        $this->assertSame(['status' => 'conflict', 'code' => 'SHIFT_MARKED_NOT_WORKED'], array_intersect_key($result, array_flip(['status', 'code'])), json_encode($result));
+        $this->assertSame(1, $target->notWorkedHistory()->count());
+        $this->assertSame(0, DB::table('shift_report_aggregates')->where('source_id', $target->id)->count());
+    }
+
+    public function test_a2_no_work_vs_manager_correction_of_the_returned_report_never_deadlocks_and_keeps_history(): void
+    {
+        for ($i = 0; $i < 5; $i++) {
+            $s = $this->returnedScope();
+            $target = $this->untouched($s);
+            $revisionsBefore = DB::table('shift_report_revisions')->count();
+            // The returned report A is correctable; the untouched sibling is marked in parallel on the same cashier.
+            [$mark, $correct] = $this->race(
+                $this->markCommand($s, $target),
+                ['command' => 'manager_correct', 'manager' => $s['manager']->id, 'shift' => $s['a']->id, 'revision' => 1]);
+            $this->assertNoInfraLockErrors($mark, $correct);
+            $this->assertSame('ok', $mark['status'], json_encode($mark));
+            $this->assertSame('ok', $correct['status'], json_encode($correct));
+            $this->assertSame(2, $correct['revision']);
+            $this->assertSame(1, $target->notWorkedHistory()->count());
+            $this->assertSame(0, $s['a']->notWorkedHistory()->count());
+            $this->assertSame(2, DB::table('shift_report_revisions as r')->join('shift_report_aggregates as g', 'g.id', '=', 'r.report_aggregate_id')
+                ->where('g.source_id', $s['a']->id)->count(), 'Revision 1 must be preserved next to revision 2.');
+            $this->assertSame(0, DB::table('shift_report_aggregates')->where('source_id', $target->id)->count());
+        }
+    }
+
+    public function test_a3_marking_a_shift_that_has_a_report_is_rejected_while_the_manager_corrects_it(): void
+    {
+        for ($i = 0; $i < 4; $i++) {
+            $s = $this->returnedScope();
+            [$mark, $correct] = $this->race(
+                $this->markCommand($s, $s['a']),
+                ['command' => 'manager_correct', 'manager' => $s['manager']->id, 'shift' => $s['a']->id, 'revision' => 1]);
+            $this->assertNoInfraLockErrors($mark, $correct);
+            $this->assertSame('conflict', $mark['status'], 'A reported shift is ineligible for no-work: '.json_encode($mark));
+            $this->assertContains($mark['code'], ['SHIFT_NOT_WORKED_NOT_ELIGIBLE', 'SHIFT_NOT_WORKED_HAS_EVIDENCE', 'REPORT_REOPEN_REQUIRED']);
+            $this->assertSame('ok', $correct['status'], json_encode($correct));
+            $this->assertSame(0, $s['a']->notWorkedHistory()->count());
+            $this->assertNotSame('canceled', DB::table('cashier_shifts')->where('id', $s['a']->id)->value('status'));
+        }
+    }
+
+    public function test_a4_a_sibling_branch_manager_cannot_correct_through_the_early_return_path(): void
+    {
+        $s = $this->returnedScope();
+        $sibling = BranchManager::factory()->create(['branch_id' => Branch::factory()->create()->id]);
+        $target = $this->untouched($s);
+        [$mark, $correct] = $this->race(
+            $this->markCommand($s, $target),
+            ['command' => 'manager_correct', 'manager' => $sibling->id, 'shift' => $s['a']->id, 'revision' => 1]);
+        $this->assertNoInfraLockErrors($mark, $correct);
+        $this->assertSame('ok', $mark['status'], json_encode($mark));
+        $this->assertSame('conflict', $correct['status'], 'A manager of another branch must never correct this report: '.json_encode($correct));
+        $this->assertSame(1, DB::table('shift_report_revisions as r')->join('shift_report_aggregates as g', 'g.id', '=', 'r.report_aggregate_id')
+            ->where('g.source_id', $s['a']->id)->count());
+    }
+
+    // ======================= R-01 B: no-work vs the real physical recount ==================================
+
+    public function test_b1_no_work_vs_recount_rejects_marking_a_counted_shift_and_preserves_history(): void
+    {
+        for ($i = 0; $i < 4; $i++) {
+            $s = $this->dayFixture();
+            DB::table('shift_report_aggregates')->where('source_type', 'cashier_shift')->where('source_id', $s['a']->id)->update(['fresh_count_required' => true]);
+            $before = $this->daySnapshot($s);
+            [$mark, $recount] = $this->race(
+                $this->markCommand($s, $s['a']),
+                ['command' => 'recount', 'cashier' => $s['cashier']->id, 'shift' => $s['a']->id]);
+            $this->assertNoInfraLockErrors($mark, $recount);
+            $this->assertSame('conflict', $mark['status'], json_encode($mark));
+            $this->assertSame('ok', $recount['status'], json_encode($recount));
+            $after = $this->daySnapshot($s);
+            $this->assertSame($before['a_counts'] + 1, $after['a_counts'], 'The earlier count must stay; the recount adds a new one.');
+            $this->assertSame($before['a_revisions'] + 1, $after['a_revisions']);
+            foreach (['allocations', 'postings', 'custody', 'locks', 'sales_operations'] as $unchanged) {
+                $this->assertSame($before[$unchanged], $after[$unchanged], "$unchanged must not move on a recount");
+            }
+            $this->assertSame(0, $s['a']->notWorkedHistory()->count());
+            $this->assertNotSame('canceled', DB::table('cashier_shifts')->where('id', $s['a']->id)->value('status'));
+        }
+    }
+
+    public function test_b2_no_work_vs_recount_on_an_untouched_shift_has_one_winner_and_no_evidence(): void
+    {
+        for ($i = 0; $i < 4; $i++) {
+            $s = $this->dayFixture();
+            [$mark, $recount] = $this->race(
+                $this->markCommand($s, $s['u']),
+                ['command' => 'recount', 'cashier' => $s['cashier']->id, 'shift' => $s['u']->id]);
+            $this->assertNoInfraLockErrors($mark, $recount);
+            $this->assertSame('ok', $mark['status'], json_encode($mark));
+            $this->assertNotSame('ok', $recount['status'], 'A shift with no report can never be recounted: '.json_encode($recount));
+            $snapshot = $this->daySnapshot($s);
+            $this->assertSame(1, $snapshot['u_history']);
+            $this->assertSame(0, $snapshot['u_aggregates']);
+            $this->assertSame(0, DB::table('shift_report_cash_counts')->where('cashier_shift_id', $s['u']->id)->count());
+        }
+    }
+
+    public function test_b3_stale_transaction_cannot_recount_a_marked_not_worked_shift(): void
+    {
+        $s = $this->dayFixture();
+        $barrier = storage_path('framework/testing/pkg67-'.Str::uuid());
+        if (! is_dir(dirname($barrier))) {
+            mkdir(dirname($barrier), 0700, true);
+        }
+        $this->barriers[] = $barrier;
+        [$stale, $staleBarrier] = $this->launch(['command' => 'stale_recount', 'cashier' => $s['cashier']->id, 'shift' => $s['u']->id, 'barrier' => $barrier.'.r']);
+        $this->waitFor($staleBarrier.'.snapshot', $stale);
+        app(ShiftNotWorkedService::class)->mark($s['u'], $s['manager'], 'Closed after the recount took its snapshot');
+        file_put_contents($staleBarrier.'.marked', 'x');
+        $stale->wait();
+        $result = json_decode(file_get_contents($staleBarrier.'.json'), true);
+        $this->assertNotSame('INFRA_LOCK_ERROR', $result['status'], json_encode($result));
+        $this->assertSame('conflict', $result['status'], json_encode($result));
+        $this->assertSame(0, DB::table('shift_report_cash_counts')->where('cashier_shift_id', $s['u']->id)->count());
+        $this->assertSame(0, DB::table('shift_report_aggregates')->where('source_id', $s['u']->id)->count());
+    }
+
+    // ======================= R-01 C: no-work vs the real daily submission ==================================
+
+    private function assertSubmittedDayIsAuthoritative(array $s, bool $uMarkedBeforeSubmit): void
+    {
+        $snapshot = $this->daySnapshot($s);
+        $this->assertTrue($snapshot['submitted']);
+        $this->assertCount(1, $snapshot['locks'], 'Exactly the reported shift is a member: '.json_encode($snapshot['locks']));
+        $this->assertSame($s['a']->id, $snapshot['locks'][0]['cashier_shift_id']);
+        $this->assertSame(0, $snapshot['u_locks'], 'A not-worked shift carries no liability membership.');
+        $this->assertSame(1, $snapshot['sales_operations'], 'One sales statement per submitted day.');
+        $this->assertSame(0, $snapshot['u_aggregates']);
+        $this->assertSame($uMarkedBeforeSubmit ? 'canceled' : 'not_started', $snapshot['u_status']);
+        $this->assertSame($uMarkedBeforeSubmit ? 1 : 0, $snapshot['u_history']);
+    }
+
+    public function test_c1_mark_commits_first_then_the_real_submit_excludes_the_marked_shift(): void
+    {
+        $s = $this->dayFixture();
+        $reference = $this->dayFixture();
+        $this->assertSame(200, $this->submitInProcess($reference)->getStatusCode());
+        $referenceSnapshot = $this->daySnapshot($reference);
+
+        app(ShiftNotWorkedService::class)->mark($s['u'], $s['manager'], 'Closed before the day close');
+        $response = $this->submitInProcess($s);
+        $this->assertSame(200, $response->getStatusCode(), $response->getContent());
+        $this->assertSubmittedDayIsAuthoritative($s, true);
+        $snapshot = $this->daySnapshot($s);
+        foreach (['allocations', 'postings', 'custody'] as $effect) {
+            $this->assertSame($referenceSnapshot[$effect], $snapshot[$effect], "$effect must equal the unmarked reference day: marking never adds financial effects");
+        }
+    }
+
+    public function test_c2_submit_holds_its_transaction_and_the_mark_waits_then_is_rejected_on_the_submitted_day(): void
+    {
+        $s = $this->dayFixture();
+        [$submit, $mark, $blocked] = $this->holdThen($this->submitCommand($s), $this->markCommand($s, $s['u']));
+        $this->assertNoInfraLockErrors($submit, $mark);
+        $this->assertSame('ok', $submit['status'], json_encode($submit));
+        $this->assertTrue($blocked, 'The competing mark must wait on the submit locks, not run past them.');
+        $this->assertSame('conflict', $mark['status'], 'A not-worked fact must not be added to an already submitted day: '.json_encode($mark));
+        $this->assertSubmittedDayIsAuthoritative($s, false);
+    }
+
+    public function test_c3_mark_holds_its_transaction_and_the_real_submit_waits_then_excludes_it(): void
+    {
+        $s = $this->dayFixture();
+        [$mark, $submit, $blocked] = $this->holdThen($this->markCommand($s, $s['u']), $this->submitCommand($s));
+        $this->assertNoInfraLockErrors($mark, $submit);
+        $this->assertSame('ok', $mark['status'], json_encode($mark));
+        $this->assertTrue($blocked, 'The daily submit must wait on the mark locks, not run past them.');
+        $this->assertSame('ok', $submit['status'], json_encode($submit));
+        $this->assertSubmittedDayIsAuthoritative($s, true);
+    }
+
+    public function test_c4_free_race_between_mark_and_submit_has_only_two_consistent_outcomes(): void
+    {
+        $outcomes = [];
+        for ($i = 0; $i < 8; $i++) {
+            $s = $this->dayFixture();
+            [$mark, $submit] = $this->race($this->markCommand($s, $s['u']), $this->submitCommand($s));
+            $this->assertNoInfraLockErrors($mark, $submit);
+            $this->assertSame('ok', $submit['status'], 'The day always closes: '.json_encode([$mark, $submit]));
+            $this->assertContains($mark['status'], ['ok', 'conflict']);
+            $this->assertSubmittedDayIsAuthoritative($s, $mark['status'] === 'ok');
+            $outcomes[$mark['status']] = ($outcomes[$mark['status']] ?? 0) + 1;
+        }
+        fwrite(STDERR, "\n[c4] free-race outcome distribution: ".json_encode($outcomes)."\n");
+    }
+
+    public function test_c5_stale_snapshot_submit_excludes_a_mark_committed_after_the_snapshot(): void
+    {
+        $s = $this->dayFixture();
+        $barrier = storage_path('framework/testing/pkg67-'.Str::uuid());
+        if (! is_dir(dirname($barrier))) {
+            mkdir(dirname($barrier), 0700, true);
+        }
+        $this->barriers[] = $barrier;
+        [$stale, $staleBarrier] = $this->launch($this->submitCommand($s, ['command' => 'stale_submit', 'shift' => $s['u']->id, 'day' => $s['day']->id, 'barrier' => $barrier.'.s']));
+        $this->waitFor($staleBarrier.'.snapshot', $stale);
+        app(ShiftNotWorkedService::class)->mark($s['u'], $s['manager'], 'Closed after the day-close snapshot');
+        file_put_contents($staleBarrier.'.marked', 'x');
+        $stale->wait();
+        $result = json_decode(file_get_contents($staleBarrier.'.json'), true);
+        $this->assertNotSame('INFRA_LOCK_ERROR', $result['status'], json_encode($result));
+        $this->assertSame('ok', $result['status'], json_encode($result));
+        $this->assertSame([$s['a']->id], $result['lock_ids'], 'The marked shift must not enter the submitted membership: '.json_encode($result));
+        // The stale transaction was rolled back, so the real submission is still possible and still excludes it.
+        $this->assertFalse((bool) DB::table('branch_manager_shifts')->where('id', $s['day']->id)->value('daily_report_submitted'));
+        $this->assertSame(200, $this->submitInProcess($s)->getStatusCode());
+        $this->assertSubmittedDayIsAuthoritative($s, true);
+    }
+
+    public function test_c6_a_corrupt_no_work_fact_on_a_reported_shift_fails_the_submit_closed(): void
+    {
+        $s = $this->dayFixture();
+        $before = $this->daySnapshot($s);
+        DB::table('cashier_shift_history')->insert(['id' => (string) Str::uuid(), 'cashier_shift_id' => $s['a']->id, 'action' => 'marked_not_worked',
+            'old_value' => null, 'new_value' => json_encode(['planted' => true]), 'performed_by_type' => 'branch_manager', 'performed_by' => $s['manager']->id, 'created_at' => now()]);
+        $response = $this->submitInProcess($s);
+        $this->assertNotSame(200, $response->getStatusCode(), 'A no-work fact on a shift with report evidence must never be silently dropped from a submitted day.');
+        $after = $this->daySnapshot($s);
+        $this->assertFalse($after['submitted']);
+        foreach (['locks', 'sales_operations', 'allocations', 'postings', 'custody'] as $unchanged) {
+            $this->assertSame($before[$unchanged], $after[$unchanged], $unchanged);
+        }
+        fwrite(STDERR, "\n[c6] fail-closed response: ".$response->getStatusCode().' '.substr($response->getContent(), 0, 160)."\n");
+    }
+
+    public function test_c7_idempotent_replay_of_the_submit_creates_no_second_effect(): void
+    {
+        $s = $this->dayFixture();
+        app(ShiftNotWorkedService::class)->mark($s['u'], $s['manager'], 'Closed before the day close');
+        $key = (string) Str::uuid();
+        $first = $this->submitInProcess($s, $key);
+        $this->assertSame(200, $first->getStatusCode(), $first->getContent());
+        $afterFirst = $this->daySnapshot($s);
+        $replay = $this->submitInProcess($s, $key);
+        $this->assertSame($first->getContent(), $replay->getContent());
+        $this->assertSame($afterFirst, $this->daySnapshot($s), 'A replay is not a second financial effect.');
+        $second = $this->submitInProcess($s, (string) Str::uuid());
+        $this->assertNotSame(200, $second->getStatusCode(), 'A new key must not submit the same day twice.');
+        $this->assertSame($afterFirst, $this->daySnapshot($s));
     }
 
     // ---- shared-root contention: no deadlock, one authoritative outcome, no financial side effect ----------
