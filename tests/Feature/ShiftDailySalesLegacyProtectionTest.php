@@ -3,8 +3,8 @@
 namespace Tests\Feature;
 
 (static function () {
-    $worktree = str_replace('\\', '/', realpath(__DIR__ . '/../..') ?: dirname(__DIR__, 2));
-    $vendorAutoload = $worktree . '/vendor/autoload.php';
+    $projectRoot = str_replace('\\', '/', realpath(__DIR__ . '/../..') ?: dirname(__DIR__, 2));
+    $vendorAutoload = $projectRoot . '/vendor/autoload.php';
     if (! file_exists($vendorAutoload)) {
         return;
     }
@@ -12,40 +12,49 @@ namespace Tests\Feature;
     if (! ($loader instanceof \Composer\Autoload\ClassLoader)) {
         return;
     }
+
+    // Generic portable rebinding: only needed if vendor is junctioned or symlinked from another directory
     $ref = new \ReflectionClass($loader);
     $propClassMap = $ref->getProperty('classMap');
     $propClassMap->setAccessible(true);
     $classMap = $propClassMap->getValue($loader);
-    $newClassMap = [];
-    foreach ($classMap as $class => $path) {
-        $normalized = str_replace(['\\', '/'], '/', $path);
-        $normalized = str_replace('/Assab/vendor/composer/../../', '/Assab/', $normalized);
-        if (preg_match('#/Assab/(Modules|app|database|tests)/#i', $normalized)) {
-            $newClassMap[$class] = preg_replace('#^.*?/Assab/(Modules|app|database|tests)/#i', $worktree . '/$1/', $normalized);
-        } else {
-            $newClassMap[$class] = $path;
-        }
-    }
-    $propClassMap->setValue($loader, $newClassMap);
+    $sample = $classMap['App\\ApiResponse'] ?? reset($classMap);
+    if ($sample) {
+        $sampleNormalized = str_replace(['\\', '/'], '/', $sample);
+        if (preg_match('#^(.*?)/(Modules|app|database|tests)/#i', $sampleNormalized, $m)) {
+            $vendorBase = $m[1];
+            if (strcasecmp($vendorBase, $projectRoot) !== 0) {
+                $newClassMap = [];
+                foreach ($classMap as $class => $path) {
+                    $norm = str_replace(['\\', '/'], '/', $path);
+                    if (str_starts_with($norm, $vendorBase . '/')) {
+                        $newClassMap[$class] = $projectRoot . substr($norm, strlen($vendorBase));
+                    } else {
+                        $newClassMap[$class] = $path;
+                    }
+                }
+                $propClassMap->setValue($loader, $newClassMap);
 
-    $propPrefixDirs = $ref->getProperty('prefixDirsPsr4');
-    $propPrefixDirs->setAccessible(true);
-    $prefixDirs = $propPrefixDirs->getValue($loader);
-    $newPrefixDirs = [];
-    foreach ($prefixDirs as $prefix => $dirs) {
-        $newDirs = [];
-        foreach ($dirs as $dir) {
-            $normalized = str_replace(['\\', '/'], '/', $dir);
-            $normalized = str_replace('/Assab/vendor/composer/../../', '/Assab/', $normalized);
-            if (preg_match('#/Assab/(Modules|app|database|tests)/#i', $normalized)) {
-                $newDirs[] = preg_replace('#^.*?/Assab/(Modules|app|database|tests)/#i', $worktree . '/$1/', $normalized);
-            } else {
-                $newDirs[] = $dir;
+                $propPrefixDirs = $ref->getProperty('prefixDirsPsr4');
+                $propPrefixDirs->setAccessible(true);
+                $prefixDirs = $propPrefixDirs->getValue($loader);
+                $newPrefixDirs = [];
+                foreach ($prefixDirs as $prefix => $dirs) {
+                    $newDirs = [];
+                    foreach ($dirs as $dir) {
+                        $norm = str_replace(['\\', '/'], '/', $dir);
+                        if (str_starts_with($norm, $vendorBase . '/')) {
+                            $newDirs[] = $projectRoot . substr($norm, strlen($vendorBase));
+                        } else {
+                            $newDirs[] = $dir;
+                        }
+                    }
+                    $newPrefixDirs[$prefix] = $newDirs;
+                }
+                $propPrefixDirs->setValue($loader, $newPrefixDirs);
             }
         }
-        $newPrefixDirs[$prefix] = $newDirs;
     }
-    $propPrefixDirs->setValue($loader, $newPrefixDirs);
 })();
 
 use App\Support\ShiftFinancialCalculator;
@@ -255,7 +264,10 @@ class ShiftDailySalesLegacyProtectionTest extends TestCase
         ]);
 
         $response->assertStatus(409)
+            ->assertJsonStructure(['error' => ['code', 'message', 'messageAr'], 'requestId'])
             ->assertJsonPath('error.code', 'PKG6_DAY_REPORT_READ_ONLY');
+        $this->assertNotEmpty($response->json('requestId'));
+        $this->assertNotEmpty($response->json('error.messageAr'));
 
         // Verify report payload is completely untouched
         $payloadAfter = $this->pkg6Operation->fresh()->payload;
@@ -286,7 +298,10 @@ class ShiftDailySalesLegacyProtectionTest extends TestCase
         ]);
 
         $response->assertStatus(409)
+            ->assertJsonStructure(['error' => ['code', 'message', 'messageAr'], 'requestId'])
             ->assertJsonPath('error.code', 'PKG6_DAY_REPORT_READ_ONLY');
+        $this->assertNotEmpty($response->json('requestId'));
+        $this->assertNotEmpty($response->json('error.messageAr'));
 
         // Zero movements and zero ledger entries
         $this->assertSame(0, EmployeeMovement::where('ref_operation_id', $this->pkg6Operation->id)->count());
@@ -428,12 +443,13 @@ class ShiftDailySalesLegacyProtectionTest extends TestCase
 
     /**
      * Requirement 2: Reliable server-side predicate test.
-     * Proves isPkg6DailyReport identifies PKG-6 reports across all valid server data relationships,
-     * without relying solely on reportReview.
+     * Proves isPkg6DailyReport identifies PKG-6 reports across authoritative server indicators
+     * (pkg6Review, managerShiftId, reportReview), without falsely classifying cashier shifts
+     * or non-PKG-6 operations that carry cashier shift IDs or standard origins.
      */
-    public function test_detection_criteria_identifies_pkg6_reports_via_all_valid_relationships(): void
+    public function test_detection_criteria_identifies_pkg6_reports_via_authoritative_relationships(): void
     {
-        // 1. With pkg6Review metadata
+        // 1. With pkg6Review metadata (from BridgeManagerDailyClose)
         $opWithPkg6Review = new Operation([
             'module_key' => 'sales',
             'origin' => 'mobile',
@@ -441,7 +457,7 @@ class ShiftDailySalesLegacyProtectionTest extends TestCase
         ]);
         $this->assertTrue($opWithPkg6Review->isPkg6DailyReport(), 'Identified by payload.pkg6Review');
 
-        // 2. With managerShiftId linking to BranchManagerShift (even if pkg6Review key is omitted)
+        // 2. With managerShiftId linking to BranchManagerShift (PKG-6 daily close)
         $opWithManagerShiftId = new Operation([
             'module_key' => 'sales',
             'origin' => 'mobile',
@@ -449,45 +465,29 @@ class ShiftDailySalesLegacyProtectionTest extends TestCase
         ]);
         $this->assertTrue($opWithManagerShiftId->isPkg6DailyReport(), 'Identified by payload.managerShiftId');
 
-        // 3. With reportReview key
+        // 3. With reportReview presentation structure
         $opWithReportReview = new Operation([
             'module_key' => 'sales',
             'payload' => ['reportReview' => ['phase' => 'head_review']],
         ]);
         $this->assertTrue($opWithReportReview->isPkg6DailyReport(), 'Identified by payload.reportReview');
 
-        // 4. Shift module operation (module_key = 'shifts')
-        $cashierShiftOp = new Operation([
-            'module_key' => 'shifts',
-            'origin' => 'mobile',
-            'payload' => ['shiftId' => (string) Str::uuid()],
-        ]);
-        $this->assertTrue($cashierShiftOp->isPkg6DailyReport(), 'Identified by module_key = shifts');
-
-        // 5. Source module shifts
-        $sourceShiftsOp = new Operation([
-            'module_key' => 'sales',
-            'source_module' => 'shifts',
-            'payload' => [],
-        ]);
-        $this->assertTrue($sourceShiftsOp->isPkg6DailyReport(), 'Identified by source_module = shifts');
-
-        // 6. Linked to cashier shiftId / legacyShiftId
+        // 4. Cashier shift link alone (shiftId / legacyShiftId) is NOT a PKG-6 daily report
         $linkedShiftOp = new Operation([
             'module_key' => 'sales',
-            'payload' => ['shiftId' => (string) Str::uuid()],
+            'payload' => ['shiftId' => (string) Str::uuid(), 'legacyShiftId' => '12345'],
         ]);
-        $this->assertTrue($linkedShiftOp->isPkg6DailyReport(), 'Identified by payload.shiftId');
+        $this->assertFalse($linkedShiftOp->isPkg6DailyReport(), 'Cashier shift links alone are NOT a PKG-6 daily report');
 
-        // 7. Shift origins
-        $originShiftOp = new Operation([
+        // 5. Standard mobile origin without manager shift is NOT a PKG-6 daily report
+        $mobileOp = new Operation([
             'module_key' => 'sales',
-            'origin' => 'shift_daily_report',
-            'payload' => [],
+            'origin' => 'mobile',
+            'payload' => ['totalHalalas' => 50000],
         ]);
-        $this->assertTrue($originShiftOp->isPkg6DailyReport(), 'Identified by origin = shift_daily_report');
+        $this->assertFalse($mobileOp->isPkg6DailyReport(), 'Standard mobile sales upload is NOT a PKG-6 daily report');
 
-        // 8. Standard legacy non-PKG-6 operation must return false
+        // 6. Standard legacy non-PKG-6 operation must return false
         $standardLegacyOp = new Operation([
             'module_key' => 'sales',
             'origin' => 'excel',
@@ -495,5 +495,56 @@ class ShiftDailySalesLegacyProtectionTest extends TestCase
             'payload' => ['totalHalalas' => 50000],
         ]);
         $this->assertFalse($standardLegacyOp->isPkg6DailyReport(), 'Standard legacy sales op is NOT PKG-6');
+    }
+
+    /**
+     * Requirement 1 & 4: Regression test proving a legacy sales operation that contains
+     * cashier shift links (shiftId / legacyShiftId) without being a PKG-6 manager report
+     * is NOT falsely blocked and can be reconciled and variance-assigned normally.
+     */
+    public function test_legacy_sales_operation_with_cashier_shift_links_is_permitted(): void
+    {
+        $legacyWithShiftLink = Operation::create([
+            'public_id' => 'SAL-SHIFT-LINK-' . strtoupper(Str::random(6)),
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branch->id,
+            'module_key' => 'sales',
+            'origin' => 'mobile',
+            'source_module' => 'mobile_pos',
+            'amount' => 30000,
+            'match' => 'diff',
+            'diff_note' => 'عجز قديم',
+            'status' => Operation::STATUS_PENDING,
+            'payload' => [
+                'date' => today()->toDateString(),
+                'totalHalalas' => 30000,
+                'shiftId' => (string) Str::uuid(),
+                'legacyShiftId' => 'cashier_shift_99',
+            ],
+            'operation_date' => now(),
+            'submitted_at' => now(),
+        ]);
+
+        // 1. PATCH sales-details must succeed (200 OK)
+        $patchResponse = $this->acc()->patchJson("/api/v1/company/me/operations/{$legacyWithShiftLink->id}/sales-details", [
+            'channels' => [
+                ['key' => 'cash', 'actualAmountHalalas' => 20000, 'posAmountHalalas' => 25000],
+                ['key' => 'bank', 'actualAmountHalalas' => 5000, 'posAmountHalalas' => 5000],
+            ],
+            'notes' => 'Legacy reconciliation with shift link',
+        ]);
+        $patchResponse->assertStatus(200);
+
+        // 2. POST sales-variance/assign must succeed (200 OK) and create movement
+        $assignResponse = $this->acc()->postJson("/api/v1/company/me/operations/{$legacyWithShiftLink->id}/sales-variance/assign", [
+            'allocations' => [
+                ['empNumber' => '1001', 'amountHalalas' => 5000],
+            ],
+            'notes' => 'Allocating legacy variance with shift link',
+        ]);
+        $assignResponse->assertStatus(200);
+
+        // Movement created
+        $this->assertSame(1, EmployeeMovement::where('ref_operation_id', $legacyWithShiftLink->id)->count());
     }
 }
