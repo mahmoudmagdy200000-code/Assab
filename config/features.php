@@ -35,4 +35,17 @@ return [
     // `is_first_login`, and reinstates that lock-out if the app cannot activate.
     'mobile_force_first_login_reset' => (bool) env('MOBILE_FORCE_FIRST_LOGIN_RESET', false),
 
+    // PKG-7 «did not work» (POST /api/v1/branch-manager/shifts/{shift}/mark-not-worked).
+    // REQUEST-TIME gate (routes stay registered; the guard middleware answers 404
+    // SHIFT_NOT_WORKED_FEATURE_DISABLED and the `can_mark_not_worked` /
+    // `actions_available.mark_not_worked` hints report false).
+    //
+    // OFF by default (P-01 release guard): the eligibility predicate has no date
+    // cutoff, so a branch manager can irreversibly close a future-dated untouched
+    // assignment, and Mohamed has not yet ruled whether that is permitted. Turn
+    // ON (FEATURE_SHIFT_DID_NOT_WORK=true) only after the policy owner decides
+    // or Mahmoud records an interim acceptance. This flag does not encode any
+    // cutoff rule and does not alter data, history, locks or the BRC-11 fence.
+    'shift_did_not_work' => (bool) env('FEATURE_SHIFT_DID_NOT_WORK', false),
+
 ];

@@ -17,6 +17,10 @@ final class ShiftNotWorkedGuard
     /** Revalidate assigned-manager authority before the existing replay middleware. */
     public function handle(\Illuminate\Http\Request $request, \Closure $next): mixed
     {
+        // P-01 release guard: runs before any lookup so a disabled deployment reveals nothing and changes nothing.
+        if (! self::enabled()) {
+            return \Modules\Shift\Http\Controllers\HandoverErrorResponse::domain('SHIFT_NOT_WORKED_FEATURE_DISABLED', 404);
+        }
         try {
             $actor = $request->user();
             if (! $actor instanceof BranchManager) {
@@ -35,9 +39,15 @@ final class ShiftNotWorkedGuard
         return $next($request);
     }
 
+    /** P-01: request-time server-side exposure switch (config/features.php, default OFF). */
+    public static function enabled(): bool
+    {
+        return (bool) config('features.shift_did_not_work', false);
+    }
+
     public function canMark(CashierShift $shift, mixed $actor): bool
     {
-        if (! $actor instanceof BranchManager) {
+        if (! self::enabled() || ! $actor instanceof BranchManager) {
             return false;
         }
         try {
