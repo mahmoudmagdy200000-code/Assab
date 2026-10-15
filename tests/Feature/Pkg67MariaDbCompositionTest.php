@@ -302,8 +302,11 @@ class Pkg67MariaDbCompositionTest extends TestCase
 
     private function untouched(array $scope, ?\Carbon\CarbonInterface $date = null): CashierShift
     {
+        // Deterministically unique per process: (branch, start, end) is a unique key, so a random draw can collide.
+        static $slot = 0;
+        $slot++;
         $template = Shift::factory()->create(['branch_id' => $scope['branch']->id,
-            'start_time' => sprintf('%02d:00:00', random_int(0, 4)), 'end_time' => sprintf('%02d:30:00', random_int(5, 9))]);
+            'start_time' => sprintf('%02d:%02d:00', $slot % 5, intdiv($slot, 5) % 60), 'end_time' => '09:30:00']);
 
         return CashierShift::factory()->create(['cashier_id' => $scope['cashier']->id, 'shift_id' => $template->id,
             'shift_date' => $date ?? today()->subDays(random_int(2, 400))]);
