@@ -3,6 +3,9 @@
 namespace Modules\Admin\Services;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
+use Laravel\Sanctum\PersonalAccessToken;
+use Modules\Admin\Models\AdminSession;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Services\Credentials\CredentialPeerRegistry;
 
@@ -112,14 +115,32 @@ class CredentialSyncService
             return false;
         }
 
-        $user = AsabUser::find($userId);
-        if ($user === null) {
-            return false;
-        }
+        return DB::transaction(function () use ($userId, $legacyRow) {
+            $user = AsabUser::where('id', $userId)->lockForUpdate()->first();
+            if ($user === null) {
+                return false;
+            }
 
-        $user->forceFill(['password' => $legacyRow->password])->save();
-        $user->tokens()->delete();
+            $user->forceFill(['password' => $legacyRow->password])->save();
 
-        return true;
+            // Revoke active admin sessions under lock
+            AdminSession::where('user_id', $user->id)
+                ->whereNull('revoked_at')
+                ->orderBy('id', 'asc')
+                ->lockForUpdate()
+                ->get()
+                ->each(function ($session) {
+                    $session->forceFill(['revoked_at' => now()])->save();
+                });
+
+            // Invalidate tokens under lock
+            $user->tokens()
+                ->orderBy('id', 'asc')
+                ->lockForUpdate()
+                ->get()
+                ->each->delete();
+
+            return true;
+        });
     }
 }

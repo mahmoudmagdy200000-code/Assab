@@ -84,6 +84,12 @@ return Application::configure(basePath: dirname(__DIR__))
         // Recurring orders are scheduled in RecurringOrderServiceProvider::registerCommandSchedules()
     })
     ->withMiddleware(function (Middleware $middleware): void {
+        // Keep the scoped family gate ahead of Sanctum's last_used_at write.
+        $middleware->prependToPriorityList(
+            \Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests::class,
+            \Modules\Admin\Http\Middleware\EnsureAdminAccessToken::class,
+        );
+
         $middleware->api(prepend: [
             \App\Http\Middleware\ParseMultipartFormDataMiddleware::class,
         ]);
@@ -104,6 +110,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'supplier' => \Modules\Supplier\Http\Middleware\SupplierMiddleware::class,
             'asab.tenant' => \Modules\Admin\Http\Middleware\ResolveTenant::class,
             'asab.role' => \Modules\Admin\Http\Middleware\EnsureAsabRole::class,
+            'asab.access' => \Modules\Admin\Http\Middleware\EnsureAdminAccessToken::class,
             'asab.idempotency' => \Modules\Admin\Http\Middleware\IdempotencyKey::class,
             'asab.audit' => \Modules\Admin\Http\Middleware\AuditMutations::class,
             'asab.apikey' => \Modules\Admin\Http\Middleware\AuthenticateApiKey::class,
