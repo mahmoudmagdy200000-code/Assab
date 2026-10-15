@@ -57,9 +57,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "$BASE_SHA"
+          git merge-base --is-ancestor "$BASE_SHA" HEAD
           changed="$(git diff --name-only "$BASE_SHA"...HEAD)"
           test "$changed" = '.github/workflows/assab-backend-ci.yml'
+          mkdir -p artifacts
           printf 'Acceptance base: %s\nCI commit: %s\nChanged files:\n%s\n' "$BASE_SHA" "$(git rev-parse HEAD)" "$changed" | tee artifacts/acceptance-base.txt
 
       - name: Setup PHP 8.3
@@ -91,6 +92,7 @@ jobs:
           import json
           import xml.etree.ElementTree as ET
           from pathlib import Path
+          Path('artifacts').mkdir(parents=True, exist_ok=True)
           path = Path('artifacts/sqlite-full-suite.junit.xml')
           if not path.exists():
               Path('artifacts/sqlite-results.json').write_text(json.dumps({'status': 'NOT_RUN', 'tests': 0, 'failures': 0, 'errors': 0, 'skipped': 0}, indent=2) + '\n')
@@ -110,7 +112,7 @@ jobs:
 
       - name: Write SQLite SHA256 manifest
         if: always()
-        run: find artifacts -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 -r sha256sum > artifacts/SHA256SUMS.txt
+        run: mkdir -p artifacts && find artifacts -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 -r sha256sum > artifacts/SHA256SUMS.txt
 
       - name: Upload SQLite logs and reports
         if: always()
@@ -151,7 +153,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "$BASE_SHA"
+          git merge-base --is-ancestor "$BASE_SHA" HEAD
           changed="$(git diff --name-only "$BASE_SHA"...HEAD)"
           test "$changed" = '.github/workflows/assab-backend-ci.yml'
           mkdir -p artifacts
@@ -274,6 +276,7 @@ jobs:
           import sys
           import xml.etree.ElementTree as ET
           from pathlib import Path
+          Path('artifacts').mkdir(parents=True, exist_ok=True)
           specs = [
               ('s12-at02', 'artifacts/mariadb-s12-at02.junit.xml', 'artifacts/mariadb-s12-at02.log', 4, 5, 6),
               ('s12-fs12', 'artifacts/mariadb-s12-fs12.junit.xml', 'artifacts/mariadb-s12-fs12.log', 3, 3, 3),
@@ -304,7 +307,7 @@ jobs:
 
       - name: Write MariaDB SHA256 manifest
         if: always()
-        run: find artifacts -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 -r sha256sum > artifacts/SHA256SUMS.txt
+        run: mkdir -p artifacts && find artifacts -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 -r sha256sum > artifacts/SHA256SUMS.txt
 
       - name: Upload MariaDB logs and reports
         if: always()
