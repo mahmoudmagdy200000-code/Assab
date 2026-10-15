@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Schema;
 /**
  * B-01 forward-only repair (no data change).
  *
- * 2026_10_13_000002 originally failed on MySQL/MariaDB while adding a 71-character index name. Schema::create()
+ * 2026_10_13_000002 originally failed on MySQL/MariaDB while adding a 69-character index name. Schema::create()
  * had already created the table and the indexes that precede it, and a retry then returned early on
  * Schema::hasTable() and was recorded as run -- leaving a table that exists but is missing indexes.
  *
