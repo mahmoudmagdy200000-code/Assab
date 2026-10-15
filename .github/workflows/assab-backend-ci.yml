@@ -79,7 +79,7 @@ jobs:
         run: |
           set -uo pipefail
           mkdir -p artifacts
-          php artisan test --log-junit=artifacts/sqlite-full-suite.junit.xml 2>&1 | tee artifacts/sqlite-full-suite.log
+          vendor/bin/phpunit --log-junit=artifacts/sqlite-full-suite.junit.xml 2>&1 | tee artifacts/sqlite-full-suite.log
           result=${PIPESTATUS[0]}
           printf '%s\n' "$result" > artifacts/sqlite-full-suite.exit
           exit "$result"
@@ -218,7 +218,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          php artisan test tests/Feature/AdminLegacyRefreshConcurrencyTest.php --log-junit=artifacts/mariadb-s12-at02.junit.xml 2>&1 | tee artifacts/mariadb-s12-at02.log
+          vendor/bin/phpunit tests/Feature/AdminLegacyRefreshConcurrencyTest.php --log-junit=artifacts/mariadb-s12-at02.junit.xml 2>&1 | tee artifacts/mariadb-s12-at02.log
           result=${PIPESTATUS[0]}
           printf '%s\n' "$result" > artifacts/mariadb-s12-at02.exit
           exit "$result"
@@ -262,7 +262,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          php artisan test tests/Feature/AdminSessionRevocationTest.php --filter=legacy_logout_concurrency --log-junit=artifacts/mariadb-s12-fs12.junit.xml 2>&1 | tee artifacts/mariadb-s12-fs12.log
+          vendor/bin/phpunit tests/Feature/AdminSessionRevocationTest.php --filter=legacy_logout_concurrency --log-junit=artifacts/mariadb-s12-fs12.junit.xml 2>&1 | tee artifacts/mariadb-s12-fs12.log
           result=${PIPESTATUS[0]}
           printf '%s\n' "$result" > artifacts/mariadb-s12-fs12.exit
           exit "$result"
