@@ -24,6 +24,15 @@ class SalesReconciliationService
      */
     public function save(Operation $op, array $input): array
     {
+        if ($op->isPkg6DailyReport()) {
+            throw new AsabException(
+                'PKG6_DAY_REPORT_READ_ONLY',
+                'PKG-6 shift daily report cannot be reconciled via legacy sales details route',
+                'لا يمكن تعديل تقرير مبيعات ورديات PKG-6 عبر تفاصيل المبيعات القديمة',
+                409,
+            );
+        }
+
         $channels = $this->normalize($input, $op);
         $expected = $this->expectedTotal($op);
         $collected = array_sum(array_column($channels, 'actualAmountHalalas'));

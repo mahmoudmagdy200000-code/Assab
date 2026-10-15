@@ -84,4 +84,40 @@ class Operation extends Model
     {
         return $q->where('status', self::STATUS_PENDING);
     }
+
+    /**
+     * Determines whether this operation represents or is linked to a PKG-6 daily report.
+     * Evaluates reliable server-side indicators:
+     * - Presence of PKG-6 review metadata in payload ('pkg6Review' or 'reportReview')
+     * - Linkage to a branch manager workday/shift ('managerShiftId')
+     * - Cashier shift linkages ('shiftId', 'legacyShiftId', module_key='shifts', source_module='shifts')
+     * - Origins corresponding to shift daily reporting
+     */
+    public function isPkg6DailyReport(): bool
+    {
+        $payload = $this->payload ?? [];
+
+        if (isset($payload['pkg6Review']) || isset($payload['reportReview'])) {
+            return true;
+        }
+
+        if (! empty($payload['managerShiftId'])) {
+            return true;
+        }
+
+        if ($this->module_key === 'shifts' || $this->source_module === 'shifts') {
+            return true;
+        }
+
+        if (! empty($payload['shiftId']) || ! empty($payload['legacyShiftId'])) {
+            return true;
+        }
+
+        if (in_array($this->origin, ['pos_daily_sales', 'shift_daily_report', 'shift'], true)) {
+            return true;
+        }
+
+        return false;
+    }
 }
+

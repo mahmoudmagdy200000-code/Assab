@@ -129,6 +129,16 @@ class AccountantCompanyController extends AsabController
             $op = $this->scopeToAssignedBranches(Operation::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))
                 ->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id))->where('module_key', 'sales')->firstOrFail();
 
+            if ($op->isPkg6DailyReport()) {
+                return $this->fail(
+                    'PKG6_DAY_REPORT_READ_ONLY',
+                    'PKG-6 shift daily report variance cannot be assigned via legacy route.',
+                    'لا يمكن توزيع فرق تقرير مبيعات يوم PKG-6 عبر المسار القديم',
+                    [],
+                    409
+                );
+            }
+
             $result = $this->salesVariance->assign($op, $data['allocations'], $data['notes'] ?? null, $request->user());
             // Doc superset: surface remainingVarianceHalalas if the service output lacks it.
             if (! array_key_exists('remainingVarianceHalalas', $result)) {
