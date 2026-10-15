@@ -1,0 +1,316 @@
+name: Assab Backend CI Trial
+
+on:
+  push:
+    branches: [test/s1-12]
+    paths:
+      - '.github/workflows/assab-backend-ci.yml'
+  workflow_dispatch:
+    branches: [test/s1-12]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: assab-backend-ci-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  BASE_SHA: 44346bade4ebad8a3ba39b153e0f8b57ecf1d092
+  APP_ENV: testing
+  APP_DEBUG: 'false'
+  APP_KEY: base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+  APP_URL: http://127.0.0.1
+  CACHE_STORE: array
+  MAIL_MAILER: array
+  QUEUE_CONNECTION: sync
+  SESSION_DRIVER: array
+  DB_HOST: 127.0.0.1
+  DB_PORT: '3306'
+  DB_USERNAME: root
+  DB_PASSWORD: assab-ci-only-root-password
+  DB_CONNECTION: mysql
+  DB_DATABASE: assab_ci_uninitialized
+  AWS_ACCESS_KEY_ID: ci-only
+  AWS_SECRET_ACCESS_KEY: ci-only
+  AWS_DEFAULT_REGION: us-east-1
+  SERVICES_ENABLED: 'false'
+
+jobs:
+  sqlite-full-suite:
+    name: SQLite Full Suite (PHP 8.3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+    steps:
+      - name: Prepare artifact directory
+        run: mkdir -p artifacts
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce pinned S1-12 base and one-file scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$BASE_SHA"
+          changed="$(git diff --name-only "$BASE_SHA"...HEAD)"
+          test "$changed" = '.github/workflows/assab-backend-ci.yml'
+          printf 'Acceptance base: %s\nCI commit: %s\nChanged files:\n%s\n' "$BASE_SHA" "$(git rev-parse HEAD)" "$changed" | tee artifacts/acceptance-base.txt
+
+      - name: Setup PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, curl, dom, fileinfo, gd, intl, mbstring, pdo_mysql, pdo_sqlite, tokenizer, xml, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Install locked Composer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Run complete SQLite test suite
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p artifacts
+          php artisan test --log-junit=artifacts/sqlite-full-suite.junit.xml 2>&1 | tee artifacts/sqlite-full-suite.log
+          result=${PIPESTATUS[0]}
+          printf '%s\n' "$result" > artifacts/sqlite-full-suite.exit
+          exit "$result"
+
+      - name: Summarize SQLite JUnit results
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          path = Path('artifacts/sqlite-full-suite.junit.xml')
+          if not path.exists():
+              Path('artifacts/sqlite-results.json').write_text(json.dumps({'status': 'NOT_RUN', 'tests': 0, 'failures': 0, 'errors': 0, 'skipped': 0}, indent=2) + '\n')
+          else:
+              root = ET.parse(path).getroot()
+              cases = root.findall('.//testcase')
+              result = {
+                  'status': 'PASS' if not root.findall('.//failure') and not root.findall('.//error') else 'FAIL',
+                  'tests': len(cases),
+                  'failures': len(root.findall('.//failure')),
+                  'errors': len(root.findall('.//error')),
+                  'skipped': len(root.findall('.//skipped')),
+                  'skipped_tests': [c.get('classname', '') + '::' + c.get('name', '') for c in cases if c.find('skipped') is not None],
+              }
+              Path('artifacts/sqlite-results.json').write_text(json.dumps(result, indent=2) + '\n')
+          PY
+
+      - name: Write SQLite SHA256 manifest
+        if: always()
+        run: find artifacts -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 -r sha256sum > artifacts/SHA256SUMS.txt
+
+      - name: Upload SQLite logs and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: assab-ci-sqlite-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 30
+
+  mariadb-concurrency:
+    name: MariaDB 11.4 Concurrency (PHP 8.3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: assab-ci-only-root-password
+          MARIADB_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    steps:
+      - name: Prepare artifact directory
+        run: mkdir -p artifacts
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce pinned S1-12 base and one-file scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "$BASE_SHA"
+          changed="$(git diff --name-only "$BASE_SHA"...HEAD)"
+          test "$changed" = '.github/workflows/assab-backend-ci.yml'
+          mkdir -p artifacts
+          printf 'Acceptance base: %s\nCI commit: %s\nChanged files:\n%s\n' "$BASE_SHA" "$(git rev-parse HEAD)" "$changed" | tee artifacts/acceptance-base.txt
+
+      - name: Setup PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, curl, dom, fileinfo, gd, intl, mbstring, pdo_mysql, pdo_sqlite, tokenizer, xml, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Install locked Composer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Verify disposable MariaDB service
+        shell: bash
+        run: |
+          set -euo pipefail
+          php <<'PHP' | tee artifacts/mariadb-service-version.txt
+          <?php
+          $pdo = new PDO('mysql:host='.getenv('DB_HOST').';port='.getenv('DB_PORT'), getenv('DB_USERNAME'), getenv('DB_PASSWORD'), [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+          echo $pdo->query('SELECT VERSION()')->fetchColumn(), "\n";
+          PHP
+          grep -Eiq '^11\.4\.[0-9]+.*MariaDB' artifacts/mariadb-service-version.txt
+          printf 'No production endpoint or production secret is configured; all credentials are CI-only.\n' | tee artifacts/isolation.txt
+
+      - name: Prepare S1-12 legacy refresh database
+        shell: bash
+        run: |
+          set -euo pipefail
+          db="s12_at02_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          export DB_DATABASE="$db"
+          php <<'PHP'
+          <?php
+          $database = getenv('DB_DATABASE');
+          if (! preg_match('/^s12_at02_[0-9]+_[0-9]+$/', $database)) { throw new RuntimeException('Unexpected isolated database name'); }
+          $pdo = new PDO('mysql:host='.getenv('DB_HOST').';port='.getenv('DB_PORT'), getenv('DB_USERNAME'), getenv('DB_PASSWORD'), [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+          $pdo->exec('CREATE DATABASE `'.$database.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+          PHP
+          echo "DB_DATABASE=$db" >> "$GITHUB_ENV"
+          printf 'MariaDB database: %s\n' "$db" | tee -a artifacts/mariadb-databases.txt
+
+      - name: Migrate and verify S1-12 engine and schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          php artisan migrate:fresh --force 2>&1 | tee artifacts/mariadb-s12-at02-migrate.log
+          php <<'PHP' | tee artifacts/mariadb-s12-at02-engine.txt
+          <?php
+          $pdo = new PDO('mysql:host='.getenv('DB_HOST').';port='.getenv('DB_PORT').';dbname='.getenv('DB_DATABASE'), getenv('DB_USERNAME'), getenv('DB_PASSWORD'), [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+          $version = $pdo->query('SELECT VERSION()')->fetchColumn();
+          echo $version, "\n";
+          if (! preg_match('/^11\.4\.[0-9]+.*MariaDB/i', $version)) { throw new RuntimeException('Expected MariaDB 11.4'); }
+          $tables = $pdo->query("SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('asab_users','personal_access_tokens','admin_sessions') ORDER BY TABLE_NAME")->fetchAll(PDO::FETCH_KEY_PAIR);
+          foreach ($tables as $table => $engine) { echo $table, "\t", $engine, "\n"; }
+          if (count($tables) !== 3 || count(array_filter($tables, fn ($engine) => $engine === 'InnoDB')) !== 3) { throw new RuntimeException('Expected three InnoDB tables'); }
+          PHP
+
+      - name: Run S1-12 independent-connection refresh concurrency tests
+        shell: bash
+        run: |
+          set -uo pipefail
+          php artisan test tests/Feature/AdminLegacyRefreshConcurrencyTest.php --log-junit=artifacts/mariadb-s12-at02.junit.xml 2>&1 | tee artifacts/mariadb-s12-at02.log
+          result=${PIPESTATUS[0]}
+          printf '%s\n' "$result" > artifacts/mariadb-s12-at02.exit
+          exit "$result"
+
+      - name: Prepare S1-11 legacy logout database
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          db="s12_fs12_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          export DB_DATABASE="$db"
+          php <<'PHP'
+          <?php
+          $database = getenv('DB_DATABASE');
+          if (! preg_match('/^s12_fs12_[0-9]+_[0-9]+$/', $database)) { throw new RuntimeException('Unexpected isolated database name'); }
+          $pdo = new PDO('mysql:host='.getenv('DB_HOST').';port='.getenv('DB_PORT'), getenv('DB_USERNAME'), getenv('DB_PASSWORD'), [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+          $pdo->exec('CREATE DATABASE `'.$database.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+          PHP
+          echo "DB_DATABASE=$db" >> "$GITHUB_ENV"
+          printf 'MariaDB database: %s\n' "$db" | tee -a artifacts/mariadb-databases.txt
+
+      - name: Migrate and verify S1-11 engine and schema
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          php artisan migrate:fresh --force 2>&1 | tee artifacts/mariadb-s12-fs12-migrate.log
+          php <<'PHP' | tee artifacts/mariadb-s12-fs12-engine.txt
+          <?php
+          $pdo = new PDO('mysql:host='.getenv('DB_HOST').';port='.getenv('DB_PORT').';dbname='.getenv('DB_DATABASE'), getenv('DB_USERNAME'), getenv('DB_PASSWORD'), [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+          $version = $pdo->query('SELECT VERSION()')->fetchColumn();
+          echo $version, "\n";
+          if (! preg_match('/^11\.4\.[0-9]+.*MariaDB/i', $version)) { throw new RuntimeException('Expected MariaDB 11.4'); }
+          $tables = $pdo->query("SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('asab_users','personal_access_tokens') ORDER BY TABLE_NAME")->fetchAll(PDO::FETCH_KEY_PAIR);
+          foreach ($tables as $table => $engine) { echo $table, "\t", $engine, "\n"; }
+          if (count($tables) !== 2 || count(array_filter($tables, fn ($engine) => $engine === 'InnoDB')) !== 2) { throw new RuntimeException('Expected two InnoDB tables'); }
+          PHP
+
+      - name: Run focused S1-11 legacy logout concurrency tests
+        if: success()
+        shell: bash
+        run: |
+          set -uo pipefail
+          php artisan test tests/Feature/AdminSessionRevocationTest.php --filter=legacy_logout_concurrency --log-junit=artifacts/mariadb-s12-fs12.junit.xml 2>&1 | tee artifacts/mariadb-s12-fs12.log
+          result=${PIPESTATUS[0]}
+          printf '%s\n' "$result" > artifacts/mariadb-s12-fs12.exit
+          exit "$result"
+
+      - name: Validate MariaDB tests did not skip and observed required lock waits
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import sys
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          specs = [
+              ('s12-at02', 'artifacts/mariadb-s12-at02.junit.xml', 'artifacts/mariadb-s12-at02.log', 4, 5, 6),
+              ('s12-fs12', 'artifacts/mariadb-s12-fs12.junit.xml', 'artifacts/mariadb-s12-fs12.log', 3, 3, 3),
+          ]
+          results = []
+          invalid = False
+          for name, junit, log, expected_tests, min_lock_waits, min_records in specs:
+              if not Path(junit).exists():
+                  results.append({'suite': name, 'status': 'NOT_RUN', 'tests': 0, 'failures': 0, 'errors': 0, 'skipped': 0, 'lock_wait_evidence': 0})
+                  invalid = True
+                  continue
+              root = ET.parse(junit).getroot()
+              cases = root.findall('.//testcase')
+              skipped = len(root.findall('.//skipped'))
+              failures = len(root.findall('.//failure'))
+              errors = len(root.findall('.//error'))
+              log_text = Path(log).read_text() if Path(log).exists() else ''
+              locks = log_text.count('S12_LOCK_WAIT')
+              records = log_text.count('S12_CONCURRENCY') if name == 's12-at02' else log_text.count('S12_FS12_CONCURRENCY')
+              item = {'suite': name, 'status': 'PASS' if len(cases) == expected_tests and not (skipped or failures or errors) and locks >= min_lock_waits and records >= min_records else 'FAIL', 'tests': len(cases), 'expected_tests': expected_tests, 'failures': failures, 'errors': errors, 'skipped': skipped, 'lock_wait_evidence': locks, 'required_lock_wait_evidence': min_lock_waits, 'concurrency_records': records, 'required_concurrency_records': min_records, 'skipped_tests': [c.get('classname', '') + '::' + c.get('name', '') for c in cases if c.find('skipped') is not None]}
+              results.append(item)
+              if item['status'] != 'PASS':
+                  invalid = True
+          Path('artifacts/mariadb-results.json').write_text(json.dumps(results, indent=2) + '\n')
+          print(json.dumps(results, indent=2))
+          sys.exit(1 if invalid else 0)
+          PY
+
+      - name: Write MariaDB SHA256 manifest
+        if: always()
+        run: find artifacts -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 -r sha256sum > artifacts/SHA256SUMS.txt
+
+      - name: Upload MariaDB logs and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: assab-ci-mariadb-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 30
