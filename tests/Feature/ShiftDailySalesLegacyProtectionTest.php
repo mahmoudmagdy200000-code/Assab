@@ -22,13 +22,14 @@ namespace Tests\Feature;
     if ($sample) {
         $sampleNormalized = str_replace(['\\', '/'], '/', $sample);
         if (preg_match('#^(.*?)/(Modules|app|database|tests)/#i', $sampleNormalized, $m)) {
-            $vendorBase = $m[1];
-            if (strcasecmp($vendorBase, $projectRoot) !== 0) {
+            $rawVendorBase = $m[1];
+            $canonicalVendorBase = realpath($rawVendorBase) ? str_replace('\\', '/', realpath($rawVendorBase)) : $rawVendorBase;
+            if (strcasecmp($canonicalVendorBase, $projectRoot) !== 0) {
                 $newClassMap = [];
                 foreach ($classMap as $class => $path) {
                     $norm = str_replace(['\\', '/'], '/', $path);
-                    if (str_starts_with($norm, $vendorBase . '/')) {
-                        $newClassMap[$class] = $projectRoot . substr($norm, strlen($vendorBase));
+                    if (str_starts_with($norm, $rawVendorBase . '/')) {
+                        $newClassMap[$class] = $projectRoot . substr($norm, strlen($rawVendorBase));
                     } else {
                         $newClassMap[$class] = $path;
                     }
@@ -43,8 +44,8 @@ namespace Tests\Feature;
                     $newDirs = [];
                     foreach ($dirs as $dir) {
                         $norm = str_replace(['\\', '/'], '/', $dir);
-                        if (str_starts_with($norm, $vendorBase . '/')) {
-                            $newDirs[] = $projectRoot . substr($norm, strlen($vendorBase));
+                        if (str_starts_with($norm, $rawVendorBase . '/')) {
+                            $newDirs[] = $projectRoot . substr($norm, strlen($rawVendorBase));
                         } else {
                             $newDirs[] = $dir;
                         }
@@ -192,7 +193,7 @@ class ShiftDailySalesLegacyProtectionTest extends TestCase
 
         // Realistic PKG-6 daily report operation produced by BridgeManagerDailyClose
         $this->pkg6Operation = Operation::create([
-            'public_id' => 'SAL-PKG6-' . strtoupper(Str::random(8)),
+            'public_id' => 'SAL-P6-' . strtoupper(Str::random(6)),
             'company_id' => $this->company->id,
             'branch_id' => $this->branch->id,
             'module_key' => 'sales',
@@ -225,7 +226,7 @@ class ShiftDailySalesLegacyProtectionTest extends TestCase
 
         // Standard legacy non-PKG-6 sales operation (e.g. manual / excel / pos)
         $this->legacyOperation = Operation::create([
-            'public_id' => 'SAL-LEGACY-' . strtoupper(Str::random(8)),
+            'public_id' => 'SAL-LEG-' . strtoupper(Str::random(6)),
             'company_id' => $this->company->id,
             'branch_id' => $this->branch->id,
             'module_key' => 'sales',
@@ -505,7 +506,7 @@ class ShiftDailySalesLegacyProtectionTest extends TestCase
     public function test_legacy_sales_operation_with_cashier_shift_links_is_permitted(): void
     {
         $legacyWithShiftLink = Operation::create([
-            'public_id' => 'SAL-SHIFT-LINK-' . strtoupper(Str::random(6)),
+            'public_id' => 'SAL-LNK-' . strtoupper(Str::random(6)),
             'company_id' => $this->company->id,
             'branch_id' => $this->branch->id,
             'module_key' => 'sales',
