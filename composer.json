@@ -9,7 +9,9 @@
     ],
     "license": "MIT",
     "require": {
-        "php": "^8.2",
+        "php": "^8.3",
+        "ext-gd": "*",
+        "ext-zip": "*",
         "barryvdh/laravel-dompdf": "^3.1",
         "endroid/qr-code": "^6.0",
         "firebase/php-jwt": "^7.0",
