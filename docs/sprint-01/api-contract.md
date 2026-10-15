@@ -775,3 +775,24 @@ Status: this section describes an isolated local composition of published task d
 - `available_actions` in the shift detail resource keeps the accepted PKG-3 `can_start` (no actual start, no operational end) and `can_accept_assignment` rules, the PKG-6 `report_review` projection, and PKG-7 `not_worked` / `can_mark_not_worked`. These flags are informational; every command re-checks state and authority on the server.
 - Routes: PKG-6 report `correct` / `resubmit` and PKG-7 manager-only `mark-not-worked` are both registered; `mark-not-worked` runs `auth:sanctum` → `branch.manager` → `log.throttle` → assigned-manager revalidation → required durable idempotency.
 - Unchanged policy gap: the future-dated did-not-work policy remains unresolved (documented existing behavior only; no cutoff added).
+
+## P-01 — Did Not Work release guard (local candidate; POLICY PENDING / FEATURE DISABLED)
+
+`POST /api/v1/branch-manager/shifts/{shift}/mark-not-worked` (and its `/api/...` alias) is gated by the
+server-side, request-time switch `config('features.shift_did_not_work')` ← env `FEATURE_SHIFT_DID_NOT_WORK`,
+**default `false`**. The business question (may a manager mark a future-dated assignment?) is unanswered, so no cutoff
+rule exists in this contract.
+
+When the switch is OFF (the default):
+
+- the route answers `404` with body `{"success": false, "message": "SHIFT_NOT_WORKED_FEATURE_DISABLED", "code": "SHIFT_NOT_WORKED_FEATURE_DISABLED"}`
+  after `auth:sanctum` and `branch.manager` (so an unauthenticated caller still gets `401`, a non-manager `403`) and **before**
+  any shift lookup, idempotency reservation or write. The same code is returned for a missing `Idempotency-Key` or an unknown shift UUID;
+- `available_actions.can_mark_not_worked` (shift detail) and `actions_available.mark_not_worked` (pending-shift detail) are `false`;
+  clients must not offer the action;
+- previously recorded `marked_not_worked` facts (none exist before first enablement) keep their fences: report-mutation
+  rejection (`SHIFT_MARKED_NOT_WORKED`) and daily-close exclusion remain active;
+- no other route or job writes `marked_not_worked`.
+
+When ON, behaviour is exactly the PKG-7 section above. Enabling it in any live environment is an explicit operational decision
+that requires the policy answer (or a recorded interim decision) and a config-cache refresh.
