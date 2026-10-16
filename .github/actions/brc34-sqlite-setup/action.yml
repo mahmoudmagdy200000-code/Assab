@@ -89,15 +89,18 @@ runs:
         mkdir -p artifacts
         php_version="$(php -r 'echo PHP_VERSION;')"
         [[ "$php_version" == 8.3.* ]] || { echo "::error title=RUNTIME::PHP ${php_version} is not 8.3.x"; exit 1; }
+        # Capture the module list once: `php -m | grep -q` under `set -o pipefail` is racy
+        # (grep exits on first match, php may then die with SIGPIPE and fail the pipeline).
+        modules="$(php -m)"
         for ext in intl pdo_sqlite pdo_mysql gd zip mbstring bcmath sqlite3 fileinfo; do
-          php -m | grep -qix "$ext" || { echo "::error title=RUNTIME::required PHP extension missing: $ext"; exit 1; }
+          grep -qix "$ext" <<<"$modules" || { echo "::error title=RUNTIME::required PHP extension missing: $ext"; exit 1; }
         done
         echo "ASSAB_CI_PHP_VERSION=${php_version}" >> "$GITHUB_ENV"
         {
           echo "php=${php_version}"
           php -r 'echo "sqlite_lib=".(new PDO("sqlite::memory:"))->query("select sqlite_version()")->fetchColumn().PHP_EOL;'
           composer --version
-          php -m | sort | tr '\n' ' '; echo
+          printf '%s\n' "$modules" | sort | tr '\n' ' '; echo
         } | tee artifacts/runtime.txt
 
     - name: Validate lock file and install locked dependencies
