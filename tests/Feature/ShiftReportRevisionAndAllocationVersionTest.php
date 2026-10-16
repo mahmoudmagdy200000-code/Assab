@@ -726,4 +726,384 @@ class ShiftReportRevisionAndAllocationVersionTest extends TestCase
             ->getJson("/api/v1/operations/{$op->id}")
             ->assertOk();
     }
+
+    /**
+     * Test 8: Mismatched legacyShiftId (cross-branch or cross-company) is rejected, returns null,
+     * and strictly does NOT leak foreign shift report revision, allocation version, or liability.
+     */
+    public function test_mismatched_legacy_shift_id_returns_null_and_does_not_leak_foreign_data(): void
+    {
+        // Setup foreign CashierShift in Branch B
+        $templateB = ShiftTemplate::factory()->create(['branch_id' => $this->branchB->id]);
+        $cashierB = Cashier::factory()->create(['branch_id' => $this->branchB->id]);
+        $cashierShiftB = CashierShift::withoutEvents(fn () => CashierShift::factory()->completed()->create([
+            'cashier_id' => $cashierB->id,
+            'shift_id' => $templateB->id,
+            'shift_date' => today(),
+            'total_sales' => '100.00',
+            'card_payments' => '40.00',
+            'cash_collected' => '40.00',
+            'closing_balance' => '40.00',
+            'variance' => '-20.00',
+            'status' => 'in_progress',
+        ]));
+
+        // Record revision 5 for Branch B shift
+        $revB = $this->revisionService->recordCashierRevision($cashierShiftB, 'cashier', $cashierB->id);
+        DB::table('shift_report_aggregates')->where('source_id', $cashierShiftB->id)->update(['current_revision_number' => 5]);
+
+        // Setup liability allocation version 3 for Branch B shift
+        ShiftLiabilityAllocation::create([
+            'cashier_shift_id' => $cashierShiftB->id,
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchB->id,
+            'version' => 3,
+            'report_revision' => '5',
+            'variance_halalas' => -2000,
+            'created_by_type' => 'cashier',
+            'created_by_id' => $cashierB->id,
+            'reason' => 'Branch B shortage',
+            'manager_approval_status' => 'approved',
+        ]);
+
+        // Operation in Branch A with mismatched legacyShiftId pointing to Branch B shift
+        $op = $this->createShiftOperation([
+            'legacyShiftId' => $cashierShiftB->id,
+            'pkg6Review' => null,
+        ]);
+
+        $response = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$op->id}")
+            ->assertOk();
+
+        // Must strictly NOT leak Branch B revision (5) or allocation version (3) or liability
+        $this->assertNull($response->json('reportRevision'), 'Must return null for mismatched legacyShiftId');
+        $this->assertNull($response->json('allocationVersion'), 'Must return null for mismatched legacyShiftId');
+        $this->assertNull($response->json('liability'), 'Must return null for mismatched legacyShiftId');
+
+        $this->assertNull($response->json('payload.reportRevision'));
+        $this->assertNull($response->json('payload.allocationVersion'));
+        $this->assertNull($response->json('payload.liability'));
+    }
+
+    /**
+     * Test 9: pkg6Review.revision_id pointing to a revision of another shift is rejected and returns null.
+     */
+    public function test_pkg6_review_revision_id_pointing_to_foreign_shift_revision_returns_null(): void
+    {
+        // Setup foreign CashierShift in Branch B with a revision
+        $templateB = ShiftTemplate::factory()->create(['branch_id' => $this->branchB->id]);
+        $cashierB = Cashier::factory()->create(['branch_id' => $this->branchB->id]);
+        $cashierShiftB = CashierShift::withoutEvents(fn () => CashierShift::factory()->completed()->create([
+            'cashier_id' => $cashierB->id,
+            'shift_id' => $templateB->id,
+            'shift_date' => today(),
+            'status' => 'in_progress',
+        ]));
+        $revB = $this->revisionService->recordCashierRevision($cashierShiftB, 'cashier', $cashierB->id);
+        DB::table('shift_report_aggregates')->where('source_id', $cashierShiftB->id)->update(['current_revision_number' => 7]);
+
+        // Shift A has NO aggregate and NO revisions of its own
+        $op = $this->createShiftOperation([
+            'pkg6Review' => [
+                'revision_id' => $revB->id, // Foreign revision from Branch B
+            ],
+        ]);
+
+        $response = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$op->id}")
+            ->assertOk();
+
+        $this->assertNull($response->json('reportRevision'), 'Must NOT adopt revision_number from an unrelated shift revision');
+        $this->assertNull($response->json('payload.reportRevision'));
+    }
+
+    /**
+     * Test 10: Accountant correction accepts all 4 ID aliases:
+     * CashierShift UUID, AdminShift UUID, Operation UUID, and Operation public ID (SHF-XXXXXX).
+     */
+    public function test_accountant_correction_supports_all_id_aliases(): void
+    {
+        $rev1 = $this->revisionService->recordCashierRevision($this->cashierShiftA, 'cashier', $this->cashierA->id);
+
+        ShiftReportCashCount::create([
+            'report_revision_id' => $rev1->id,
+            'counted_revision_id' => $rev1->id,
+            'evidence_revision_id' => $rev1->id,
+            'cashier_shift_id' => $this->cashierShiftA->id,
+            'gross_halalas' => 10000,
+            'cards_halalas' => 4000,
+            'apps_halalas' => 0,
+            'confirmed_opening_halalas' => 0,
+            'pending_incoming_counted_halalas' => 0,
+            'counted_halalas' => 4000,
+            'expected_halalas' => 6000,
+            'variance_halalas' => -2000,
+        ]);
+
+        $alloc1 = ShiftLiabilityAllocation::create([
+            'cashier_shift_id' => $this->cashierShiftA->id,
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'version' => 1,
+            'report_revision' => '1',
+            'variance_halalas' => -2000,
+            'created_by_type' => 'cashier',
+            'created_by_id' => $this->cashierA->id,
+            'reason' => 'عجز مبدئي',
+            'manager_approval_status' => 'pending',
+        ]);
+
+        ShiftLiabilityShare::create([
+            'allocation_id' => $alloc1->id,
+            'responsible_type' => 'cashier',
+            'responsible_id' => $this->cashierA->id,
+            'amount_halalas' => 2000,
+        ]);
+
+        $lock = ShiftLiabilityDailyLock::create([
+            'cashier_shift_id' => $this->cashierShiftA->id,
+            'branch_manager_shift_id' => $this->workdayA->id,
+            'report_revision' => (string) $rev1->id,
+            'allocation_version' => 1,
+            'locked_by_id' => $this->managerA->id,
+            'locked_at' => now(),
+        ]);
+
+        $op = $this->createShiftOperation();
+
+        // --- Alias 1: CashierShift UUID ---
+        $res1 = $this->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->actingAs($this->accountantA, 'sanctum')
+            ->postJson("/api/v1/accountant/shifts/{$this->cashierShiftA->id}/corrections", [
+                'expected_revision' => 1,
+                'expected_allocation_version' => 1,
+                'reason' => 'Correction via CashierShift UUID',
+                'changes' => ['card_payments' => '30.00'],
+                'shortage_allocations' => [['type' => 'cashier', 'id' => $this->cashierA->id, 'amount' => 3000]],
+            ])
+            ->assertOk();
+        $this->assertSame(2, $res1->json('revision_number'));
+        $this->assertSame(2, $res1->json('allocation_version'));
+
+        // Update daily lock for revision 2, allocation 2
+        $lock->update([
+            'report_revision' => (string) $res1->json('revision_id'),
+            'allocation_version' => 2,
+        ]);
+
+        // --- Alias 2: AdminShift UUID ---
+        $res2 = $this->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->actingAs($this->accountantA, 'sanctum')
+            ->postJson("/api/v1/accountant/shifts/{$this->adminShiftA->id}/corrections", [
+                'expected_revision' => 2,
+                'expected_allocation_version' => 2,
+                'reason' => 'Correction via AdminShift UUID',
+                'changes' => ['card_payments' => '25.00'],
+                'shortage_allocations' => [['type' => 'cashier', 'id' => $this->cashierA->id, 'amount' => 3500]],
+            ])
+            ->assertOk();
+        $this->assertSame(3, $res2->json('revision_number'));
+        $this->assertSame(3, $res2->json('allocation_version'));
+
+        // Update daily lock for revision 3, allocation 3
+        $lock->update([
+            'report_revision' => (string) $res2->json('revision_id'),
+            'allocation_version' => 3,
+        ]);
+
+        // --- Alias 3: Operation UUID ---
+        $res3 = $this->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->actingAs($this->accountantA, 'sanctum')
+            ->postJson("/api/v1/accountant/shifts/{$op->id}/corrections", [
+                'expected_revision' => 3,
+                'expected_allocation_version' => 3,
+                'reason' => 'Correction via Operation UUID',
+                'changes' => ['card_payments' => '20.00'],
+                'shortage_allocations' => [['type' => 'cashier', 'id' => $this->cashierA->id, 'amount' => 4000]],
+            ])
+            ->assertOk();
+        $this->assertSame(4, $res3->json('revision_number'));
+        $this->assertSame(4, $res3->json('allocation_version'));
+
+        // Update daily lock for revision 4, allocation 4
+        $lock->update([
+            'report_revision' => (string) $res3->json('revision_id'),
+            'allocation_version' => 4,
+        ]);
+
+        // --- Alias 4: Operation public ID (SHF-XXXXXX) ---
+        $res4 = $this->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->actingAs($this->accountantA, 'sanctum')
+            ->postJson("/api/v1/accountant/shifts/{$op->public_id}/corrections", [
+                'expected_revision' => 4,
+                'expected_allocation_version' => 4,
+                'reason' => 'Correction via Operation public_id',
+                'changes' => ['card_payments' => '15.00'],
+                'shortage_allocations' => [['type' => 'cashier', 'id' => $this->cashierA->id, 'amount' => 4500]],
+            ])
+            ->assertOk();
+        $this->assertSame(5, $res4->json('revision_number'));
+        $this->assertSame(5, $res4->json('allocation_version'));
+
+        // Verify read endpoint reflects latest versions
+        $read = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$op->id}")
+            ->assertOk();
+        $this->assertSame(5, $read->json('reportRevision'));
+        $this->assertSame(5, $read->json('allocationVersion'));
+        $this->assertSame(5, $read->json('liability.version'));
+    }
+
+    /**
+     * Test 11: Unauthorized accountant (Accountant B) cannot correct Branch A shift via any alias (403),
+     * and strictly causes ZERO mutations or financial postings.
+     */
+    public function test_unauthorized_accountant_rejected_on_all_aliases_with_zero_mutation(): void
+    {
+        $rev1 = $this->revisionService->recordCashierRevision($this->cashierShiftA, 'cashier', $this->cashierA->id);
+
+        ShiftReportCashCount::create([
+            'report_revision_id' => $rev1->id,
+            'counted_revision_id' => $rev1->id,
+            'evidence_revision_id' => $rev1->id,
+            'cashier_shift_id' => $this->cashierShiftA->id,
+            'gross_halalas' => 10000,
+            'cards_halalas' => 4000,
+            'apps_halalas' => 0,
+            'confirmed_opening_halalas' => 0,
+            'pending_incoming_counted_halalas' => 0,
+            'counted_halalas' => 4000,
+            'expected_halalas' => 6000,
+            'variance_halalas' => -2000,
+        ]);
+
+        $alloc1 = ShiftLiabilityAllocation::create([
+            'cashier_shift_id' => $this->cashierShiftA->id,
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'version' => 1,
+            'report_revision' => '1',
+            'variance_halalas' => -2000,
+            'created_by_type' => 'cashier',
+            'created_by_id' => $this->cashierA->id,
+            'reason' => 'عجز مبدئي',
+            'manager_approval_status' => 'pending',
+        ]);
+
+        ShiftLiabilityShare::create([
+            'allocation_id' => $alloc1->id,
+            'responsible_type' => 'cashier',
+            'responsible_id' => $this->cashierA->id,
+            'amount_halalas' => 2000,
+        ]);
+
+        ShiftLiabilityDailyLock::create([
+            'cashier_shift_id' => $this->cashierShiftA->id,
+            'branch_manager_shift_id' => $this->workdayA->id,
+            'report_revision' => (string) $rev1->id,
+            'allocation_version' => 1,
+            'locked_by_id' => $this->managerA->id,
+            'locked_at' => now(),
+        ]);
+
+        $op = $this->createShiftOperation();
+
+        // Baseline counts before unauthorized attempts
+        $emCountBefore = EmployeeMovement::count();
+        $pltCountBefore = PersonalLedgerTransaction::count();
+        $cctCountBefore = CashierCustodyTransaction::count();
+        $postingsBefore = DB::table('shift_liability_postings')->count();
+        $revCountBefore = ShiftReportRevision::count();
+        $allocCountBefore = ShiftLiabilityAllocation::count();
+
+        $payload = [
+            'expected_revision' => 1,
+            'expected_allocation_version' => 1,
+            'reason' => 'Unauthorized breach attempt',
+            'changes' => ['card_payments' => '30.00'],
+        ];
+
+        // 1. CashierShift UUID -> 403
+        $this->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->actingAs($this->accountantB, 'sanctum')
+            ->postJson("/api/v1/accountant/shifts/{$this->cashierShiftA->id}/corrections", $payload)
+            ->assertStatus(403);
+
+        // 2. AdminShift UUID -> 403
+        $this->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->actingAs($this->accountantB, 'sanctum')
+            ->postJson("/api/v1/accountant/shifts/{$this->adminShiftA->id}/corrections", $payload)
+            ->assertStatus(403);
+
+        // 3. Operation UUID -> 403
+        $this->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->actingAs($this->accountantB, 'sanctum')
+            ->postJson("/api/v1/accountant/shifts/{$op->id}/corrections", $payload)
+            ->assertStatus(403);
+
+        // 4. Operation public ID -> 403
+        $this->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->actingAs($this->accountantB, 'sanctum')
+            ->postJson("/api/v1/accountant/shifts/{$op->public_id}/corrections", $payload)
+            ->assertStatus(403);
+
+        // Strictly zero side-effects
+        $this->assertSame($emCountBefore, EmployeeMovement::count());
+        $this->assertSame($pltCountBefore, PersonalLedgerTransaction::count());
+        $this->assertSame($cctCountBefore, CashierCustodyTransaction::count());
+        $this->assertSame($postingsBefore, DB::table('shift_liability_postings')->count());
+        $this->assertSame($revCountBefore, ShiftReportRevision::count());
+        $this->assertSame($allocCountBefore, ShiftLiabilityAllocation::count());
+    }
+
+    /**
+     * Test 12: Operation pointing to a shift mismatched with company/branch scope is rejected (404),
+     * preventing cross-scope shift mutation even by authorized users.
+     */
+    public function test_mismatched_operation_shift_scope_rejected_without_mutation(): void
+    {
+        // Foreign CashierShift in Branch B
+        $templateB = ShiftTemplate::factory()->create(['branch_id' => $this->branchB->id]);
+        $cashierB = Cashier::factory()->create(['branch_id' => $this->branchB->id]);
+        $cashierShiftB = CashierShift::withoutEvents(fn () => CashierShift::factory()->completed()->create([
+            'cashier_id' => $cashierB->id,
+            'shift_id' => $templateB->id,
+            'shift_date' => today(),
+            'total_sales' => '100.00',
+            'card_payments' => '40.00',
+            'cash_collected' => '40.00',
+            'closing_balance' => '40.00',
+            'variance' => '0.00',
+            'status' => 'in_progress',
+        ]));
+
+        // Operation in Branch A, but legacyShiftId maliciously set to Branch B shift
+        $mismatchedOp = $this->createShiftOperation([
+            'legacyShiftId' => $cashierShiftB->id,
+        ]);
+
+        $payload = [
+            'expected_revision' => 1,
+            'reason' => 'Attempt to correct mismatched shift',
+            'changes' => ['card_payments' => '30.00'],
+        ];
+
+        // 1. Accountant A attempts correction via mismatched operation -> 404 (does not resolve to valid Branch A shift)
+        $this->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->actingAs($this->accountantA, 'sanctum')
+            ->postJson("/api/v1/accountant/shifts/{$mismatchedOp->id}/corrections", $payload)
+            ->assertStatus(404);
+
+        // 2. Head accountant attempts correction via mismatched operation -> 404
+        $this->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->actingAs($this->head, 'sanctum')
+            ->postJson("/api/v1/accountant/shifts/{$mismatchedOp->id}/corrections", $payload)
+            ->assertStatus(404);
+
+        // Zero changes to Branch B shift
+        $this->assertSame('40.00', (string) $cashierShiftB->fresh()->card_payments);
+        $this->assertSame(0, EmployeeMovement::count());
+        $this->assertSame(0, PersonalLedgerTransaction::count());
+    }
 }

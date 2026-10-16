@@ -40,7 +40,10 @@ class AccountantReportCorrectionController extends AsabController
             if ($cashierShift === null) {
                 $adminShift = AdminShift::query()->whereKey($id)->first();
                 if ($adminShift !== null && $adminShift->legacy_shift_id !== null) {
-                    $cashierShift = CashierShift::query()->whereKey($adminShift->legacy_shift_id)->first();
+                    $candidate = CashierShift::query()->whereKey($adminShift->legacy_shift_id)->first();
+                    if ($candidate !== null && $this->cashierShiftMatchesScope($candidate, (string) $adminShift->company_id, (string) $adminShift->branch_id)) {
+                        $cashierShift = $candidate;
+                    }
                 }
             }
             if ($cashierShift === null) {
@@ -48,16 +51,27 @@ class AccountantReportCorrectionController extends AsabController
                     ->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id))
                     ->first();
                 if ($operation !== null) {
-                    $legacyId = $operation->payload['legacyShiftId'] ?? null;
-                    if ($legacyId) {
-                        $cashierShift = CashierShift::query()->whereKey($legacyId)->first();
-                    }
-                    if ($cashierShift === null && $operation->source_id) {
-                        $cashierShift = CashierShift::query()->whereKey($operation->source_id)->first();
-                        if ($cashierShift === null) {
-                            $adminShift = AdminShift::query()->whereKey($operation->source_id)->first();
+                    if (! empty($operation->payload['legacyShiftId'])) {
+                        $legacyId = (string) $operation->payload['legacyShiftId'];
+                        $candidate = CashierShift::query()->whereKey($legacyId)->first();
+                        if ($candidate !== null && $this->cashierShiftMatchesScope($candidate, (string) $operation->company_id, (string) $operation->branch_id)) {
+                            $cashierShift = $candidate;
+                        }
+                    } else {
+                        $shiftId = $operation->payload['shiftId'] ?? $operation->source_id;
+                        if ($shiftId) {
+                            $adminShift = AdminShift::query()->whereKey($shiftId)->first();
                             if ($adminShift !== null && $adminShift->legacy_shift_id !== null) {
-                                $cashierShift = CashierShift::query()->whereKey($adminShift->legacy_shift_id)->first();
+                                $candidate = CashierShift::query()->whereKey($adminShift->legacy_shift_id)->first();
+                                if ($candidate !== null && $this->cashierShiftMatchesScope($candidate, (string) $operation->company_id, (string) $operation->branch_id)) {
+                                    $cashierShift = $candidate;
+                                }
+                            }
+                        }
+                        if ($cashierShift === null && $operation->source_id) {
+                            $candidate = CashierShift::query()->whereKey($operation->source_id)->first();
+                            if ($candidate !== null && $this->cashierShiftMatchesScope($candidate, (string) $operation->company_id, (string) $operation->branch_id)) {
+                                $cashierShift = $candidate;
                             }
                         }
                     }
@@ -176,5 +190,19 @@ class AccountantReportCorrectionController extends AsabController
         } catch (HttpExceptionInterface $e) {
             return $this->fail('HTTP_ERROR', $e->getMessage(), 'خطأ في الطلب', [], $e->getStatusCode());
         }
+    }
+
+    /**
+     * Verify that a CashierShift belongs to the expected company and branch.
+     */
+    private function cashierShiftMatchesScope(CashierShift $cashierShift, string $companyId, string $branchId): bool
+    {
+        $shiftBranchId = (string) ($cashierShift->shift()->value('branch_id') ?? $cashierShift->branch_id);
+        $shiftCompanyId = (string) (
+            \Illuminate\Support\Facades\DB::table('branches')->where('id', $shiftBranchId)->value('asab_company_id')
+            ?? \Illuminate\Support\Facades\DB::table('branches')->where('id', $shiftBranchId)->value('company_id')
+        );
+
+        return $shiftBranchId === (string) $branchId && $shiftCompanyId === (string) $companyId;
     }
 }

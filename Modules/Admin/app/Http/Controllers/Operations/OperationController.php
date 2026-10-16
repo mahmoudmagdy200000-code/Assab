@@ -604,31 +604,68 @@ class OperationController extends AsabController
     }
 
     /**
-     * Resolve the cashier shift ID for an operation.
+     * Resolve the validated cashier shift ID for an operation.
+     * Enforces strict branch and tenant provenance: the cashier shift MUST
+     * belong to the same company and branch as the operation.
      */
     private function resolveCashierShiftId(Operation $op): ?string
     {
-        $cashierShiftId = $op->payload['legacyShiftId'] ?? null;
-        if (! $cashierShiftId) {
-            $shiftId = $op->payload['shiftId'] ?? $op->source_id;
-            if ($shiftId) {
-                $cashierShiftId = DB::table('asab_shifts')
-                    ->where('id', $shiftId)
-                    ->where('company_id', $op->company_id)
-                    ->where('branch_id', $op->branch_id)
-                    ->value('legacy_shift_id');
-            }
-        }
-        if (! $cashierShiftId && $op->source_id) {
-            $cashierShiftId = $op->source_id;
+        if (! empty($op->payload['legacyShiftId'])) {
+            $legacyId = (string) $op->payload['legacyShiftId'];
+
+            return $this->isValidCashierShiftForOperation($legacyId, $op) ? $legacyId : null;
         }
 
-        return $cashierShiftId;
+        $shiftId = $op->payload['shiftId'] ?? $op->source_id;
+        if ($shiftId) {
+            $legacyFromAdmin = DB::table('asab_shifts')
+                ->where('id', $shiftId)
+                ->where('company_id', $op->company_id)
+                ->where('branch_id', $op->branch_id)
+                ->value('legacy_shift_id');
+            if ($legacyFromAdmin && $this->isValidCashierShiftForOperation((string) $legacyFromAdmin, $op)) {
+                return (string) $legacyFromAdmin;
+            }
+        }
+
+        if ($op->source_id && $this->isValidCashierShiftForOperation((string) $op->source_id, $op)) {
+            return (string) $op->source_id;
+        }
+
+        return null;
+    }
+
+    /**
+     * Verify that a cashier shift strictly belongs to the operation's company and branch.
+     */
+    private function isValidCashierShiftForOperation(string $cashierShiftId, Operation $op): bool
+    {
+        $branchInfo = DB::table('cashier_shifts')
+            ->join('shifts', 'shifts.id', '=', 'cashier_shifts.shift_id')
+            ->join('branches', 'branches.id', '=', 'shifts.branch_id')
+            ->where('cashier_shifts.id', $cashierShiftId)
+            ->select('shifts.branch_id', 'branches.asab_company_id')
+            ->first();
+
+        if ($branchInfo !== null) {
+            $branchMatches = (string) $branchInfo->branch_id === (string) $op->branch_id;
+            $companyMatches = (string) $branchInfo->asab_company_id === (string) $op->company_id;
+            if ($branchMatches && $companyMatches) {
+                return true;
+            }
+        }
+
+        return DB::table('asab_shifts')
+            ->where('legacy_shift_id', $cashierShiftId)
+            ->where('company_id', $op->company_id)
+            ->where('branch_id', $op->branch_id)
+            ->exists();
     }
 
     /**
      * BD-3 — Resolve the confirmed shift report revision number.
      * Derived from ShiftReportAggregate (current_revision_number) or recorded revisions.
+     * Enforces provenance: only revisions belonging to this shift's aggregate are trusted.
      * Returns null if no report revision exists without inventing arbitrary defaults.
      */
     private function resolveShiftReportRevision(Operation $op, ?string $cashierShiftId = null): ?int
@@ -643,22 +680,25 @@ class OperationController extends AsabController
             ->where('source_id', $cashierShiftId)
             ->first();
 
-        if ($aggregate && (int) $aggregate->current_revision_number > 0) {
+        if (! $aggregate) {
+            return null;
+        }
+
+        if ((int) $aggregate->current_revision_number > 0) {
             return (int) $aggregate->current_revision_number;
         }
 
-        if ($aggregate) {
-            $maxRev = DB::table('shift_report_revisions')
-                ->where('report_aggregate_id', $aggregate->id)
-                ->max('revision_number');
-            if ($maxRev !== null && (int) $maxRev > 0) {
-                return (int) $maxRev;
-            }
+        $maxRev = DB::table('shift_report_revisions')
+            ->where('report_aggregate_id', $aggregate->id)
+            ->max('revision_number');
+        if ($maxRev !== null && (int) $maxRev > 0) {
+            return (int) $maxRev;
         }
 
         if (isset($op->payload['pkg6Review']['revision_id'])) {
             $revNumber = DB::table('shift_report_revisions')
                 ->where('id', $op->payload['pkg6Review']['revision_id'])
+                ->where('report_aggregate_id', $aggregate->id)
                 ->value('revision_number');
             if ($revNumber !== null && (int) $revNumber > 0) {
                 return (int) $revNumber;
