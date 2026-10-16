@@ -648,11 +648,8 @@ class OperationController extends AsabController
             ->first();
 
         if ($branchInfo !== null) {
-            $branchMatches = (string) $branchInfo->branch_id === (string) $op->branch_id;
-            $companyMatches = (string) $branchInfo->asab_company_id === (string) $op->company_id;
-            if ($branchMatches && $companyMatches) {
-                return true;
-            }
+            return (string) $branchInfo->branch_id === (string) $op->branch_id
+                && (string) $branchInfo->asab_company_id === (string) $op->company_id;
         }
 
         return DB::table('asab_shifts')

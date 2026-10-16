@@ -1106,4 +1106,211 @@ class ShiftReportRevisionAndAllocationVersionTest extends TestCase
         $this->assertSame(0, EmployeeMovement::count());
         $this->assertSame(0, PersonalLedgerTransaction::count());
     }
+
+    /**
+     * Finding F-BD3-01: Mismatched bridge mapping in asab_shifts pointing to a foreign CashierShift
+     * (cross-branch or cross-company) must NOT override canonical cashier_shifts -> shifts -> branches
+     * scope mismatch. The fallback must fail-closed and return null.
+     */
+    public function test_f_bd3_01_mismatched_bridge_mapping_cross_branch_and_cross_company(): void
+    {
+        // -------------------------------------------------------------
+        // Case 1: Cross-Branch Mismatch via asab_shifts bridge
+        // -------------------------------------------------------------
+        $templateB = ShiftTemplate::factory()->create(['branch_id' => $this->branchB->id]);
+        $cashierB = Cashier::factory()->create(['branch_id' => $this->branchB->id]);
+        $cashierShiftB = CashierShift::withoutEvents(fn () => CashierShift::factory()->completed()->create([
+            'cashier_id' => $cashierB->id,
+            'shift_id' => $templateB->id,
+            'shift_date' => today(),
+            'total_sales' => '100.00',
+            'card_payments' => '40.00',
+            'cash_collected' => '40.00',
+            'closing_balance' => '40.00',
+            'variance' => '-20.00',
+            'status' => 'in_progress',
+        ]));
+
+        // Record revision 5 for Branch B shift
+        $revB = $this->revisionService->recordCashierRevision($cashierShiftB, 'cashier', $cashierB->id);
+        DB::table('shift_report_aggregates')->where('source_id', $cashierShiftB->id)->update(['current_revision_number' => 5]);
+
+        // Branch A AdminShift bridge mistakenly pointing legacy_shift_id to Branch B's cashier shift
+        $bridgeShiftBranchA = AdminShift::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'legacy_shift_id' => $cashierShiftB->id,
+            'name' => 'Bridge Shift in Branch A pointing to Branch B',
+            'role' => 'cashier',
+            'shift_date' => today(),
+            'status' => 'pending_review',
+        ]);
+
+        // Operation in Branch A referencing this bridge shift
+        $opBranchA = Operation::create([
+            'public_id' => 'SHF-' . strtoupper(Str::random(6)),
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'module_key' => 'shifts',
+            'origin' => 'mobile',
+            'source_module' => 'shifts',
+            'source_id' => $bridgeShiftBranchA->id,
+            'amount' => 10000,
+            'match' => 'exact',
+            'status' => Operation::STATUS_PENDING,
+            'payload' => [
+                'shiftId' => $bridgeShiftBranchA->id,
+                'legacyShiftId' => null,
+            ],
+        ]);
+
+        // Baseline financial counts before read operations
+        $emBefore = EmployeeMovement::count();
+        $pltBefore = PersonalLedgerTransaction::count();
+        $cctBefore = CashierCustodyTransaction::count();
+        $postingsBefore = DB::table('shift_liability_postings')->count();
+        $revBefore = ShiftReportRevision::count();
+        $allocBefore = ShiftLiabilityAllocation::count();
+        $shareBefore = ShiftLiabilityShare::count();
+
+        $resBranch = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$opBranchA->id}")
+            ->assertOk();
+
+        // Must FAIL CLOSED: cannot trust bridge mapping when canonical shift is in Branch B
+        $this->assertNull(
+            $resBranch->json('reportRevision'),
+            'F-BD3-01: Must NOT leak foreign Branch B revision via mismatched asab_shifts bridge'
+        );
+        $this->assertNull(
+            $resBranch->json('allocationVersion'),
+            'F-BD3-01: Must NOT leak foreign Branch B allocation via mismatched asab_shifts bridge'
+        );
+        $this->assertNull(
+            $resBranch->json('liability'),
+            'F-BD3-01: Must NOT leak foreign Branch B liability via mismatched asab_shifts bridge'
+        );
+
+        // -------------------------------------------------------------
+        // Case 2: Cross-Company / Cross-Tenant Mismatch via bridge
+        // -------------------------------------------------------------
+        $company2 = AsabCompany::create([
+            'name' => 'Foreign Company 2',
+            'plan' => 'Enterprise',
+            'status' => 'active',
+        ]);
+        $brand2 = AsabBrand::create([
+            'company_id' => $company2->id,
+            'name' => 'Brand 2',
+            'status' => 'active',
+            'sub_status' => 'active',
+        ]);
+        $branch2 = Branch::factory()->create([
+            'asab_company_id' => $company2->id,
+            'asab_brand_id' => $brand2->id,
+            'name' => 'Foreign Branch 2',
+        ]);
+        $template2 = ShiftTemplate::factory()->create(['branch_id' => $branch2->id]);
+        $cashier2 = Cashier::factory()->create(['branch_id' => $branch2->id]);
+        $cashierShiftCompany2 = CashierShift::withoutEvents(fn () => CashierShift::factory()->completed()->create([
+            'cashier_id' => $cashier2->id,
+            'shift_id' => $template2->id,
+            'shift_date' => today(),
+            'total_sales' => '200.00',
+            'status' => 'in_progress',
+        ]));
+
+        // Record revision 9 for Company 2 shift
+        $rev2 = $this->revisionService->recordCashierRevision($cashierShiftCompany2, 'cashier', $cashier2->id);
+        DB::table('shift_report_aggregates')->where('source_id', $cashierShiftCompany2->id)->update(['current_revision_number' => 9]);
+
+        // Company 1 AdminShift bridge pointing legacy_shift_id to Company 2 cashier shift
+        $bridgeShiftCompany1 = AdminShift::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'legacy_shift_id' => $cashierShiftCompany2->id,
+            'name' => 'Bridge Shift in Company 1 pointing to Company 2',
+            'role' => 'cashier',
+            'shift_date' => today(),
+            'status' => 'pending_review',
+        ]);
+
+        // Operation in Company 1 referencing this cross-company bridge
+        $opCompany1 = Operation::create([
+            'public_id' => 'SHF-' . strtoupper(Str::random(6)),
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'module_key' => 'shifts',
+            'origin' => 'mobile',
+            'source_module' => 'shifts',
+            'source_id' => $bridgeShiftCompany1->id,
+            'amount' => 20000,
+            'match' => 'exact',
+            'status' => Operation::STATUS_PENDING,
+            'payload' => [
+                'shiftId' => $bridgeShiftCompany1->id,
+                'legacyShiftId' => null,
+            ],
+        ]);
+
+        $resCompany = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$opCompany1->id}")
+            ->assertOk();
+
+        // Must FAIL CLOSED: cannot trust bridge mapping across companies
+        $this->assertNull(
+            $resCompany->json('reportRevision'),
+            'F-BD3-01: Must NOT leak foreign Company 2 revision via cross-company bridge'
+        );
+        $this->assertNull($resCompany->json('allocationVersion'));
+        $this->assertNull($resCompany->json('liability'));
+
+        // Verify zero mutations across all financial tables during rejected mismatched queries
+        $this->assertSame($emBefore, EmployeeMovement::count(), 'Zero EmployeeMovement mutations on mismatched scope query');
+        $this->assertSame($pltBefore, PersonalLedgerTransaction::count(), 'Zero PersonalLedgerTransaction mutations on mismatched scope query');
+        $this->assertSame($cctBefore, CashierCustodyTransaction::count(), 'Zero CashierCustodyTransaction mutations on mismatched scope query');
+        $this->assertSame($postingsBefore, DB::table('shift_liability_postings')->count(), 'Zero shift_liability_postings on mismatched scope query');
+        $this->assertSame($revBefore + 1, ShiftReportRevision::count(), 'No extra ShiftReportRevision created by query');
+        $this->assertSame($allocBefore, ShiftLiabilityAllocation::count(), 'Zero ShiftLiabilityAllocation mutations on mismatched scope query');
+        $this->assertSame($shareBefore, ShiftLiabilityShare::count(), 'Zero ShiftLiabilityShare mutations on mismatched scope query');
+
+        // -------------------------------------------------------------
+        // Case 3: Positive Control — Legitimate matching bridge succeeds
+        // -------------------------------------------------------------
+        $legitBridge = AdminShift::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'legacy_shift_id' => $this->cashierShiftA->id,
+            'name' => 'Legitimate Matching Bridge in Branch A',
+            'role' => 'cashier',
+            'shift_date' => today(),
+            'status' => 'pending_review',
+        ]);
+
+        $revA = $this->revisionService->recordCashierRevision($this->cashierShiftA, 'cashier', $this->cashierA->id);
+        DB::table('shift_report_aggregates')->where('source_id', $this->cashierShiftA->id)->update(['current_revision_number' => 2]);
+
+        $opLegit = Operation::create([
+            'public_id' => 'SHF-' . strtoupper(Str::random(6)),
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'module_key' => 'shifts',
+            'origin' => 'mobile',
+            'source_module' => 'shifts',
+            'source_id' => $legitBridge->id,
+            'amount' => 10000,
+            'match' => 'exact',
+            'status' => Operation::STATUS_PENDING,
+            'payload' => [
+                'shiftId' => $legitBridge->id,
+                'legacyShiftId' => null,
+            ],
+        ]);
+
+        $resLegit = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$opLegit->id}")
+            ->assertOk();
+
+        $this->assertSame(2, $resLegit->json('reportRevision'), 'Legitimate matching bridge must resolve reportRevision');
+    }
 }
