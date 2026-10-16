@@ -117,8 +117,33 @@ return Application::configure(basePath: dirname(__DIR__))
             'overload.shed' => \App\Http\Middleware\OverloadSheddingMiddleware::class,
             'log.throttle' => \App\Http\Middleware\LogThrottledRequestsMiddleware::class,
         ]);
+
+        // Laravel's default guest redirect is `route('login')`, and
+        // Authenticate::unauthenticated() evaluates it eagerly for every request
+        // that does not expect JSON — before the exception handler (and its
+        // shouldRenderJsonWhen below) is ever consulted. This application has no
+        // `login` route, so on the JSON API surface the callback itself threw
+        // RouteNotFoundException. Return no redirect for `/api` and `/api/*`; the
+        // handler then answers with the normal JSON 401. Everything else keeps the
+        // framework default exactly as before.
+        $middleware->redirectGuestsTo(
+            fn (\Illuminate\Http\Request $request): ?string => $request->is('api', 'api/*') ? null : route('login')
+        );
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // `/api` and `/api/*` (which includes `/api/v1/*`) are JSON-only surfaces.
+        // Laravel answers a guest with JSON 401 only when the request *expects*
+        // JSON; otherwise it redirects to route('login'), which this API-only
+        // application does not define. A client that sent curl's default
+        // `Accept: */*`, or no Accept header, therefore got
+        // RouteNotFoundException («Route [login] not defined.») and an HTTP 500
+        // instead of 401 (observed on Staging, GET /api/aggregators). Non-API
+        // requests keep Laravel's own content negotiation.
+        $exceptions->shouldRenderJsonWhen(
+            fn (\Illuminate\Http\Request $request, \Throwable $e): bool => $request->is('api', 'api/*')
+                || $request->expectsJson()
+        );
+
         // AsabController::run() only translates domain/validation/not-found
         // errors; anything else — a QueryException above all — escaped to
         // Laravel's default 500. Because no CORS headers ride on that response,

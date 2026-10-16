@@ -1,0 +1,6 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "deploy": {
+    "startCommand": "RAILPACK_SKIP_MIGRATIONS=true bash /start-container.sh"
+  }
+}
