@@ -58,6 +58,11 @@ def parse_skips(log_text: str) -> list[dict]:
     return out
 
 
+def esc(text: str) -> str:
+    """Escape a value for a GitHub workflow command message."""
+    return str(text).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+
 def redact(text: str) -> str:
     text = re.sub(r"/(?:home|tmp|root|github|__w|runner)[^\s:'\"]*", "<path>", text or "")
     return text[:MAX_MSG]
@@ -218,16 +223,24 @@ def main(argv: list[str] | None = None) -> int:
 
     head = (f"BRC34 {args.gate.upper()} SQLite gate {res['status']}: tests={res['tests']} executed={res['executed']} "
             f"skipped={res['skipped']} failures={res['failures']} errors={res['errors']} assertions={res['assertions']} "
+            f"classes={res['classes']} wall_s={res['wall_seconds']} exit={res['exit_code']} "
             f"sha={res['tested_sha']} php={res['php']} db={res['db_driver']}:{res['db_database']}")
     level = "notice" if res["status"] == "PASS" else "error"
-    print(f"::{level} title=BRC34 {args.gate} gate {res['status']}::{head}")
+    print(f"::{level} title=BRC34 {args.gate} gate {res['status']}::{esc(head)}")
     for cat, n in sorted(res["skip_categories"].items()):
         lvl = "warning" if cat == "UNCLASSIFIED" else "notice"
-        print(f"::{lvl} title=BRC34 {args.gate} skips::{cat}={n}")
+        print(f"::{lvl} title=BRC34 {args.gate} skips::{esc(cat)}={n}")
+    if res["skip_by_class"]:
+        top = ", ".join(f"{k.rsplit(chr(92), 1)[-1]}={v}" for k, v in list(res["skip_by_class"].items())[:12])
+        print(f"::notice title=BRC34 {args.gate} skipped classes::{esc(top)}")
+    for d in res["failure_details"][:8]:
+        print(f"::error title=BRC34 {args.gate} FAILED test::{esc(d['test'] + ' -- ' + d['message'])}")
+    for d in res["error_details"][:8]:
+        print(f"::error title=BRC34 {args.gate} ERRORED test::{esc(d['test'] + ' -- ' + d['message'])}")
     if res.get("skip_log_matches_junit") is False:
         print(f"::warning title=BRC34 {args.gate} skips::skip reasons in the console log do not account for every JUnit skip")
     if res.get("reason"):
-        print(f"::error title=BRC34 {args.gate} reason::{res['reason']}")
+        print(f"::error title=BRC34 {args.gate} reason::{esc(res['reason'])}")
     print(md)
     return 0 if res["status"] == "PASS" else 1
 

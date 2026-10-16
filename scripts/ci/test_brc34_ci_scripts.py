@@ -155,6 +155,20 @@ class SummarizeJunit(unittest.TestCase):
         self.assertEqual(r["skip_categories"], {"UNCLASSIFIED": 1})
         self.assertEqual(r["status"], "PASS")
 
+    def test_annotations_escape_newlines_and_report_failures(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "j.xml").write_text(junit([("C", "t1", "fail"), ("C", "t2", "pass")]).replace("boom", "line1\nline2 100%"))
+        (tmp / "l.log").write_text("")
+        r = subprocess.run([sys.executable, "-I", str(HERE / "summarize_junit.py"), "--gate", "fast", "--junit", str(tmp / "j.xml"),
+                            "--log", str(tmp / "l.log"), "--exit-code", "1", "--out-dir", str(tmp), "--wall-seconds", "2"],
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 1)
+        cmds = [ln for ln in r.stdout.splitlines() if ln.startswith("::")]
+        self.assertTrue(any("FAILED test" in c and "%0A" in c and "100%25" in c for c in cmds), cmds)
+        self.assertTrue(all("\n" not in c for c in cmds))
+        self.assertTrue((tmp / "fast.summary.json").is_file() and (tmp / "fast.summary.md").is_file())
+
     def test_classification(self) -> None:
         self.assertEqual(sj.classify_skip("needs MySQL")[0], "DB_CONCURRENCY_OPT_IN")
         self.assertEqual(sj.classify_skip("requires explicit flag FOO=1")[0], "OTHER_ENV_OPT_IN")
