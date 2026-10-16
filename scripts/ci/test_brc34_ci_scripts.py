@@ -130,6 +130,14 @@ class SummarizeJunit(unittest.TestCase):
         self.assertEqual(r["skip_categories"], {"DB_CONCURRENCY_OPT_IN": 2})
         self.assertTrue(r["skip_log_matches_junit"])
 
+    def test_skip_with_data_set_in_log_is_parsed(self) -> None:
+        log = ("There were 1 skipped tests:\n\n1) Tests\\Feature\\XMySqlTest::t with data set #1\n"
+               "Opt-in MySQL concurrency gate is not enabled (set X=1).\n\nOK, but some tests were skipped!\n")
+        skips = sj.parse_skips(log)
+        self.assertEqual(len(skips), 1)
+        self.assertEqual(skips[0]["test"], "Tests\\Feature\\XMySqlTest::t with data set #1")
+        self.assertEqual(skips[0]["category"], "DB_CONCURRENCY_OPT_IN")
+
     def test_failure_and_error_make_fail(self) -> None:
         r = self.run_summary(junit([("C", "t1", "fail"), ("C", "t2", "error"), ("C", "t3", "pass")]), "", 2)
         self.assertEqual(r["status"], "FAIL")

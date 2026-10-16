@@ -28,7 +28,7 @@ import xml.etree.ElementTree as ET
 from collections import Counter, defaultdict
 from pathlib import Path
 
-SKIP_BLOCK = re.compile(r"^\d+\) (?P<id>\S+::\S+)\n(?P<reason>.*?)(?:\n\n|\Z)", re.M | re.S)
+SKIP_BLOCK = re.compile(r"^\d+\) (?P<id>\S+::[^\n]+)\n(?P<reason>.*?)(?:\n\n|\Z)", re.M | re.S)
 MAX_MSG = 400
 
 
