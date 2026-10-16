@@ -1,0 +1,116 @@
+name: ASSAB BRC v3.4 SQLite gate setup
+description: >-
+  Source guard + isolation guards + PHP 8.3 + locked Composer install for the
+  isolated in-memory SQLite regression gates. No secrets, no deployment, no
+  database service. The calling job must already have checked out the tested
+  commit with fetch-depth 0.
+
+inputs:
+  tested-head:
+    description: Commit SHA that was checked out and is being tested.
+    required: true
+  enforce-scope:
+    description: "'true' to fail when files outside the CI/config/docs allow-list changed relative to the accepted candidate."
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Source guard (tested SHA, candidate ancestry, change scope)
+      shell: bash
+      env:
+        CANDIDATE_SHA: bc0b87c39d8659a571dbfb44d1c1d651a314bf16
+        CANDIDATE_TREE: ce044ee1c153750955d9e0f23c4e8fac47cf8fcc
+        TESTED_HEAD: ${{ inputs.tested-head }}
+        ENFORCE_SCOPE: ${{ inputs.enforce-scope }}
+      run: |
+        set -euo pipefail
+        mkdir -p artifacts
+
+        head_sha="$(git rev-parse HEAD)"
+        [[ "$head_sha" == "$TESTED_HEAD" ]] || {
+          echo "::error title=SOURCE GUARD::checked-out HEAD $head_sha != requested tested head $TESTED_HEAD"; exit 1; }
+
+        git cat-file -e "${CANDIDATE_SHA}^{commit}" 2>/dev/null || {
+          echo "::error title=SOURCE GUARD::accepted candidate commit ${CANDIDATE_SHA} is not present in the fetched history"; exit 1; }
+        [[ "$(git rev-parse "${CANDIDATE_SHA}^{tree}")" == "$CANDIDATE_TREE" ]] || {
+          echo "::error title=SOURCE GUARD::candidate tree mismatch"; exit 1; }
+        git merge-base --is-ancestor "$CANDIDATE_SHA" "$head_sha" || {
+          echo "::error title=SOURCE GUARD::tested commit does not descend from the accepted candidate ${CANDIDATE_SHA}"; exit 1; }
+
+        changed="$(git diff --name-only "$CANDIDATE_SHA" "$head_sha")"
+        {
+          echo "tested_sha=$head_sha"
+          echo "tested_tree=$(git rev-parse "${head_sha}^{tree}")"
+          echo "candidate_sha=$CANDIDATE_SHA"
+          echo "candidate_tree=$CANDIDATE_TREE"
+          echo "commits_since_candidate=$(git rev-list --count "${CANDIDATE_SHA}..${head_sha}")"
+          echo "files_changed_since_candidate:"
+          printf '%s\n' "$changed"
+        } | tee artifacts/source-guard.txt
+
+        out_of_scope="$(printf '%s\n' "$changed" | grep -Ev '^$|^\.github/workflows/assab-brc34-regression\.yml$|^\.github/actions/brc34-sqlite-setup/|^scripts/ci/|^docs/ci/' || true)"
+        if [[ -n "$out_of_scope" ]]; then
+          echo "out_of_scope_files:" | tee -a artifacts/source-guard.txt
+          printf '%s\n' "$out_of_scope" | tee -a artifacts/source-guard.txt
+          if [[ "$ENFORCE_SCOPE" == "true" ]]; then
+            echo "::error title=SOURCE GUARD::files outside the CI/config/docs allow-list changed relative to the accepted candidate"
+            exit 1
+          fi
+          echo "::warning title=SOURCE GUARD::out-of-scope files differ from the candidate (scope not enforced for this event)"
+        else
+          echo "scope=ci-config-docs-only" | tee -a artifacts/source-guard.txt
+        fi
+        echo "SOURCE_GUARD=PASS"
+
+    - name: Isolation guard 1/3 (environment)
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p artifacts
+        bash scripts/ci/assert_isolated_env.sh 2>&1 | tee artifacts/isolation-env.txt
+        test "${PIPESTATUS[0]}" -eq 0
+
+    - name: Setup PHP 8.3 (pinned action)
+      uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+      with:
+        php-version: '8.3'
+        extensions: bcmath, curl, dom, fileinfo, gd, intl, mbstring, pdo_mysql, pdo_sqlite, sqlite3, tokenizer, xml, zip
+        coverage: none
+        tools: composer:v2
+      env:
+        fail-fast: 'true'
+
+    - name: Verify PHP runtime and required extensions
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p artifacts
+        php_version="$(php -r 'echo PHP_VERSION;')"
+        [[ "$php_version" == 8.3.* ]] || { echo "::error title=RUNTIME::PHP ${php_version} is not 8.3.x"; exit 1; }
+        for ext in intl pdo_sqlite pdo_mysql gd zip mbstring bcmath sqlite3 fileinfo; do
+          php -m | grep -qix "$ext" || { echo "::error title=RUNTIME::required PHP extension missing: $ext"; exit 1; }
+        done
+        echo "ASSAB_CI_PHP_VERSION=${php_version}" >> "$GITHUB_ENV"
+        {
+          echo "php=${php_version}"
+          php -r 'echo "sqlite_lib=".(new PDO("sqlite::memory:"))->query("select sqlite_version()")->fetchColumn().PHP_EOL;'
+          composer --version
+          php -m | sort | tr '\n' ' '; echo
+        } | tee artifacts/runtime.txt
+
+    - name: Validate lock file and install locked dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        composer validate --no-check-publish --no-interaction
+        composer install --no-interaction --prefer-dist --no-progress
+
+    - name: Isolation guard 2/3 (booted Laravel configuration)
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p artifacts
+        php scripts/ci/assert_laravel_sqlite_memory.php 2>&1 | tee artifacts/isolation-laravel.txt
+        test "${PIPESTATUS[0]}" -eq 0

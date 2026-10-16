@@ -1,0 +1,145 @@
+# ASSAB BRC v3.4 -- FAST SQLite gate: focused regression file list.
+#
+# One repository-relative test file per line. '#' starts a comment.
+# Source of truth for the FAST gate; consumed by scripts/ci/make_phpunit_config.py
+# which FAILS if any listed file does not exist (no silent drops).
+#
+# Selection rule (derived from inspecting the candidate tree, not from a name guess):
+#   - the pure financial calculator and allocation unit tests;
+#   - every tests/Feature/Shift*.php (shift lifecycle, cash count, transfer/receipt,
+#     handover settlement, liability/shortage posting, report revision/correction,
+#     daily close, idempotency, not-worked, request/assignment);
+#   - every tests/Feature/Pkg6*.php and Pkg67*.php (report review/finality and the
+#     integrated PKG6/7 regression);
+#   - the BRC package regression files named in code/docs (BRC-04b legacy responsibility
+#     retirement, BRC-05 operation transition lock, operations pipeline, two-world feedback
+#     loop) and user/branch-manager assignment rules;
+#   - expense approval/authorization/bridge tests, custody and employee-ledger
+#     tests, cashier deactivation, sales reconciliation/variance, mobile cashier
+#     bridge, and the unauthenticated-API JSON contract.
+#
+# Files that are opt-in MySQL/MariaDB concurrency tests are INCLUDED on purpose:
+# on SQLite they must self-skip, and the CI summary classifies those skips as
+# DB_CONCURRENCY_OPT_IN. They do NOT execute any MySQL path here.
+#
+# Excluding a failing test from this list to obtain a green run is prohibited.
+tests/Feature/ApiUnauthenticatedJsonResponseTest.php
+tests/Feature/BranchWorkdayWindowTest.php
+tests/Feature/Brc04bLegacyResponsibilityRetirementTest.php
+tests/Feature/CashierDeactivationCancelsShiftsTest.php
+tests/Feature/CustodyOwnerTransferReceiptTest.php
+tests/Feature/DailyRollupTest.php
+tests/Feature/DashboardMobileShiftCloseGuardTest.php
+tests/Feature/ExpenseApprovalChainTest.php
+tests/Feature/ExpenseBridgeTest.php
+tests/Feature/ExpenseCombinedAuthorizationTest.php
+tests/Feature/ExpenseCreationOriginGuardTest.php
+tests/Feature/ExpenseDecisionAuthorityTest.php
+tests/Feature/ExpenseSubmissionBridgeTest.php
+tests/Feature/ExpenseTenantIsolationTest.php
+tests/Feature/HandoverLedgerDateTest.php
+tests/Feature/LegacyCustodyHandoverRetirementTest.php
+tests/Feature/LiveShiftBoardTest.php
+tests/Feature/ManagerLiveShiftBoardTest.php
+tests/Feature/MobileCashierBridgeTest.php
+tests/Feature/NewBranchShiftsAndScopeTest.php
+tests/Feature/OperationTransitionLockTest.php
+tests/Feature/OperationsPipelineTest.php
+tests/Feature/Pkg67FenceOrderingTest.php
+tests/Feature/Pkg67IntegrationAtomicityTest.php
+tests/Feature/Pkg67IntegrationRegressionTest.php
+tests/Feature/Pkg67MariaDbCompositionTest.php
+tests/Feature/Pkg67MigrationB01Test.php
+tests/Feature/Pkg6ApprovalStageGuardTest.php
+tests/Feature/Pkg6FinalityAndDayMembershipTest.php
+tests/Feature/Pkg6LegacyRejectionNotificationTest.php
+tests/Feature/Pkg6ReturnResubmissionTest.php
+tests/Feature/Pkg6ReviewAuthorizationTest.php
+tests/Feature/Pkg6ReviewMySqlConcurrencyTest.php
+tests/Feature/Pkg6SubmittedReportCorrectionTest.php
+tests/Feature/SalesReconciliationTest.php
+tests/Feature/SalesVarianceAllocationTest.php
+tests/Feature/ShiftAccountantCorrectionApprovalTest.php
+tests/Feature/ShiftAccountantCorrectionAuthorizationTest.php
+tests/Feature/ShiftAccountantCorrectionHttpTest.php
+tests/Feature/ShiftAccountantReportCorrectionTest.php
+tests/Feature/ShiftAssignmentAcceptanceGateTest.php
+tests/Feature/ShiftAud05LegacyDiscoveryTest.php
+tests/Feature/ShiftAuditFindingsReproductionTest.php
+tests/Feature/ShiftCashCountHttpTest.php
+tests/Feature/ShiftCashCountServiceTest.php
+tests/Feature/ShiftCheckpoint1CorrectionTest.php
+tests/Feature/ShiftCloseChainTest.php
+tests/Feature/ShiftCommandIdempotencyHttpTest.php
+tests/Feature/ShiftCorrectionCommandIdempotencyTest.php
+tests/Feature/ShiftCycleFixesTest.php
+tests/Feature/ShiftDailyCloseScopeTest.php
+tests/Feature/ShiftDailyCloseSubmitGateTest.php
+tests/Feature/ShiftDailyLockSupersessionTest.php
+tests/Feature/ShiftDailySalesLegacyProtectionTest.php
+tests/Feature/ShiftEndAtomicityTest.php
+tests/Feature/ShiftHandoverSettlementAuthorizationTest.php
+tests/Feature/ShiftHandoverSettlementBalancesTest.php
+tests/Feature/ShiftHandoverSettlementHttpTest.php
+tests/Feature/ShiftHandoverSettlementSchemaTest.php
+tests/Feature/ShiftHandoverSettlementServiceTest.php
+tests/Feature/ShiftHandoverVarianceCustodyTest.php
+tests/Feature/ShiftLegacyFinalRejectionCorrectionTest.php
+tests/Feature/ShiftLegacyMoneyCompatibilityTest.php
+tests/Feature/ShiftLiabilityApprovalHttpTest.php
+tests/Feature/ShiftLiabilityLegacyPostingTest.php
+tests/Feature/ShiftLiabilityPostingSchemaTest.php
+tests/Feature/ShiftLiabilityReadTest.php
+tests/Feature/ShiftLiabilityRealSchemaTest.php
+tests/Feature/ShiftLiabilityServiceTest.php
+tests/Feature/ShiftManagerCorrectionBulkTest.php
+tests/Feature/ShiftManagerCorrectionIdempotencyTest.php
+tests/Feature/ShiftManagerReportCorrectionTest.php
+tests/Feature/ShiftMoneyValidationTest.php
+tests/Feature/ShiftNotWorkedHttpTest.php
+tests/Feature/ShiftNotWorkedMySqlConcurrencyTest.php
+tests/Feature/ShiftNotWorkedReleaseGuardTest.php
+tests/Feature/ShiftNotWorkedServiceTest.php
+tests/Feature/ShiftOperationalResponsibilityTest.php
+tests/Feature/ShiftPhase1RemainingAuditTest.php
+tests/Feature/ShiftPhase1ReviewIntegrityTest.php
+tests/Feature/ShiftPhases234AuditRegressionTest.php
+tests/Feature/ShiftPhases234IntegrationTest.php
+tests/Feature/ShiftPhases234MySqlConcurrencyTest.php
+tests/Feature/ShiftPhases567IntegrationTest.php
+tests/Feature/ShiftPhases567MySqlConcurrencyTest.php
+tests/Feature/ShiftPhases8910MySqlConcurrencyTest.php
+tests/Feature/ShiftReassignHandoverCountTest.php
+tests/Feature/ShiftRejectionCompatibilityTest.php
+tests/Feature/ShiftRejectionCorrectionTest.php
+tests/Feature/ShiftReportBalanceCorrectionTest.php
+tests/Feature/ShiftReportCorrectionEvidenceTest.php
+tests/Feature/ShiftReportCorrectionNotificationsTest.php
+tests/Feature/ShiftReportCorrectionSchemaTest.php
+tests/Feature/ShiftReportCorrectionServiceTest.php
+tests/Feature/ShiftReportHistoryPreservationTest.php
+tests/Feature/ShiftReportInFlightReopenTest.php
+tests/Feature/ShiftReportManagerReviewSchemaTest.php
+tests/Feature/ShiftReportMutationCacheTest.php
+tests/Feature/ShiftReportReopenBoundaryTest.php
+tests/Feature/ShiftReportRevisionAndAllocationVersionTest.php
+tests/Feature/ShiftRequestCancellationGuardTest.php
+tests/Feature/ShiftRequestLifecycleSchemaTest.php
+tests/Feature/ShiftRequestReplacementTest.php
+tests/Feature/ShiftRequestReservationTest.php
+tests/Feature/ShiftRequestSameRecipientCorrectionTest.php
+tests/Feature/ShiftReturnFinalizationGuardTest.php
+tests/Feature/ShiftS111CompleteWorkflowTest.php
+tests/Feature/ShiftS111FinalCorrectionsTest.php
+tests/Feature/ShiftShortagePostingApprovalIntegrationTest.php
+tests/Feature/ShiftShortagePostingIdempotencyTest.php
+tests/Feature/ShiftShortagePostingTest.php
+tests/Feature/ShiftTransferPhysicalReturnTest.php
+tests/Feature/ShiftTransferReceiptTest.php
+tests/Feature/ShiftsTest.php
+tests/Feature/T09CashCustodyTest.php
+tests/Feature/T09EmployeeLedgerTest.php
+tests/Feature/TwoWorldFeedbackLoopTest.php
+tests/Feature/UserAssignmentRulesTest.php
+tests/Unit/ShiftAllocationRulesTest.php
+tests/Unit/ShiftFinancialCalculatorTest.php

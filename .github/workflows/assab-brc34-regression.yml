@@ -1,0 +1,223 @@
+name: ASSAB BRC v3.4 Isolated Regression
+
+# Isolated backend regression gates for the accepted Staging integration
+# candidate (bc0b87c39d8659a571dbfb44d1c1d651a314bf16).
+#
+#   FAST gate  (automatic)         focused BRC v3.4 financial/shift/expense files,
+#                                  in-memory SQLite, GitHub-hosted runner.
+#   FULL gate  (explicitly chosen) the whole repository suite on in-memory SQLite,
+#                                  only after the FAST gate passed. Select it with
+#                                  ANY of: "[full-sqlite]" in the pushed head commit
+#                                  message; label "full-sqlite" (or "[full-sqlite]" in
+#                                  the title) on the pull request; workflow_dispatch
+#                                  input run_full_sqlite=true.
+#
+# NOT in this workflow: any MySQL/MariaDB service or concurrency test (separate,
+# separately-authorised gate), deployment, Coolify, Staging or Production access,
+# secrets, repository variables, or AI/OpenAI calls.
+#
+# Trigger notes:
+#   * push is limited to the task branch so the workflow starts without the file
+#     being on the default branch.
+#   * pull_request targets the accepted candidate integration branch.
+#   * workflow_dispatch is only offered by GitHub once this file exists on the
+#     default branch; it is declared for later use and is not relied upon.
+
+on:
+  push:
+    branches:
+      - 'task/brc34-isolated-regression-ci-*'
+  pull_request:
+    branches:
+      - integration/shift-cycle-staging-candidate-20261016
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      run_full_sqlite:
+        description: 'Also run the FULL SQLite suite after the FAST gate passes'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: assab-brc34-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  APP_ENV: testing
+  APP_DEBUG: 'false'
+  APP_KEY: base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+  APP_URL: http://127.0.0.1
+  DB_CONNECTION: sqlite
+  DB_DATABASE: ':memory:'
+  CACHE_STORE: array
+  SESSION_DRIVER: array
+  QUEUE_CONNECTION: sync
+  MAIL_MAILER: array
+  COMPOSER_NO_INTERACTION: '1'
+
+jobs:
+  fast-gate:
+    name: FAST gate / SQLite in-memory / PHP 8.3
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      TESTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout the exact tested commit (full history for ancestry guard)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup, source guard, isolation guards, locked install
+        uses: ./.github/actions/brc34-sqlite-setup
+        with:
+          tested-head: ${{ env.TESTED_HEAD }}
+          enforce-scope: ${{ (github.event_name == 'push' || startsWith(github.head_ref, 'task/brc34-isolated-regression-ci-')) && 'true' || 'false' }}
+
+      - name: Generate FAST PHPUnit configuration (focused list, forced SQLite, isolation bootstrap)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I scripts/ci/make_phpunit_config.py fast \
+            --list scripts/ci/brc34_fast_suite.txt \
+            --out phpunit.brc34-fast.generated.xml | tee artifacts/phpunit-config-fast.txt
+          cp phpunit.brc34-fast.generated.xml artifacts/phpunit.brc34-fast.generated.xml
+          cp scripts/ci/brc34_fast_suite.txt artifacts/brc34_fast_suite.txt
+
+      - name: Run FAST regression (ParaTest/PHPUnit, 4 workers, JUnit, console log)
+        id: fast
+        shell: bash
+        run: |
+          set +e
+          start=$(date +%s)
+          vendor/bin/paratest -c phpunit.brc34-fast.generated.xml --processes=4 \
+            --display-skipped --display-warnings --colors=never \
+            --log-junit artifacts/fast.junit.xml 2>&1 | tee artifacts/fast.log
+          rc=${PIPESTATUS[0]}
+          echo "$rc" > artifacts/fast.exit
+          echo "$(( $(date +%s) - start ))" > artifacts/fast.wall-seconds
+          echo "phpunit_exit=$rc"
+          exit 0
+
+      - name: Summarise FAST result (fails the job unless PASS)
+        id: summary
+        shell: bash
+        run: |
+          set -uo pipefail
+          phpunit_rc="$(cat artifacts/fast.exit 2>/dev/null || echo 99)"
+          wall="$(cat artifacts/fast.wall-seconds 2>/dev/null || echo 0)"
+          python3 -I scripts/ci/summarize_junit.py \
+            --gate fast --junit artifacts/fast.junit.xml --log artifacts/fast.log \
+            --exit-code "$phpunit_rc" \
+            --wall-seconds "$wall" \
+            --tested-sha "$TESTED_HEAD" --min-tests 800 \
+            --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}" \
+            --out-dir artifacts | tee artifacts/fast.summary.console.txt
+          rc=${PIPESTATUS[0]}
+          cat artifacts/fast.summary.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          exit "$rc"
+
+      - name: SHA-256 manifest of evidence files
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          rm -f artifacts/SHA256SUMS.txt
+          (cd artifacts && find . -type f -print0 | sort -z | xargs -0 -r sha256sum) > "${RUNNER_TEMP:-/tmp}/SHA256SUMS.txt"
+          mv "${RUNNER_TEMP:-/tmp}/SHA256SUMS.txt" artifacts/SHA256SUMS.txt
+
+      - name: Upload FAST evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: assab-brc34-fast-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 30
+
+  full-sqlite-gate:
+    name: FULL gate / SQLite in-memory / PHP 8.3
+    needs: fast-gate
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.run_full_sqlite) ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[full-sqlite]')) ||
+      (github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'full-sqlite') || contains(github.event.pull_request.title, '[full-sqlite]')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      TESTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout the exact tested commit (full history for ancestry guard)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup, source guard, isolation guards, locked install
+        uses: ./.github/actions/brc34-sqlite-setup
+        with:
+          tested-head: ${{ env.TESTED_HEAD }}
+          enforce-scope: ${{ (github.event_name == 'push' || startsWith(github.head_ref, 'task/brc34-isolated-regression-ci-')) && 'true' || 'false' }}
+
+      - name: Generate FULL PHPUnit configuration (repository suites, forced SQLite, isolation bootstrap)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I scripts/ci/make_phpunit_config.py full --out phpunit.brc34-full.generated.xml | tee artifacts/phpunit-config-full.txt
+          cp phpunit.brc34-full.generated.xml artifacts/phpunit.brc34-full.generated.xml
+
+      - name: Run FULL SQLite suite (ParaTest/PHPUnit, 4 workers, JUnit, console log)
+        shell: bash
+        run: |
+          set +e
+          start=$(date +%s)
+          vendor/bin/paratest -c phpunit.brc34-full.generated.xml --processes=4 \
+            --display-skipped --display-warnings --colors=never \
+            --log-junit artifacts/full.junit.xml 2>&1 | tee artifacts/full.log
+          rc=${PIPESTATUS[0]}
+          echo "$rc" > artifacts/full.exit
+          echo "$(( $(date +%s) - start ))" > artifacts/full.wall-seconds
+          echo "phpunit_exit=$rc"
+          exit 0
+
+      - name: Summarise FULL result (fails the job unless PASS)
+        shell: bash
+        run: |
+          set -uo pipefail
+          phpunit_rc="$(cat artifacts/full.exit 2>/dev/null || echo 99)"
+          wall="$(cat artifacts/full.wall-seconds 2>/dev/null || echo 0)"
+          python3 -I scripts/ci/summarize_junit.py \
+            --gate full --junit artifacts/full.junit.xml --log artifacts/full.log \
+            --exit-code "$phpunit_rc" \
+            --wall-seconds "$wall" \
+            --tested-sha "$TESTED_HEAD" --min-tests 2000 \
+            --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}" \
+            --out-dir artifacts | tee artifacts/full.summary.console.txt
+          rc=${PIPESTATUS[0]}
+          cat artifacts/full.summary.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+          exit "$rc"
+
+      - name: SHA-256 manifest of evidence files
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          rm -f artifacts/SHA256SUMS.txt
+          (cd artifacts && find . -type f -print0 | sort -z | xargs -0 -r sha256sum) > "${RUNNER_TEMP:-/tmp}/SHA256SUMS.txt"
+          mv "${RUNNER_TEMP:-/tmp}/SHA256SUMS.txt" artifacts/SHA256SUMS.txt
+
+      - name: Upload FULL evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: assab-brc34-full-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 30
