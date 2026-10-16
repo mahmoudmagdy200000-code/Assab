@@ -425,22 +425,35 @@ class ShiftLiabilityReadTest extends TestCase
             'amount_halalas' => 2000,
         ]);
 
-        $response = $this->actingAs($this->head, 'sanctum')
+        // 1. Authorized accountant for Branch A views the operation
+        $accResponse = $this->actingAs($this->accountantA, 'sanctum')
             ->getJson("/api/v1/operations/{$op->id}")
             ->assertOk();
 
-        $share = $response->json('liability.shares.0');
-        $this->assertSame('employee', $share['type']);
-        $this->assertSame($this->archivedEmployeeA->id, $share['id']);
-        $this->assertSame('Omar Archived', $share['name']);
-        $this->assertSame(2000, $share['amountHalalas']);
+        $accShare = $accResponse->json('liability.shares.0');
+        $this->assertSame('employee', $accShare['type']);
+        $this->assertSame($this->archivedEmployeeA->id, $accShare['id']);
+        $this->assertSame('Omar Archived', $accShare['name']);
+        $this->assertSame(2000, $accShare['amountHalalas']);
 
-        // Verify that the employee is still archived (soft-deleted) and not reactivated
+        // 2. Head views the operation
+        $headResponse = $this->actingAs($this->head, 'sanctum')
+            ->getJson("/api/v1/operations/{$op->id}")
+            ->assertOk();
+
+        $headShare = $headResponse->json('liability.shares.0');
+        $this->assertSame('employee', $headShare['type']);
+        $this->assertSame($this->archivedEmployeeA->id, $headShare['id']);
+        $this->assertSame('Omar Archived', $headShare['name']);
+        $this->assertSame(2000, $headShare['amountHalalas']);
+
+        // 3. Verify that the employee is still archived (soft-deleted) and not reactivated or transferred
         $this->assertTrue(Employee::onlyTrashed()->whereKey($this->archivedEmployeeA->id)->exists());
         $this->assertSame('terminated', $this->archivedEmployeeA->fresh()->status);
+        $this->assertSame($this->branchA->id, $this->archivedEmployeeA->fresh()->branch_id);
     }
 
-    public function test_branch_isolation_blocks_unauthorized_accountant_and_hides_foreign_branch_names(): void
+    public function test_branch_isolation_blocks_unauthorized_accountant_and_redacts_foreign_branch_employee_id_and_name(): void
     {
         $op = $this->createShiftOperation();
 
@@ -456,12 +469,20 @@ class ShiftLiabilityReadTest extends TestCase
             'manager_approval_status' => 'pending',
         ]);
 
-        // Malicious/corrupted share referencing an employee from Branch B
+        // Legitimate cashier share in Branch A
+        ShiftLiabilityShare::create([
+            'allocation_id' => $allocation->id,
+            'responsible_type' => 'cashier',
+            'responsible_id' => $this->cashierA->id,
+            'amount_halalas' => 1200,
+        ]);
+
+        // Cross-branch share referencing an employee from Branch B
         ShiftLiabilityShare::create([
             'allocation_id' => $allocation->id,
             'responsible_type' => 'employee',
             'responsible_id' => $this->foreignEmployeeB->id,
-            'amount_halalas' => 2000,
+            'amount_halalas' => 800,
         ]);
 
         // 1. Accountant B (assigned to Branch B) attempts to view Branch A's operation -> 404 NOT_FOUND
@@ -469,14 +490,52 @@ class ShiftLiabilityReadTest extends TestCase
             ->getJson("/api/v1/operations/{$op->id}")
             ->assertStatus(404);
 
-        // 2. Head views the operation -> Share referencing Branch B's employee yields name = null (no data leak)
-        $response = $this->actingAs($this->head, 'sanctum')
+        // 2. Accountant A (authorized for Branch A) views the operation -> 200 OK
+        $accResponse = $this->actingAs($this->accountantA, 'sanctum')
             ->getJson("/api/v1/operations/{$op->id}")
             ->assertOk();
 
-        $share = $response->json('liability.shares.0');
-        $this->assertSame($this->foreignEmployeeB->id, $share['id']);
-        $this->assertNull($share['name'], 'Foreign branch employee name must never be leaked across branch boundaries');
+        $liability = $accResponse->json('liability');
+        $payloadLiability = $accResponse->json('payload.liability');
+
+        $this->assertNotNull($liability);
+        $this->assertSame($liability, $payloadLiability, 'payload.liability must mirror root liability');
+        $this->assertCount(2, $liability['shares']);
+
+        // Cashier A share retains full details
+        $this->assertSame('cashier', $liability['shares'][0]['type']);
+        $this->assertSame($this->cashierA->id, $liability['shares'][0]['id']);
+        $this->assertSame('Ahmed Cashier', $liability['shares'][0]['name']);
+        $this->assertSame(1200, $liability['shares'][0]['amountHalalas']);
+
+        // Foreign Branch B employee share is redacted: id and name are null, type and amount preserved
+        $foreignShare = $liability['shares'][1];
+        $this->assertSame('employee', $foreignShare['type']);
+        $this->assertNull($foreignShare['id'], 'Foreign branch employee id must be null in liability projection');
+        $this->assertNull($foreignShare['name'], 'Foreign branch employee name must be null in liability projection');
+        $this->assertSame(800, $foreignShare['amountHalalas']);
+
+        // Verify no leak of foreign employee id or name anywhere in liability or payload.liability
+        $encodedLiability = json_encode($liability);
+        $encodedPayloadLiability = json_encode($payloadLiability);
+        $this->assertStringNotContainsString($this->foreignEmployeeB->id, $encodedLiability);
+        $this->assertStringNotContainsString($this->foreignEmployeeB->name, $encodedLiability);
+        $this->assertStringNotContainsString($this->foreignEmployeeB->id, $encodedPayloadLiability);
+        $this->assertStringNotContainsString($this->foreignEmployeeB->name, $encodedPayloadLiability);
+
+        // 3. Head views the operation -> Same strict privacy projection without foreign employee leak
+        $headResponse = $this->actingAs($this->head, 'sanctum')
+            ->getJson("/api/v1/operations/{$op->id}")
+            ->assertOk();
+
+        $headLiability = $headResponse->json('liability');
+        $headForeignShare = $headLiability['shares'][1];
+        $this->assertSame('employee', $headForeignShare['type']);
+        $this->assertNull($headForeignShare['id']);
+        $this->assertNull($headForeignShare['name']);
+        $this->assertSame(800, $headForeignShare['amountHalalas']);
+        $this->assertStringNotContainsString($this->foreignEmployeeB->id, json_encode($headLiability));
+        $this->assertStringNotContainsString($this->foreignEmployeeB->name, json_encode($headLiability));
     }
 
     public function test_superseded_allocation_is_ignored_for_active_allocation(): void

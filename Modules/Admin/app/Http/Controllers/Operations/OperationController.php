@@ -600,7 +600,7 @@ class OperationController extends AsabController
      * Enforces tenant and branch isolation and resolves archived/inactive employee names
      * per MEM-01..06 without reactivating membership or shifting liability.
      *
-     * @return array{version: int, managerApprovalStatus: ?string, createdByType: ?string, shares: array<int, array{type: string, id: string, name: ?string, amountHalalas: int}>}|null
+     * @return array{version: int, managerApprovalStatus: ?string, createdByType: ?string, shares: array<int, array{type: string, id: ?string, name: ?string, amountHalalas: int}>}|null
      */
     private function presentShiftLiability(Operation $op): ?array
     {
@@ -652,7 +652,7 @@ class OperationController extends AsabController
 
             $shares[] = [
                 'type' => $share->responsible_type,
-                'id' => (string) $share->responsible_id,
+                'id' => $name !== null ? (string) $share->responsible_id : null,
                 'name' => $name,
                 'amountHalalas' => (int) $share->amount_halalas,
             ];
