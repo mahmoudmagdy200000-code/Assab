@@ -180,6 +180,7 @@ class SummarizeJunit(unittest.TestCase):
     def test_classification(self) -> None:
         self.assertEqual(sj.classify_skip("needs MySQL")[0], "DB_CONCURRENCY_OPT_IN")
         self.assertEqual(sj.classify_skip("requires explicit flag FOO=1")[0], "OTHER_ENV_OPT_IN")
+        self.assertEqual(sj.classify_skip("This driver does not enforce the column length.")[0], "SQLITE_DRIVER_LIMITATION")
         self.assertEqual(sj.classify_skip("because")[0], "UNCLASSIFIED")
 
 

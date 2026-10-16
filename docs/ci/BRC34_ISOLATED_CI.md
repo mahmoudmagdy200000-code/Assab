@@ -54,7 +54,10 @@ are written to the job summary and to `::notice::` annotations.
 
 Skips are never counted as passes. `DB_CONCURRENCY_OPT_IN` skips are MySQL/MariaDB-only tests
 that this SQLite workflow cannot and does not execute; they stay `NOT_RUN` evidence for the
-separate MySQL gate.
+separate MySQL gate. `SQLITE_DRIVER_LIMITATION` skips are tests that detect at run time that the
+SQLite driver does not provide a behaviour (e.g. column-length enforcement) and skip themselves;
+they are likewise not passes. Any skip whose reason matches no known category is reported as
+`UNCLASSIFIED` with a warning annotation instead of being hidden.
 
 A green run is **not** business acceptance.
 

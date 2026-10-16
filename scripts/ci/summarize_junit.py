@@ -41,6 +41,10 @@ def classify_skip(reason: str) -> tuple[str, str]:
         return "DB_CONCURRENCY_OPT_IN", engine
     if re.search(r"requires|opt[- ]?in|explicit|not run|NOT_RUN", r, re.I):
         return "OTHER_ENV_OPT_IN", ""
+    if re.search(r"driver does not enforce", r, re.I):
+        # The test itself detected that the active (SQLite) driver lacks a behaviour
+        # (e.g. VARCHAR length enforcement) that only MySQL/MariaDB provide.
+        return "SQLITE_DRIVER_LIMITATION", "sqlite"
     return "UNCLASSIFIED", ""
 
 
