@@ -56,6 +56,14 @@ for v in DB_HOST DB_PORT DB_USERNAME DB_PASSWORD DB_URL DB_SOCKET DATABASE_URL \
   fi
 done
 
+# The PHPUnit bootstrap exports ASSAB_CI_ISOLATION_VERIFIED itself, after its
+# own strict check, so that #[RunInSeparateProcess] children can be recognised
+# (see scripts/ci/phpunit-isolation-bootstrap.php). It must never be pre-set by
+# the job environment, otherwise the strict top-level check would be skipped.
+if [[ -n "${ASSAB_CI_ISOLATION_VERIFIED+x}" ]]; then
+  fail "ASSAB_CI_ISOLATION_VERIFIED is pre-set; it is reserved for the PHPUnit bootstrap"
+fi
+
 # ---- 4. no Staging / Production / Coolify markers (names and values) ---------
 # Names: scan variable NAMES only.
 while IFS= read -r name; do

@@ -200,7 +200,7 @@ class EnvGuardScript(unittest.TestCase):
         for override in ({"DB_CONNECTION": "mysql"}, {"DB_DATABASE": "assab_staging"}, {"DB_HOST": "10.0.0.1"},
                          {"DB_URL": "mysql://u@h/d"}, {"APP_ENV": "production"}, {"CACHE_STORE": "redis"},
                          {"COOLIFY_URL": "x"}, {"X_STAGING_FLAG": "1"}, {"OTHER": "db=assab_staging"},
-                         {"APP_KEY": "base64:AAAA"}):
+                         {"APP_KEY": "base64:AAAA"}, {"ASSAB_CI_ISOLATION_VERIFIED": "1"}):
             with self.subTest(override=override):
                 r = self.run_guard(**override)
                 self.assertEqual(r.returncode, 1, (override, r.stdout))
@@ -214,6 +214,50 @@ class EnvGuardScript(unittest.TestCase):
         env = {k: v for k, v in GOOD_ENV.items() if k != "ASSAB_CI_LOCAL_SELFTEST"}
         r = subprocess.run(["bash", str(HERE / "assert_isolated_env.sh")], cwd=REPO, env=env, capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, 1)
+
+
+@unittest.skipUnless(shutil.which("php") and (REPO / "vendor/autoload.php").is_file(), "php and vendor/ required")
+class PhpunitBootstrap(unittest.TestCase):
+    """The PHPUnit bootstrap distinguishes the top-level process (strict) from a
+    #[RunInSeparateProcess] child that inherits Laravel-Dotenv values (tolerant,
+    loopback only). Run with a throw-away environment, no Laravel boot."""
+
+    def run_bootstrap(self, **overrides: str) -> subprocess.CompletedProcess:
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": "/tmp", "APP_ENV": "testing",
+               "DB_CONNECTION": "sqlite", "DB_DATABASE": ":memory:"}
+        env.update(overrides)
+        return subprocess.run(["php", str(HERE / "phpunit-isolation-bootstrap.php")], cwd=REPO, env=env,
+                              capture_output=True, text=True, timeout=60)
+
+    def test_clean_top_level_process_passes(self) -> None:
+        self.assertEqual(self.run_bootstrap().returncode, 0)
+
+    def test_top_level_process_rejects_any_endpoint_variable(self) -> None:
+        for override in ({"DB_HOST": "127.0.0.1"}, {"DB_USERNAME": "root"}, {"DB_PASSWORD": "x"},
+                         {"DB_URL": "mysql://u@h/d"}, {"DATABASE_URL": "mysql://u@h/d"}):
+            with self.subTest(override=override):
+                r = self.run_bootstrap(**override)
+                self.assertEqual(r.returncode, 1, override)
+                self.assertIn("ISOLATION BOOTSTRAP", r.stderr)
+
+    def test_wrong_connection_is_rejected_everywhere(self) -> None:
+        for marker in ({}, {"ASSAB_CI_ISOLATION_VERIFIED": "1"}):
+            for override in ({"DB_CONNECTION": "mysql"}, {"DB_DATABASE": "assab_staging"}, {"APP_ENV": "production"}):
+                with self.subTest(marker=marker, override=override):
+                    self.assertEqual(self.run_bootstrap(**marker, **override).returncode, 1)
+
+    def test_verified_child_tolerates_inherited_loopback_dotenv_values_only(self) -> None:
+        marker = {"ASSAB_CI_ISOLATION_VERIFIED": "1"}
+        ok = self.run_bootstrap(**marker, DB_HOST="127.0.0.1", DB_USERNAME="root", DB_PASSWORD="inherited")
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        for host in ("10.0.0.5", "db.internal", "assab-staging.example"):
+            with self.subTest(host=host):
+                r = self.run_bootstrap(**marker, DB_HOST=host)
+                self.assertEqual(r.returncode, 1)
+                self.assertNotIn(host, r.stderr)
+        for dsn in ({"DB_URL": "mysql://u@h/d"}, {"DATABASE_URL": "mysql://u@h/d"}):
+            with self.subTest(dsn=dsn):
+                self.assertEqual(self.run_bootstrap(**marker, **dsn).returncode, 1)
 
 
 class WorkflowStaticChecks(unittest.TestCase):

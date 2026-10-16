@@ -32,6 +32,14 @@ branch. It is declared for later use; the task branch relies on `push` / `pull_r
    empty `PRAGMA database_list` file. It never contacts a non-SQLite target.
 3. `scripts/ci/phpunit-isolation-bootstrap.php` — PHPUnit bootstrap of the generated
    configuration; aborts before any test class loads if the process is not on SQLite memory.
+   In the top-level process any `DB_HOST`/`DB_USERNAME`/`DB_PASSWORD`/`DB_URL` aborts. A test
+   annotated `#[RunInSeparateProcess]` (`IdempotencyCommitRecoveryTest`) runs in a child that
+   inherits the values Laravel's Dotenv loader copied from the committed `.env.testing` into
+   the worker environment (inert: `DB_CONNECTION=sqlite` / `DB_DATABASE=:memory:` are already
+   fixed and Dotenv never overrides them). The child is recognised by
+   `ASSAB_CI_ISOLATION_VERIFIED=1`, exported by this bootstrap only after the strict check
+   passed and rejected by the shell guard if pre-set; in such a child only a loopback
+   `DB_HOST` is tolerated and DSN-style variables are never tolerated.
 4. `scripts/ci/make_phpunit_config.py` derives the CI configuration from the repository's own
    `phpunit.xml` and marks the database/cache/session/queue/mail `<env>` entries
    `force="true"`, so no outside value can redirect the test process.
