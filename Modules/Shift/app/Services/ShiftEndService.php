@@ -33,6 +33,7 @@ class ShiftEndService
     {
         $this->reassignmentGuard->assertCanContinue($shift, $actor);
         $countedHalalas = $this->parseCountedCash($data);
+        $this->parsePendingIncomingCash($data);
         $data = $this->stageExternalFiles($shift, $data);
 
         DB::beginTransaction();
@@ -233,6 +234,23 @@ class ShiftEndService
     }
 
     /**
+     * CASH-08: the optional part of the counted drawer the cashier declares as undecided inbound cash.
+     * Absent, null or empty means no declaration (0); the server never infers it from a pending request.
+     */
+    public function parsePendingIncomingCash(array $data): int
+    {
+        if (! array_key_exists('pending_incoming_cash', $data) || $data['pending_incoming_cash'] === null || $data['pending_incoming_cash'] === '') {
+            return 0;
+        }
+
+        try {
+            return ShiftFinancialCalculator::sarToHalalas($data['pending_incoming_cash']);
+        } catch (\InvalidArgumentException) {
+            throw ValidationException::withMessages(['pending_incoming_cash' => 'The pending incoming cash must be a non-negative SAR amount with at most two decimals.']);
+        }
+    }
+
+    /**
      * The shared report-count rule: persist the calculated count for `$revision` and, for a shortage,
      * the complete allocation. Must run inside the caller's report transaction.
      */
@@ -250,6 +268,7 @@ class ShiftEndService
             ShiftFinancialCalculator::storedSarToHalalas($shift->card_payments),
             $apps,
             $countedHalalas,
+            $this->parsePendingIncomingCash($data),
         );
 
         $allocations = $data['shortage_allocations'] ?? [];

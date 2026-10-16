@@ -635,6 +635,8 @@ class HandoverService
             'card_payments' => 'sometimes|required|'.\App\Support\ShiftMoneyValidation::SAR,
             'cash_collected' => 'sometimes|required|'.\App\Support\ShiftMoneyValidation::SAR,
             'counted_cash' => 'sometimes|required|'.\App\Support\ShiftMoneyValidation::SAR,
+            // CASH-08: a new physical count may declare the part of the drawer that is undecided inbound cash.
+            'pending_incoming_cash' => 'nullable|'.\App\Support\ShiftMoneyValidation::SAR,
             'shortage_allocations' => 'sometimes|array',
             'shortage_allocations.*.responsible_type' => 'required_with:shortage_allocations|in:cashier,branch_manager,employee',
             'shortage_allocations.*.responsible_id' => 'required_with:shortage_allocations|string',
@@ -791,7 +793,8 @@ class HandoverService
                     $newGrossHalalas,
                     $newCardsHalalas,
                     $newAppsHalalas,
-                    $countedHalalas
+                    $countedHalalas,
+                    app(ShiftEndService::class)->parsePendingIncomingCash($data)
                 );
             } elseif ($sourceCount !== null) {
                 $newCount = $this->cashCounts->recordCorrectedEvidence(

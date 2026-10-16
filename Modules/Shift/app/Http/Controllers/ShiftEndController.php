@@ -60,6 +60,8 @@ class ShiftEndController extends Controller
             'card_payments' => 'sometimes|'.ShiftMoneyValidation::SAR,
             // S1-10: independent physical count (required) and, for a shortage, the full in-branch allocation.
             'counted_cash' => 'required|'.ShiftMoneyValidation::SAR,
+            // CASH-08: optional part of the counted drawer that belongs to undecided inbound requests.
+            'pending_incoming_cash' => 'nullable|'.ShiftMoneyValidation::SAR,
             'shortage_allocations' => 'sometimes|array',
             'shortage_allocations.*.responsible_type' => 'required_with:shortage_allocations|in:cashier,branch_manager,employee',
             'shortage_allocations.*.responsible_id' => 'required_with:shortage_allocations|string|max:64',
@@ -202,6 +204,8 @@ class ShiftEndController extends Controller
             'total_sales' => 'required|'.ShiftMoneyValidation::SAR,
             'card_payments' => 'sometimes|'.ShiftMoneyValidation::SAR,
             'counted_cash' => 'required|'.ShiftMoneyValidation::SAR,
+            // CASH-08: optional part of the counted drawer that belongs to undecided inbound requests.
+            'pending_incoming_cash' => 'nullable|'.ShiftMoneyValidation::SAR,
             'aggregators' => 'sometimes|array',
             'aggregators.*.aggregator_id' => 'required_with:aggregators|exists:aggregators,id',
             'aggregators.*.amount' => 'required_with:aggregators|'.ShiftMoneyValidation::SAR,
@@ -234,6 +238,7 @@ class ShiftEndController extends Controller
                 ShiftFinancialCalculator::sarToHalalas($request->input('card_payments', 0)),
                 $apps,
                 $countedHalalas,
+                $this->shiftEndService->parsePendingIncomingCash($request->all()),
             );
 
             return response()->json(['success' => true, 'data' => $preview]);
@@ -263,6 +268,8 @@ class ShiftEndController extends Controller
             'card_payments' => 'sometimes|'.ShiftMoneyValidation::SAR,
             // S1-10: independent physical count (required) and, for a shortage, the full in-branch allocation.
             'counted_cash' => 'required|'.ShiftMoneyValidation::SAR,
+            // CASH-08: optional part of the counted drawer that belongs to undecided inbound requests.
+            'pending_incoming_cash' => 'nullable|'.ShiftMoneyValidation::SAR,
             'shortage_allocations' => 'sometimes|array',
             'shortage_allocations.*.responsible_type' => 'required_with:shortage_allocations|in:cashier,branch_manager,employee',
             'shortage_allocations.*.responsible_id' => 'required_with:shortage_allocations|string|max:64',

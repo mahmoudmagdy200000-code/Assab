@@ -6,6 +6,7 @@ use App\Support\ShiftFinancialCalculator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
+use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\ShiftReportCashCount;
 use Modules\Shift\Models\ShiftReportRevision;
@@ -18,6 +19,10 @@ use Modules\Shift\Models\ShiftTransferRejectionEvidence;
  *   pending requests and the legacy opening_balance column are never inputs.
  * - Pending incoming (D11) is the physical amount a recipient counted when rejecting a request for
  *   correction, still owned by the sender, linked to that request; it is never surplus.
+ * - Pending incoming (CASH-08, BRC v3.4) also covers cash physically in the drawer for an inbound request that
+ *   is neither confirmed nor rejected. A pending request alone never proves physical possession: the counting
+ *   cashier DECLARES the amount (`pending_incoming_cash`), and the server accepts it only up to the undecided
+ *   requests actually addressed to this shift. It stays owned by the sender and is never surplus or shortage.
  * - expected = gross − cards − apps + confirmedOpening; variance = (counted − pendingIncoming) − expected.
  */
 class ShiftCashCountService
@@ -37,9 +42,10 @@ class ShiftCashCountService
     }
 
     /**
-     * Physical cash counted by this shift's cashier at a rejection-for-correction, not yet confirmed
-     * as a receipt. Only the latest evidence per request counts, and a request that has since been
-     * confirmed contributes through the confirmed opening instead.
+     * D-11 part of pending incoming: physical cash counted by this shift's cashier at a
+     * rejection-for-correction, not yet confirmed as a receipt. Only the latest evidence per request counts,
+     * and a request that has since been confirmed contributes through the confirmed opening instead.
+     * It is derived from stored rejection evidence only; see `undecidedInboundCapHalalas` for the CASH-08 part.
      */
     public function pendingIncomingHalalas(CashierShift $shift): int
     {
@@ -142,11 +148,152 @@ class ShiftCashCountService
     }
 
     /**
+     * CASH-08 ceiling: the sum of the requests that are still UNDECIDED (pending, no receipt, not cancelled or
+     * superseded, no rejection evidence on the current attempt) and are addressed to this cashier shift. The
+     * recipient may declare at most this much of the counted drawer as undecided inbound cash.
+     */
+    public function undecidedInboundCapHalalas(CashierShift $shift): int
+    {
+        return array_sum($this->undecidedInboundRequests($shift));
+    }
+
+    /**
+     * @return array<string,int> request key (`h:<id>` handover, `t:<id>` manager transfer) => requested halalas
+     */
+    private function undecidedInboundRequests(CashierShift $shift): array
+    {
+        if ($shift->actual_start_time === null) {
+            return [];
+        }
+        $branchId = DB::table('shifts')->where('id', $shift->shift_id)->value('branch_id');
+        $lock = DB::transactionLevel() > 0;
+        $caps = [];
+
+        $handoverIds = DB::table('cashier_shift_handovers as h')
+            ->join('cashier_shifts as src', 'src.id', '=', 'h.cashier_shift_id')
+            ->join('shifts as sh', 'sh.id', '=', 'src.shift_id')
+            ->where('h.handover_to_type', 'cashier')
+            ->where('h.handover_to_id', $shift->cashier_id)
+            ->where('h.status', 'pending')
+            ->whereNull('h.cancelled_at')
+            ->whereNull('h.superseded_at')
+            ->where('sh.branch_id', $branchId)
+            ->where('src.id', '!=', $shift->id)
+            ->whereNotExists(fn ($query) => $query->select(DB::raw(1))->from('cashier_shift_handover_receipts as r')->whereColumn('r.cashier_shift_handover_id', 'h.id'))
+            ->orderBy('h.id')
+            ->pluck('h.id');
+        // The joined tables are only read; the locking read touches the request rows alone.
+        $handovers = $handoverIds->isEmpty() ? collect() : DB::table('cashier_shift_handovers')->whereIn('id', $handoverIds->all())
+            ->where('status', 'pending')->whereNull('cancelled_at')->whereNull('superseded_at')
+            ->orderBy('id')->when($lock, fn ($query) => $query->lockForUpdate())
+            ->get(['id', 'handover_amount', 'current_transfer_attempt_id', 'created_at']);
+        foreach ($handovers as $row) {
+            $cap = $this->undecidedCap($shift, $branchId, 'cashier_shift_handover_id', $row->id, $row->current_transfer_attempt_id,
+                ShiftFinancialCalculator::storedSarToHalalas($row->handover_amount), $row->created_at, false);
+            if ($cap !== null) {
+                $caps['h:'.$row->id] = $cap;
+            }
+        }
+
+        $transfers = DB::table('branch_manager_cash_transfers as t')
+            ->where('t.destination_cashier_shift_id', $shift->id)
+            ->where('t.destination_cashier_id', $shift->cashier_id)
+            ->where('t.status', 'pending')
+            ->whereNull('t.cancelled_at')
+            ->whereNull('t.superseded_at')
+            ->whereNotExists(fn ($query) => $query->select(DB::raw(1))->from('cashier_shift_handover_receipts as r')->whereColumn('r.branch_manager_cash_transfer_id', 't.id'))
+            ->orderBy('t.id')
+            ->when($lock, fn ($query) => $query->lockForUpdate())
+            ->get(['t.id', 't.requested_amount', 't.current_transfer_attempt_id', 't.created_at']);
+        foreach ($transfers as $row) {
+            // A manager transfer names its receiving shift explicitly, so this shift is its only owner.
+            $cap = $this->undecidedCap($shift, $branchId, 'branch_manager_cash_transfer_id', $row->id, $row->current_transfer_attempt_id,
+                ShiftFinancialCalculator::storedSarToHalalas($row->requested_amount), $row->created_at, true);
+            if ($cap !== null) {
+                $caps['t:'.$row->id] = $cap;
+            }
+        }
+
+        return $caps;
+    }
+
+    /**
+     * The undecided amount one request can contribute to this shift, or null when it contributes nothing:
+     * its current attempt already has rejection evidence (D-11 covers that physical cash), a legacy request
+     * has rejection history without attempt identity (never relabelled), the attempt names another receiving
+     * shift, or this shift is not the request's single owner (no attribution to two shifts).
+     */
+    private function undecidedCap(CashierShift $shift, mixed $branchId, string $evidenceColumn, string $requestId, ?string $attemptId, int $requestedHalalas, mixed $requestCreatedAt, bool $explicitReceivingShift): ?int
+    {
+        $lock = DB::transactionLevel() > 0;
+        $cap = $requestedHalalas;
+        if ($attemptId !== null) {
+            $attempt = DB::table('shift_transfer_attempts')->where('id', $attemptId)->when($lock, fn ($query) => $query->lockForUpdate())->first();
+            if ($attempt === null || DB::table('shift_transfer_rejection_evidence')->where('transfer_attempt_id', $attemptId)->exists()) {
+                return null;
+            }
+            if ($attempt->receiving_cashier_shift_id !== null) {
+                if ((string) $attempt->receiving_cashier_shift_id !== (string) $shift->id) {
+                    return null;
+                }
+                $explicitReceivingShift = true;
+            }
+            $cap = (int) $attempt->presented_halalas;
+        } elseif (DB::table('shift_transfer_rejection_evidence')->where($evidenceColumn, $requestId)->exists()) {
+            return null;
+        }
+        if ($cap <= 0 || (! $explicitReceivingShift && ! $this->isSingleOwnerShift($shift, $branchId, $requestCreatedAt))) {
+            return null;
+        }
+
+        return $cap;
+    }
+
+    /**
+     * A request that names no receiving shift belongs to exactly one shift: the recipient's earliest started
+     * shift in the branch that was still running when the request was created or started later. Later shifts
+     * of the same cashier can never claim it, so one request is never attributed twice.
+     */
+    private function isSingleOwnerShift(CashierShift $shift, mixed $branchId, mixed $requestCreatedAt): bool
+    {
+        $owner = DB::table('cashier_shifts')
+            ->join('shifts', 'shifts.id', '=', 'cashier_shifts.shift_id')
+            ->where('cashier_shifts.cashier_id', $shift->cashier_id)
+            ->where('shifts.branch_id', $branchId)
+            ->whereNotNull('cashier_shifts.actual_start_time')
+            ->whereNotIn('cashier_shifts.status', [ShiftStatus::CANCELED->value, ShiftStatus::REASSIGNED->value])
+            ->where(fn ($query) => $query->whereNull('cashier_shifts.actual_end_time')->orWhere('cashier_shifts.actual_end_time', '>=', $requestCreatedAt))
+            ->orderBy('cashier_shifts.actual_start_time')
+            ->orderBy('cashier_shifts.id')
+            ->value('cashier_shifts.id');
+
+        return $owner !== null && (string) $owner === (string) $shift->id;
+    }
+
+    /** Validates the cashier's declaration against the undecided requests; returns the accepted halalas. */
+    private function acceptedUndecidedDeclaration(CashierShift $shift, int $declaredHalalas): int
+    {
+        if ($declaredHalalas <= 0) {
+            return 0;
+        }
+        $cap = $this->undecidedInboundCapHalalas($shift);
+        if ($declaredHalalas > $cap) {
+            throw ValidationException::withMessages([
+                'pending_incoming_cash' => $cap === 0
+                    ? 'No undecided incoming transfer is addressed to this shift.'
+                    : 'The declared pending incoming cash exceeds the undecided incoming transfers addressed to this shift.',
+            ]);
+        }
+
+        return $declaredHalalas;
+    }
+
+    /**
      * The pure calculation shared by the persisted count and the read-only preview. It writes nothing.
      *
      * @return array{0:int,1:int,2:array<string,mixed>} confirmed opening, pending incoming, calculator result (halalas)
      */
-    private function compute(CashierShift $shift, int $grossHalalas, int $cardsHalalas, int $appsHalalas, int $countedHalalas): array
+    private function compute(CashierShift $shift, int $grossHalalas, int $cardsHalalas, int $appsHalalas, int $countedHalalas, int $declaredPendingHalalas = 0): array
     {
         $channels = ShiftFinancialCalculator::salesChannelCheck($grossHalalas, $cardsHalalas, $appsHalalas);
         if (! $channels['channelsValid']) {
@@ -156,7 +303,7 @@ class ShiftCashCountService
         }
 
         $opening = $this->confirmedOpeningHalalas($shift->id);
-        $pending = $this->pendingIncomingHalalas($shift);
+        $pending = $this->pendingIncomingHalalas($shift) + $this->acceptedUndecidedDeclaration($shift, $declaredPendingHalalas);
 
         try {
             $result = ShiftFinancialCalculator::calculate($grossHalalas, $cardsHalalas, $appsHalalas, $opening, $countedHalalas, $pending);
@@ -175,9 +322,9 @@ class ShiftCashCountService
      *
      * @return array{cash_reconciliation:array<string,mixed>,shortage_to_allocate:float,allocation_required:bool}
      */
-    public function preview(CashierShift $shift, int $grossHalalas, int $cardsHalalas, int $appsHalalas, int $countedHalalas): array
+    public function preview(CashierShift $shift, int $grossHalalas, int $cardsHalalas, int $appsHalalas, int $countedHalalas, int $declaredPendingHalalas = 0): array
     {
-        [$opening, $pending, $result] = $this->compute($shift, $grossHalalas, $cardsHalalas, $appsHalalas, $countedHalalas);
+        [$opening, $pending, $result] = $this->compute($shift, $grossHalalas, $cardsHalalas, $appsHalalas, $countedHalalas, $declaredPendingHalalas);
         $variance = (int) $result['variance'];
 
         return [
@@ -203,6 +350,7 @@ class ShiftCashCountService
      * transaction, after the revision and the sales channels are written.
      *
      * @param  int  $grossHalalas  VAT-inclusive gross sales as persisted
+     * @param  int  $declaredPendingHalalas  CASH-08: part of the drawer the cashier declares as undecided inbound cash
      */
     public function record(
         CashierShift $shift,
@@ -211,12 +359,13 @@ class ShiftCashCountService
         int $cardsHalalas,
         int $appsHalalas,
         int $countedHalalas,
+        int $declaredPendingHalalas = 0,
     ): ShiftReportCashCount {
         if (DB::transactionLevel() === 0) {
             throw new \LogicException('A cash count must be recorded inside the report transaction.');
         }
 
-        [$opening, $pending, $result] = $this->compute($shift, $grossHalalas, $cardsHalalas, $appsHalalas, $countedHalalas);
+        [$opening, $pending, $result] = $this->compute($shift, $grossHalalas, $cardsHalalas, $appsHalalas, $countedHalalas, $declaredPendingHalalas);
 
         $count = ShiftReportCashCount::create([
             'report_revision_id' => $revision->id,
@@ -298,9 +447,14 @@ class ShiftCashCountService
         }
 
         $opening = $this->confirmedOpeningHalalas($shift->id);
-        $pending = $this->pendingIncomingHalalas($shift);
+        // The physical observation is constant: the stored pending incoming (D-11 evidence plus the cashier's
+        // CASH-08 declaration) is carried unchanged. It stays valid only while the evidence still supports it:
+        // the rejection evidence cannot exceed it and the remainder must still fit the undecided requests.
+        $pending = $sourceCount->pending_incoming_counted_halalas;
+        $declared = $pending - $this->pendingIncomingHalalas($shift);
 
-        if ($opening !== $sourceCount->confirmed_opening_halalas || $pending !== $sourceCount->pending_incoming_counted_halalas) {
+        if ($opening !== $sourceCount->confirmed_opening_halalas || $declared < 0
+            || ($declared > 0 && $declared > $this->undecidedInboundCapHalalas($shift))) {
             throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('PHYSICAL_RECOUNT_REQUIRED');
         }
 
