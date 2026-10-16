@@ -35,12 +35,32 @@ class AccountantReportCorrectionController extends AsabController
         ShiftReportCorrectionActorPolicy $actorPolicy
     ): JsonResponse {
         return $this->run(function () use ($request, $id, $correctionService, $actorPolicy) {
-            // Resolve cashier shift: support direct CashierShift UUID or mapped Admin Shift UUID
+            // Resolve cashier shift: support direct CashierShift UUID, mapped Admin Shift UUID, or Operation
             $cashierShift = CashierShift::query()->whereKey($id)->first();
             if ($cashierShift === null) {
                 $adminShift = AdminShift::query()->whereKey($id)->first();
                 if ($adminShift !== null && $adminShift->legacy_shift_id !== null) {
                     $cashierShift = CashierShift::query()->whereKey($adminShift->legacy_shift_id)->first();
+                }
+            }
+            if ($cashierShift === null) {
+                $operation = \Modules\Admin\Models\Operation::query()->where('module_key', 'shifts')
+                    ->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id))
+                    ->first();
+                if ($operation !== null) {
+                    $legacyId = $operation->payload['legacyShiftId'] ?? null;
+                    if ($legacyId) {
+                        $cashierShift = CashierShift::query()->whereKey($legacyId)->first();
+                    }
+                    if ($cashierShift === null && $operation->source_id) {
+                        $cashierShift = CashierShift::query()->whereKey($operation->source_id)->first();
+                        if ($cashierShift === null) {
+                            $adminShift = AdminShift::query()->whereKey($operation->source_id)->first();
+                            if ($adminShift !== null && $adminShift->legacy_shift_id !== null) {
+                                $cashierShift = CashierShift::query()->whereKey($adminShift->legacy_shift_id)->first();
+                            }
+                        }
+                    }
                 }
             }
 

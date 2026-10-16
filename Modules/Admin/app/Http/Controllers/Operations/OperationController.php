@@ -117,11 +117,21 @@ class OperationController extends AsabController
             if ($op->module_key === 'purchases') {
                 $data['purchases'] = $this->purchases->present($op, $this->receiving->receivedByRow($op));
             }
-            // BD-2 read-only shortage liability allocation and manager approval status
+            // BD-2 / BD-3 read-only shortage liability allocation, manager approval status,
+            // report revision number, and allocation version for shift operations.
             if ($op->module_key === 'shifts') {
-                $liability = $this->presentShiftLiability($op);
+                $cashierShiftId = $this->resolveCashierShiftId($op);
+                $liability = $this->presentShiftLiability($op, $cashierShiftId);
+                $reportRevision = $this->resolveShiftReportRevision($op, $cashierShiftId);
+                $allocationVersion = $liability !== null ? (int) $liability['version'] : null;
+
+                $data['reportRevision'] = $reportRevision;
+                $data['allocationVersion'] = $allocationVersion;
                 $data['liability'] = $liability;
+
                 if (is_array($data['payload'])) {
+                    $data['payload']['reportRevision'] = $reportRevision;
+                    $data['payload']['allocationVersion'] = $allocationVersion;
                     $data['payload']['liability'] = $liability;
                 }
             }
@@ -594,15 +604,9 @@ class OperationController extends AsabController
     }
 
     /**
-     * BD-2 — Expose read-only shortage liability allocation and manager approval status
-     * for shift operations (moduleKey = shifts).
-     *
-     * Enforces tenant and branch isolation and resolves archived/inactive employee names
-     * per MEM-01..06 without reactivating membership or shifting liability.
-     *
-     * @return array{version: int, managerApprovalStatus: ?string, createdByType: ?string, shares: array<int, array{type: string, id: ?string, name: ?string, amountHalalas: int}>}|null
+     * Resolve the cashier shift ID for an operation.
      */
-    private function presentShiftLiability(Operation $op): ?array
+    private function resolveCashierShiftId(Operation $op): ?string
     {
         $cashierShiftId = $op->payload['legacyShiftId'] ?? null;
         if (! $cashierShiftId) {
@@ -619,6 +623,63 @@ class OperationController extends AsabController
             $cashierShiftId = $op->source_id;
         }
 
+        return $cashierShiftId;
+    }
+
+    /**
+     * BD-3 — Resolve the confirmed shift report revision number.
+     * Derived from ShiftReportAggregate (current_revision_number) or recorded revisions.
+     * Returns null if no report revision exists without inventing arbitrary defaults.
+     */
+    private function resolveShiftReportRevision(Operation $op, ?string $cashierShiftId = null): ?int
+    {
+        $cashierShiftId ??= $this->resolveCashierShiftId($op);
+        if (! $cashierShiftId) {
+            return null;
+        }
+
+        $aggregate = DB::table('shift_report_aggregates')
+            ->where('source_type', 'cashier_shift')
+            ->where('source_id', $cashierShiftId)
+            ->first();
+
+        if ($aggregate && (int) $aggregate->current_revision_number > 0) {
+            return (int) $aggregate->current_revision_number;
+        }
+
+        if ($aggregate) {
+            $maxRev = DB::table('shift_report_revisions')
+                ->where('report_aggregate_id', $aggregate->id)
+                ->max('revision_number');
+            if ($maxRev !== null && (int) $maxRev > 0) {
+                return (int) $maxRev;
+            }
+        }
+
+        if (isset($op->payload['pkg6Review']['revision_id'])) {
+            $revNumber = DB::table('shift_report_revisions')
+                ->where('id', $op->payload['pkg6Review']['revision_id'])
+                ->value('revision_number');
+            if ($revNumber !== null && (int) $revNumber > 0) {
+                return (int) $revNumber;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * BD-2 / BD-3 — Expose read-only shortage liability allocation and manager approval status
+     * for shift operations (moduleKey = shifts).
+     *
+     * Enforces tenant and branch isolation and resolves archived/inactive employee names
+     * per MEM-01..06 without reactivating membership or shifting liability.
+     *
+     * @return array{version: int, managerApprovalStatus: ?string, createdByType: ?string, shares: array<int, array{type: string, id: ?string, name: ?string, amountHalalas: int}>}|null
+     */
+    private function presentShiftLiability(Operation $op, ?string $cashierShiftId = null): ?array
+    {
+        $cashierShiftId ??= $this->resolveCashierShiftId($op);
         if (! $cashierShiftId) {
             return null;
         }
