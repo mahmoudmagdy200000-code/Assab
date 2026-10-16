@@ -1,0 +1,33 @@
+# ASSAB BRC v3.4 CI -- source-scope policy used by scripts/ci/source_guard.sh
+#
+# The guard compares the tested commit with the immutable accepted anchor
+# (the Staging integration candidate bc0b87c3...). Approved application
+# corrections (app/, Modules/, routes/, config/, tests/ ...) are ALLOWED.
+# Everything below is a hard FAIL, because those paths change deployment,
+# infrastructure, secrets, schema or dependencies, which no regression
+# correction task is authorised to touch.
+#
+# Format: "deny <ERE>" or "allow <ERE>" (allow overrides deny). Matched against
+# repository-relative paths reported by `git diff --name-only <anchor> <head>`.
+
+# environment / secrets files (the committed .env.testing must not change either)
+deny  ^\.env
+allow ^\.env\.example$
+
+# deployment and infrastructure definitions (Coolify / Railpack / containers)
+deny  ^railpack\.json$
+deny  ^(Dockerfile|docker-compose|compose\.ya?ml|nixpacks|Procfile)
+deny  ^\.?coolify
+deny  ^\.dockerignore$
+
+# the staging workflows are owned by the Staging tasks, not by regression work
+deny  ^\.github/workflows/assab-staging-
+
+# schema and data seeding: no migration or seeder may enter through a regression
+# correction without a separate, explicit owner authorisation and a policy change
+deny  ^database/(migrations|seeders)/
+deny  ^Modules/[^/]+/database/(migrations|seeders)/
+
+# dependency changes need their own review
+deny  ^composer\.(json|lock)$
+deny  ^package(-lock)?\.json$
