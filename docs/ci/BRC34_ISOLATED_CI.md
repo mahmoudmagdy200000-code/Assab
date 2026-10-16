@@ -4,19 +4,41 @@ Status: CI/config only. No application source, migration, business rule or deplo
 setting is changed by this directory, `scripts/ci/`, `.github/actions/brc34-sqlite-setup/`
 or `.github/workflows/assab-brc34-regression.yml`.
 
-Accepted candidate under test: `bc0b87c39d8659a571dbfb44d1c1d651a314bf16`
-(tree `ce044ee1c153750955d9e0f23c4e8fac47cf8fcc`).
+Immutable lower bounds (never the thing under test):
+
+* accepted backend baseline `57bd40c39d8659a571dbfb44d1c1d651a314bf16` (ancestor of the anchor);
+* accepted anchor = Staging integration candidate `bc0b87c39d8659a571dbfb44d1c1d651a314bf16`
+  (tree `ce044ee1c153750955d9e0f23c4e8fac47cf8fcc`).
+
+The gates test the **actual commit that triggered the run** (push head, or pull-request head —
+not the synthetic merge ref). That commit only has to descend from the anchor.
 
 ## Gates
 
 | Gate | Trigger | Scope | Database |
 |---|---|---|---|
-| FAST | every push to `task/brc34-isolated-regression-ci-*`; every PR into `integration/shift-cycle-staging-candidate-20261016` | the files listed in `scripts/ci/brc34_fast_suite.txt` | in-memory SQLite |
-| FULL | only after FAST passes, and only when selected: `[full-sqlite]` in the pushed head commit message, label `full-sqlite` or `[full-sqlite]` in the PR title, or `workflow_dispatch` input `run_full_sqlite` | whole repository suite (`tests/Unit`, `tests/Feature`, `tests/NFR`) | in-memory SQLite |
+| FAST | every push to `integration/shift-cycle-staging-candidate-*` and `task/brc34-**`; every PR into `integration/shift-cycle-staging-candidate-*` | helper-script unit tests + the files in `scripts/ci/brc34_fast_suite.txt` + every `tests/**/*Test.php` added/modified since the anchor | in-memory SQLite |
+| FULL | after FAST passes, when selected (see below) | whole repository suite (`tests/Unit`, `tests/Feature`, `tests/NFR`) | in-memory SQLite |
 | MySQL 8.4 concurrency | **not part of this workflow** — separate authorisation and proposal | — | — |
 
-`workflow_dispatch` is only offered by GitHub once the workflow file exists on the default
-branch. It is declared for later use; the task branch relies on `push` / `pull_request`.
+FULL is selected by any of: a push to the Candidate branch (always); `[full-sqlite]` in the tested
+commit message (push **and** pull request); label `full-sqlite` or `[full-sqlite]` in the PR title;
+`workflow_dispatch` input `run_full_sqlite`. The decision and its reason are written to
+`full-selection.txt` and a `::notice::` annotation. `workflow_dispatch` is only offered by GitHub for
+workflow files on the default branch; the workflow does not depend on it, so no merge to `main`
+is required.
+
+## Source guard (`scripts/ci/source_guard.sh`, policy `scripts/ci/source_scope_policy.txt`)
+
+1. checked-out HEAD must equal the tested commit;
+2. the anchor must exist with the recorded tree, the baseline must be its ancestor, and the tested
+   commit must descend from the anchor;
+3. approved application corrections are **allowed**; changed files are counted by category
+   (ci / tests / docs / application) as evidence;
+4. a hard failure if any path changed since the anchor is denied by the policy: environment files
+   (except `.env.example`), deployment/infrastructure definitions (Railpack, Docker, Coolify), the
+   Staging workflows, `database/migrations` + `database/seeders` (core and modules), and dependency
+   manifests. Changing the policy file itself is a reviewed, visible change.
 
 ## Isolation (fail-closed, three layers + forced config)
 

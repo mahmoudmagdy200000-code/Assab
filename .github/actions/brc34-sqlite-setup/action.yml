@@ -3,67 +3,28 @@ description: >-
   Source guard + isolation guards + PHP 8.3 + locked Composer install for the
   isolated in-memory SQLite regression gates. No secrets, no deployment, no
   database service. The calling job must already have checked out the tested
-  commit with fetch-depth 0.
+  commit with fetch-depth 0. The tested commit may contain approved application
+  corrections; scripts/ci/source_guard.sh rejects only paths denied by
+  scripts/ci/source_scope_policy.txt.
 
 inputs:
   tested-head:
     description: Commit SHA that was checked out and is being tested.
     required: true
-  enforce-scope:
-    description: "'true' to fail when files outside the CI/config/docs allow-list changed relative to the accepted candidate."
-    required: false
-    default: 'false'
 
 runs:
   using: composite
   steps:
-    - name: Source guard (tested SHA, candidate ancestry, change scope)
+    - name: Source guard (tested SHA, accepted-anchor ancestry, denied change scope)
       shell: bash
       env:
-        CANDIDATE_SHA: bc0b87c39d8659a571dbfb44d1c1d651a314bf16
-        CANDIDATE_TREE: ce044ee1c153750955d9e0f23c4e8fac47cf8fcc
+        # Immutable lower bounds. The tested commit is whatever is being built
+        # (github.sha / pull request head); it only has to descend from the anchor.
+        ANCHOR_SHA: bc0b87c39d8659a571dbfb44d1c1d651a314bf16
+        ANCHOR_TREE: ce044ee1c153750955d9e0f23c4e8fac47cf8fcc
+        BASELINE_SHA: 57bd40c3d55393db2cc113328e221d5d3a85caa0
         TESTED_HEAD: ${{ inputs.tested-head }}
-        ENFORCE_SCOPE: ${{ inputs.enforce-scope }}
-      run: |
-        set -euo pipefail
-        mkdir -p artifacts
-
-        head_sha="$(git rev-parse HEAD)"
-        [[ "$head_sha" == "$TESTED_HEAD" ]] || {
-          echo "::error title=SOURCE GUARD::checked-out HEAD $head_sha != requested tested head $TESTED_HEAD"; exit 1; }
-
-        git cat-file -e "${CANDIDATE_SHA}^{commit}" 2>/dev/null || {
-          echo "::error title=SOURCE GUARD::accepted candidate commit ${CANDIDATE_SHA} is not present in the fetched history"; exit 1; }
-        [[ "$(git rev-parse "${CANDIDATE_SHA}^{tree}")" == "$CANDIDATE_TREE" ]] || {
-          echo "::error title=SOURCE GUARD::candidate tree mismatch"; exit 1; }
-        git merge-base --is-ancestor "$CANDIDATE_SHA" "$head_sha" || {
-          echo "::error title=SOURCE GUARD::tested commit does not descend from the accepted candidate ${CANDIDATE_SHA}"; exit 1; }
-
-        changed="$(git diff --name-only "$CANDIDATE_SHA" "$head_sha")"
-        {
-          echo "tested_sha=$head_sha"
-          echo "tested_tree=$(git rev-parse "${head_sha}^{tree}")"
-          echo "candidate_sha=$CANDIDATE_SHA"
-          echo "candidate_tree=$CANDIDATE_TREE"
-          echo "commits_since_candidate=$(git rev-list --count "${CANDIDATE_SHA}..${head_sha}")"
-          echo "files_changed_since_candidate:"
-          printf '%s\n' "$changed"
-        } | tee artifacts/source-guard.txt
-
-        out_of_scope="$(printf '%s\n' "$changed" | grep -Ev '^$|^\.github/workflows/assab-brc34-regression\.yml$|^\.github/actions/brc34-sqlite-setup/|^scripts/ci/|^docs/ci/' || true)"
-        if [[ -n "$out_of_scope" ]]; then
-          echo "out_of_scope_files:" | tee -a artifacts/source-guard.txt
-          printf '%s\n' "$out_of_scope" | tee -a artifacts/source-guard.txt
-          if [[ "$ENFORCE_SCOPE" == "true" ]]; then
-            echo "::error title=SOURCE GUARD::files outside the CI/config/docs allow-list changed relative to the accepted candidate"
-            exit 1
-          fi
-          echo "::warning title=SOURCE GUARD::out-of-scope files differ from the candidate (scope not enforced for this event)"
-        else
-          echo "scope=ci-config-docs-only" | tee -a artifacts/source-guard.txt
-        fi
-        echo "SOURCE_GUARD=PASS"
-        echo "::notice title=BRC34 source guard::PASS tested_sha=${head_sha} tested_tree=$(git rev-parse "${head_sha}^{tree}") candidate=${CANDIDATE_SHA} commits_since_candidate=$(git rev-list --count "${CANDIDATE_SHA}..${head_sha}") out_of_scope_files=$(printf '%s' "$out_of_scope" | grep -c . || true)"
+      run: bash scripts/ci/source_guard.sh
 
     - name: Isolation guard 1/3 (environment)
       shell: bash

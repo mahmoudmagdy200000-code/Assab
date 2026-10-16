@@ -1,16 +1,26 @@
 name: ASSAB BRC v3.4 Isolated Regression
 
-# Isolated backend regression gates for the accepted Staging integration
-# candidate (bc0b87c39d8659a571dbfb44d1c1d651a314bf16).
+# Isolated backend regression gates for the Staging integration candidate lineage
+# (accepted anchor bc0b87c39d8659a571dbfb44d1c1d651a314bf16, which descends from
+# the accepted baseline 57bd40c39d8659a571dbfb44d1c1d651a314bf16 -- see
+# scripts/ci/source_guard.sh). The gates always test the ACTUAL commit that
+# triggered the run (push head / pull-request head), never a hardcoded SHA.
 #
-#   FAST gate  (automatic)         focused BRC v3.4 financial/shift/expense files,
-#                                  in-memory SQLite, GitHub-hosted runner.
-#   FULL gate  (explicitly chosen) the whole repository suite on in-memory SQLite,
-#                                  only after the FAST gate passed. Select it with
-#                                  ANY of: "[full-sqlite]" in the pushed head commit
-#                                  message; label "full-sqlite" (or "[full-sqlite]" in
-#                                  the title) on the pull request; workflow_dispatch
-#                                  input run_full_sqlite=true.
+#   FAST gate  (always)            helper-script unit tests + focused BRC v3.4 financial/
+#                                  shift/expense/custody test files + every test file added or
+#                                  changed since the accepted anchor, in-memory SQLite,
+#                                  GitHub-hosted runner.
+#   FULL gate  (selected)          the whole repository suite on in-memory SQLite, only after
+#                                  the FAST gate passed. Selected when ANY of:
+#                                    * the push is to the Candidate branch itself
+#                                      (integration/shift-cycle-staging-candidate-*): always;
+#                                    * the tested commit message contains "[full-sqlite]"
+#                                      (works for pushes AND pull requests);
+#                                    * the pull request carries the label "full-sqlite" or its
+#                                      title contains "[full-sqlite]";
+#                                    * workflow_dispatch input run_full_sqlite=true (GitHub only
+#                                      offers dispatch for workflow files on the default branch;
+#                                      this workflow does not depend on it).
 #
 # NOT in this workflow: any MySQL/MariaDB service or concurrency test (separate,
 # separately-authorised gate), deployment, Coolify, Staging or Production access,
@@ -18,22 +28,16 @@ name: ASSAB BRC v3.4 Isolated Regression
 #
 # Runner: pinned to the ubuntu-24.04 image (the ubuntu-latest label is announced to move to
 # Ubuntu 26 on 2026-10-19; a financial regression gate must not change OS image silently).
-#
-# Trigger notes:
-#   * push is limited to the task branch so the workflow starts without the file
-#     being on the default branch.
-#   * pull_request targets the accepted candidate integration branch.
-#   * workflow_dispatch is only offered by GitHub once this file exists on the
-#     default branch; it is declared for later use and is not relied upon.
 
 on:
   push:
     branches:
-      - 'task/brc34-isolated-regression-ci-*'
+      - 'integration/shift-cycle-staging-candidate-*'
+      - 'task/brc34-**'
   pull_request:
     branches:
-      - integration/shift-cycle-staging-candidate-20261016
-    types: [opened, synchronize, reopened, labeled]
+      - 'integration/shift-cycle-staging-candidate-*'
+    types: [opened, synchronize, reopened, labeled, ready_for_review]
   workflow_dispatch:
     inputs:
       run_full_sqlite:
@@ -67,6 +71,8 @@ jobs:
     name: FAST gate / SQLite in-memory / PHP 8.3
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    outputs:
+      run_full: ${{ steps.select.outputs.run_full }}
     env:
       TESTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
@@ -81,14 +87,50 @@ jobs:
         uses: ./.github/actions/brc34-sqlite-setup
         with:
           tested-head: ${{ env.TESTED_HEAD }}
-          enforce-scope: ${{ (github.event_name == 'push' || startsWith(github.head_ref, 'task/brc34-isolated-regression-ci-')) && 'true' || 'false' }}
 
-      - name: Generate FAST PHPUnit configuration (focused list, forced SQLite, isolation bootstrap)
+      - name: Select the FULL gate (explicit selectors, recorded as evidence)
+        id: select
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
+          DISPATCH_FULL: ${{ github.event_name == 'workflow_dispatch' && inputs.run_full_sqlite }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          reason=""
+          msg="$(git log -1 --format=%B "$TESTED_HEAD")"
+          if [[ "$DISPATCH_FULL" == "true" ]]; then reason="workflow_dispatch run_full_sqlite=true"
+          elif [[ "$EVENT_NAME" == "push" && "$GIT_REF" == refs/heads/integration/shift-cycle-staging-candidate-* ]]; then reason="push to the Candidate branch (always FULL)"
+          elif grep -qF '[full-sqlite]' <<<"$msg"; then reason="[full-sqlite] in the tested commit message"
+          elif [[ "$EVENT_NAME" == "pull_request" && ",$PR_LABELS," == *",full-sqlite,"* ]]; then reason="pull request label full-sqlite"
+          elif [[ "$EVENT_NAME" == "pull_request" && "$PR_TITLE" == *"[full-sqlite]"* ]]; then reason="[full-sqlite] in the pull request title"
+          fi
+          if [[ -n "$reason" ]]; then
+            echo "run_full=true" >> "$GITHUB_OUTPUT"
+            echo "full_gate=SELECTED reason=${reason}" | tee artifacts/full-selection.txt
+            echo "::notice title=BRC34 FULL selection::SELECTED (${reason})"
+          else
+            echo "run_full=false" >> "$GITHUB_OUTPUT"
+            echo "full_gate=NOT_SELECTED (add [full-sqlite] to the tested commit message, or the full-sqlite label to the PR)" | tee artifacts/full-selection.txt
+            echo "::notice title=BRC34 FULL selection::NOT SELECTED - add [full-sqlite] to the tested commit message or the full-sqlite PR label"
+          fi
+
+      - name: CI helper-script unit tests (source guard, config generator, summariser)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I -m unittest discover -s scripts/ci -p 'test_*.py' -v 2>&1 | tee artifacts/ci-helper-unittest.txt
+          test "${PIPESTATUS[0]}" -eq 0
+
+      - name: Generate FAST PHPUnit configuration (focused list + tests changed since the anchor, forced SQLite, isolation bootstrap)
         shell: bash
         run: |
           set -euo pipefail
           python3 -I scripts/ci/make_phpunit_config.py fast \
             --list scripts/ci/brc34_fast_suite.txt \
+            --also-changed-since bc0b87c39d8659a571dbfb44d1c1d651a314bf16 \
             --out phpunit.brc34-fast.generated.xml | tee artifacts/phpunit-config-fast.txt
           cp phpunit.brc34-fast.generated.xml artifacts/phpunit.brc34-fast.generated.xml
           cp scripts/ci/brc34_fast_suite.txt artifacts/brc34_fast_suite.txt
@@ -147,10 +189,7 @@ jobs:
   full-sqlite-gate:
     name: FULL gate / SQLite in-memory / PHP 8.3
     needs: fast-gate
-    if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.run_full_sqlite) ||
-      (github.event_name == 'push' && contains(github.event.head_commit.message, '[full-sqlite]')) ||
-      (github.event_name == 'pull_request' && (contains(github.event.pull_request.labels.*.name, 'full-sqlite') || contains(github.event.pull_request.title, '[full-sqlite]')))
+    if: ${{ needs.fast-gate.outputs.run_full == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -167,7 +206,6 @@ jobs:
         uses: ./.github/actions/brc34-sqlite-setup
         with:
           tested-head: ${{ env.TESTED_HEAD }}
-          enforce-scope: ${{ (github.event_name == 'push' || startsWith(github.head_ref, 'task/brc34-isolated-regression-ci-')) && 'true' || 'false' }}
 
       - name: Generate FULL PHPUnit configuration (repository suites, forced SQLite, isolation bootstrap)
         shell: bash

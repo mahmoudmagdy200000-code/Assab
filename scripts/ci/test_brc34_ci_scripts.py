@@ -261,6 +261,123 @@ class PhpunitBootstrap(unittest.TestCase):
                 self.assertEqual(self.run_bootstrap(**marker, **dsn).returncode, 1)
 
 
+def _git(repo: Path, *args: str) -> str:
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True, env=env).stdout.strip()
+
+
+def _commit(repo: Path, files: dict[str, str], msg: str) -> str:
+    for rel, text in files.items():
+        f = repo / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", msg)
+    return _git(repo, "rev-parse", "HEAD")
+
+
+@unittest.skipUnless(shutil.which("git") and shutil.which("bash"), "git and bash required")
+class SourceGuardScript(unittest.TestCase):
+    """The source guard must accept approved application corrections and reject denied paths."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.repo = self.tmp / "r"
+        self.repo.mkdir()
+        _git(self.repo, "init", "-q", "-b", "main")
+        self.baseline = _commit(self.repo, {"README.md": "a"}, "baseline")
+        self.anchor = _commit(self.repo, {"app/Old.php": "<?php"}, "anchor")
+        self.anchor_tree = _git(self.repo, "rev-parse", f"{self.anchor}^{{tree}}")
+
+    def guard(self, tested: str | None = None, **over: str) -> subprocess.CompletedProcess:
+        head = _git(self.repo, "rev-parse", "HEAD")
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.tmp), "TESTED_HEAD": tested or head,
+               "ANCHOR_SHA": self.anchor, "ANCHOR_TREE": self.anchor_tree, "BASELINE_SHA": self.baseline,
+               "POLICY_FILE": str(HERE / "source_scope_policy.txt"), "ARTIFACT_DIR": str(self.tmp / "art")}
+        env.update(over)
+        return subprocess.run(["bash", str(HERE / "source_guard.sh")], cwd=self.repo, env=env, capture_output=True, text=True, timeout=60)
+
+    def test_application_corrections_are_allowed_and_counted(self) -> None:
+        _commit(self.repo, {"Modules/Shift/app/Services/X.php": "<?php", "tests/Feature/XTest.php": "<?php",
+                            "docs/ci/a.md": "x", ".github/workflows/assab-brc34-regression.yml": "x"}, "fix")
+        r = self.guard()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("SOURCE_GUARD=PASS", r.stdout)
+        self.assertIn("files_changed_application=1", r.stdout)
+        self.assertIn("files_changed_tests=1", r.stdout)
+
+    def test_anchor_itself_passes(self) -> None:
+        self.assertEqual(self.guard().returncode, 0)
+
+    def test_denied_paths_fail_closed(self) -> None:
+        for path in (".env", ".env.testing", ".env.staging", "railpack.json", "Dockerfile", "docker-compose.yml",
+                     "database/migrations/2026_01_01_000000_x.php", "Modules/Shift/database/migrations/x.php",
+                     "database/seeders/DatabaseSeeder.php", "Modules/Admin/database/seeders/S.php", "composer.lock", "composer.json",
+                     ".github/workflows/assab-staging-api-diagnostics.yml", ".coolify/x"):
+            with self.subTest(path=path):
+                _git(self.repo, "checkout", "-q", "-B", "work", self.anchor)
+                _commit(self.repo, {path: "x"}, "denied")
+                r = self.guard()
+                self.assertEqual(r.returncode, 1, path)
+                self.assertIn(path, r.stdout)
+
+    def test_env_example_is_the_only_env_file_allowed(self) -> None:
+        _commit(self.repo, {".env.example": "APP_NAME=x"}, "ok")
+        self.assertEqual(self.guard().returncode, 0)
+
+    def test_head_must_equal_requested_commit(self) -> None:
+        _commit(self.repo, {"app/N.php": "<?php"}, "new")
+        r = self.guard(tested=self.baseline)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("requested tested head", r.stdout)
+
+    def test_commit_not_descending_from_anchor_is_rejected(self) -> None:
+        _git(self.repo, "checkout", "-q", "-B", "other", self.baseline)
+        _commit(self.repo, {"app/Other.php": "<?php"}, "unrelated lineage")
+        r = self.guard()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("does not descend", r.stdout)
+
+    def test_wrong_anchor_tree_and_missing_baseline_ancestry_are_rejected(self) -> None:
+        self.assertEqual(self.guard(ANCHOR_TREE="0" * 40).returncode, 1)
+        stray = _git(self.repo, "commit-tree", "-m", "stray", f"{self.anchor}^{{tree}}")
+        self.assertEqual(self.guard(BASELINE_SHA=stray).returncode, 1)
+
+    def test_policy_without_deny_rules_fails(self) -> None:
+        p = self.tmp / "empty.txt"
+        p.write_text("# nothing\n")
+        self.assertEqual(self.guard(POLICY_FILE=str(p)).returncode, 1)
+
+
+@unittest.skipUnless(shutil.which("git"), "git required")
+class FastListIncludesChangedTests(unittest.TestCase):
+    def test_new_and_modified_test_classes_are_added_to_the_fast_suite(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        _git(tmp, "init", "-q", "-b", "main")
+        shutil.copy(REPO / "phpunit.xml", tmp / "phpunit.xml")
+        since = _commit(tmp, {"tests/A.php": "<?php", "tests/KeepTest.php": "<?php", "tests/SkipTest.php": "<?php"}, "base")
+        _commit(tmp, {"tests/NewFeatureTest.php": "<?php", "tests/KeepTest.php": "<?php // changed",
+                      "tests/Support/Helper.php": "<?php", "app/X.php": "<?php"}, "change")
+        lst = tmp / "list.txt"
+        lst.write_text("tests/A.php\n")
+        root = mpc.build("fast", tmp, lst, since).getroot()
+        files = [f.text for f in root.findall("./testsuites/testsuite/file")]
+        self.assertEqual(files, ["tests/A.php", "tests/KeepTest.php", "tests/NewFeatureTest.php"])
+
+    def test_without_option_only_the_list_is_used(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "tests").mkdir()
+        (tmp / "tests" / "A.php").write_text("<?php")
+        shutil.copy(REPO / "phpunit.xml", tmp / "phpunit.xml")
+        lst = tmp / "list.txt"
+        lst.write_text("tests/A.php\n")
+        files = [f.text for f in mpc.build("fast", tmp, lst).getroot().findall("./testsuites/testsuite/file")]
+        self.assertEqual(files, ["tests/A.php"])
+
+
 class WorkflowStaticChecks(unittest.TestCase):
     def test_workflow_has_no_secrets_vars_or_deploy_and_pins_actions(self) -> None:
         wf = REPO / ".github/workflows/assab-brc34-regression.yml"
@@ -282,6 +399,10 @@ class WorkflowStaticChecks(unittest.TestCase):
         self.assertIn("contents: read", data)
         self.assertNotIn("pull_request_target", data)
         self.assertNotIn("services:", data)
+        self.assertNotIn("enforce-scope", data + act.read_text())
+        self.assertIn("integration/shift-cycle-staging-candidate-*", data)
+        self.assertIn("needs.fast-gate.outputs.run_full", data)
+        self.assertIn("source_guard.sh", act.read_text())
         ET.fromstring("<a/>")  # keep xml import used
 
 

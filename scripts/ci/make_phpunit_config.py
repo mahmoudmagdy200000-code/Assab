@@ -12,12 +12,16 @@ own phpunit.xml (so env/<source> settings cannot drift) and then:
   * disables colours (clean logs);
   * for ``fast`` mode only: replaces the <testsuites> block with one suite that
     lists the files from scripts/ci/brc34_fast_suite.txt. Missing files abort.
+    With ``--also-changed-since <sha>`` every test class file (``tests/**/*Test.php``)
+    added, modified or renamed since that commit is appended, so a correction
+    commit can never ship a new test that the FAST gate silently does not run.
 
 It never touches tracked files: the output path is an untracked, generated file.
 """
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -49,7 +53,20 @@ def read_list(path: Path) -> list[str]:
     return files
 
 
-def build(mode: str, repo: Path, listing: Path | None) -> ET.ElementTree:
+def changed_tests(repo: Path, since: str) -> list[str]:
+    """Test class files added/modified/renamed in HEAD relative to ``since``."""
+    out = subprocess.run(
+        ["git", "-C", str(repo), "diff", "--name-only", "--diff-filter=AMR", since, "HEAD", "--", "tests"],
+        check=True, capture_output=True, text=True,
+    ).stdout
+    files = sorted(
+        line.strip() for line in out.splitlines()
+        if line.strip().endswith("Test.php") and (repo / line.strip()).is_file()
+    )
+    return files
+
+
+def build(mode: str, repo: Path, listing: Path | None, since: str | None = None) -> ET.ElementTree:
     ET.register_namespace("xsi", XSI)
     tree = ET.parse(repo / "phpunit.xml")
     root = tree.getroot()
@@ -78,6 +95,9 @@ def build(mode: str, repo: Path, listing: Path | None) -> ET.ElementTree:
         if listing is None:
             raise SystemExit("--list is required in fast mode")
         files = read_list(listing)
+        if since:
+            extra = [f for f in changed_tests(repo, since) if f not in files]
+            files = files + extra
         missing = [f for f in files if not (repo / f).is_file()]
         if missing:
             raise SystemExit("FAST list references missing files:\n  " + "\n  ".join(missing))
@@ -106,10 +126,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("mode", choices=["fast", "full"])
     ap.add_argument("--repo", default=".")
     ap.add_argument("--list", dest="listing")
+    ap.add_argument("--also-changed-since", dest="since", help="also run tests/**/*Test.php changed since this commit")
     ap.add_argument("--out", required=True)
     args = ap.parse_args(argv)
     repo = Path(args.repo).resolve()
-    tree = build(args.mode, repo, Path(args.listing) if args.listing else None)
+    tree = build(args.mode, repo, Path(args.listing) if args.listing else None, args.since)
     out = Path(args.out)
     tree.write(out, encoding="utf-8", xml_declaration=True)
     suites = tree.getroot().findall("./testsuites/testsuite")
