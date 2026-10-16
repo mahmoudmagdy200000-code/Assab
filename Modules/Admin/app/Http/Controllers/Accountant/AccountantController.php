@@ -158,6 +158,15 @@ class AccountantController extends AsabController
             if ($op->status === Operation::STATUS_FINAL) {
                 return $this->fail('OP_ALREADY_FINAL', 'Operation is final-approved', 'العملية معتمدة نهائياً', [], 409);
             }
+            if ($op->isPkg6DailyReport()) {
+                return $this->fail(
+                    'PKG6_DAY_REPORT_READ_ONLY',
+                    'PKG-6 shift daily report cannot be modified via legacy sales-details route.',
+                    'لا يمكن تعديل تقرير مبيعات يوم PKG-6 عبر تفاصيل المبيعات القديمة',
+                    [],
+                    409
+                );
+            }
             $data = $request->validate([
                 // canonical: one row per collection channel
                 'channels' => 'sometimes|array|min:1',
@@ -197,6 +206,15 @@ class AccountantController extends AsabController
             $op = $this->findAssigned($id);
             if ($op->status === Operation::STATUS_FINAL) {
                 return $this->fail('OP_ALREADY_FINAL', 'Operation is final-approved', 'العملية معتمدة نهائياً', [], 409);
+            }
+            if ($op->isPkg6DailyReport()) {
+                return $this->fail(
+                    'PKG6_DAY_REPORT_READ_ONLY',
+                    'PKG-6 shift daily report cannot be modified via legacy sales-lines route.',
+                    'لا يمكن تعديل تقرير مبيعات يوم PKG-6 عبر أسطر المبيعات القديمة',
+                    [],
+                    409
+                );
             }
             $data = $request->validate([
                 'amountBeforeTaxHalalas' => 'sometimes|integer',

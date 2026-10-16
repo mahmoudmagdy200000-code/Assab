@@ -84,4 +84,34 @@ class Operation extends Model
     {
         return $q->where('status', self::STATUS_PENDING);
     }
+
+    /**
+     * Determines whether this operation represents or is linked to a PKG-6 daily report.
+     * Evaluates authoritative server-side indicators produced by BridgeManagerDailyClose / ShiftReportReviewService:
+     * - Presence of PKG-6 review metadata in payload ('pkg6Review')
+     * - Linkage to a branch manager workday/shift ('managerShiftId')
+     * - Projected report review structure ('reportReview')
+     */
+    public function isPkg6DailyReport(): bool
+    {
+        $payload = $this->payload ?? [];
+
+        // 1. Authoritative PKG-6 review metadata stamped by BridgeManagerDailyClose
+        if (isset($payload['pkg6Review']) && is_array($payload['pkg6Review'])) {
+            return true;
+        }
+
+        // 2. Authoritative link to BranchManagerShift (PKG-6 daily close)
+        if (! empty($payload['managerShiftId'])) {
+            return true;
+        }
+
+        // 3. Projected report review structure (OperationController presentation)
+        if (isset($payload['reportReview']) && is_array($payload['reportReview'])) {
+            return true;
+        }
+
+        return false;
+    }
 }
+

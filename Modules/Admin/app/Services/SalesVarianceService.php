@@ -43,6 +43,15 @@ class SalesVarianceService
             );
         }
 
+        if ($op->isPkg6DailyReport()) {
+            throw new AsabException(
+                'PKG6_DAY_REPORT_READ_ONLY',
+                'PKG-6 daily sales report variance cannot be assigned via legacy route',
+                'لا يمكن توزيع فرق تقرير مبيعات يوم PKG-6 عبر المسار القديم',
+                409,
+            );
+        }
+
         $sum = array_sum(array_map(fn ($a) => (int) $a['amountHalalas'], $allocations));
         $variance = $this->variance($op);
         $target = abs($variance);

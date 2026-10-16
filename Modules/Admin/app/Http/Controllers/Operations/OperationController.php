@@ -4,6 +4,7 @@ namespace Modules\Admin\Http\Controllers\Operations;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\Attachment;
 use Modules\Admin\Models\Operation;
@@ -115,6 +116,24 @@ class OperationController extends AsabController
             // ACC-3.3 the 3-way match table + summary tiles + attachments.
             if ($op->module_key === 'purchases') {
                 $data['purchases'] = $this->purchases->present($op, $this->receiving->receivedByRow($op));
+            }
+            // BD-2 / BD-3 read-only shortage liability allocation, manager approval status,
+            // report revision number, and allocation version for shift operations.
+            if ($op->module_key === 'shifts') {
+                $cashierShiftId = $this->resolveCashierShiftId($op);
+                $liability = $this->presentShiftLiability($op, $cashierShiftId);
+                $reportRevision = $this->resolveShiftReportRevision($op, $cashierShiftId);
+                $allocationVersion = $liability !== null ? (int) $liability['version'] : null;
+
+                $data['reportRevision'] = $reportRevision;
+                $data['allocationVersion'] = $allocationVersion;
+                $data['liability'] = $liability;
+
+                if (is_array($data['payload'])) {
+                    $data['payload']['reportRevision'] = $reportRevision;
+                    $data['payload']['allocationVersion'] = $allocationVersion;
+                    $data['payload']['liability'] = $liability;
+                }
             }
             $data['auditTrail'] = $op->steps->map(fn ($s) => [
                 'stageId' => $s->stage_id,
@@ -582,5 +601,194 @@ class OperationController extends AsabController
                 ? $this->purchases->row($op, $supplierNames[$op->payload['supplierId'] ?? ''] ?? null)
                 : null,
         ];
+    }
+
+    /**
+     * Resolve the validated cashier shift ID for an operation.
+     * Enforces strict branch and tenant provenance: the cashier shift MUST
+     * belong to the same company and branch as the operation.
+     */
+    private function resolveCashierShiftId(Operation $op): ?string
+    {
+        if (! empty($op->payload['legacyShiftId'])) {
+            $legacyId = (string) $op->payload['legacyShiftId'];
+
+            return $this->isValidCashierShiftForOperation($legacyId, $op) ? $legacyId : null;
+        }
+
+        $shiftId = $op->payload['shiftId'] ?? $op->source_id;
+        if ($shiftId) {
+            $legacyFromAdmin = DB::table('asab_shifts')
+                ->where('id', $shiftId)
+                ->where('company_id', $op->company_id)
+                ->where('branch_id', $op->branch_id)
+                ->value('legacy_shift_id');
+            if ($legacyFromAdmin && $this->isValidCashierShiftForOperation((string) $legacyFromAdmin, $op)) {
+                return (string) $legacyFromAdmin;
+            }
+        }
+
+        if ($op->source_id && $this->isValidCashierShiftForOperation((string) $op->source_id, $op)) {
+            return (string) $op->source_id;
+        }
+
+        return null;
+    }
+
+    /**
+     * Verify that a cashier shift strictly belongs to the operation's company and branch.
+     */
+    private function isValidCashierShiftForOperation(string $cashierShiftId, Operation $op): bool
+    {
+        $branchInfo = DB::table('cashier_shifts')
+            ->join('shifts', 'shifts.id', '=', 'cashier_shifts.shift_id')
+            ->join('branches', 'branches.id', '=', 'shifts.branch_id')
+            ->where('cashier_shifts.id', $cashierShiftId)
+            ->select('shifts.branch_id', 'branches.asab_company_id')
+            ->first();
+
+        if ($branchInfo !== null) {
+            return (string) $branchInfo->branch_id === (string) $op->branch_id
+                && (string) $branchInfo->asab_company_id === (string) $op->company_id;
+        }
+
+        return DB::table('asab_shifts')
+            ->where('legacy_shift_id', $cashierShiftId)
+            ->where('company_id', $op->company_id)
+            ->where('branch_id', $op->branch_id)
+            ->exists();
+    }
+
+    /**
+     * BD-3 — Resolve the confirmed shift report revision number.
+     * Derived from ShiftReportAggregate (current_revision_number) or recorded revisions.
+     * Enforces provenance: only revisions belonging to this shift's aggregate are trusted.
+     * Returns null if no report revision exists without inventing arbitrary defaults.
+     */
+    private function resolveShiftReportRevision(Operation $op, ?string $cashierShiftId = null): ?int
+    {
+        $cashierShiftId ??= $this->resolveCashierShiftId($op);
+        if (! $cashierShiftId) {
+            return null;
+        }
+
+        $aggregate = DB::table('shift_report_aggregates')
+            ->where('source_type', 'cashier_shift')
+            ->where('source_id', $cashierShiftId)
+            ->first();
+
+        if (! $aggregate) {
+            return null;
+        }
+
+        if ((int) $aggregate->current_revision_number > 0) {
+            return (int) $aggregate->current_revision_number;
+        }
+
+        $maxRev = DB::table('shift_report_revisions')
+            ->where('report_aggregate_id', $aggregate->id)
+            ->max('revision_number');
+        if ($maxRev !== null && (int) $maxRev > 0) {
+            return (int) $maxRev;
+        }
+
+        if (isset($op->payload['pkg6Review']['revision_id'])) {
+            $revNumber = DB::table('shift_report_revisions')
+                ->where('id', $op->payload['pkg6Review']['revision_id'])
+                ->where('report_aggregate_id', $aggregate->id)
+                ->value('revision_number');
+            if ($revNumber !== null && (int) $revNumber > 0) {
+                return (int) $revNumber;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * BD-2 / BD-3 — Expose read-only shortage liability allocation and manager approval status
+     * for shift operations (moduleKey = shifts).
+     *
+     * Enforces tenant and branch isolation and resolves archived/inactive employee names
+     * per MEM-01..06 without reactivating membership or shifting liability.
+     *
+     * @return array{version: int, managerApprovalStatus: ?string, createdByType: ?string, shares: array<int, array{type: string, id: ?string, name: ?string, amountHalalas: int}>}|null
+     */
+    private function presentShiftLiability(Operation $op, ?string $cashierShiftId = null): ?array
+    {
+        $cashierShiftId ??= $this->resolveCashierShiftId($op);
+        if (! $cashierShiftId) {
+            return null;
+        }
+
+        $allocation = DB::table('shift_liability_allocations')
+            ->where('cashier_shift_id', $cashierShiftId)
+            ->where('company_id', $op->company_id)
+            ->where('branch_id', $op->branch_id)
+            ->whereNull('superseded_at')
+            ->orderByDesc('version')
+            ->first();
+
+        if (! $allocation) {
+            return null;
+        }
+
+        $rawShares = DB::table('shift_liability_shares')
+            ->where('allocation_id', $allocation->id)
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get();
+
+        $shares = [];
+        foreach ($rawShares as $share) {
+            $name = $this->resolveResponsibleActorName(
+                $share->responsible_type,
+                $share->responsible_id,
+                $op->company_id,
+                $op->branch_id
+            );
+
+            $shares[] = [
+                'type' => $share->responsible_type,
+                'id' => $name !== null ? (string) $share->responsible_id : null,
+                'name' => $name,
+                'amountHalalas' => (int) $share->amount_halalas,
+            ];
+        }
+
+        return [
+            'version' => (int) $allocation->version,
+            'managerApprovalStatus' => $allocation->manager_approval_status,
+            'createdByType' => $allocation->created_by_type,
+            'shares' => $shares,
+        ];
+    }
+
+    /**
+     * Resolve the recorded name of a responsible actor within branch scope.
+     * Uses withTrashed() to preserve archived/terminated employee records (MEM-06)
+     * without reactivating membership or modifying status.
+     */
+    private function resolveResponsibleActorName(string $type, string $id, string $companyId, string $branchId): ?string
+    {
+        return match ($type) {
+            'cashier' => \Modules\Cashier\Models\Cashier::withTrashed()
+                ->where('id', $id)
+                ->where('branch_id', $branchId)
+                ->value('name'),
+
+            'branch_manager' => \Modules\BranchManagers\Models\BranchManager::withTrashed()
+                ->where('id', $id)
+                ->where('branch_id', $branchId)
+                ->value('name'),
+
+            'employee' => \Modules\Admin\Models\Employee::withTrashed()
+                ->where('id', $id)
+                ->where('company_id', $companyId)
+                ->where('branch_id', $branchId)
+                ->value('name'),
+
+            default => null,
+        };
     }
 }
