@@ -344,17 +344,29 @@ class ExpenseTenantIsolationTest extends TestCase
         $this->assertSame('brand_owner', $a1->fresh()->decided_by_role);
     }
 
-    public function test_authorized_custody_approval_keeps_its_existing_financial_effect(): void
+    /**
+     * BRC v3.4 F-01 (EXP-01/02/05): this test used to pin the legacy rule "approval posts the deduction, and any
+     * shortfall spills into the sales-cash ledger". The deduction now belongs to SUBMISSION and only ever comes from
+     * the branch custody (full lifecycle: ExpenseCustodyLifecycleTest). What is left to prove here is the
+     * authorization boundary of the approval of an expense that was submitted BEFORE that change and so was never
+     * charged: an authorised actor's approval charges the branch custody exactly once, never the personal ledger.
+     */
+    public function test_authorized_approval_of_a_never_charged_custody_expense_charges_the_branch_custody_once(): void
     {
+        \Modules\Custody\Models\CustodyTransaction::create([
+            'branch_manager_id' => $this->bmA1->id, 'branch_id' => $this->branchA1->id, 'type' => 'Cash Transfer',
+            'amount' => 1000, 'is_cash_in' => true, 'transaction_date' => now(),
+        ]);
         $a1 = $this->pendingExpense($this->bmA1, ['payment_method' => 'custody', 'total_amount' => 250.00]);
 
         $this->asActor($this->managerA1)->postJson("/api/brand-owner/expenses/{$a1->id}/approve")->assertOk();
 
-        $rows = DB::table('custody_transactions')->where('related_expense_id', $a1->id)->count()
-            + DB::table('personal_ledger_transactions')->where('related_expense_id', $a1->id)->count();
-        $this->assertGreaterThanOrEqual(1, $rows, 'approval still posts the expense deduction (BRC-02 owns any change to it)');
-        $this->assertSame(1, DB::table('custody_transactions')->where('related_expense_id', $a1->id)->count()
-            + DB::table('personal_ledger_transactions')->where('related_expense_id', $a1->id)->count(), 'exactly one deduction row set per approval');
+        $deductions = DB::table('custody_transactions')->where('related_expense_id', $a1->id)->get();
+        $this->assertCount(1, $deductions, 'exactly one deduction row per expense');
+        $this->assertSame('Expenses Deduction', $deductions[0]->type);
+        $this->assertEquals(250.00, (float) $deductions[0]->amount);
+        $this->assertFalse((bool) $deductions[0]->is_cash_in, 'a cash-out movement');
+        $this->assertSame(0, DB::table('personal_ledger_transactions')->where('related_expense_id', $a1->id)->count(), 'sales cash is never charged');
     }
 
     // ── G-2: list / detail / timeline / view / edit isolation ───────────────

@@ -5,6 +5,7 @@ namespace Modules\Expense\Services;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Modules\Custody\Services\ExpenseCustodyService;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Models\ExpenseItem;
 use Modules\Expense\Models\ExpenseLine;
@@ -22,6 +23,13 @@ class GroupedInvoiceExpenseService
      * Create Grouped Invoice Expense
      */
     public function createGroupedInvoice(array $data): Expense
+    {
+        // One unit of work: the expense, its children, the custody charge (EXP-02) and the audit row
+        // succeed together or not at all — also for callers that do not open a transaction themselves.
+        return DB::transaction(fn (): Expense => $this->persistGroupedInvoice($data));
+    }
+
+    private function persistGroupedInvoice(array $data): Expense
     {
         $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
 
@@ -48,6 +56,11 @@ class GroupedInvoiceExpenseService
 
         foreach ($data['invoices'] as $invoiceData) {
             $this->createSingleInvoiceInGroup($expense, $groupedInvoice, $invoiceData);
+        }
+
+        // EXP-02 / EXP-05: a non-draft create is a submission — charge the branch custody once, or refuse it.
+        if (! ($data['is_draft'] ?? false)) {
+            app(ExpenseCustodyService::class)->reserve($expense);
         }
 
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
@@ -239,10 +252,17 @@ class GroupedInvoiceExpenseService
 
             $this->createTimelineEntry($expense, 'updated');
 
+            // EXP-02 / EXP-05: a draft flipped to pending is a submission — charge the branch custody once,
+            // or refuse it (the rollback below leaves the draft untouched).
+            $submitted = $wasDraft && $expense->fresh()->status === 'pending';
+            if ($submitted) {
+                app(ExpenseCustodyService::class)->reserve($expense->fresh());
+            }
+
             DB::commit();
 
             // Draft flipped to pending = a submission — bridge it (idempotent).
-            if ($wasDraft && $expense->fresh()->status === 'pending') {
+            if ($submitted) {
                 event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense->fresh()));
             }
 

@@ -52,16 +52,14 @@ class CustodyBalanceService
     }
 
     /**
-     * Cash available to spend on expenses = branch custody (granted by the
-     * brand owner) + personal ledger (sales cash in hand). The expense
-     * deduction takes branch custody first, then the personal ledger.
+     * Cash available to spend on expenses = the BRANCH expense custody only (EXP-01, CASH-17, BRC v3.4 F-01).
+     * The manager's personal ledger (sales cash in hand) is a different pot and never funds an expense — it used
+     * to be added here, which let an expense larger than the custody pass the check and be silently charged to
+     * sales cash. Kept under its historical name because the clients read it as the spendable balance.
      */
     public function getAvailableExpenseBalance(string $branchManagerId, ?string $branchId = null): float
     {
-        return round(
-            $this->getCustodyBalance($branchManagerId, $branchId) + $this->getPersonalLedgerBalance($branchManagerId),
-            2
-        );
+        return $this->getCustodyBalance($branchManagerId, $branchId);
     }
 
     /**
@@ -208,9 +206,11 @@ class CustodyBalanceService
         $custodyRequests = $transactions
             ->filter(fn ($t) => in_array($t->type, self::BRANCH_CUSTODY_REQUEST_TYPES, true) && $t->is_cash_in)
             ->sum('amount');
+        // Net expense outflow: a rejection posts a reversing cash-in row of the same type (EXP-03), which must
+        // reduce the period's expenses instead of being ignored.
         $expenses = $transactions
-            ->filter(fn ($t) => $t->type === self::TRANSACTION_TYPE_EXPENSES_DEDUCTION && ! $t->is_cash_in)
-            ->sum('amount');
+            ->filter(fn ($t) => $t->type === self::TRANSACTION_TYPE_EXPENSES_DEDUCTION)
+            ->sum(fn ($t) => $t->is_cash_in ? -(float) $t->amount : (float) $t->amount);
 
         return [
             'custodyRequests' => (float) $custodyRequests,

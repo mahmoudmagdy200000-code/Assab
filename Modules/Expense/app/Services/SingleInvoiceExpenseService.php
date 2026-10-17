@@ -2,8 +2,10 @@
 
 namespace Modules\Expense\Services;
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Modules\Custody\Services\ExpenseCustodyService;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Models\ExpenseItem;
 use Modules\Expense\Models\ExpenseLine;
@@ -21,6 +23,13 @@ class SingleInvoiceExpenseService
      * Create Single Invoice Expense
      */
     public function createSingleInvoice(array $data): Expense
+    {
+        // One unit of work: the expense, its children, the custody charge (EXP-02) and the audit row
+        // succeed together or not at all — also for callers that do not open a transaction themselves.
+        return DB::transaction(fn (): Expense => $this->persistSingleInvoice($data));
+    }
+
+    private function persistSingleInvoice(array $data): Expense
     {
         $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
 
@@ -92,6 +101,11 @@ class SingleInvoiceExpenseService
             }
         }
 
+        // EXP-02 / EXP-05: a non-draft create is a submission — charge the branch custody once, or refuse it.
+        if (! ($data['is_draft'] ?? false)) {
+            app(ExpenseCustodyService::class)->reserve($expense);
+        }
+
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
 
         // Created straight as pending = submitted: fire the domain event AFTER
@@ -108,6 +122,11 @@ class SingleInvoiceExpenseService
      * Update Single Invoice Expense
      */
     public function updateSingleInvoice(Expense $expense, array $data): Expense
+    {
+        return DB::transaction(fn (): Expense => $this->persistSingleInvoiceUpdate($expense, $data));
+    }
+
+    private function persistSingleInvoiceUpdate(Expense $expense, array $data): Expense
     {
         $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
 
@@ -235,6 +254,9 @@ class SingleInvoiceExpenseService
         // Draft flipped to pending via PUT = a submission — bridge it (the
         // ASAB sync is idempotent on (source_module, source_id)).
         if ($wasDraft && $expense->fresh()->status === 'pending') {
+            // EXP-02 / EXP-05: the draft became a submission — charge the branch custody once, or refuse it.
+            app(ExpenseCustodyService::class)->reserve($expense->fresh());
+
             event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense->fresh()));
         }
 
@@ -351,7 +373,8 @@ class SingleInvoiceExpenseService
         try {
             $custodyBalanceService = app(\Modules\Custody\Services\CustodyBalanceService::class);
 
-            return $custodyBalanceService->getAvailableExpenseBalance($branchManagerId);
+            // The custody of the manager's own branch (EXP-01): sales cash and other branches never count.
+            return $custodyBalanceService->getAvailableExpenseBalance($branchManagerId, auth()->user()?->branch_id);
         } catch (\Exception $e) {
             Log::error('Failed to get custody balance', [
                 'branch_manager_id' => $branchManagerId,
