@@ -557,7 +557,10 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
         $this->assertSame(400, $this->ledgerNetHalalas($cashierShift, $cashier2));
         $this->assertSame(1000, $this->ledgerNetHalalas($cashierShift, $cashier1) + $this->ledgerNetHalalas($cashierShift, $cashier2));
         $outbox3 = ShiftReportCorrectionNotification::where('report_revision_id', $rev3->id)->get();
-        $this->assertCount(2, $outbox3);
+        $this->assertCount(3, $outbox3, 'Outbox must contain 1 report_corrected + 2 liability_share_changed notifications without retry duplicates.');
+        $this->assertSame(1, $outbox3->where('event_type', 'report_corrected')->count());
+        $this->assertSame(2, $outbox3->where('event_type', 'liability_share_changed')->count());
+        $this->assertSame(3, DB::table('notifications')->whereIn('id', $outbox3->pluck('id'))->count());
     }
 
     public function test_public_accountant_command_retries_deadlock_and_replays_response(): void
