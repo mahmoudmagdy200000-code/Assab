@@ -514,16 +514,16 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
         $this->assertSame(2, DB::table('notifications')->whereIn('id', $outbox->pluck('id'))->count());
 
         // Part 2: Fail separately during shortage redistribution posting writes to verify ledger deadlock retry and rollback
-        $postingAttempts = 0;
+        $postingFaultAttempts = 0;
         $rolledBackPostingId = null;
         $rolledBackLedgerId = null;
         Event::listen('eloquent.created: '.ShiftLiabilityPosting::class,
-            function (ShiftLiabilityPosting $posting) use (&$postingAttempts, &$rolledBackPostingId, &$rolledBackLedgerId, $cashierShift): void {
+            function (ShiftLiabilityPosting $posting) use (&$postingFaultAttempts, &$rolledBackPostingId, &$rolledBackLedgerId, $cashierShift): void {
                 if ($posting->cashier_shift_id !== $cashierShift->id) {
                     return;
                 }
-                $postingAttempts++;
-                if ($postingAttempts === 1) {
+                if ($rolledBackPostingId === null) {
+                    $postingFaultAttempts++;
                     $rolledBackPostingId = $posting->id;
                     $rolledBackLedgerId = $posting->ledger_id;
                     throw new QueryException('mysql', 'fault after posting writes', [],
@@ -546,7 +546,7 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
             $redistribOpId
         );
 
-        $this->assertSame(2, $postingAttempts);
+        $this->assertSame(1, $postingFaultAttempts, 'Injected deadlock fault occurred exactly once before transaction retry.');
         $this->assertFalse(ShiftLiabilityPosting::whereKey($rolledBackPostingId)->exists());
         $this->assertFalse(CashierCustodyTransaction::whereKey($rolledBackLedgerId)->exists());
         $this->assertSame(3, $rev3->revision_number);
