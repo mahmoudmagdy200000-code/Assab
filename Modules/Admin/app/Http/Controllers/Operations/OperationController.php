@@ -128,7 +128,7 @@ class OperationController extends AsabController
                 $allocationVersion = $liability !== null ? (int) $liability['version'] : null;
                 $confirmedOpeningHalalas = $this->resolveConfirmedOpeningHalalas($op, $cashierShiftId);
                 $shiftFields = $this->resolveCashierShiftFields($op, $cashierShiftId);
-                $lastCorrection = $this->resolveShiftLastCorrection($op, $reportRevision);
+                $lastCorrection = $this->resolveShiftLastCorrection($op, $cashierShiftId, $reportRevision);
 
                 $data['reportRevision'] = $reportRevision;
                 $data['allocationVersion'] = $allocationVersion;
@@ -888,21 +888,34 @@ class OperationController extends AsabController
 
     /**
      * COR-05-02 — Project the latest accountant correction command evidence for the current revision
-     * so that clients can safely verify attribution on lost responses without repeating financial POSTs.
+     * and specific cashier shift report aggregate so that clients can safely verify exact command attribution
+     * on lost responses without repeating financial POSTs or cross-shift pollution.
      *
-     * @return array{revisionNumber: int, reason: string, actorType: string, actorId: string, createdAt: string}|null
+     * @return array{revisionNumber: int, commandId: string, reason: string, actorType: string, actorId: string, createdAt: string}|null
      */
-    private function resolveShiftLastCorrection(Operation $op, ?int $reportRevision): ?array
+    private function resolveShiftLastCorrection(Operation $op, ?string $cashierShiftId, ?int $reportRevision): ?array
     {
-        if (! $reportRevision) {
+        $cashierShiftId ??= $this->resolveCashierShiftId($op);
+        if (! $cashierShiftId || ! $reportRevision) {
+            return null;
+        }
+
+        $aggregate = DB::table('shift_report_aggregates')
+            ->where('source_type', 'cashier_shift')
+            ->where('source_id', $cashierShiftId)
+            ->first();
+
+        if (! $aggregate) {
             return null;
         }
 
         $correction = DB::table('shift_report_corrections')
+            ->where('report_aggregate_id', $aggregate->id)
             ->where('company_id', $op->company_id)
             ->where('branch_id', $op->branch_id)
             ->where('new_revision_number', $reportRevision)
             ->orderByDesc('created_at')
+            ->orderByDesc('id')
             ->first();
 
         if (! $correction) {
@@ -911,6 +924,7 @@ class OperationController extends AsabController
 
         return [
             'revisionNumber' => (int) $correction->new_revision_number,
+            'commandId' => (string) $correction->operation_id,
             'reason' => (string) $correction->reason,
             'actorType' => (string) $correction->actor_type,
             'actorId' => (string) $correction->actor_id,

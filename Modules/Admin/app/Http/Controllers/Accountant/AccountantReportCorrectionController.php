@@ -126,8 +126,9 @@ class AccountantReportCorrectionController extends AsabController
 
             // Derive operationId from registered idempotency command identity
             $operationId = (string) (
-                $request->attributes->get('idempotency_key_id')
+                $request->attributes->get('idempotency_key_string')
                 ?? $request->header('Idempotency-Key')
+                ?? $request->attributes->get('idempotency_key_id')
                 ?? Str::uuid()
             );
 
