@@ -104,6 +104,19 @@ class CustodyRequestController extends BaseController
     public function show(string $requestId): JsonResponse
     {
         try {
+            // Tenant isolation (read side): a branch manager reads only the requests addressed to / raised by
+            // themselves; any other actor that is not a brand owner/manager gets the same 404 as an unknown id,
+            // so another branch's request (amount, purpose, attachments) is neither readable nor confirmable.
+            // Brand owners and brand managers keep their existing access (their own scoping is a separate decision).
+            $user = auth()->user();
+            if (! ($user instanceof BrandOwner)) {
+                $owned = $user instanceof BranchManager
+                    && \Modules\Custody\Models\CustodyRequest::whereKey($requestId)->where('branch_manager_id', $user->id)->exists();
+                if (! $owned) {
+                    return $this->errorResponse('Custody request not found', 404);
+                }
+            }
+
             $details = $this->requestService->getRequestDetails($requestId);
 
             return $this->successResponse($details, 'Request details retrieved successfully');
@@ -311,6 +324,39 @@ class CustodyRequestController extends BaseController
                 'status' => $this->normalizeStatus($custodyRequest->status),
             ], 'Custody request rejected');
         } catch (\Exception $e) {
+            return $this->errorResponse($e->getMessage(), 400);
+        }
+    }
+
+    /**
+     * Send a rejected request back for review (Branch Manager who raised it)
+     * POST /api/custody/requests/{requestId}/resubmit
+     *
+     * BRC v3.4 FUND-05: the SAME request returns to Pending with its history kept; no money moves.
+     */
+    public function resubmit(string $requestId): JsonResponse
+    {
+        $user = auth()->user();
+        if (! ($user instanceof BranchManager)) {
+            return $this->errorResponse('Only the branch manager who raised the request can resubmit it', 403);
+        }
+
+        try {
+            $custodyRequest = $this->requestService->resubmitRequest($requestId, $user);
+
+            return $this->successResponse([
+                'requestId' => $custodyRequest->id,
+                'status' => $this->normalizeStatus($custodyRequest->status),
+            ], 'Custody request resubmitted for review');
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse('Custody request not found', 404);
+        } catch (\Illuminate\Auth\Access\AuthorizationException $e) {
+            return $this->errorResponse($e->getMessage(), 403);
+        } catch (\Illuminate\Database\QueryException $e) {
+            report($e);
+
+            return $this->errorResponse('Could not resubmit the request. Please try again.', 500);
+        } catch (\RuntimeException $e) {
             return $this->errorResponse($e->getMessage(), 400);
         }
     }

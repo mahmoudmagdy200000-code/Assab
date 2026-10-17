@@ -39,6 +39,9 @@ Route::middleware(['auth:sanctum', 'log.throttle'])->group(function () {
         Route::post('requests/{requestId}/approve', [CustodyRequestController::class, 'approve'])->middleware(['throttle:custody-write']);
         Route::post('requests/{requestId}/reject', [CustodyRequestController::class, 'reject'])->middleware(['throttle:custody-write']);
 
+        // FUND-05: the manager sends a REJECTED request back for review (same request, history kept).
+        Route::post('requests/{requestId}/resubmit', [CustodyRequestController::class, 'resubmit'])->middleware(['throttle:custody-write']);
+
         // Receipt confirmation (branch-manager only — enforced inside controller).
         // The step that actually credits «رصيد عهدة الفرع».
         Route::post('requests/{requestId}/confirm-receipt', [CustodyRequestController::class, 'confirmReceipt'])->middleware(['throttle:custody-write']);
