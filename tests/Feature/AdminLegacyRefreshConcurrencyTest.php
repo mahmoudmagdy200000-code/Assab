@@ -8,7 +8,7 @@ use Modules\Admin\Models\AsabUser;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
-/** Real processes, independent MariaDB connections, committed fixtures, explicit barriers. */
+/** Real processes, independent MySQL/MariaDB connections, committed fixtures, explicit barriers. */
 class AdminLegacyRefreshConcurrencyTest extends TestCase
 {
     private string $barriers;
@@ -19,11 +19,11 @@ class AdminLegacyRefreshConcurrencyTest extends TestCase
     {
         parent::setUp();
         if (! in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
-            $this->markTestSkipped('MariaDB/InnoDB independent connections required');
+            $this->markTestSkipped('MySQL/MariaDB InnoDB independent connections required');
         }
         $this->assertSame('testing', app()->environment());
         $this->assertStringStartsWith('s12_at02_', DB::connection()->getDatabaseName());
-        $this->assertStringContainsString('MariaDB', DB::selectOne('SELECT VERSION() AS version')->version);
+        $this->assertMatchesRegularExpression('/(^8\.4\.)|(MariaDB)/i', DB::selectOne('SELECT VERSION() AS version')->version);
         $this->assertSame(0, DB::transactionLevel(), 'Fixtures must be committed outside RefreshDatabase transactions');
         foreach (['asab_users', 'personal_access_tokens', 'admin_sessions'] as $table) {
             $engine = DB::selectOne('SELECT ENGINE AS engine FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?', [$table]);

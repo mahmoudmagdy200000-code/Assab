@@ -44,7 +44,7 @@ class AdminSessionRevocationTest extends TestCase
         parent::setUp();
         if ($this->isConcurrencyTest()
             && ! in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
-            $this->markTestSkipped('MariaDB/InnoDB independent connections required');
+            $this->markTestSkipped('MySQL/MariaDB InnoDB independent connections required');
         }
         Config::set('admin.session_families_enabled', true);
         $this->auth = app(AuthService::class);
@@ -90,7 +90,7 @@ class AdminSessionRevocationTest extends TestCase
     {
         $this->assertSame('testing', app()->environment());
         $this->assertStringStartsWith('s12_fs12_', DB::connection()->getDatabaseName());
-        $this->assertStringContainsString('MariaDB', DB::selectOne('SELECT VERSION() AS version')->version);
+        $this->assertMatchesRegularExpression('/(^8\.4\.)|(MariaDB)/i', DB::selectOne('SELECT VERSION() AS version')->version);
         $this->assertSame(0, DB::transactionLevel(), 'Concurrency fixtures must be committed');
         foreach (['asab_users', 'personal_access_tokens'] as $table) {
             $engine = DB::selectOne(
@@ -640,7 +640,7 @@ class AdminSessionRevocationTest extends TestCase
         $this->assertDatabaseMissing('personal_access_tokens', ['id' => $tokenId]);
     }
 
-    /** Real-process proof of legacy Refresh/Access-Logout serialization on MariaDB/InnoDB. */
+    /** Real-process proof of legacy Refresh/Access-Logout serialization on MySQL/MariaDB InnoDB. */
     public function test_legacy_logout_concurrency_refresh_first_removes_committed_successors(): void
     {
         $this->setUpConcurrencyEvidence();

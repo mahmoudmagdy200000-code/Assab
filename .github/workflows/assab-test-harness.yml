@@ -1,0 +1,168 @@
+name: ASSAB isolated test harness
+
+# Mode A only. This workflow has no Coolify/staging endpoint, no repository
+# secrets, and no deployment step. SQLite is in-memory; MySQL 8.4 is an
+# ephemeral GitHub-hosted service and every schema name is fail-closed.
+on:
+  push:
+    branches:
+      - 'task/brc34-automated-staging-test-harness-*'
+  pull_request:
+    branches:
+      - 'integration/shift-cycle-staging-candidate-*'
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      run_mysql84:
+        description: Run the separately authorized disposable MySQL 8.4 job
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: assab-test-harness-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  APP_ENV: testing
+  APP_DEBUG: 'false'
+  APP_KEY: base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+  APP_URL: http://127.0.0.1
+  CACHE_STORE: array
+  SESSION_DRIVER: array
+  QUEUE_CONNECTION: sync
+  MAIL_MAILER: array
+  COMPOSER_NO_INTERACTION: '1'
+
+jobs:
+  sqlite-isolated:
+    name: Harness / SQLite memory / PHP 8.3
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      TESTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Checkout exact tested commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ env.TESTED_HEAD }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify selected harness development baseline
+        env:
+          ANCHOR_SHA: dabae358560bacf00137ed5c21d31320669363f6
+          ANCHOR_TREE: c27728124844f40455a0ccf2c60741761160046e
+          BASELINE_SHA: 57bd40c3d55393db2cc113328e221d5d3a85caa0
+          ARTIFACT_DIR: artifacts/assab-harness-sqlite/baseline-guard
+        run: bash scripts/ci/source_guard.sh
+
+      - name: Pinned PHP 8.3, source guard, isolation guards and locked install
+        uses: ./.github/actions/brc34-sqlite-setup
+        with:
+          tested-head: ${{ env.TESTED_HEAD }}
+
+      - name: Evidence helper unit tests
+        run: python3 -I -m unittest discover -s scripts/harness -p 'test_*.py' -v
+
+      - name: Run isolated SQLite harness and generate JSON/JUnit evidence
+        run: bash scripts/harness/run_sqlite.sh artifacts/assab-harness-sqlite
+
+      - name: Publish SQLite summary
+        if: always()
+        run: cat artifacts/assab-harness-sqlite/business-rules-evidence.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+      - name: Upload SQLite evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: assab-harness-sqlite-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/assab-harness-sqlite/
+          if-no-files-found: warn
+          retention-days: 30
+
+  mysql84-isolated:
+    name: Harness / MySQL 8.4 InnoDB / PHP 8.3
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_mysql84 }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    env:
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_USERNAME: root
+      DB_PASSWORD: ''
+      TESTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    steps:
+      - name: Checkout exact tested commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ env.TESTED_HEAD }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify candidate ancestry and source scope
+        env:
+          ANCHOR_SHA: dabae358560bacf00137ed5c21d31320669363f6
+          ANCHOR_TREE: c27728124844f40455a0ccf2c60741761160046e
+          BASELINE_SHA: 57bd40c3d55393db2cc113328e221d5d3a85caa0
+          ARTIFACT_DIR: artifacts/assab-harness-mysql84/baseline-guard
+        run: bash scripts/ci/source_guard.sh
+
+      - name: Setup pinned PHP 8.3
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, curl, dom, fileinfo, gd, intl, mbstring, pdo_mysql, tokenizer, xml, zip
+          coverage: none
+          tools: composer:v2
+        env:
+          fail-fast: 'true'
+
+      - name: Verify PHP runtime and install locked dependencies
+        run: |
+          set -euo pipefail
+          php -r 'if (!str_starts_with(PHP_VERSION, "8.3.")) { throw new RuntimeException(PHP_VERSION); }'
+          composer validate --no-check-publish --no-interaction
+          composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Evidence helper unit tests
+        run: python3 -I -m unittest discover -s scripts/harness -p 'test_*.py' -v
+
+      - name: Run disposable MySQL 8.4 integration and concurrency suites
+        env:
+          ASSAB_HARNESS_MYSQL_OPT_IN: '1'
+          ASSAB_HARNESS_ALLOW_EMPTY_CI_PASSWORD: '1'
+          ASSAB_HARNESS_RUN_ID: ${{ github.run_id }}
+          ASSAB_HARNESS_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: bash scripts/harness/run_mysql84.sh artifacts/assab-harness-mysql84
+
+      - name: Publish MySQL 8.4 summary
+        if: always()
+        run: cat artifacts/assab-harness-mysql84/business-rules-evidence.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+      - name: Upload MySQL 8.4 evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: assab-harness-mysql84-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/assab-harness-mysql84/
+          if-no-files-found: warn
+          retention-days: 30

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -384,7 +385,6 @@ class WorkflowStaticChecks(unittest.TestCase):
         act = REPO / ".github/actions/brc34-sqlite-setup/action.yml"
         if not wf.is_file():
             self.skipTest("workflow not present")
-        import re
         for f in (wf, act):
             text = f.read_text()
             self.assertIsNone(re.search(r"\$\{\{\s*(secrets|vars)\.", text), f)
@@ -404,6 +404,56 @@ class WorkflowStaticChecks(unittest.TestCase):
         self.assertIn("needs.fast-gate.outputs.run_full", data)
         self.assertIn("source_guard.sh", act.read_text())
         ET.fromstring("<a/>")  # keep xml import used
+
+    def test_harness_workflow_is_mode_a_only_and_uses_ephemeral_mysql84(self) -> None:
+        wf = REPO / ".github/workflows/assab-test-harness.yml"
+        self.assertTrue(wf.is_file())
+        data = wf.read_text()
+        self.assertIsNone(re.search(r"\$\{\{\s*(secrets|vars)\.", data))
+        for match in re.finditer(r"uses:\s*(\S+)", data):
+            ref = match.group(1)
+            if ref.startswith("./"):
+                continue
+            self.assertRegex(ref, r"@[0-9a-f]{40}$", f"unpinned action {ref}")
+        self.assertIn("contents: read", data)
+        self.assertNotIn("pull_request_target", data)
+        self.assertIn("image: mysql:8.4", data)
+        self.assertIn("DB_HOST: 127.0.0.1", data)
+        self.assertIn("APP_ENV: testing", data)
+        self.assertIn("run_mysql84.sh", data)
+        self.assertIn("run_mysql84:", data)
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.run_mysql84", data)
+        self.assertGreaterEqual(data.count("dabae358560bacf00137ed5c21d31320669363f6"), 2)
+        self.assertGreaterEqual(data.count("c27728124844f40455a0ccf2c60741761160046e"), 2)
+        self.assertNotIn("ASSAB_STAGING_HARNESS_ENABLED", data)
+        self.assertNotIn("assab_staging", data.lower())
+        self.assertNotRegex(data.lower(), r"docker login|\bssh\b|kubectl|coolify.*(?:deploy|restart)")
+
+        runner = (REPO / "scripts/harness/run_mysql84.sh").read_text()
+        guard = (REPO / "scripts/harness/assert_mysql84_target.php").read_text()
+        self.assertIn("export DB_URL='' DATABASE_URL='' DB_SOCKET=''", runner)
+        self.assertIn("[[ \"$DB_HOST\" == '127.0.0.1' ]]", runner)
+        self.assertIn("[[ \"$DB_PORT\" == '3306' ]]", runner)
+        self.assertIn("[[ \"$version\" != *MariaDB* ]]", runner)
+        self.assertLess(runner.index("assert_mysql84_target.php"), runner.index("php artisan migrate:fresh"))
+        self.assertIn("SELECT DATABASE()", guard)
+        self.assertIn("MySQL 8.4.x", guard)
+        self.assertIn("process port is the disposable service port", guard)
+        self.assertIn("default storage engine is InnoDB", guard)
+        self.assertNotIn("php artisan", guard)
+
+    def test_harness_identity_update_logs_redact_credentials(self) -> None:
+        observers = [
+            REPO / "Modules/BranchManagers/app/Observers/BranchManagerObserver.php",
+            REPO / "Modules/Cashier/app/Observers/CashierObserver.php",
+        ]
+        for observer in observers:
+            data = observer.read_text()
+            self.assertRegex(
+                data,
+                r"Arr::except\(\$\w+->getChanges\(\), \['password', 'remember_token'\]\)",
+                observer,
+            )
 
 
 if __name__ == "__main__":

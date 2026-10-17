@@ -2,6 +2,7 @@
 
 namespace Modules\Cashier\Observers;
 
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Modules\Cashier\Events\CashierActivatedEvent;
@@ -31,7 +32,7 @@ class CashierObserver
     {
         Log::info('Cashier updated', [
             'cashier_id' => $cashier->id,
-            'changes' => $cashier->getChanges(),
+            'changes' => Arr::except($cashier->getChanges(), ['password', 'remember_token']),
         ]);
 
         // Status side effects fire AFTER the row is written. They used to run on

@@ -68,14 +68,15 @@ class Pkg6ReviewMySqlConcurrencyTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        if (env('PKG6_MARIADB_TESTS') !== '1' || DB::connection()->getDriverName() !== 'mysql') {
-            $this->markTestSkipped('NOT_RUN: isolated MariaDB unavailable. SQLite cannot establish financial lock safety.');
+        $enabled = env('PKG6_MYSQL_TESTS') === '1' || env('PKG6_MARIADB_TESTS') === '1';
+        if (! $enabled || DB::connection()->getDriverName() !== 'mysql') {
+            $this->markTestSkipped('NOT_RUN: isolated MySQL/MariaDB unavailable. SQLite cannot establish financial lock safety.');
         }
         if (! preg_match('/\Apkg6_disposable_[a-z0-9_]+\z/', DB::connection()->getDatabaseName())
             || ! in_array(DB::connection()->getConfig('host'), ['localhost', '127.0.0.1'], true)) {
-            throw new \LogicException('Refusing non-disposable MariaDB schema');
+            throw new \LogicException('Refusing non-disposable MySQL/MariaDB schema');
         }
-        $this->assertStringContainsString('MariaDB', DB::selectOne('SELECT VERSION() AS v')->v);
+        $this->assertMatchesRegularExpression('/(^8\.4\.)|(MariaDB)/i', DB::selectOne('SELECT VERSION() AS v')->v);
         // Existing approved migrations only, on the explicitly opted-in disposable schema.
         $this->artisan('migrate:fresh', ['--force' => true])->assertExitCode(0);
         DB::transaction(fn () => $this->initializeFixture());

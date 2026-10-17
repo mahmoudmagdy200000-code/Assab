@@ -107,6 +107,7 @@ class AdminServiceProvider extends ServiceProvider
             \Modules\Admin\Console\Commands\DispatchRemindersCommand::class,
             \Modules\Admin\Console\Commands\Pkg2OwnershipCensusCommand::class,
             \Modules\Admin\Console\Commands\BrandManagerAssignmentCommand::class,
+            \Modules\Admin\Console\Commands\ProvisionStagingHarnessCommand::class,
         ]);
     }
 

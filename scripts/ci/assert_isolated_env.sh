@@ -93,6 +93,7 @@ while IFS= read -r f; do
   fi
 done < <(printf '%s\n' \
   "$root/.github/workflows/assab-brc34-regression.yml" \
+  "$root/.github/workflows/assab-test-harness.yml" \
   "$root/.github/actions/brc34-sqlite-setup/action.yml")
 
 echo "ISOLATION_GUARD=PASS driver=${DB_CONNECTION} database=${DB_DATABASE} env=${APP_ENV} runner=${RUNNER_ENVIRONMENT:-local-selftest}"

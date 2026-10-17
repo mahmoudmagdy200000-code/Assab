@@ -25,6 +25,17 @@ class EnsureAdminAccessToken
             return $next($request);
         }
 
+        // Sanctum tokens are polymorphic across the Admin and legacy mobile
+        // authenticatables. A cashier/manager/supplier token must never reach
+        // an Admin controller typed for AsabUser (which otherwise becomes a
+        // cross-surface 500 rather than an authentication denial).
+        $user = $token->tokenable;
+        if (! $user instanceof AsabUser
+            || $token->tokenable_type !== $user->getMorphClass()
+            || (string) $token->tokenable_id !== (string) $user->getKey()) {
+            return $this->deny();
+        }
+
         // A legacy familyless Refresh credential is rotation/logout proof, never
         // API access proof. Name is the durable legacy discriminator because both
         // historical Access and Refresh credentials may carry wildcard abilities.
@@ -34,11 +45,7 @@ class EnsureAdminAccessToken
 
         // Inspect stored proof directly: Sanctum discards expired bearers, and a
         // refresh bearer must be rejected even with an otherwise valid D08 body.
-        $user = $token->tokenable;
-        if (! $user instanceof AsabUser
-            || $token->tokenable_type !== $user->getMorphClass()
-            || (string) $token->tokenable_id !== (string) $user->getKey()
-            || $token->name !== 'access'
+        if ($token->name !== 'access'
             || $token->abilities !== ['admin:access']) {
             return $this->deny();
         }

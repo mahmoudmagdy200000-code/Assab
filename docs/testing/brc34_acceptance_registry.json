@@ -1,0 +1,1891 @@
+{
+  "schemaVersion": 1,
+  "authority": "Assab Business Rules v3.4 — 2026-10-13",
+  "authorityNote": "Registry transcribes the 69 authoritative acceptance rows. It is scenario metadata, not execution evidence.",
+  "scenarios": [
+    {
+      "businessRuleId": "AC-01",
+      "businessRuleReferences": [
+        "SAL-01–04"
+      ],
+      "preconditions": "مبيعات 115، بطاقات 50، تطبيقات 25، افتتاحي 10، معدود 30",
+      "fixtureDependencies": [
+        "company",
+        "brand",
+        "branch",
+        "branch-manager",
+        "cashier",
+        "shift-template",
+        "cashier-shift"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "shift-financial-calculator"
+      ],
+      "operation": "calculate and persist shift sales/VAT/cash reconciliation",
+      "expectedResult": "ضريبة 15 ومتوقع 50 وعجز 20",
+      "databaseInvariants": [
+        "money stored in integer halalas where authoritative",
+        "gross = net + VAT after approved rounding",
+        "expected cash excludes non-cash channels and branch expenses"
+      ]
+    },
+    {
+      "businessRuleId": "AC-02",
+      "businessRuleReferences": [
+        "SAL-03"
+      ],
+      "preconditions": "تطبيق بيع 115 وعمولة 20",
+      "fixtureDependencies": [
+        "company",
+        "brand",
+        "branch",
+        "branch-manager",
+        "cashier",
+        "shift-template",
+        "cashier-shift"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "shift-financial-calculator"
+      ],
+      "operation": "calculate and persist shift sales/VAT/cash reconciliation",
+      "expectedResult": "تسجيل بيع 115؛ العمولة خارج الشفت",
+      "databaseInvariants": [
+        "money stored in integer halalas where authoritative",
+        "gross = net + VAT after approved rounding",
+        "expected cash excludes non-cash channels and branch expenses"
+      ]
+    },
+    {
+      "businessRuleId": "AC-03",
+      "businessRuleReferences": [
+        "DIFF-05"
+      ],
+      "preconditions": "متوقع 35 ومعدود 40",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "cashier",
+        "cash count",
+        "report revision",
+        "liability allocation"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "branch-manager",
+        "accountant"
+      ],
+      "operation": "count cash and allocate shortage or record branch surplus",
+      "expectedResult": "فائض 5 على الفرع دون مسؤول أو إضافة للمبيعات",
+      "databaseInvariants": [
+        "variance = counted cash - expected cash",
+        "shortage allocation equals the exact shortage",
+        "surplus creates no employee liability"
+      ]
+    },
+    {
+      "businessRuleId": "AC-04",
+      "businessRuleReferences": [
+        "DIFF-02"
+      ],
+      "preconditions": "عجز 20 وحصص مجموعها 15",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "cashier",
+        "cash count",
+        "report revision",
+        "liability allocation"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "branch-manager",
+        "accountant"
+      ],
+      "operation": "count cash and allocate shortage or record branch surplus",
+      "expectedResult": "منع إقفال التقرير حتى تحديد كامل العجز",
+      "databaseInvariants": [
+        "variance = counted cash - expected cash",
+        "shortage allocation equals the exact shortage",
+        "surplus creates no employee liability"
+      ]
+    },
+    {
+      "businessRuleId": "AC-05",
+      "businessRuleReferences": [
+        "DIFF-02–03"
+      ],
+      "preconditions": "عجز 20 موزع 12 و8 داخل الفرع",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "cashier",
+        "cash count",
+        "report revision",
+        "liability allocation"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "branch-manager",
+        "accountant"
+      ],
+      "operation": "count cash and allocate shortage or record branch surplus",
+      "expectedResult": "يحفظ كامل التوزيع؛ اعتماد المدير قبل إرسال اليوم",
+      "databaseInvariants": [
+        "variance = counted cash - expected cash",
+        "shortage allocation equals the exact shortage",
+        "surplus creates no employee liability"
+      ]
+    },
+    {
+      "businessRuleId": "AC-06",
+      "businessRuleReferences": [
+        "DIFF-04"
+      ],
+      "preconditions": "موظف يعترض على تحميله",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "cashier",
+        "cash count",
+        "report revision",
+        "liability allocation"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "branch-manager",
+        "accountant"
+      ],
+      "operation": "count cash and allocate shortage or record branch surplus",
+      "expectedResult": "يحفظ الاعتراض ولا يعطل التسليم",
+      "databaseInvariants": [
+        "variance = counted cash - expected cash",
+        "shortage allocation equals the exact shortage",
+        "surplus creates no employee liability"
+      ]
+    },
+    {
+      "businessRuleId": "AC-07",
+      "businessRuleReferences": [
+        "DIFF-03"
+      ],
+      "preconditions": "العجز على المدير نفسه",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "cashier",
+        "cash count",
+        "report revision",
+        "liability allocation"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "branch-manager",
+        "accountant"
+      ],
+      "operation": "count cash and allocate shortage or record branch surplus",
+      "expectedResult": "لا يسقط شرط اعتماده قبل إرسال اليوم",
+      "databaseInvariants": [
+        "variance = counted cash - expected cash",
+        "shortage allocation equals the exact shortage",
+        "surplus creates no employee liability"
+      ]
+    },
+    {
+      "businessRuleId": "AC-08",
+      "businessRuleReferences": [
+        "CASH-05"
+      ],
+      "preconditions": "Submit مع نقد لم يؤكد مستلمه",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "التقرير مقفل والمسؤولية باقية على المسلّم",
+      "databaseInvariants": [
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-09",
+      "businessRuleReferences": [
+        "CASH-05"
+      ],
+      "preconditions": "تسليم جزئي مؤكد",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "ينقل المؤكد فقط ويبقى المتبقي على المسلّم",
+      "databaseInvariants": [
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-10",
+      "businessRuleReferences": [
+        "CASH-01"
+      ],
+      "preconditions": "بدء أول وردية دون نقد مستلم",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "افتتاحي صفر دون إضافة تلقائية من الإعدادات",
+      "databaseInvariants": [
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-11",
+      "businessRuleReferences": [
+        "OPS-06–08"
+      ],
+      "preconditions": "البديل قبل تقرير السابق أو تسلمه النقد",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "cashier",
+        "shift-template",
+        "cashier-shift"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "branch-manager"
+      ],
+      "operation": "assign, accept, start, transfer, or close operational shift responsibility",
+      "expectedResult": "يقبل التعيين ثم يبدأ باستلام العمل فعليًا، بلا تأكيد نقد تلقائي أو إقفال مالي للسابق",
+      "databaseInvariants": [
+        "at most one operational owner per chain",
+        "acceptance and start remain distinct",
+        "history rows are append-only"
+      ]
+    },
+    {
+      "businessRuleId": "AC-12",
+      "businessRuleReferences": [
+        "CASH-07"
+      ],
+      "preconditions": "مدير يحاول تحويل أكثر من المتاح بعد المحجوز",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "منع العملية بلا حركة مالية أو عجز",
+      "databaseInvariants": [
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-13",
+      "businessRuleReferences": [
+        "CASH-08"
+      ],
+      "preconditions": "طلب وارد معلّق والنقد موجود في الدرج",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "يسمح بإرسال تقرير الكاشير؛ النقد غير المؤكد لا يظهر فائضًا والمسؤولية على المرسل",
+      "databaseInvariants": [
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-14",
+      "businessRuleReferences": [
+        "CASH-09–12"
+      ],
+      "preconditions": "طلب 500 وموجود 480",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "رفض وإرجاع 480 فعليًا؛ تصحيح نفس الطلب ثم إعادة التسليم والتأكيد؛ فرق 20 ليس عجزًا تلقائيًا",
+      "databaseInvariants": [
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-15",
+      "businessRuleReferences": [
+        "CASH-10"
+      ],
+      "preconditions": "فرق 20 بسبب خطأ إدخال فقط",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "لا إنشاء عجز؛ حفظ التصحيح",
+      "databaseInvariants": [
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-16",
+      "businessRuleReferences": [
+        "CASH-12"
+      ],
+      "preconditions": "نقد رُفض ثم أُعيد فعليًا",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "يبقى على الأول ولا يعد نقدًا موجودًا لدى الثاني",
+      "databaseInvariants": [
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-17",
+      "businessRuleReferences": [
+        "CASH-13"
+      ],
+      "preconditions": "تغيير المستلم بعد استرجاع النقد",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "إلغاء السابق وإنشاء جديد، وحفظ السجل وعدم النقل مرتين",
+      "databaseInvariants": [
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-18",
+      "businessRuleReferences": [
+        "COR-02"
+      ],
+      "preconditions": "رفض التسليم أكثر من مرتين",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "cashier report revision",
+        "manager review",
+        "accountant",
+        "head accountant",
+        "audit history"
+      ],
+      "actingUserRoles": [
+        "branch-manager",
+        "accountant",
+        "head-accountant"
+      ],
+      "operation": "correct, review, return, resubmit, or approve an immutable report revision",
+      "expectedResult": "يظل التصحيح متاحًا دون تصعيد أو تجاوز رفض تلقائي",
+      "databaseInvariants": [
+        "prior report revisions remain immutable",
+        "exactly one current revision exists",
+        "stale or duplicate commands have no second financial effect"
+      ]
+    },
+    {
+      "businessRuleId": "AC-19",
+      "businessRuleReferences": [
+        "CASH-14",
+        "COR-01"
+      ],
+      "preconditions": "تعديل تقرير له تسليم مؤكد",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger",
+        "cashier report revision",
+        "manager review",
+        "accountant",
+        "head accountant",
+        "audit history"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "receiving-cashier-or-branch-manager",
+        "branch-manager",
+        "accountant",
+        "head-accountant"
+      ],
+      "operation": "request, confirm, reject, return, correct, or settle physical cash handover / correct, review, return, resubmit, or approve an immutable report revision",
+      "expectedResult": "حفظ الأصل وعدم تعديل مبلغ التسليم المؤكد",
+      "databaseInvariants": [
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects",
+        "prior report revisions remain immutable",
+        "exactly one current revision exists",
+        "stale or duplicate commands have no second financial effect"
+      ]
+    },
+    {
+      "businessRuleId": "AC-20",
+      "businessRuleReferences": [
+        "CASH-14"
+      ],
+      "preconditions": "تأكيد 48 خطأ بدل 480 والنقد تحرك مرة واحدة",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "ينشئ المستلم الأصلي عكس 48 ويؤكده المسلّم الأول فينتقل الرصيد؛ بعدها يسجل الأول 480 ويؤكده المستلم. حفظ وربط العمليات دون طرف ثالث أو تداول نقد ثانٍ أو تعديل تقرير نهائي",
+      "databaseInvariants": [
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-21",
+      "businessRuleReferences": [
+        "COR-03–04"
+      ],
+      "preconditions": "تصحيح الشبكة 500 إلى 400، والوردية متوازنة والعد ثابت",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "cashier report revision",
+        "manager review",
+        "accountant",
+        "head accountant",
+        "audit history"
+      ],
+      "actingUserRoles": [
+        "branch-manager",
+        "accountant",
+        "head-accountant"
+      ],
+      "operation": "correct, review, return, resubmit, or approve an immutable report revision",
+      "expectedResult": "يزيد المتوقع 100 ويظهر عجز 100؛ اعتماد المدير وإشعار الكاشير بلا موافقته وبلا تكرار",
+      "databaseInvariants": [
+        "prior report revisions remain immutable",
+        "exactly one current revision exists",
+        "stale or duplicate commands have no second financial effect"
+      ]
+    },
+    {
+      "businessRuleId": "AC-22",
+      "businessRuleReferences": [
+        "COR-05–07",
+        "DIFF-03"
+      ],
+      "preconditions": "محاسب يصحح توزيع العجز أثناء مراجعته بعد اعتماد المدير وقبل اعتماده",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "cashier report revision",
+        "manager review",
+        "accountant",
+        "head accountant",
+        "audit history",
+        "branch-manager",
+        "cashier",
+        "cash count",
+        "report revision",
+        "liability allocation"
+      ],
+      "actingUserRoles": [
+        "branch-manager",
+        "accountant",
+        "head-accountant",
+        "cashier"
+      ],
+      "operation": "correct, review, return, resubmit, or approve an immutable report revision / count cash and allocate shortage or record branch surplus",
+      "expectedResult": "تصحيحه صاحب القرار النهائي لكل الفروع؛ حفظ سجل وإشعار وتحديث الأرصدة دون تكرار، ودون منح المدير حق نقضه",
+      "databaseInvariants": [
+        "prior report revisions remain immutable",
+        "exactly one current revision exists",
+        "stale or duplicate commands have no second financial effect",
+        "variance = counted cash - expected cash",
+        "shortage allocation equals the exact shortage",
+        "surplus creates no employee liability"
+      ]
+    },
+    {
+      "businessRuleId": "AC-23",
+      "businessRuleReferences": [
+        "COR-05",
+        "EXP-06"
+      ],
+      "preconditions": "محاسب يحاول تغيير إجمالي المبيعات أو اعتماد مصروف",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "cashier report revision",
+        "manager review",
+        "accountant",
+        "head accountant",
+        "audit history",
+        "custody balance",
+        "expense request",
+        "authorized decision actor"
+      ],
+      "actingUserRoles": [
+        "branch-manager",
+        "accountant",
+        "head-accountant",
+        "authorized-cashier-or-branch-manager",
+        "owner-or-brand-manager"
+      ],
+      "operation": "correct, review, return, resubmit, or approve an immutable report revision / authorize, submit, decide, reject, recover, or resubmit an expense",
+      "expectedResult": "لا تسمح الصلاحيات الموثقة بهذين الإجراءين",
+      "databaseInvariants": [
+        "prior report revisions remain immutable",
+        "exactly one current revision exists",
+        "stale or duplicate commands have no second financial effect",
+        "each approved amount is deducted once",
+        "rejection/recovery preserves request history",
+        "authorization is branch and role scoped"
+      ]
+    },
+    {
+      "businessRuleId": "AC-24",
+      "businessRuleReferences": [
+        "OPS-05"
+      ],
+      "preconditions": "انتهاء موعد شفت دون عد",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "cashier",
+        "shift-template",
+        "cashier-shift"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "branch-manager"
+      ],
+      "operation": "assign, accept, start, transfer, or close operational shift responsibility",
+      "expectedResult": "لا إقفال مالي ولا عجز تلقائي؛ استكمال المدير للبيانات والعد قبل إرسال اليوم",
+      "databaseInvariants": [
+        "at most one operational owner per chain",
+        "acceptance and start remain distinct",
+        "history rows are append-only"
+      ]
+    },
+    {
+      "businessRuleId": "AC-25",
+      "businessRuleReferences": [
+        "OPS-03"
+      ],
+      "preconditions": "غياب الكاشير ثم حضوره بعد بدء البديل",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "cashier",
+        "shift-template",
+        "cashier-shift"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "branch-manager"
+      ],
+      "operation": "assign, accept, start, transfer, or close operational shift responsibility",
+      "expectedResult": "تسجيل من عمل؛ مساعد أو استلام من وقته، دون رئيسين للدرج في اللحظة نفسها",
+      "databaseInvariants": [
+        "at most one operational owner per chain",
+        "acceptance and start remain distinct",
+        "history rows are append-only"
+      ]
+    },
+    {
+      "businessRuleId": "AC-26",
+      "businessRuleReferences": [
+        "OPS-04",
+        "SAL-05"
+      ],
+      "preconditions": "وردية لم تعمل/عملت جزئيًا",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "cashier",
+        "shift-template",
+        "cashier-shift",
+        "brand"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "branch-manager",
+        "shift-financial-calculator"
+      ],
+      "operation": "assign, accept, start, transfer, or close operational shift responsibility / calculate and persist shift sales/VAT/cash reconciliation",
+      "expectedResult": "السبب وحفظ الأرصدة/المبيعات والعد الفعليان، دون تقدير بالساعات",
+      "databaseInvariants": [
+        "at most one operational owner per chain",
+        "acceptance and start remain distinct",
+        "history rows are append-only",
+        "money stored in integer halalas where authoritative",
+        "gross = net + VAT after approved rounding",
+        "expected cash excludes non-cash channels and branch expenses"
+      ]
+    },
+    {
+      "businessRuleId": "AC-27",
+      "businessRuleReferences": [
+        "EXP-02"
+      ],
+      "preconditions": "مصروف 200 من عهدة 1,000",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "custody balance",
+        "expense request",
+        "authorized decision actor"
+      ],
+      "actingUserRoles": [
+        "authorized-cashier-or-branch-manager",
+        "owner-or-brand-manager"
+      ],
+      "operation": "authorize, submit, decide, reject, recover, or resubmit an expense",
+      "expectedResult": "الرصيد 800 عند الإرسال؛ الاعتماد لا يخصم مجددًا",
+      "databaseInvariants": [
+        "each approved amount is deducted once",
+        "rejection/recovery preserves request history",
+        "authorization is branch and role scoped"
+      ]
+    },
+    {
+      "businessRuleId": "AC-28",
+      "businessRuleReferences": [
+        "EXP-03–04"
+      ],
+      "preconditions": "رفض المصروف ثم استرداد النقد",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "custody balance",
+        "expense request",
+        "authorized decision actor"
+      ],
+      "actingUserRoles": [
+        "authorized-cashier-or-branch-manager",
+        "owner-or-brand-manager"
+      ],
+      "operation": "authorize, submit, decide, reject, recover, or resubmit an expense",
+      "expectedResult": "الرصيد يعود 1,000 عند الرفض، ولا يزيد عند الاسترداد",
+      "databaseInvariants": [
+        "each approved amount is deducted once",
+        "rejection/recovery preserves request history",
+        "authorization is branch and role scoped"
+      ]
+    },
+    {
+      "businessRuleId": "AC-29",
+      "businessRuleReferences": [
+        "EXP-05"
+      ],
+      "preconditions": "عهدة 300 ومصروف 500",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "custody balance",
+        "expense request",
+        "authorized decision actor"
+      ],
+      "actingUserRoles": [
+        "authorized-cashier-or-branch-manager",
+        "owner-or-brand-manager"
+      ],
+      "operation": "authorize, submit, decide, reject, recover, or resubmit an expense",
+      "expectedResult": "منع الإرسال حتى تغذية مسجلة كافية",
+      "databaseInvariants": [
+        "each approved amount is deducted once",
+        "rejection/recovery preserves request history",
+        "authorization is branch and role scoped"
+      ]
+    },
+    {
+      "businessRuleId": "AC-30",
+      "businessRuleReferences": [
+        "EXP-08"
+      ],
+      "preconditions": "إعادة إرسال المصروف المرفوض بمبلغ مصحح",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "custody balance",
+        "expense request",
+        "authorized decision actor"
+      ],
+      "actingUserRoles": [
+        "authorized-cashier-or-branch-manager",
+        "owner-or-brand-manager"
+      ],
+      "operation": "authorize, submit, decide, reject, recover, or resubmit an expense",
+      "expectedResult": "نفس الطلب ودورة جديدة محفوظة، وخصم واحد للمبلغ المصحح",
+      "databaseInvariants": [
+        "each approved amount is deducted once",
+        "rejection/recovery preserves request history",
+        "authorization is branch and role scoped"
+      ]
+    },
+    {
+      "businessRuleId": "AC-31",
+      "businessRuleReferences": [
+        "EXP-07"
+      ],
+      "preconditions": "قرارا مصروف متعارضان أو مكرران بالتزامن",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "custody balance",
+        "expense request",
+        "authorized decision actor"
+      ],
+      "actingUserRoles": [
+        "authorized-cashier-or-branch-manager",
+        "owner-or-brand-manager"
+      ],
+      "operation": "authorize, submit, decide, reject, recover, or resubmit an expense",
+      "expectedResult": "تنفيذ قرار واحد على النسخة الحالية",
+      "databaseInvariants": [
+        "each approved amount is deducted once",
+        "rejection/recovery preserves request history",
+        "authorization is branch and role scoped"
+      ]
+    },
+    {
+      "businessRuleId": "AC-32",
+      "businessRuleReferences": [
+        "SAL-06",
+        "EXP-01"
+      ],
+      "preconditions": "مصروف من العهدة أثناء الشفت",
+      "fixtureDependencies": [
+        "company",
+        "brand",
+        "branch",
+        "branch-manager",
+        "cashier",
+        "shift-template",
+        "cashier-shift",
+        "custody balance",
+        "expense request",
+        "authorized decision actor"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "shift-financial-calculator",
+        "authorized-cashier-or-branch-manager",
+        "owner-or-brand-manager"
+      ],
+      "operation": "calculate and persist shift sales/VAT/cash reconciliation / authorize, submit, decide, reject, recover, or resubmit an expense",
+      "expectedResult": "لا ينقص النقد المتوقع للشفت",
+      "databaseInvariants": [
+        "money stored in integer halalas where authoritative",
+        "gross = net + VAT after approved rounding",
+        "expected cash excludes non-cash channels and branch expenses",
+        "each approved amount is deducted once",
+        "rejection/recovery preserves request history",
+        "authorization is branch and role scoped"
+      ]
+    },
+    {
+      "businessRuleId": "AC-33",
+      "businessRuleReferences": [
+        "CASH-15"
+      ],
+      "preconditions": "سداد مستحق سابق 300 بعد إرسال اليوم",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "تخفيض المستحق 300 وزيادة رصيد المدير 300 بوقت التأكيد دون مبيعات جديدة أو فتح التقرير",
+      "databaseInvariants": [
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-34",
+      "businessRuleReferences": [
+        "DAY-03",
+        "CASH-05"
+      ],
+      "preconditions": "إرسال اليوم مع نقد غير مسلّم والبيانات والعد والمسؤولية والمبالغ ومكانها مكتملة",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "manager workday",
+        "cashier reports",
+        "cash counts",
+        "liability state",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "branch-manager",
+        "accountant",
+        "head-accountant",
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "validate and submit the branch daily report / request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "يسمح بالإرسال؛ تظل مسؤولية المبلغ على المسلّم حتى التأكيد",
+      "databaseInvariants": [
+        "submission requires all documented gates",
+        "submitted membership is immutable",
+        "final approval does not rewrite cashier evidence",
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-35",
+      "businessRuleReferences": [
+        "DAY-01–03"
+      ],
+      "preconditions": "إرسال اليوم مع نقص العد أو مسؤولية العجز أو توضيح المبالغ المعلّقة ومكانها",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "manager workday",
+        "cashier reports",
+        "cash counts",
+        "liability state"
+      ],
+      "actingUserRoles": [
+        "branch-manager",
+        "accountant",
+        "head-accountant"
+      ],
+      "operation": "validate and submit the branch daily report",
+      "expectedResult": "استكمال الشرط الناقص قبل السماح بإرسال اليوم",
+      "databaseInvariants": [
+        "submission requires all documented gates",
+        "submitted membership is immutable",
+        "final approval does not rewrite cashier evidence"
+      ]
+    },
+    {
+      "businessRuleId": "AC-36",
+      "businessRuleReferences": [
+        "CASH-06"
+      ],
+      "preconditions": "كاشير يسلم للتالي أو للمدير",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "كلا المسارين مسموح؛ تأكيد المستلم دون موافقة إدارية إضافية",
+      "databaseInvariants": [
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-37",
+      "businessRuleReferences": [
+        "OPS-08"
+      ],
+      "preconditions": "بديل قبل قبول التعيين ثم بعد قبوله",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "cashier",
+        "shift-template",
+        "cashier-shift"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "branch-manager"
+      ],
+      "operation": "assign, accept, start, transfer, or close operational shift responsibility",
+      "expectedResult": "يقبل أولًا ثم يبدأ عند الاستلام الفعلي؛ لا تأكيد نقد من القبول",
+      "databaseInvariants": [
+        "at most one operational owner per chain",
+        "acceptance and start remain distinct",
+        "history rows are append-only"
+      ]
+    },
+    {
+      "businessRuleId": "AC-38",
+      "businessRuleReferences": [
+        "EXP-09"
+      ],
+      "preconditions": "كاشير لديه صلاحية مصروف وكاشير بلا صلاحية",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "custody balance",
+        "expense request",
+        "authorized decision actor"
+      ],
+      "actingUserRoles": [
+        "authorized-cashier-or-branch-manager",
+        "owner-or-brand-manager"
+      ],
+      "operation": "authorize, submit, decide, reject, recover, or resubmit an expense",
+      "expectedResult": "الأول ينشئ ويرسل بنفس شاشات المدير؛ الثاني لا تُمنح له العملية تلقائيًا",
+      "databaseInvariants": [
+        "each approved amount is deducted once",
+        "rejection/recovery preserves request history",
+        "authorization is branch and role scoped"
+      ]
+    },
+    {
+      "businessRuleId": "AC-39",
+      "businessRuleReferences": [
+        "EXP-01–02",
+        "EXP-09"
+      ],
+      "preconditions": "كاشير مصرح يرسل مصروفًا من عهدة الفرع",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "custody balance",
+        "expense request",
+        "authorized decision actor"
+      ],
+      "actingUserRoles": [
+        "authorized-cashier-or-branch-manager",
+        "owner-or-brand-manager"
+      ],
+      "operation": "authorize, submit, decide, reject, recover, or resubmit an expense",
+      "expectedResult": "يخصم مرة واحدة من عهدة الفرع؛ لا يخصم من نقد المبيعات أو رصيده الشخصي",
+      "databaseInvariants": [
+        "each approved amount is deducted once",
+        "rejection/recovery preserves request history",
+        "authorization is branch and role scoped"
+      ]
+    },
+    {
+      "businessRuleId": "AC-40",
+      "businessRuleReferences": [
+        "CASH-16"
+      ],
+      "preconditions": "كاشير عليه 20 ويسدد 5",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "عند تأكيد المدير يتبقى 15؛ لا تخفيض قبل التأكيد ولا أثر مكرر أو مبيعات",
+      "databaseInvariants": [
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-41",
+      "businessRuleReferences": [
+        "CASH-16"
+      ],
+      "preconditions": "كاشير عليه 20 ويسدد 20",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "عند تأكيد المدير يصبح هذا المستحق صفرًا",
+      "databaseInvariants": [
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-42",
+      "businessRuleReferences": [
+        "COR-08"
+      ],
+      "preconditions": "اعتماد المحاسب ثم طلب رئيس الحسابات تعديلًا",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "cashier report revision",
+        "manager review",
+        "accountant",
+        "head accountant",
+        "audit history"
+      ],
+      "actingUserRoles": [
+        "branch-manager",
+        "accountant",
+        "head-accountant"
+      ],
+      "operation": "correct, review, return, resubmit, or approve an immutable report revision",
+      "expectedResult": "إرجاع للمحاسب ثم المدير للتعديل وإعادة الإرسال للمحاسب ثم رئيس الحسابات",
+      "databaseInvariants": [
+        "prior report revisions remain immutable",
+        "exactly one current revision exists",
+        "stale or duplicate commands have no second financial effect"
+      ]
+    },
+    {
+      "businessRuleId": "AC-43",
+      "businessRuleReferences": [
+        "COR-09",
+        "CASH-14"
+      ],
+      "preconditions": "محاولة تعديل تقرير بعد اعتماد رئيس الحسابات",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "cashier report revision",
+        "manager review",
+        "accountant",
+        "head accountant",
+        "audit history",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "branch-manager",
+        "accountant",
+        "head-accountant",
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "correct, review, return, resubmit, or approve an immutable report revision / request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "يُمنع التعديل ولا يستخدم تصحيح التسليم لتجاوز المنع",
+      "databaseInvariants": [
+        "prior report revisions remain immutable",
+        "exactly one current revision exists",
+        "stale or duplicate commands have no second financial effect",
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-44",
+      "businessRuleReferences": [
+        "DIFF-07"
+      ],
+      "preconditions": "عجز 0.01 بعد التقريب",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "cashier",
+        "cash count",
+        "report revision",
+        "liability allocation"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "branch-manager",
+        "accountant"
+      ],
+      "operation": "count cash and allocate shortage or record branch surplus",
+      "expectedResult": "يسجل كاملًا ويحدد مسؤولًا؛ لا سماحية",
+      "databaseInvariants": [
+        "variance = counted cash - expected cash",
+        "shortage allocation equals the exact shortage",
+        "surplus creates no employee liability"
+      ]
+    },
+    {
+      "businessRuleId": "AC-45",
+      "businessRuleReferences": [
+        "DIFF-05",
+        "DIFF-07"
+      ],
+      "preconditions": "فائض 0.01 بعد التقريب",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "cashier",
+        "cash count",
+        "report revision",
+        "liability allocation"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "branch-manager",
+        "accountant"
+      ],
+      "operation": "count cash and allocate shortage or record branch surplus",
+      "expectedResult": "يسجل فائضًا على الفرع؛ لا يخفى ولا يضاف للمبيعات",
+      "databaseInvariants": [
+        "variance = counted cash - expected cash",
+        "shortage allocation equals the exact shortage",
+        "surplus creates no employee liability"
+      ]
+    },
+    {
+      "businessRuleId": "AC-46",
+      "businessRuleReferences": [
+        "DIFF-07"
+      ],
+      "preconditions": "كسور أقل من هللة",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "cashier",
+        "cash count",
+        "report revision",
+        "liability allocation"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "branch-manager",
+        "accountant"
+      ],
+      "operation": "count cash and allocate shortage or record branch surplus",
+      "expectedResult": "تطبق قاعدة التقريب الثابتة المعتمدة دون اختراع نوعها أو سماحية؛ يسجل الفرق المتبقي",
+      "databaseInvariants": [
+        "variance = counted cash - expected cash",
+        "shortage allocation equals the exact shortage",
+        "surplus creates no employee liability"
+      ]
+    },
+    {
+      "businessRuleId": "AC-47",
+      "businessRuleReferences": [
+        "OPS-09"
+      ],
+      "preconditions": "أكثر من جهاز ودرج في الفرع للوردية",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "cashier",
+        "shift-template",
+        "cashier-shift"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "branch-manager"
+      ],
+      "operation": "assign, accept, start, transfer, or close operational shift responsibility",
+      "expectedResult": "كاشير رئيسي واحد وتقرير واحد يجمع المبيعات والنقد؛ لا تقارير أدراج مستقلة متزامنة",
+      "databaseInvariants": [
+        "at most one operational owner per chain",
+        "acceptance and start remain distinct",
+        "history rows are append-only"
+      ]
+    },
+    {
+      "businessRuleId": "AC-48",
+      "businessRuleReferences": [
+        "CASH-14"
+      ],
+      "preconditions": "إنشاء عكس 48 دون تأكيد المسلّم الأول",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "لا ينتقل الرصيد بمجرد الإنشاء",
+      "databaseInvariants": [
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-49",
+      "businessRuleReferences": [
+        "CASH-14"
+      ],
+      "preconditions": "تأكيد المسلّم الأول للعكس قبل تسجيل 480",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "ينتقل رصيد 48 عند التأكيد؛ بعدها يبدأ التسليم الصحيح ويحتاج تأكيد المستلم",
+      "databaseInvariants": [
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-50",
+      "businessRuleReferences": [
+        "CASH-14"
+      ],
+      "preconditions": "المستلم الأصلي مدير الفرع",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "ينشئ المدير العكس ويؤكده المسلّم الأول ثم ينشأ التسليم الصحيح ويؤكده المدير؛ لا طرف ثالث",
+      "databaseInvariants": [
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-51",
+      "businessRuleReferences": [
+        "EXP-09"
+      ],
+      "preconditions": "مدير يمنح أو يسحب صلاحية مصروف كاشير",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "custody balance",
+        "expense request",
+        "authorized decision actor"
+      ],
+      "actingUserRoles": [
+        "authorized-cashier-or-branch-manager",
+        "owner-or-brand-manager"
+      ],
+      "operation": "authorize, submit, decide, reject, recover, or resubmit an expense",
+      "expectedResult": "يسمح داخل فرعه فقط؛ لا يمنح التفويض اعتماد المصروف",
+      "databaseInvariants": [
+        "each approved amount is deducted once",
+        "rejection/recovery preserves request history",
+        "authorization is branch and role scoped"
+      ]
+    },
+    {
+      "businessRuleId": "AC-52",
+      "businessRuleReferences": [
+        "EXP-09"
+      ],
+      "preconditions": "مدير يحاول منح صلاحية مصروف لكاشير خارج فرعه",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "custody balance",
+        "expense request",
+        "authorized decision actor"
+      ],
+      "actingUserRoles": [
+        "authorized-cashier-or-branch-manager",
+        "owner-or-brand-manager"
+      ],
+      "operation": "authorize, submit, decide, reject, recover, or resubmit an expense",
+      "expectedResult": "لا يسمح بهذا التفويض خارج نطاق فرعه",
+      "databaseInvariants": [
+        "each approved amount is deducted once",
+        "rejection/recovery preserves request history",
+        "authorization is branch and role scoped"
+      ]
+    },
+    {
+      "businessRuleId": "AC-53",
+      "businessRuleReferences": [
+        "FUND-01"
+      ],
+      "preconditions": "تحويل نقد مبيعات إلى العهدة بعد اعتماد المحاسب دون رئيس الحسابات",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "manager custody",
+        "funding request",
+        "owner or brand-manager decision actor"
+      ],
+      "actingUserRoles": [
+        "branch-manager",
+        "owner-or-brand-manager"
+      ],
+      "operation": "request, approve, execute, receive, or reject custody funding",
+      "expectedResult": "لا يسمح قبل اكتمال اعتماد اليوم المصدر من رئيس الحسابات",
+      "databaseInvariants": [
+        "approval alone does not credit custody",
+        "available cash excludes liabilities and active reservations",
+        "execution/receipt has one idempotent ledger effect"
+      ]
+    },
+    {
+      "businessRuleId": "AC-54",
+      "businessRuleReferences": [
+        "FUND-01–02"
+      ],
+      "preconditions": "اكتمال اعتماد اليوم المصدر وتوفر نقد فعلي لدى المدير",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "manager custody",
+        "funding request",
+        "owner or brand-manager decision actor"
+      ],
+      "actingUserRoles": [
+        "branch-manager",
+        "owner-or-brand-manager"
+      ],
+      "operation": "request, approve, execute, receive, or reject custody funding",
+      "expectedResult": "يسمح بالتحويل ضمن المتاح بعد الحركات والحجوزات ودون تكرار الخصم",
+      "databaseInvariants": [
+        "approval alone does not credit custody",
+        "available cash excludes liabilities and active reservations",
+        "execution/receipt has one idempotent ledger effect"
+      ]
+    },
+    {
+      "businessRuleId": "AC-55",
+      "businessRuleReferences": [
+        "FUND-02"
+      ],
+      "preconditions": "محاولة احتساب عجز غير محصّل ضمن المتاح للتغذية",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "manager custody",
+        "funding request",
+        "owner or brand-manager decision actor"
+      ],
+      "actingUserRoles": [
+        "branch-manager",
+        "owner-or-brand-manager"
+      ],
+      "operation": "request, approve, execute, receive, or reject custody funding",
+      "expectedResult": "يستبعد العجز غير المحصّل ولا يمول التحويل",
+      "databaseInvariants": [
+        "approval alone does not credit custody",
+        "available cash excludes liabilities and active reservations",
+        "execution/receipt has one idempotent ledger effect"
+      ]
+    },
+    {
+      "businessRuleId": "AC-56",
+      "businessRuleReferences": [
+        "FUND-02"
+      ],
+      "preconditions": "حركة منفذة احتسبت بالفعل عند تحديد الرصيد",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "manager custody",
+        "funding request",
+        "owner or brand-manager decision actor"
+      ],
+      "actingUserRoles": [
+        "branch-manager",
+        "owner-or-brand-manager"
+      ],
+      "operation": "request, approve, execute, receive, or reject custody funding",
+      "expectedResult": "لا تخصم مرة ثانية عند حساب المتاح؛ تخصم الحجوزات القائمة دون ازدواج",
+      "databaseInvariants": [
+        "approval alone does not credit custody",
+        "available cash excludes liabilities and active reservations",
+        "execution/receipt has one idempotent ledger effect"
+      ]
+    },
+    {
+      "businessRuleId": "AC-57",
+      "businessRuleReferences": [
+        "FUND-05"
+      ],
+      "preconditions": "طلب تغذية مرفوض",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "manager custody",
+        "funding request",
+        "owner or brand-manager decision actor"
+      ],
+      "actingUserRoles": [
+        "branch-manager",
+        "owner-or-brand-manager"
+      ],
+      "operation": "request, approve, execute, receive, or reject custody funding",
+      "expectedResult": "يحفظ السجل ويعاد إرسال الطلب نفسه للمراجعة؛ لا Approve Anyways",
+      "databaseInvariants": [
+        "approval alone does not credit custody",
+        "available cash excludes liabilities and active reservations",
+        "execution/receipt has one idempotent ledger effect"
+      ]
+    },
+    {
+      "businessRuleId": "AC-58",
+      "businessRuleReferences": [
+        "FUND-04"
+      ],
+      "preconditions": "اعتماد أو رفض طلب تغذية",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "manager custody",
+        "funding request",
+        "owner or brand-manager decision actor"
+      ],
+      "actingUserRoles": [
+        "branch-manager",
+        "owner-or-brand-manager"
+      ],
+      "operation": "request, approve, execute, receive, or reject custody funding",
+      "expectedResult": "القرار للمالك أو مدير العلامة حسب الصلاحيات",
+      "databaseInvariants": [
+        "approval alone does not credit custody",
+        "available cash excludes liabilities and active reservations",
+        "execution/receipt has one idempotent ledger effect"
+      ]
+    },
+    {
+      "businessRuleId": "AC-59",
+      "businessRuleReferences": [
+        "FUND-06"
+      ],
+      "preconditions": "اعتماد طلب تغذية دون تنفيذ وتأكيد استلام",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "manager custody",
+        "funding request",
+        "owner or brand-manager decision actor"
+      ],
+      "actingUserRoles": [
+        "branch-manager",
+        "owner-or-brand-manager"
+      ],
+      "operation": "request, approve, execute, receive, or reject custody funding",
+      "expectedResult": "لا يزيد رصيد العهدة بمجرد الاعتماد؛ تثبت الزيادة عند التنفيذ وتأكيد الاستلام مرة واحدة",
+      "databaseInvariants": [
+        "approval alone does not credit custody",
+        "available cash excludes liabilities and active reservations",
+        "execution/receipt has one idempotent ledger effect"
+      ]
+    },
+    {
+      "businessRuleId": "AC-60",
+      "businessRuleReferences": [
+        "OPS-10"
+      ],
+      "preconditions": "موظف يحمل مسمى Head / Senior Cashier",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "branch-manager",
+        "cashier",
+        "shift-template",
+        "cashier-shift"
+      ],
+      "actingUserRoles": [
+        "cashier",
+        "branch-manager"
+      ],
+      "operation": "assign, accept, start, transfer, or close operational shift responsibility",
+      "expectedResult": "لا يكتسب تلقائيًا صلاحيات إضافية أو صلاحيات مدير الفرع",
+      "databaseInvariants": [
+        "at most one operational owner per chain",
+        "acceptance and start remain distinct",
+        "history rows are append-only"
+      ]
+    },
+    {
+      "businessRuleId": "AC-61",
+      "businessRuleReferences": [
+        "القسم 1/8",
+        "FUND-04",
+        "EXP-06"
+      ],
+      "preconditions": "شرط اكتمال اعتماد المحاسب في موديول",
+      "fixtureDependencies": [
+        "company",
+        "branch",
+        "manager custody",
+        "funding request",
+        "owner or brand-manager decision actor",
+        "custody balance",
+        "expense request",
+        "authorized decision actor"
+      ],
+      "actingUserRoles": [
+        "branch-manager",
+        "owner-or-brand-manager",
+        "authorized-cashier-or-branch-manager"
+      ],
+      "operation": "request, approve, execute, receive, or reject custody funding / authorize, submit, decide, reject, recover, or resubmit an expense",
+      "expectedResult": "يشمل استكمال الدورة حتى رئيس الحسابات؛ يبقى ترتيب المرحلتين واضحًا ولا تتغير جهة اعتماد المصروف أو التغذية",
+      "databaseInvariants": [
+        "approval alone does not credit custody",
+        "available cash excludes liabilities and active reservations",
+        "execution/receipt has one idempotent ledger effect",
+        "each approved amount is deducted once",
+        "rejection/recovery preserves request history",
+        "authorization is branch and role scoped"
+      ]
+    },
+    {
+      "businessRuleId": "AC-62",
+      "businessRuleReferences": [
+        "MEM-01–02"
+      ],
+      "preconditions": "موظف عليه عهدة متبقية أو تسوية/نقل عهدة معلّق ويُنهى ارتباطه",
+      "fixtureDependencies": [
+        "company membership",
+        "employee identity",
+        "pending financial records",
+        "audit history"
+      ],
+      "actingUserRoles": [
+        "company-admin",
+        "authorized-successor"
+      ],
+      "operation": "stop access and archive membership while preserving financial responsibility",
+      "expectedResult": "يوقف وصوله وتؤرشف عضويته؛ الرصيد والمسؤولية والطلب تبقى باسمه وحالتها حتى التسوية الفعلية، دون تصفير",
+      "databaseInvariants": [
+        "access revocation does not zero balances",
+        "financial ownership remains on the original employee",
+        "no confirmation is fabricated for an inactive identity"
+      ]
+    },
+    {
+      "businessRuleId": "AC-63",
+      "businessRuleReferences": [
+        "MEM-03",
+        "CASH-11–12"
+      ],
+      "preconditions": "تسليم مرفوض ونقده لم يرجع فعليًا ثم انتهت عضوية المسؤول",
+      "fixtureDependencies": [
+        "company membership",
+        "employee identity",
+        "pending financial records",
+        "audit history",
+        "company",
+        "branch",
+        "branch-manager",
+        "two cashiers",
+        "cashier shifts",
+        "cash custody ledger"
+      ],
+      "actingUserRoles": [
+        "company-admin",
+        "authorized-successor",
+        "cashier",
+        "receiving-cashier-or-branch-manager"
+      ],
+      "operation": "stop access and archive membership while preserving financial responsibility / request, confirm, reject, return, correct, or settle physical cash handover",
+      "expectedResult": "يسمح بالإنهاء مع بقاء النقد المطلوب إرجاعه معلقًا؛ لا يسجل مستردًا قبل الإجراء الفعلي",
+      "databaseInvariants": [
+        "access revocation does not zero balances",
+        "financial ownership remains on the original employee",
+        "no confirmation is fabricated for an inactive identity",
+        "cash moves only on required confirmation",
+        "sender and receiver ledgers net to the confirmed amount",
+        "idempotency prevents duplicate financial effects"
+      ]
+    },
+    {
+      "businessRuleId": "AC-64",
+      "businessRuleReferences": [
+        "MEM-01",
+        "MEM-04"
+      ],
+      "preconditions": "وردية نشطة أو تسليم أو تحويل أو طلب عهدة ينتظر التأكيد عند إنهاء العضوية",
+      "fixtureDependencies": [
+        "company membership",
+        "employee identity",
+        "pending financial records",
+        "audit history"
+      ],
+      "actingUserRoles": [
+        "company-admin",
+        "authorized-successor"
+      ],
+      "operation": "stop access and archive membership while preserving financial responsibility",
+      "expectedResult": "تُحفظ حالة العملية وصاحب مسؤوليتها ويوقف وصول الموظف؛ يجوز إسناد متابعة ما يجوز لمخوّل دون اعتبار العملية منتهية",
+      "databaseInvariants": [
+        "access revocation does not zero balances",
+        "financial ownership remains on the original employee",
+        "no confirmation is fabricated for an inactive identity"
+      ]
+    },
+    {
+      "businessRuleId": "AC-65",
+      "businessRuleReferences": [
+        "MEM-04"
+      ],
+      "preconditions": "مخوّل يتابع معاملة موظف انتهت عضويته",
+      "fixtureDependencies": [
+        "company membership",
+        "employee identity",
+        "pending financial records",
+        "audit history"
+      ],
+      "actingUserRoles": [
+        "company-admin",
+        "authorized-successor"
+      ],
+      "operation": "stop access and archive membership while preserving financial responsibility",
+      "expectedResult": "لا تنتقل إليه العهدة أو الدين تلقائيًا، ولا ينشئ تأكيدًا منسوبًا للموظف السابق",
+      "databaseInvariants": [
+        "access revocation does not zero balances",
+        "financial ownership remains on the original employee",
+        "no confirmation is fabricated for an inactive identity"
+      ]
+    },
+    {
+      "businessRuleId": "AC-66",
+      "businessRuleReferences": [
+        "MEM-05"
+      ],
+      "preconditions": "لا يوجد بديل مخوّل لمتابعة عوالق الموظف",
+      "fixtureDependencies": [
+        "company membership",
+        "employee identity",
+        "pending financial records",
+        "audit history"
+      ],
+      "actingUserRoles": [
+        "company-admin",
+        "authorized-successor"
+      ],
+      "operation": "stop access and archive membership while preserving financial responsibility",
+      "expectedResult": "يوقف وصوله فورًا ويجوز إنهاء عضويته؛ تبقى العوالق باسمه ويُشعر المسؤول الأعلى، دون إسناد مالي تلقائي",
+      "databaseInvariants": [
+        "access revocation does not zero balances",
+        "financial ownership remains on the original employee",
+        "no confirmation is fabricated for an inactive identity"
+      ]
+    },
+    {
+      "businessRuleId": "AC-67",
+      "businessRuleReferences": [
+        "MEM-06"
+      ],
+      "preconditions": "موظف عملياته كلها مكتملة وتُنهي الشركة عضويته",
+      "fixtureDependencies": [
+        "company membership",
+        "employee identity",
+        "pending financial records",
+        "audit history"
+      ],
+      "actingUserRoles": [
+        "company-admin",
+        "authorized-successor"
+      ],
+      "operation": "stop access and archive membership while preserving financial responsibility",
+      "expectedResult": "لا تمنع العمليات القديمة الإنهاء؛ تحفظ التواريخ والمنفذون والأدلة دون تعديل",
+      "databaseInvariants": [
+        "access revocation does not zero balances",
+        "financial ownership remains on the original employee",
+        "no confirmation is fabricated for an inactive identity"
+      ]
+    },
+    {
+      "businessRuleId": "AC-68",
+      "businessRuleReferences": [
+        "MEM-01–04"
+      ],
+      "preconditions": "إنهاء العضوية بينما على الموظف دين أو نقد لم يسلم",
+      "fixtureDependencies": [
+        "company membership",
+        "employee identity",
+        "pending financial records",
+        "audit history"
+      ],
+      "actingUserRoles": [
+        "company-admin",
+        "authorized-successor"
+      ],
+      "operation": "stop access and archive membership while preserving financial responsibility",
+      "expectedResult": "لا تمحو الأرشفة السجل أو الرصيد أو مسؤولية المبلغ، ولا تعد الإنهاء سدادًا أو استلامًا",
+      "databaseInvariants": [
+        "access revocation does not zero balances",
+        "financial ownership remains on the original employee",
+        "no confirmation is fabricated for an inactive identity"
+      ]
+    },
+    {
+      "businessRuleId": "AC-69",
+      "businessRuleReferences": [
+        "MEM-04–05"
+      ],
+      "preconditions": "طلب إجراء يتطلب تأكيد الموظف الذي أوقف وصوله",
+      "fixtureDependencies": [
+        "company membership",
+        "employee identity",
+        "pending financial records",
+        "audit history"
+      ],
+      "actingUserRoles": [
+        "company-admin",
+        "authorized-successor"
+      ],
+      "operation": "stop access and archive membership while preserving financial responsibility",
+      "expectedResult": "لا يصدر تأكيد باسمه ولا يُفترض انتقال المسؤولية؛ يتابع مخوّل وفق مسار معتمد يحفظ الحالة والأدلة",
+      "databaseInvariants": [
+        "access revocation does not zero balances",
+        "financial ownership remains on the original employee",
+        "no confirmation is fabricated for an inactive identity"
+      ]
+    }
+  ]
+}

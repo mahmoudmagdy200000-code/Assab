@@ -2,6 +2,7 @@
 
 namespace Modules\BranchManagers\Observers;
 
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Modules\BranchManagers\Events\BranchManagerSuspendedEvent;
@@ -81,7 +82,7 @@ class BranchManagerObserver
     {
         Log::info('Branch Manager updated', [
             'manager_id' => $manager->id,
-            'changes' => $manager->getChanges(),
+            'changes' => Arr::except($manager->getChanges(), ['password', 'remember_token']),
         ]);
     }
 

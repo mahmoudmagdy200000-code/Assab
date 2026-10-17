@@ -38,6 +38,7 @@ tests/Feature/ExpenseDecisionAuthorityTest.php
 tests/Feature/ExpenseSubmissionBridgeTest.php
 tests/Feature/ExpenseTenantIsolationTest.php
 tests/Feature/HandoverLedgerDateTest.php
+tests/Feature/HeadFinalApprovalQueueTest.php
 tests/Feature/LegacyCustodyHandoverRetirementTest.php
 tests/Feature/LiveShiftBoardTest.php
 tests/Feature/ManagerLiveShiftBoardTest.php
