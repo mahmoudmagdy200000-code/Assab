@@ -114,126 +114,104 @@ jobs:
 
       # ── Suite 1: Pkg67MariaDbCompositionTest & Pkg67MigrationB01Test ───────
       - name: Run Suite 1 - Pkg67 Composition & Migration B-01 (27 tests)
+        continue-on-error: true
         shell: bash
         run: |
           set -uo pipefail
-          db="pkg67_disposable_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
-          php -r '
-            $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password");
-            $pdo->exec("CREATE DATABASE `$db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-          '
-          export DB_DATABASE="$db"
+          export DB_DATABASE="pkg67_disposable_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          php -r '$db = getenv("DB_DATABASE"); $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password"); $pdo->exec("CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");'
           export PKG67_MARIADB_TESTS=1
           vendor/bin/phpunit tests/Feature/Pkg67MariaDbCompositionTest.php tests/Feature/Pkg67MigrationB01Test.php \
             --log-junit=artifacts/suite1-pkg67.junit.xml 2>&1 | tee artifacts/suite1-pkg67.log
-          echo $? > artifacts/suite1-pkg67.exit
+          echo "${PIPESTATUS[0]}" > artifacts/suite1-pkg67.exit
 
       # ── Suite 2: Pkg6ReviewMySqlConcurrencyTest ───────────────────────────
       - name: Run Suite 2 - Pkg6 Review Concurrency (4 tests)
+        continue-on-error: true
         shell: bash
         run: |
           set -uo pipefail
-          db="pkg6_disposable_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
-          php -r '
-            $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password");
-            $pdo->exec("CREATE DATABASE `$db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-          '
-          export DB_DATABASE="$db"
+          export DB_DATABASE="pkg6_disposable_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          php -r '$db = getenv("DB_DATABASE"); $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password"); $pdo->exec("CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");'
           export PKG6_MARIADB_TESTS=1
           vendor/bin/phpunit tests/Feature/Pkg6ReviewMySqlConcurrencyTest.php \
             --log-junit=artifacts/suite2-pkg6.junit.xml 2>&1 | tee artifacts/suite2-pkg6.log
-          echo $? > artifacts/suite2-pkg6.exit
+          echo "${PIPESTATUS[0]}" > artifacts/suite2-pkg6.exit
 
       # ── Suite 3: ShiftPhases234MySqlConcurrencyTest ───────────────────────
       - name: Run Suite 3 - Shift Phases 2, 3, 4 Concurrency (10 tests)
+        continue-on-error: true
         shell: bash
         run: |
           set -uo pipefail
-          db="s111_phase234_audit_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
-          php -r '
-            $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password");
-            $pdo->exec("CREATE DATABASE `$db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-          '
-          export DB_DATABASE="$db"
+          export DB_DATABASE="s111_phase234_audit_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          php -r '$db = getenv("DB_DATABASE"); $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password"); $pdo->exec("CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");'
           php artisan migrate:fresh --force
           vendor/bin/phpunit tests/Feature/ShiftPhases234MySqlConcurrencyTest.php \
             --log-junit=artifacts/suite3-phase234.junit.xml 2>&1 | tee artifacts/suite3-phase234.log
-          echo $? > artifacts/suite3-phase234.exit
+          echo "${PIPESTATUS[0]}" > artifacts/suite3-phase234.exit
 
       # ── Suite 4: ShiftPhases567MySqlConcurrencyTest ───────────────────────
       - name: Run Suite 4 - Shift Phases 5, 6, 7 Concurrency (12 tests)
+        continue-on-error: true
         shell: bash
         run: |
           set -uo pipefail
-          db="s111_phase567_test_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
-          php -r '
-            $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password");
-            $pdo->exec("CREATE DATABASE `$db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-          '
-          export DB_DATABASE="$db"
+          export DB_DATABASE="s111_phase567_test_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          php -r '$db = getenv("DB_DATABASE"); $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password"); $pdo->exec("CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");'
           export S111_PHASE567_MYSQL_TESTS=1
           php artisan migrate:fresh --force
           vendor/bin/phpunit tests/Feature/ShiftPhases567MySqlConcurrencyTest.php \
             --log-junit=artifacts/suite4-phase567.junit.xml 2>&1 | tee artifacts/suite4-phase567.log
-          echo $? > artifacts/suite4-phase567.exit
+          echo "${PIPESTATUS[0]}" > artifacts/suite4-phase567.exit
 
       # ── Suite 5: ShiftPhases8910MySqlConcurrencyTest ──────────────────────
       - name: Run Suite 5 - Shift Phases 8, 9, 10 Concurrency (10 tests)
+        continue-on-error: true
         shell: bash
         run: |
           set -uo pipefail
-          db="s111_phase8910_test_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
-          php -r '
-            $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password");
-            $pdo->exec("CREATE DATABASE `$db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-          '
-          export DB_DATABASE="$db"
+          export DB_DATABASE="s111_phase8910_test_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          php -r '$db = getenv("DB_DATABASE"); $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password"); $pdo->exec("CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");'
           export S111_PHASE8910_MYSQL_TESTS=1
           php artisan migrate:fresh --force
           vendor/bin/phpunit tests/Feature/ShiftPhases8910MySqlConcurrencyTest.php \
             --log-junit=artifacts/suite5-phase8910.junit.xml 2>&1 | tee artifacts/suite5-phase8910.log
-          echo $? > artifacts/suite5-phase8910.exit
+          echo "${PIPESTATUS[0]}" > artifacts/suite5-phase8910.exit
 
       # ── Suite 6: ShiftNotWorkedMySqlConcurrencyTest ───────────────────────
       - name: Run Suite 6 - Shift Not Worked Concurrency (3 tests)
+        continue-on-error: true
         shell: bash
         run: |
           set -uo pipefail
-          db="pkg7_test_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
-          php -r '
-            $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password");
-            $pdo->exec("CREATE DATABASE `$db` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-          '
-          export DB_DATABASE="$db"
+          export DB_DATABASE="pkg7_test_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          php -r '$db = getenv("DB_DATABASE"); $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password"); $pdo->exec("CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");'
           export PKG7_MYSQL_TESTS=1
           php artisan migrate:fresh --force
           vendor/bin/phpunit tests/Feature/ShiftNotWorkedMySqlConcurrencyTest.php \
             --log-junit=artifacts/suite6-notworked.junit.xml 2>&1 | tee artifacts/suite6-notworked.log
-          echo $? > artifacts/suite6-notworked.exit
+          echo "${PIPESTATUS[0]}" > artifacts/suite6-notworked.exit
 
       # ── Suite 7: Admin Legacy Refresh & Revocation Concurrency (7 tests) ──
       - name: Run Suite 7 - Admin Refresh & Revocation Concurrency (7 tests)
+        continue-on-error: true
         shell: bash
         run: |
           set -uo pipefail
-          db1="s12_at02_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
-          db2="s12_fs12_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
-          php -r "
-            \$pdo = new PDO('mysql:host=127.0.0.1;port=3306', 'root', 'assab-ci-only-root-password');
-            \$pdo->exec('CREATE DATABASE `$db1` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
-            \$pdo->exec('CREATE DATABASE `$db2` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
-          "
-          export DB_DATABASE="$db1"
+          export DB_DATABASE="s12_at02_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          php -r '$db = getenv("DB_DATABASE"); $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password"); $pdo->exec("CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");'
           php artisan migrate:fresh --force
           vendor/bin/phpunit tests/Feature/AdminLegacyRefreshConcurrencyTest.php \
             --log-junit=artifacts/suite7-admin-refresh.junit.xml 2>&1 | tee artifacts/suite7-admin-refresh.log
-          echo $? > artifacts/suite7-admin-refresh.exit
+          echo "${PIPESTATUS[0]}" > artifacts/suite7-admin-refresh.exit
 
-          export DB_DATABASE="$db2"
+          export DB_DATABASE="s12_fs12_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          php -r '$db = getenv("DB_DATABASE"); $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password"); $pdo->exec("CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");'
           php artisan migrate:fresh --force
           vendor/bin/phpunit tests/Feature/AdminSessionRevocationTest.php --filter=legacy_logout_concurrency \
             --log-junit=artifacts/suite7-admin-logout.junit.xml 2>&1 | tee artifacts/suite7-admin-logout.log
-          echo $? > artifacts/suite7-admin-logout.exit
+          echo "${PIPESTATUS[0]}" > artifacts/suite7-admin-logout.exit
 
       # ── Summarize all JUnit XML reports ───────────────────────────────────
       - name: Summarize P5 Financial Concurrency Results
