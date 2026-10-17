@@ -1313,4 +1313,165 @@ class ShiftReportRevisionAndAllocationVersionTest extends TestCase
 
         $this->assertSame(2, $resLegit->json('reportRevision'), 'Legitimate matching bridge must resolve reportRevision');
     }
+
+    /**
+     * FIN-01: Operation GET projects confirmedOpeningHalalas from confirmed receipt evidence (10.00 SAR -> 1000 halalas),
+     * never derives from configured float (50000 halalas), and preserves correct unchanged expected cash.
+     */
+    public function test_shift_operation_read_projects_confirmed_opening_from_receipt_evidence_and_preserves_expected_cash(): void
+    {
+        $op = $this->createShiftOperation();
+
+        // 1. Revision with confirmed cash count
+        $rev1 = $this->revisionService->recordCashierRevision($this->cashierShiftA, 'cashier', $this->cashierA->id);
+
+        // 2. Confirmed handover receipt of 10.00 SAR (1,000 halalas) into this cashier shift
+        DB::table('cashier_shift_handover_receipts')->insert([
+            'id' => (string) Str::uuid(),
+            'cashier_shift_handover_id' => null,
+            'branch_manager_cash_transfer_id' => null,
+            'receiving_cashier_shift_id' => $this->cashierShiftA->id,
+            'receiving_cashier_id' => $this->cashierA->id,
+            'report_revision_id' => $rev1->id,
+            'confirmed_amount' => '10.00',
+            'confirmed_by_id' => $this->cashierA->id,
+            'confirmed_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        // Cash count with 10.00 SAR confirmed opening
+        ShiftReportCashCount::create([
+            'report_revision_id' => $rev1->id,
+            'counted_revision_id' => $rev1->id,
+            'evidence_revision_id' => $rev1->id,
+            'cashier_shift_id' => $this->cashierShiftA->id,
+            'gross_halalas' => 11500,
+            'cards_halalas' => 5000,
+            'apps_halalas' => 2500,
+            'confirmed_opening_halalas' => 1000,
+            'pending_incoming_counted_halalas' => 0,
+            'counted_halalas' => 3000,
+            'expected_halalas' => 5000, // 11500 - 5000 - 2500 + 1000 = 5000
+            'variance_halalas' => -2000,
+        ]);
+
+        // Update operation payload: configured float is 50000 (500.00 SAR), expected cash is 5000 (50.00 SAR)
+        $op->update([
+            'payload' => array_merge($op->payload ?? [], [
+                'salesHalalas' => 11500,
+                'cardTotalHalalas' => 5000,
+                'aggregatorTotalsHalalas' => 2500,
+                'openingFloatHalalas' => 50000, // configured float
+                'cashExpectedHalalas' => 5000,  // expected cash: 115 - 50 - 25 + 10 = 50 SAR
+                'cashActualHalalas' => 3000,
+                'varianceHalalas' => -2000,
+            ]),
+        ]);
+
+        $res = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$op->id}")
+            ->assertOk();
+
+        // FIN-01 assertions:
+        // Confirmed opening is projected as 1,000 halalas (from confirmed receipt 10.00 SAR)
+        $this->assertSame(1000, $res->json('confirmedOpeningHalalas'));
+        $this->assertSame(1000, $res->json('payload.confirmedOpeningHalalas'));
+        $this->assertSame(1000, $res->json('payload.confirmed_opening_halalas'));
+
+        // Configured float remains untouched and separate
+        $this->assertSame(50000, $res->json('payload.openingFloatHalalas'));
+
+        // Expected cash remains 5,000 halalas (unchanged financial calculation)
+        $this->assertSame(5000, $res->json('payload.cashExpectedHalalas'));
+    }
+
+    /**
+     * COR-05-01: Operation GET projects cash_collected and handover_notes,
+     * distinguishing authoritative null notes from unsupported fields.
+     */
+    public function test_shift_operation_read_projects_cash_collected_and_authoritative_null_notes(): void
+    {
+        $op = $this->createShiftOperation();
+
+        // Case A: Cashier shift with cash_collected and authoritative null notes
+        $this->cashierShiftA->update([
+            'cash_collected' => '60.00',
+            'handover_notes' => null,
+        ]);
+
+        $resA = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$op->id}")
+            ->assertOk();
+
+        $this->assertSame(6000, $resA->json('cashCollectedHalalas'));
+        $this->assertSame(6000, $resA->json('payload.cashCollectedHalalas'));
+        $this->assertSame('60.00', $resA->json('payload.cash_collected'));
+        $this->assertTrue(array_key_exists('handoverNotes', $resA->json()));
+        $this->assertNull($resA->json('handoverNotes'), 'Authoritative null note must be projected as null');
+        $this->assertTrue(array_key_exists('handoverNotes', $resA->json('payload')));
+        $this->assertNull($resA->json('payload.handoverNotes'));
+
+        // Case B: Cashier shift with non-null handover notes
+        $this->cashierShiftA->update([
+            'handover_notes' => 'Old handover notes from cashier',
+        ]);
+
+        $resB = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$op->id}")
+            ->assertOk();
+
+        $this->assertSame('Old handover notes from cashier', $resB->json('handoverNotes'));
+        $this->assertSame('Old handover notes from cashier', $resB->json('payload.handoverNotes'));
+        $this->assertSame('Old handover notes from cashier', $resB->json('payload.handover_notes'));
+    }
+
+    /**
+     * COR-05-02: Operation GET projects lastCorrection evidence for current revision
+     * to safely reconcile lost responses without duplicate financial POSTs.
+     */
+    public function test_shift_operation_read_projects_last_correction_for_lost_post_response_attribution(): void
+    {
+        $op = $this->createShiftOperation();
+
+        // 1. Revision 2 setup
+        $rev1 = $this->revisionService->recordCashierRevision($this->cashierShiftA, 'cashier', $this->cashierA->id);
+        $rev2 = $this->revisionService->recordCashierRevision($this->cashierShiftA, 'accountant', $this->accountantA->id);
+        DB::table('shift_report_aggregates')->where('source_id', $this->cashierShiftA->id)->update(['current_revision_number' => 2]);
+
+        // 2. Record accountant correction command in shift_report_corrections
+        DB::table('shift_report_corrections')->insert([
+            'id' => (string) Str::uuid(),
+            'report_aggregate_id' => $rev2->report_aggregate_id,
+            'previous_revision_id' => $rev1->id,
+            'new_revision_id' => $rev2->id,
+            'previous_revision_number' => 1,
+            'new_revision_number' => 2,
+            'field_name' => 'card_payments',
+            'field_type' => 'monetary_halalas',
+            'old_value' => '40.00',
+            'new_value' => '30.00',
+            'old_halalas' => 4000,
+            'new_halalas' => 3000,
+            'reason' => 'Audit adjustment on card receipts',
+            'actor_type' => 'accountant',
+            'actor_id' => $this->accountantA->id,
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'operation_id' => $op->id,
+            'created_at' => now(),
+        ]);
+
+        $res = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$op->id}")
+            ->assertOk();
+
+        $this->assertSame(2, $res->json('reportRevision'));
+        $this->assertNotNull($res->json('lastCorrection'));
+        $this->assertSame(2, $res->json('lastCorrection.revisionNumber'));
+        $this->assertSame('Audit adjustment on card receipts', $res->json('lastCorrection.reason'));
+        $this->assertSame((string) $this->accountantA->id, $res->json('lastCorrection.actorId'));
+        $this->assertSame('accountant', $res->json('lastCorrection.actorType'));
+        $this->assertSame($res->json('lastCorrection'), $res->json('payload.lastCorrection'));
+    }
 }
