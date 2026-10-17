@@ -355,7 +355,8 @@ class CustodyRequestService
         string $actorId,
         ?string $actorType = 'branch_manager',
         ?string $actorName = null,
-        ?string $actorProfileImage = null
+        ?string $actorProfileImage = null,
+        ?string $notes = null
     ): void {
         $actor = null;
         if ($actorType === 'brand_owner') {
@@ -373,6 +374,7 @@ class CustodyRequestService
             'actor_name' => $actorName ?? $actor->name ?? 'Unknown',
             'actor_profile_image' => $actorProfileImage ?? $actor->image ?? null,
             'action_date' => now(),
+            'notes' => $notes,
         ]);
     }
 
@@ -486,6 +488,62 @@ class CustodyRequestService
     }
 
     /**
+     * FUND-05: the branch manager sends a REJECTED request back for review — the same request, same id.
+     *
+     * The record is never replaced: the rejection that is being answered (who, when, why) is copied into the new
+     * «Submit Case» timeline row before the live rejection fields are cleared, and every «Reject Case» row keeps its
+     * own reason, so any number of reject/resubmit cycles stay fully traceable. There is no direct path from
+     * Rejected to Approved («Approve Anyways» does not exist): the request must be Pending again first.
+     * Moves no money. A retry is refused by the status check, so it adds no second event.
+     *
+     * @throws \Illuminate\Auth\Access\AuthorizationException not the raising manager
+     * @throws \RuntimeException not a rejected, manager-raised request
+     */
+    public function resubmitRequest(string $requestId, BranchManager $actor): CustodyRequest
+    {
+        $request = DB::transaction(function () use ($requestId, $actor) {
+            $request = CustodyRequest::lockForUpdate()->findOrFail($requestId);
+
+            if ((string) $request->branch_manager_id !== (string) $actor->id
+                || ($request->branch_id !== null && $actor->branch_id !== null && (string) $request->branch_id !== (string) $actor->branch_id)) {
+                throw new \Illuminate\Auth\Access\AuthorizationException('This custody request does not belong to you.');
+            }
+            if ($request->created_by_brand_owner_id !== null) {
+                throw new \RuntimeException('Only a request raised by the branch manager can be resubmitted.');
+            }
+            if (strcasecmp((string) $request->status, 'Rejected') !== 0) {
+                throw new \RuntimeException('Only rejected custody requests can be resubmitted.');
+            }
+
+            $answered = json_encode([
+                'resubmitted_after_rejection' => true,
+                'rejected_by' => $request->rejected_by,
+                'rejected_by_type' => $request->rejected_by_type,
+                'rejected_at' => $request->rejected_at?->toIso8601String(),
+                'rejection_reason' => $request->rejection_reason,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+            $request->update([
+                'status' => 'Pending',
+                'rejected_by' => null,
+                'rejected_by_type' => null,
+                'rejected_at' => null,
+                'rejection_reason' => null,
+            ]);
+
+            // Same stage/status as the first submission, so every existing client already knows this event type.
+            $this->createTimelineEntry($request, 'Submit Case', 'Submitted', $actor->id, 'branch_manager', notes: $answered);
+
+            return $request->fresh(['attachments', 'timeline']);
+        });
+
+        // AFTER commit — the owners who must decide are told the request is back.
+        $this->notifier->requestAwaitingOwner($request);
+
+        return $request;
+    }
+
+    /**
      * Reject a custody request (Brand Owner).
      */
     public function rejectRequest(string $requestId, BrandOwner $actor, string $reason): CustodyRequest
@@ -505,7 +563,7 @@ class CustodyRequestService
                 'rejection_reason' => $reason,
             ]);
 
-            $this->createTimelineEntry($request, 'Reject Case', 'Rejected', $actor->id, 'brand_owner');
+            $this->createTimelineEntry($request, 'Reject Case', 'Rejected', $actor->id, 'brand_owner', notes: $reason);
 
             return $request->fresh(['attachments', 'timeline']);
         });
