@@ -43,7 +43,10 @@ class ShiftCashAvailabilityService
         $ids = array_values(array_unique(array_filter($ids)));
         sort($ids, SORT_STRING);
         foreach ($ids as $id) {
-            Cashier::whereKey($id)->lockForUpdate()->firstOrFail();
+            // MEM-03/04/06: an archived (soft-deleted) employee still owns cash and open
+            // operations; the owner lock must find his row or his pending handover can
+            // never be received, rejected or settled by the authorised person.
+            Cashier::withTrashed()->whereKey($id)->lockForUpdate()->firstOrFail();
         }
     }
 
