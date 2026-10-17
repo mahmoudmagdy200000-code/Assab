@@ -52,19 +52,20 @@ jobs:
           --health-timeout=5s
           --health-retries=30
     steps:
-      - name: Prepare artifact directory
-        run: mkdir -p artifacts
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Prepare artifact directory
+        run: mkdir -p artifacts
+
       - name: Enforce pinned application SHA and single-file workflow diff
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p artifacts
           git merge-base --is-ancestor "$TARGET_APP_SHA" HEAD
           changed="$(git diff --name-only "$TARGET_APP_SHA"...HEAD)"
           test "$changed" = '.github/workflows/assab-p5-mariadb-concurrency.yml'
