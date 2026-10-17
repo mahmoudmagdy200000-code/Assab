@@ -48,7 +48,7 @@ Route::middleware(['auth:sanctum', 'log.throttle'])->group(function () {
 
         // Handover & Transfer
         Route::post('handover', [CustodyHandoverController::class, 'handover'])->middleware(['throttle:custody-write']);
-        Route::post('transfer', [CustodyHandoverController::class, 'transfer'])->middleware(['throttle:custody-write']);
+        Route::post('transfer', [CustodyHandoverController::class, 'transfer'])->middleware(['throttle:custody-write', 'asab.idempotency:optional,transaction,legacy']);
         Route::get('recipients', [CustodyHandoverController::class, 'getRecipients']);
         // Custody handover requests (cashier-to-cashier, pending until accept/reject)
         Route::get('handover-requests', [CustodyHandoverController::class, 'indexHandoverRequests']);

@@ -211,22 +211,30 @@ class LegacyCustodyHandoverRetirementTest extends TestCase
         $this->postJson('/api/custody/transfer', ['transferAmount' => 10])->assertStatus(401);
     }
 
+    /**
+     * The manager transfer stays reachable on both aliases with its documented error contract
+     * (400 + errors.code INVALID_AMOUNT + errors.maxAmount). BRC v3.4 F-04 (FUND-01/02) changed WHICH cash it
+     * releases: an arbitrary ledger balance that is not fully-approved sales cash (here a bare seed row with no
+     * approved source day) is no longer transferable. The approved/available/reserved/idempotent paths are
+     * pinned in CustodyTransferFundingGateTest.
+     */
     public function test_ng09_branch_manager_transfer_regression(): void
     {
         $this->seedManagerBalance(300);
+        $before = $this->counts();
 
         foreach (self::PREFIXES as $prefix) {
             $this->actingAs($this->manager, 'sanctum')
                 ->postJson("$prefix/custody/transfer", ['transferAmount' => 100])
-                ->assertOk();
+                ->assertStatus(400)
+                ->assertJsonPath('success', false)
+                ->assertJsonPath('errors.code', 'INVALID_AMOUNT');
         }
-        $this->assertSame(100.0, $this->ledgerBalance());
-
-        // Over-balance is still the manager's own 400, and a full transfer drains the rest.
-        $this->actingAs($this->manager, 'sanctum')->postJson('/api/custody/transfer', ['transferAmount' => 101])
+        $this->actingAs($this->manager, 'sanctum')->postJson('/api/custody/transfer', ['isFullTransfer' => true])
             ->assertStatus(400)->assertJsonPath('errors.code', 'INVALID_AMOUNT');
-        $this->actingAs($this->manager, 'sanctum')->postJson('/api/custody/transfer', ['isFullTransfer' => true])->assertOk();
-        $this->assertSame(0.0, $this->ledgerBalance());
+
+        $this->assertSame($before, $this->counts(), 'a refused transfer writes nothing');
+        $this->assertSame(300.0, $this->ledgerBalance());
     }
 
     private function ledgerBalance(): float
