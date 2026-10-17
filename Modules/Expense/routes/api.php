@@ -83,9 +83,9 @@ Route::prefix('branch-manager/expenses')
         */
         Route::prefix('quick-cash')->group(function () {
             Route::get('/', [ExpenseController::class, 'quickCashList']);
-            Route::post('/', [QuickCashExpenseController::class, 'store'])->middleware('throttle:expense-write');
-            Route::put('/{expense}', [QuickCashExpenseController::class, 'update'])->middleware('throttle:expense-write');
-            Route::delete('/{expense}', [QuickCashExpenseController::class, 'destroy']);
+            Route::post('/', [QuickCashExpenseController::class, 'store'])->middleware(['expense.write.delegated', 'throttle:expense-write']);
+            Route::put('/{expense}', [QuickCashExpenseController::class, 'update'])->middleware(['expense.write.delegated', 'throttle:expense-write']);
+            Route::delete('/{expense}', [QuickCashExpenseController::class, 'destroy'])->middleware('expense.write.delegated');
 
             // Helper: Calculate VAT
             Route::post('/calculate-vat', [QuickCashExpenseController::class, 'calculateVAT']);
@@ -99,11 +99,11 @@ Route::prefix('branch-manager/expenses')
         Route::prefix('single-invoice')->group(function () {
             Route::get('/', [ExpenseController::class, 'singleInvoiceList']);
             Route::get('/previous', [SingleInvoiceExpenseController::class, 'getPreviousInvoices']);
-            Route::post('/', [SingleInvoiceExpenseController::class, 'store'])->middleware('throttle:expense-write');
-            Route::put('/{expense}', [SingleInvoiceExpenseController::class, 'update'])->middleware('throttle:expense-write');
+            Route::post('/', [SingleInvoiceExpenseController::class, 'store'])->middleware(['expense.write.delegated', 'throttle:expense-write']);
+            Route::put('/{expense}', [SingleInvoiceExpenseController::class, 'update'])->middleware(['expense.write.delegated', 'throttle:expense-write']);
 
             // duplicate
-            Route::post('/{expense}/duplicate', [SingleInvoiceExpenseController::class, 'duplicate']);
+            Route::post('/{expense}/duplicate', [SingleInvoiceExpenseController::class, 'duplicate'])->middleware('expense.write.delegated');
         });
 
         /*
@@ -113,10 +113,10 @@ Route::prefix('branch-manager/expenses')
         */
         Route::prefix('pre-approval')->group(function () {
             Route::get('/', [ExpenseController::class, 'preApprovalList']);
-            Route::post('/', [PreApprovalRequestController::class, 'store'])->middleware('throttle:expense-write');
-            Route::put('/{expense}', [PreApprovalRequestController::class, 'update'])->middleware('throttle:expense-write');
+            Route::post('/', [PreApprovalRequestController::class, 'store'])->middleware(['expense.write.delegated', 'throttle:expense-write']);
+            Route::put('/{expense}', [PreApprovalRequestController::class, 'update'])->middleware(['expense.write.delegated', 'throttle:expense-write']);
             Route::get('/previous', [PreApprovalRequestController::class, 'getPreviousRequests']);
-            Route::post('/{expense}/duplicate', [PreApprovalRequestController::class, 'duplicate']);
+            Route::post('/{expense}/duplicate', [PreApprovalRequestController::class, 'duplicate'])->middleware('expense.write.delegated');
         });
 
         /*
@@ -126,8 +126,8 @@ Route::prefix('branch-manager/expenses')
         */
         Route::prefix('grouped-invoice')->group(function () {
             Route::get('/', [ExpenseController::class, 'groupedInvoiceList']);
-            Route::post('/', [GroupedInvoiceExpenseController::class, 'store'])->middleware('throttle:expense-write');
-            Route::put('/{expense}', [GroupedInvoiceExpenseController::class, 'update'])->middleware('throttle:expense-write');
+            Route::post('/', [GroupedInvoiceExpenseController::class, 'store'])->middleware(['expense.write.delegated', 'throttle:expense-write']);
+            Route::put('/{expense}', [GroupedInvoiceExpenseController::class, 'update'])->middleware(['expense.write.delegated', 'throttle:expense-write']);
         });
 
         /*
@@ -144,9 +144,9 @@ Route::prefix('branch-manager/expenses')
 
         // Timeline / Submit
         Route::get('/{expense}/timeline', [ExpenseController::class, 'timeline']);
-        Route::post('/{expense}/submit', [ExpenseController::class, 'submit'])->middleware('throttle:expense-write');
-        Route::post('/{expense}/resubmit', [ExpenseController::class, 'resubmit'])->middleware('throttle:expense-write');
-        Route::delete('/{expense}', [ExpenseController::class, 'destroy']);
+        Route::post('/{expense}/submit', [ExpenseController::class, 'submit'])->middleware(['expense.write.delegated', 'throttle:expense-write']);
+        Route::post('/{expense}/resubmit', [ExpenseController::class, 'resubmit'])->middleware(['expense.write.delegated', 'throttle:expense-write']);
+        Route::delete('/{expense}', [ExpenseController::class, 'destroy'])->middleware('expense.write.delegated');
 
         /*
         |--------------------------------------------------------------------------
@@ -155,8 +155,8 @@ Route::prefix('branch-manager/expenses')
         */
         Route::prefix('{expense}/attachments')->group(function () {
             Route::get('/', [ExpenseAttachmentController::class, 'index']);
-            Route::post('/', [ExpenseAttachmentController::class, 'store']);
-            Route::delete('/', [ExpenseAttachmentController::class, 'destroy']);
+            Route::post('/', [ExpenseAttachmentController::class, 'store'])->middleware('expense.write.delegated');
+            Route::delete('/', [ExpenseAttachmentController::class, 'destroy'])->middleware('expense.write.delegated');
         });
 
         /*
