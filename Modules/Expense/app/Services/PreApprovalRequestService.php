@@ -2,8 +2,10 @@
 
 namespace Modules\Expense\Services;
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Modules\Custody\Services\ExpenseCustodyService;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Models\ExpenseItem;
 use Modules\Expense\Models\ExpenseLine;
@@ -20,6 +22,13 @@ class PreApprovalRequestService
      * Create Pre-Approval Request
      */
     public function createPreApprovalRequest(array $data): Expense
+    {
+        // One unit of work: the expense, its children, the custody charge (EXP-02) and the audit row
+        // succeed together or not at all — also for callers that do not open a transaction themselves.
+        return DB::transaction(fn (): Expense => $this->persistPreApprovalRequest($data));
+    }
+
+    private function persistPreApprovalRequest(array $data): Expense
     {
         $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
 
@@ -75,6 +84,11 @@ class PreApprovalRequestService
             }
         }
 
+        // EXP-02 / EXP-05: a non-draft create is a submission — charge the branch custody once, or refuse it.
+        if (! ($data['is_draft'] ?? false)) {
+            app(ExpenseCustodyService::class)->reserve($expense);
+        }
+
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
 
         // Non-draft create = submission — bridge to the accountant dashboard.
@@ -89,6 +103,11 @@ class PreApprovalRequestService
      * Update Pre-Approval Request
      */
     public function updatePreApprovalRequest(Expense $expense, array $data): Expense
+    {
+        return DB::transaction(fn (): Expense => $this->persistPreApprovalUpdate($expense, $data));
+    }
+
+    private function persistPreApprovalUpdate(Expense $expense, array $data): Expense
     {
         $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
 
@@ -183,6 +202,9 @@ class PreApprovalRequestService
 
         // Draft flipped to pending = a submission — bridge it (idempotent).
         if ($wasDraft && $expense->fresh()->status === 'pending') {
+            // EXP-02 / EXP-05: the draft became a submission — charge the branch custody once, or refuse it.
+            app(ExpenseCustodyService::class)->reserve($expense->fresh());
+
             event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense->fresh()));
         }
 

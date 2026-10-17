@@ -15,9 +15,10 @@ class EventServiceProvider extends ServiceProvider
         \Modules\Shift\Events\VarianceRecorded::class => [
             \Modules\Custody\Listeners\CreateCustodyLedgerEntriesForVariance::class,
         ],
-        \Modules\Expense\Events\ExpenseApprovedEvent::class => [
-            \Modules\Custody\Listeners\CreateCustodyTransactionFromExpenseApproval::class,
-        ],
+        // BRC v3.4 F-01: there is intentionally NO expense listener here. The old queued listener charged the
+        // custody at APPROVAL (and spilled any shortfall into the manager's sales-cash ledger). An expense's
+        // custody movements are now written only by Modules\Custody\Services\ExpenseCustodyService, inside the
+        // submit / approve / reject / resubmit transaction (EXP-02…EXP-08).
     ];
 
     /**

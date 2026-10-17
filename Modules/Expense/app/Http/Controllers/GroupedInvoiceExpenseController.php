@@ -7,6 +7,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Modules\Custody\Exceptions\InsufficientExpenseCustodyException;
+use Modules\Expense\Http\Concerns\RespondsToInsufficientCustody;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Services\ExpenseOriginGuard;
 use Modules\Expense\Services\GroupedInvoiceExpenseService;
@@ -18,6 +20,8 @@ use Modules\Expense\Transformers\ExpenseDetailResource;
  */
 class GroupedInvoiceExpenseController extends BaseController
 {
+    use RespondsToInsufficientCustody;
+
     public function __construct(
         private GroupedInvoiceExpenseService $groupedInvoiceService
     ) {}
@@ -99,6 +103,10 @@ class GroupedInvoiceExpenseController extends BaseController
                 new ExpenseDetailResource($expense),
                 'Grouped invoice expense created successfully'
             );
+        } catch (InsufficientExpenseCustodyException $e) {
+            DB::rollBack();
+
+            return $this->insufficientCustodyResponse($e);
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -189,6 +197,9 @@ class GroupedInvoiceExpenseController extends BaseController
                 new ExpenseDetailResource($updated),
                 'Grouped invoice expense updated successfully'
             );
+        } catch (InsufficientExpenseCustodyException $e) {
+            // The service already rolled its own transaction back; the draft is untouched.
+            return $this->insufficientCustodyResponse($e);
         } catch (\Exception $e) {
             return $this->errorResponse(
                 'Failed to update grouped invoice expense',

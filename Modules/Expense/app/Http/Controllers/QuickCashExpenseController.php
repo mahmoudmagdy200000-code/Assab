@@ -8,6 +8,8 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Modules\Custody\Exceptions\InsufficientExpenseCustodyException;
+use Modules\Expense\Http\Concerns\RespondsToInsufficientCustody;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Services\ExpenseOriginGuard;
 use Modules\Expense\Services\QuickCashExpenseService;
@@ -19,6 +21,8 @@ use Modules\Expense\Transformers\ExpenseDetailResource;
  */
 class QuickCashExpenseController extends BaseController
 {
+    use RespondsToInsufficientCustody;
+
     public function __construct(
         private QuickCashExpenseService $quickCashService
     ) {}
@@ -98,6 +102,10 @@ class QuickCashExpenseController extends BaseController
                 new ExpenseDetailResource($expense),
                 'Quick cash expense created successfully'
             );
+        } catch (InsufficientExpenseCustodyException $e) {
+            DB::rollBack();
+
+            return $this->insufficientCustodyResponse($e);
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -210,6 +218,10 @@ class QuickCashExpenseController extends BaseController
                 new ExpenseDetailResource($updated->fresh(['attachments', 'quickCashExpense.paymentSupplier'])),
                 'Quick cash expense updated successfully'
             );
+        } catch (InsufficientExpenseCustodyException $e) {
+            DB::rollBack();
+
+            return $this->insufficientCustodyResponse($e);
         } catch (\Exception $e) {
             DB::rollBack();
 

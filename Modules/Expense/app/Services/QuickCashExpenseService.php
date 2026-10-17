@@ -2,8 +2,10 @@
 
 namespace Modules\Expense\Services;
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Modules\Custody\Services\ExpenseCustodyService;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Models\QuickCashExpense;
 use Modules\Expense\Models\QuickCashItem;
@@ -16,6 +18,13 @@ class QuickCashExpenseService
      * Create Quick Cash Expense
      */
     public function createQuickCashExpense(array $data): Expense
+    {
+        // One unit of work: the expense, its children, the custody charge (EXP-02) and the audit row
+        // succeed together or not at all — also for callers that do not open a transaction themselves.
+        return DB::transaction(fn (): Expense => $this->persistQuickCashExpense($data));
+    }
+
+    private function persistQuickCashExpense(array $data): Expense
     {
         $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
 
@@ -64,6 +73,11 @@ class QuickCashExpenseService
             }
         }
 
+        // EXP-02 / EXP-05: a non-draft create is a submission — charge the branch custody once, or refuse it.
+        if (! ($data['is_draft'] ?? false)) {
+            app(ExpenseCustodyService::class)->reserve($expense);
+        }
+
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
 
         // Non-draft create = submission — fire after all children persist so
@@ -79,6 +93,11 @@ class QuickCashExpenseService
      * Update Quick Cash Expense
      */
     public function updateQuickCashExpense(Expense $expense, array $data): Expense
+    {
+        return DB::transaction(fn (): Expense => $this->persistQuickCashUpdate($expense, $data));
+    }
+
+    private function persistQuickCashUpdate(Expense $expense, array $data): Expense
     {
         $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
 
@@ -170,6 +189,9 @@ class QuickCashExpenseService
 
         // Draft flipped to pending = a submission — bridge it (idempotent).
         if ($wasDraft && $expense->fresh()->status === 'pending') {
+            // EXP-02 / EXP-05: the draft became a submission — charge the branch custody once, or refuse it.
+            app(ExpenseCustodyService::class)->reserve($expense->fresh());
+
             event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense->fresh()));
         }
 
@@ -253,7 +275,8 @@ class QuickCashExpenseService
         try {
             $custodyBalanceService = app(\Modules\Custody\Services\CustodyBalanceService::class);
 
-            return $custodyBalanceService->getAvailableExpenseBalance($branchManagerId);
+            // The custody of the manager's own branch (EXP-01): sales cash and other branches never count.
+            return $custodyBalanceService->getAvailableExpenseBalance($branchManagerId, auth()->user()?->branch_id);
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Failed to get custody balance', [
                 'branch_manager_id' => $branchManagerId,

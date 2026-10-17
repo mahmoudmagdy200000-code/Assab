@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Modules\Custody\Exceptions\InsufficientExpenseCustodyException;
+use Modules\Expense\Http\Concerns\RespondsToInsufficientCustody;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Services\ExpenseOriginGuard;
 use Modules\Expense\Services\SingleInvoiceExpenseService;
@@ -22,6 +24,8 @@ use Modules\Expense\Transformers\ExpenseDetailWithoutTimelinesResource;
  */
 class SingleInvoiceExpenseController extends BaseController
 {
+    use RespondsToInsufficientCustody;
+
     public function __construct(
         private SingleInvoiceExpenseService $singleInvoiceService
     ) {}
@@ -113,6 +117,10 @@ class SingleInvoiceExpenseController extends BaseController
                 new ExpenseDetailResource($expense),
                 'Single invoice expense created successfully'
             );
+        } catch (InsufficientExpenseCustodyException $e) {
+            DB::rollBack();
+
+            return $this->insufficientCustodyResponse($e);
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -225,6 +233,10 @@ class SingleInvoiceExpenseController extends BaseController
                 new ExpenseDetailResource($updated->fresh(['attachments', 'invoiceDetails.paymentSupplier'])),
                 'Single invoice expense updated successfully'
             );
+        } catch (InsufficientExpenseCustodyException $e) {
+            DB::rollBack();
+
+            return $this->insufficientCustodyResponse($e);
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -389,6 +401,10 @@ class SingleInvoiceExpenseController extends BaseController
                 'Original expense not found',
                 404
             );
+        } catch (InsufficientExpenseCustodyException $e) {
+            DB::rollBack();
+
+            return $this->insufficientCustodyResponse($e);
         } catch (\Exception $e) {
             DB::rollBack();
 
