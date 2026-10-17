@@ -430,8 +430,10 @@ class CustodyHandoverController extends BaseController
 
             // Brand Owner: branch managers only (per brand-owner contract)
             if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
+                // F-09: only managers of branches under the owner's own brands (fail-closed).
                 $branchManagers = BranchManager::query()
                     ->active()
+                    ->whereIn('branch_id', app(\Modules\Admin\Services\MobileBranchScopeService::class)->visibleBranchIds($user))
                     ->orderBy('name')
                     ->get(['id', 'name', 'email']);
 

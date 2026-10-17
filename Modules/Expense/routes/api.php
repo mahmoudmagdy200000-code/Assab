@@ -63,9 +63,9 @@ Route::prefix('branch-manager/expenses')
         // category → list its items from the uploaded sheet)
         Route::get('/categories/{category}/items', [CategoryController::class, 'items']);
         Route::get('/categories/{category}', [CategoryController::class, 'show']);
-        Route::post('/categories', [CategoryController::class, 'store']);
-        Route::put('/categories/{category}', [CategoryController::class, 'update']);
-        Route::delete('/categories/{category}', [CategoryController::class, 'destroy']);
+        Route::post('/categories', [CategoryController::class, 'store'])->middleware('expense.write.delegated'); // N-04: a cashier never edits the category tree
+        Route::put('/categories/{category}', [CategoryController::class, 'update'])->middleware('expense.write.delegated'); // N-04: a cashier never edits the category tree
+        Route::delete('/categories/{category}', [CategoryController::class, 'destroy'])->middleware('expense.write.delegated'); // N-04: a cashier never edits the category tree
 
         /*
         |--------------------------------------------------------------------------

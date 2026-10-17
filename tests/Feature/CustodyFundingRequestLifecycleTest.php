@@ -15,6 +15,8 @@ use Modules\Cashier\Models\Cashier;
 use Modules\Custody\Models\CustodyRequest;
 use Modules\Custody\Models\CustodyRequestTimeline;
 use Modules\Custody\Models\CustodyTransaction;
+use Tests\Concerns\BuildsExpenseTenantFixtures;
+use Tests\Concerns\LinksMobileBrandScope;
 use Tests\TestCase;
 
 /**
@@ -33,6 +35,8 @@ use Tests\TestCase;
  */
 class CustodyFundingRequestLifecycleTest extends TestCase
 {
+    use BuildsExpenseTenantFixtures;
+    use LinksMobileBrandScope;
     use RefreshDatabase;
 
     private Branch $branch;
@@ -59,16 +63,27 @@ class CustodyFundingRequestLifecycleTest extends TestCase
             'name' => 'Owner', 'email' => 'owner@fund-req.test', 'phone' => '0500000010',
             'password' => 'secret-password', 'is_active' => true, 'is_first_login' => false, 'status' => 'active',
         ]);
+        // F-09: brand-level actors reach only the branches of their own brands (server-resolved, fail-closed) —
+        // an owner with no brand link decides nothing, so the fixture links the owner to this branch's brand.
+        $this->brandOfBranch = $this->linkBrandOwner($this->owner, $this->branch);
     }
+
+    private \Modules\Admin\Models\AsabBrand $brandOfBranch;
 
     private ?BrandManager $brandManagerActor = null;
 
     private function brandManager(): BrandManager
     {
-        return $this->brandManagerActor ??= BrandManager::create([
-            'name' => 'Brand Manager', 'email' => 'bm@fund-req.test', 'phone' => '0500000011',
-            'password' => 'secret-password', 'is_active' => true, 'is_first_login' => false, 'status' => 'active',
-        ]);
+        if ($this->brandManagerActor === null) {
+            $this->brandManagerActor = BrandManager::create([
+                'name' => 'Brand Manager', 'email' => 'bm@fund-req.test', 'phone' => '0500000011',
+                'password' => 'secret-password', 'is_active' => true, 'is_first_login' => false, 'status' => 'active',
+            ]);
+            // F-09 / D-2: an explicit delegation to this branch's brand.
+            $this->assignBrandManager($this->brandManagerActor, $this->brandOfBranch->company, [$this->brandOfBranch->id]);
+        }
+
+        return $this->brandManagerActor;
     }
 
     /** A manager-raised funding request, created through the real endpoint. */
