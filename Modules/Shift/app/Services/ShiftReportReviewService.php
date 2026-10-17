@@ -35,6 +35,35 @@ class ShiftReportReviewService
                 'report_revision' => $member->report_revision, 'allocation_version' => $member->allocation_version])->all()];
     }
 
+    /**
+     * FUND-01 (BRC v3.4 F-04): is this manager workday FULLY approved — the accountant AND THEN the head of
+     * accounts — so that the sales cash it produced may be moved into the branch expense custody?
+     *
+     * Read-only. A workday qualifies only when it has at least one ACTIVE daily-lock member and every such member
+     * report's operation is `final-approved`. Anything else (no members yet, a member still at the accountant, a
+     * return/rejection cycle, an ambiguous or missing operation) is "not approved": the check fails closed.
+     * ASSUMPTION (for Mohamed): "the source day is approved" == every member report of that workday is head-final.
+     */
+    public function dayFullyFinalApproved(string $dayId): bool
+    {
+        $members = DB::table('shift_liability_daily_locks')
+            ->where('branch_manager_shift_id', $dayId)
+            ->whereNull('released_at')->whereNull('superseded_at')
+            ->pluck('cashier_shift_id');
+        if ($members->isEmpty()) {
+            return false;
+        }
+
+        foreach ($members->unique() as $cashierShiftId) {
+            $state = $this->reportState((string) $cashierShiftId);
+            if ($state === null || ($state['status'] ?? null) !== Operation::STATUS_FINAL) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public function authorizeReview(Operation $operation, \Modules\Admin\Models\AsabUser $actor, string $role): void
     {
         $sourceId = $this->cashierSource($operation);

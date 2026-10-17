@@ -3,6 +3,7 @@
 namespace Modules\Custody\Http\Controllers;
 
 use App\Http\Controllers\BaseController;
+use App\Support\ShiftFinancialCalculator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -10,6 +11,7 @@ use Illuminate\Support\Facades\Validator;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BrandOwner\Models\CashSalesTransferRequest;
 use Modules\Cashier\Models\Cashier;
+use Modules\Custody\Exceptions\SalesCashTransferRefusedException;
 use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Custody\Models\CustodyHandoverRequest;
 use Modules\Custody\Models\PersonalLedgerTransaction;
@@ -17,6 +19,7 @@ use Modules\Custody\Services\CashierCustodyService;
 use Modules\Custody\Services\CustodyBalanceService;
 use Modules\Custody\Services\CustodyTransactionService;
 use Modules\Custody\Services\PersonalLedgerService;
+use Modules\Custody\Services\SalesCashTransferService;
 
 class CustodyHandoverController extends BaseController
 {
@@ -211,6 +214,11 @@ class CustodyHandoverController extends BaseController
     /**
      * Transfer to Custody
      * POST /api/custody/transfer
+     *
+     * BRC v3.4 F-04 (FUND-01/02): only cash whose source day is fully approved (accountant, then head of
+     * accounts) and which the manager really holds (executed movements once, open reservations once, uncollected
+     * shortages never) can be moved. Optional `Idempotency-Key` header (route middleware): a retry replays the
+     * first answer and posts nothing twice. Money is SAR with at most two decimals; a finer amount is a 422.
      */
     public function transfer(Request $request): JsonResponse
     {
@@ -227,49 +235,37 @@ class CustodyHandoverController extends BaseController
             return $this->validationErrorResponse($validator->errors());
         }
 
+        $amountHalalas = null; // null = everything the rules release
+        if (! $request->boolean('isFullTransfer', false)) {
+            try {
+                $amountHalalas = ShiftFinancialCalculator::sarToHalalas($request->input('transferAmount'));
+            } catch (\InvalidArgumentException) {
+                // Sub-halala input is refused, never rounded (the rounding rule is not approved — AC-46).
+                return $this->validationErrorResponse(['transferAmount' => ['The transfer amount may have at most two decimal places.']]);
+            }
+        }
+
         try {
             $branchManager = auth()->user();
-            $personalBalance = $this->ledgerService->getPersonalBalanceOnly($branchManager->id);
+            $result = app(SalesCashTransferService::class)->transfer($branchManager, $amountHalalas);
 
-            $transferAmount = $request->input('isFullTransfer', false)
-                ? $personalBalance
-                : $request->input('transferAmount');
+            $newPersonalBalance = $result['personalBalanceSar'];
+            $currentCustodyBalance = $this->balanceService->getCustodyBalance($branchManager->id);
 
-            // Validate balance
-            if ($transferAmount > $personalBalance) {
-                return $this->errorResponse('Transfer amount cannot exceed personal custody balance', 400, [
-                    'code' => 'INVALID_AMOUNT',
-                    'maxAmount' => $personalBalance,
-                ]);
-            }
-
-            return DB::transaction(function () use ($branchManager, $transferAmount, $personalBalance) {
-                // Create custody transaction (cash in)
-                $this->transactionService->createCashTransferTransaction([
-                    'branch_manager_id' => $branchManager->id,
-                    'branch_id' => $branchManager->branch_id,
-                    'amount' => $transferAmount,
-                ]);
-
-                // Create personal ledger transaction (cash out)
-                PersonalLedgerTransaction::create([
-                    'branch_manager_id' => $branchManager->id,
-                    'transaction_type' => 'Transfer to Custody',
-                    'amount' => $transferAmount,
-                    'is_cash_in' => false,
-                    'transaction_date' => now(),
-                ]);
-
-                $newPersonalBalance = $personalBalance - $transferAmount;
-                $currentCustodyBalance = $this->balanceService->getCustodyBalance($branchManager->id);
-                $newCustodyBalance = $currentCustodyBalance + $transferAmount;
-
-                return $this->successResponse([
-                    'transferId' => uniqid('trans_'),
-                    'newPersonalBalance' => round($newPersonalBalance, 2),
-                    'newCustodyBalance' => round($newCustodyBalance, 2),
-                ], 'Transfer completed successfully');
-            });
+            return $this->successResponse([
+                'transferId' => uniqid('trans_'),
+                'newPersonalBalance' => round($newPersonalBalance, 2),
+                // The custody row is already posted: this is the balance AFTER the transfer.
+                'newCustodyBalance' => round($currentCustodyBalance, 2),
+            ], 'Transfer completed successfully');
+        } catch (SalesCashTransferRefusedException $e) {
+            return $this->errorResponse($e->getMessage(), 400, [
+                'code' => 'INVALID_AMOUNT',
+                'reason' => $e->reason,
+                'maxAmount' => round($e->transferableHalalas / 100, 2),
+                'availableAmount' => round($e->availableHalalas / 100, 2),
+                'unapprovedAmount' => round($e->unapprovedHalalas / 100, 2),
+            ]);
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
