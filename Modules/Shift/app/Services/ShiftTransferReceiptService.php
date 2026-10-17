@@ -471,7 +471,8 @@ class ShiftTransferReceiptService
         ]);
 
         if ($handover && $managerDestination) {
-            $sender = $source->cashier;
+            // MEM-03/06: a separated (archived) sender is still the owner of the cash he handed over.
+            $sender = $source->cashier()->withTrashed()->first();
             $manager = $managerDestination->branchManager;
             if (! $manager || ($confirmedMinor > 0 && ! $sender)) {
                 throw new ConflictHttpException('RECEIVING_MANAGER_REQUIRED');
@@ -499,7 +500,8 @@ class ShiftTransferReceiptService
             ShiftHandoverStatus::query()->where('cashier_shift_id', $handover->cashier_shift_id)->firstOrFail()
                 ->approve($manager->id, BranchManager::class, $comment);
         } elseif ($confirmedMinor > 0 && $handover) {
-            $sender = $source->cashier;
+            // MEM-03/06: a separated (archived) sender is still the owner of the cash he handed over.
+            $sender = $source->cashier()->withTrashed()->first();
             if (! $sender || ! $recipient || ! $destination) {
                 throw new ConflictHttpException('SENDING_CASHIER_REQUIRED');
             }
