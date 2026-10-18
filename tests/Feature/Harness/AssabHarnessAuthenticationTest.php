@@ -36,18 +36,53 @@ final class AssabHarnessAuthenticationTest extends TestCase
         ];
 
         foreach ($expected as $key => $roleScopes) {
+            // Each iteration represents a different real authenticated browser/client.
+            $this->flushHeaders();
+            $this->app['auth']->forgetGuards();
+
+            $expectedUser = $this->fixture->user($key);
             $token = $this->loginDashboard($key);
-            $response = $this->withToken($token)->getJson('/api/v1/auth/me')->assertOk();
+
+            // Verify that password login issued proof for the intended fixture user.
+            $storedToken = PersonalAccessToken::findToken($token);
+            $this->assertNotNull($storedToken, "Missing stored access token for {$key}");
+            $this->assertSame(
+                (string) $expectedUser->getKey(),
+                (string) $storedToken->tokenable_id,
+                "Login token belongs to an unexpected user for {$key}",
+            );
+
+            // Do not let the previous HTTP request's resolved guard user carry forward.
+            $this->app['auth']->forgetGuards();
+
+            $response = $this->withToken($token)
+                ->getJson('/api/v1/auth/me')
+                ->assertOk();
+
+            // Check IDENTITY before trusting any role/scope returned by /auth/me.
+            $this->assertSame(
+                (string) $expectedUser->getKey(),
+                (string) $response->json('id'),
+                "Bearer /auth/me resolved the wrong user for {$key}",
+            );
+            $this->assertSame($expectedUser->email, $response->json('email'));
             $this->assertSame($this->fixture->company()->id, $response->json('companyId'));
-            $actual = collect($response->json('roles'))->mapWithKeys(fn (array $role): array => [$role['key'] => $role['scope']])->all();
+
+            $actual = collect($response->json('roles'))
+                ->mapWithKeys(fn (array $role): array => [$role['key'] => $role['scope']])
+                ->all();
             ksort($roleScopes);
             ksort($actual);
             $this->assertSame($roleScopes, $actual);
+
             foreach ($response->json('roles') as $role) {
                 $this->assertNotSame('all', $role['scope']);
                 $this->assertContains($this->fixture->branch()->id, $role['branchIds']);
             }
+
+            $this->app['auth']->forgetGuards();
         }
+        $this->flushHeaders();
     }
 
     public function test_role_endpoints_allow_the_owner_and_forbid_other_roles(): void

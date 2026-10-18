@@ -1693,7 +1693,8 @@ class ShiftReportRevisionAndAllocationVersionTest extends TestCase
      */
     public function test_cor_05_02_regression_lost_response_reconciliation_and_zero_duplicate_effects(): void
     {
-        $testTemplate = ShiftTemplate::factory()->create(['branch_id' => $this->branchA->id]);
+        $testTemplate = ShiftTemplate::query()->findOrFail($this->cashierShiftA->shift_id);
+        $this->assertSame($this->branchA->id, $testTemplate->branch_id);
         $testCashier = Cashier::factory()->create(['branch_id' => $this->branchA->id]);
         $testShift = CashierShift::factory()->create([
             'shift_id' => $testTemplate->id,
