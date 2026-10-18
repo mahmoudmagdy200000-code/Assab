@@ -65,6 +65,39 @@ class ErpBatchLifecycleTest extends TestCase
         ]);
     }
 
+    private function approvedLegacySales(AsabUser $accountant, int $amount = 100000): Operation
+    {
+        $uploader = $this->user($this->company->id, 'uploader-'.Str::uuid().'@erp.test', 'branch');
+        $uploader->roleAssignments()->where('role_key', 'branch')->firstOrFail()->update([
+            'scope' => 'branch',
+            'branch_ids' => [$this->branch->id],
+        ]);
+
+        $response = $this->actingAs($uploader, 'sanctum')
+            ->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/company/me/branch/upload', [
+                'reportType' => 'sales',
+                'salesHalalas' => $amount,
+            ])
+            ->assertCreated();
+
+        $operation = Operation::findOrFail($response->json('createdOperationId'));
+
+        $this->asHead()->getJson("/api/v1/operations/{$operation->id}")
+            ->assertOk()
+            ->assertJsonPath('workflowKind', 'legacy_sales');
+
+        $this->actingAs($accountant, 'sanctum')
+            ->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson("/api/v1/operations/{$operation->id}/approve")
+            ->assertOk()
+            ->assertJsonPath('status', Operation::STATUS_APPROVED);
+
+        $this->assertSame($accountant->id, $operation->fresh()->approved_by_id);
+
+        return $operation->fresh();
+    }
+
     private function asHead()
     {
         return $this->actingAs($this->head, 'sanctum');
@@ -112,20 +145,18 @@ class ErpBatchLifecycleTest extends TestCase
     public function test_single_op_export_posts_the_full_day_module_batch(): void
     {
         $accountant = $this->user($this->company->id, 'acc-strand@erp.test', 'accountant');
-        $mk = fn () => Operation::create([
-            'public_id' => strtoupper(Str::random(12)), 'company_id' => $this->company->id, 'branch_id' => $this->branch->id,
-            'module_key' => 'sales', 'amount' => 100000, 'match' => 'exact',
-            'status' => Operation::STATUS_APPROVED, 'approved_by_id' => $accountant->id, 'operation_date' => now(),
-        ]);
-        $op1 = $mk();
-        $op2 = $mk();
+        $op1 = $this->approvedLegacySales($accountant);
+        $op2 = $this->approvedLegacySales($accountant);
         // Final-approve both → one ready batch (day × sales) holding [op1, op2].
-        $this->asHead()->postJson("/api/v1/operations/{$op1->id}/final-approve")->assertOk();
-        $this->asHead()->postJson("/api/v1/operations/{$op2->id}/final-approve")->assertOk();
+        $this->asHead()->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson("/api/v1/operations/{$op1->id}/final-approve")->assertOk();
+        $this->asHead()->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson("/api/v1/operations/{$op2->id}/final-approve")->assertOk();
         $this->assertSame(2, ErpBatch::where('status', 'ready')->first()->operation_count);
 
         // Export just op1 (post-to-erp single op) → the whole batch exports.
         $this->actingAs($this->head, 'sanctum')
+            ->withHeader('Idempotency-Key', (string) Str::uuid())
             ->postJson("/api/v1/company/me/operations/{$op1->id}/post-to-erp")->assertOk();
 
         $this->assertTrue((bool) $op1->fresh()->erp_posted);
@@ -139,14 +170,10 @@ class ErpBatchLifecycleTest extends TestCase
     {
         // An approved op final-approved through the pipeline seeds a ready batch.
         $accountant = $this->user($this->company->id, 'acc@erp.test', 'accountant');
-        $op = Operation::create([
-            'public_id' => strtoupper(Str::random(12)), 'company_id' => $this->company->id, 'branch_id' => $this->branch->id,
-            'module_key' => 'sales', 'amount' => 100000, 'match' => 'exact',
-            'status' => Operation::STATUS_APPROVED, 'approved_by_id' => $accountant->id, 'approved_at' => now(),
-            'operation_date' => now(),
-        ]);
+        $op = $this->approvedLegacySales($accountant);
 
-        $this->asHead()->postJson("/api/v1/operations/{$op->id}/final-approve")->assertOk();
+        $this->asHead()->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson("/api/v1/operations/{$op->id}/final-approve")->assertOk();
 
         $batch = ErpBatch::where('module_key', 'sales')->where('status', 'ready')->first();
         $this->assertNotNull($batch);
@@ -196,12 +223,9 @@ class ErpBatchLifecycleTest extends TestCase
     {
         // One ready batch (seed via final-approve), one approved op (awaitingHead).
         $accountant = $this->user($this->company->id, 'acc3@erp.test', 'accountant');
-        $approved = Operation::create([
-            'public_id' => strtoupper(Str::random(12)), 'company_id' => $this->company->id, 'branch_id' => $this->branch->id,
-            'module_key' => 'sales', 'amount' => 100000, 'match' => 'exact',
-            'status' => Operation::STATUS_APPROVED, 'approved_by_id' => $accountant->id, 'operation_date' => now(),
-        ]);
-        $this->asHead()->postJson("/api/v1/operations/{$approved->id}/final-approve")->assertOk();
+        $approved = $this->approvedLegacySales($accountant);
+        $this->asHead()->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson("/api/v1/operations/{$approved->id}/final-approve")->assertOk();
 
         $summary = $this->asAdmin()->getJson('/api/v1/admin/erp/summary')->assertOk()->json();
         $this->assertSame(1, $summary['kpis']['ready']);
@@ -211,7 +235,8 @@ class ErpBatchLifecycleTest extends TestCase
         $this->asAdmin()->getJson('/api/v1/admin/erp/batches?status=ready')->assertOk()
             ->assertJsonPath('meta.total', 1);
 
-        $export = $this->asAdmin()->postJson('/api/v1/admin/erp/export', ['allReady' => true])->assertOk()->json();
+        $export = $this->asAdmin()->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/admin/erp/export', ['allReady' => true])->assertOk()->json();
         $this->assertSame(1, $export['count']);
         $this->assertSame('exported', ErpBatch::first()->status);
 
