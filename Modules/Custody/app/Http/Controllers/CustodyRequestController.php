@@ -235,7 +235,7 @@ class CustodyRequestController extends BaseController
         try {
             $user = auth()->user();
             $history = $user instanceof BrandOwner
-                ? $this->requestService->getBrandOwnerRequestHistory($user->id)
+                ? $this->requestService->getBrandOwnerRequestHistory($user)
                 : $this->requestService->getRequestHistory(auth()->id());
 
             return $this->successResponse([
