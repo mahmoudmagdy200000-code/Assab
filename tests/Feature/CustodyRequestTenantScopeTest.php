@@ -5,6 +5,9 @@ namespace Tests\Feature;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Modules\Admin\Models\AsabIdentityMap;
+use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Models\AsabUserRole;
 use Illuminate\Testing\TestResponse;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BrandOwner\Models\BrandOwner;
@@ -270,6 +273,76 @@ class CustodyRequestTenantScopeTest extends TestCase
         $this->assertSame(collect([$this->bmA1->id, $this->bmA2->id])->sort()->values()->all(), $ids($this->ownerA12));
         $this->assertSame([$this->bmB1->id], $ids($this->ownerB1));
         $this->assertSame([], $ids($this->ownerUnlinked));
+    }
+
+    /**
+     * G7-P2 / MEM-01: creator identity is historical attribution, not permanent
+     * branch authority. Revoking a brand must stop reads and decisions immediately.
+     */
+    public function test_creator_owned_request_is_inaccessible_after_live_brand_revocation_on_every_owner_path(): void
+    {
+        $transfer = $this->payment($this->ownerA1, $this->bmA1)->assertStatus(201);
+        $transferId = $transfer->json('data.requestId');
+        $managerRequest = $this->request($this->bmA1);
+
+        $this->actingAs($this->ownerA1, 'sanctum')
+            ->getJson("/api/custody/requests/{$transferId}")->assertOk();
+        $this->assertCount(1, $this->getJson('/api/brand-owner/payment-logs')->assertOk()->json('data.data'));
+        $this->assertCount(1, $this->getJson('/api/custody/request-cashin/history')->assertOk()->json('data.previousRequests'));
+
+        $dashboardId = AsabIdentityMap::where('entity_type', AsabIdentityMap::ENTITY_BRAND_OWNER)
+            ->where('legacy_id', $this->ownerA1->id)->value('dashboard_id');
+        $this->assertNotNull($dashboardId);
+        AsabUserRole::where('user_id', $dashboardId)->where('role_key', 'brand-owner')->delete();
+
+        $before = $this->snapshot();
+        $this->assertSame([], $this->idsListedFor($this->ownerA1));
+        $this->actingAs($this->ownerA1, 'sanctum')
+            ->getJson("/api/custody/requests/{$transferId}")->assertNotFound();
+        $this->getJson("/api/custody/requests/{$managerRequest->id}")->assertNotFound();
+        $this->getJson("/api/brand-owner/payment-logs/{$transferId}")->assertNotFound();
+        $this->assertSame([], $this->getJson('/api/brand-owner/payment-logs')->assertOk()->json('data.data'));
+        $this->assertSame([], $this->getJson('/api/custody/request-cashin/history')->assertOk()->json('data.previousRequests'));
+
+        $this->postJson("/api/custody/requests/{$managerRequest->id}/approve")->assertStatus(400);
+        $this->postJson("/api/custody/requests/{$managerRequest->id}/reject", ['reason' => 'not authorized'])->assertStatus(400);
+        $this->assertSame('Pending', $managerRequest->fresh()->status);
+        $this->assertSame($before, $this->snapshot(), 'Revoked brand actor mutated custody financial/history tables');
+    }
+
+    public function test_creator_of_two_brands_keeps_only_current_brand_after_one_brand_is_removed(): void
+    {
+        $a1 = $this->payment($this->ownerA12, $this->bmA1)->assertStatus(201)->json('data.requestId');
+        $a2 = $this->payment($this->ownerA12, $this->bmA2)->assertStatus(201)->json('data.requestId');
+        $dashboardId = AsabIdentityMap::where('entity_type', AsabIdentityMap::ENTITY_BRAND_OWNER)
+            ->where('legacy_id', $this->ownerA12->id)->value('dashboard_id');
+        $this->assertNotNull($dashboardId);
+        $role = AsabUserRole::where('user_id', $dashboardId)->where('role_key', 'brand-owner')->firstOrFail();
+        $role->update(['brand_ids' => [$this->brandA2->id]]);
+
+        $this->assertSame([$a2], $this->idsListedFor($this->ownerA12));
+        $this->actingAs($this->ownerA12, 'sanctum')->getJson("/api/custody/requests/{$a1}")->assertNotFound();
+        $this->getJson("/api/custody/requests/{$a2}")->assertOk();
+        $this->getJson("/api/brand-owner/payment-logs/{$a1}")->assertNotFound();
+        $this->getJson("/api/brand-owner/payment-logs/{$a2}")->assertOk();
+        $this->assertSame([$a2], collect($this->getJson('/api/brand-owner/payment-logs')->assertOk()->json('data.data'))
+            ->pluck('id')->all());
+        $this->assertSame([$a2], collect($this->getJson('/api/custody/request-cashin/history')->assertOk()->json('data.previousRequests'))
+            ->pluck('id')->all());
+    }
+
+    public function test_disabled_dashboard_owner_cannot_keep_mobile_brand_scope_through_old_token(): void
+    {
+        $transfer = $this->payment($this->ownerA1, $this->bmA1)->assertStatus(201)->json('data.requestId');
+        $dashboardId = AsabIdentityMap::where('entity_type', AsabIdentityMap::ENTITY_BRAND_OWNER)
+            ->where('legacy_id', $this->ownerA1->id)->value('dashboard_id');
+        $this->assertNotNull($dashboardId);
+        AsabUser::withoutGlobalScope('tenant')->findOrFail($dashboardId)->update(['status' => 'disabled']);
+
+        $this->assertSame([], $this->idsListedFor($this->ownerA1));
+        $this->actingAs($this->ownerA1, 'sanctum')->getJson("/api/custody/requests/{$transfer}")->assertNotFound();
+        $this->assertSame([], $this->getJson('/api/brand-owner/payment-logs')->assertOk()->json('data.data'));
+        $this->assertSame([], $this->getJson('/api/custody/request-cashin/history')->assertOk()->json('data.previousRequests'));
     }
 
     public function test_the_payment_log_stays_creator_only_and_unchanged(): void
