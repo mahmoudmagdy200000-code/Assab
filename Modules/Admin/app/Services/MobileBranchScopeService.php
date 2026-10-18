@@ -108,6 +108,13 @@ class MobileBranchScopeService
             return [];
         }
 
+        // MEM-01: stale mobile tokens and remembered roles must not retain
+        // branch access after the linked dashboard user is disabled.
+        $dashboardUser = AsabUser::withoutGlobalScope('tenant')->find($userId);
+        if ($dashboardUser === null || $dashboardUser->status !== 'active') {
+            return [];
+        }
+
         return AsabUserRole::where('user_id', $userId)
             ->where('role_key', 'brand-owner')
             ->pluck('brand_ids')
