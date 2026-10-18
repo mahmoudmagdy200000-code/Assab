@@ -1,0 +1,335 @@
+name: ASSAB P5 MariaDB Financial Concurrency CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'work/shift-dashboard-read-projection-20261017'
+      - 'task/p5-mariadb-**'
+    paths:
+      - '.github/workflows/assab-p5-mariadb-concurrency.yml'
+      - 'tests/Feature/ShiftPhases567MySqlConcurrencyTest.php'
+      - 'tests/Support/ShiftPhases567ConcurrencyWorker.php'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: assab-p5-mariadb-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TARGET_APP_SHA: a30c79bc0595213a4d9735d99ef10d84b2eb6888
+  APP_ENV: testing
+  APP_DEBUG: 'false'
+  APP_KEY: base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+  APP_URL: http://127.0.0.1
+  CACHE_STORE: array
+  MAIL_MAILER: array
+  QUEUE_CONNECTION: sync
+  SESSION_DRIVER: array
+  DB_HOST: 127.0.0.1
+  DB_PORT: '3306'
+  DB_USERNAME: root
+  DB_PASSWORD: assab-ci-only-root-password
+  DB_CONNECTION: mysql
+  COMPOSER_NO_INTERACTION: '1'
+
+jobs:
+  p5-mariadb-concurrency:
+    name: P5 Financial Concurrency (MariaDB 11.4 / PHP 8.3)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: assab-ci-only-root-password
+          MARIADB_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare artifact directory
+        run: mkdir -p artifacts
+
+      - name: Enforce pinned application SHA and exact three-file test allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          git merge-base --is-ancestor "$TARGET_APP_SHA" HEAD
+          changed="$(git diff --name-only "$TARGET_APP_SHA"...HEAD | sort)"
+          allowed="$(printf '%s\n' \
+            '.github/workflows/assab-p5-mariadb-concurrency.yml' \
+            'tests/Feature/ShiftPhases567MySqlConcurrencyTest.php' \
+            'tests/Support/ShiftPhases567ConcurrencyWorker.php' | sort)"
+          if [ "$changed" != "$allowed" ]; then
+            echo "ERROR: Disallowed file modifications detected against application baseline $TARGET_APP_SHA!" >&2
+            git diff --name-status "$TARGET_APP_SHA"...HEAD >&2
+            exit 1
+          fi
+          deleted_or_renamed="$(git diff --diff-filter=DR --name-only "$TARGET_APP_SHA"...HEAD)"
+          if [ -n "$deleted_or_renamed" ]; then
+            echo "ERROR: Forbidden deleted or renamed files detected: $deleted_or_renamed" >&2
+            exit 1
+          fi
+          printf 'Target Application SHA: %s\nCI Test SHA: %s\nAllowed Modified Files:\n%s\n' \
+            "$TARGET_APP_SHA" "$(git rev-parse HEAD)" "$changed" | tee artifacts/provenance.txt
+
+      - name: Fail-closed environment isolation guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          if env | grep -Eiq 'coolify|staging|production|hostinger|railway'; then
+            echo "ERROR: Forbidden staging or production environment variable detected!" >&2
+            exit 1
+          fi
+          echo "Environment isolation verified: No staging/production variables present." | tee artifacts/isolation.txt
+
+      - name: Setup PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, curl, dom, fileinfo, gd, intl, mbstring, pdo_mysql, pdo_sqlite, tokenizer, xml, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Verify disposable MariaDB 11.4 service version and empty schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          php <<'PHP' | tee artifacts/mariadb-service-version.txt
+          <?php
+          $pdo = new PDO('mysql:host='.getenv('DB_HOST').';port='.getenv('DB_PORT'), getenv('DB_USERNAME'), getenv('DB_PASSWORD'), [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+          $version = $pdo->query('SELECT VERSION()')->fetchColumn();
+          echo "Active MariaDB Version: $version\n";
+          if (!preg_match('/^11\.4\.[0-9]+.*MariaDB/i', $version)) {
+              throw new RuntimeException("Expected MariaDB 11.4, found: $version");
+          }
+          $schemas = $pdo->query("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME NOT IN ('information_schema','mysql','performance_schema','sys')")->fetchAll(PDO::FETCH_COLUMN);
+          if (!empty($schemas)) {
+              throw new RuntimeException("Refusing non-empty database server. Existing schemas: " . implode(', ', $schemas));
+          }
+          echo "Verified empty disposable MariaDB 11.4 container.\n";
+          PHP
+
+      - name: Install locked Composer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      # ── Suite 1: Pkg67MariaDbCompositionTest & Pkg67MigrationB01Test ───────
+      - name: Run Suite 1 - Pkg67 Composition & Migration B-01 (27 tests)
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          export DB_DATABASE="pkg67_disposable_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          php -r '$db = getenv("DB_DATABASE"); $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password"); $pdo->exec("CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");'
+          export PKG67_MARIADB_TESTS=1
+          vendor/bin/phpunit tests/Feature/Pkg67MariaDbCompositionTest.php tests/Feature/Pkg67MigrationB01Test.php \
+            --log-junit=artifacts/suite1-pkg67.junit.xml 2>&1 | tee artifacts/suite1-pkg67.log
+          echo "${PIPESTATUS[0]}" > artifacts/suite1-pkg67.exit
+
+      # ── Suite 2: Pkg6ReviewMySqlConcurrencyTest ───────────────────────────
+      - name: Run Suite 2 - Pkg6 Review Concurrency (4 tests)
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          export DB_DATABASE="pkg6_disposable_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          php -r '$db = getenv("DB_DATABASE"); $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password"); $pdo->exec("CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");'
+          export PKG6_MARIADB_TESTS=1
+          vendor/bin/phpunit tests/Feature/Pkg6ReviewMySqlConcurrencyTest.php \
+            --log-junit=artifacts/suite2-pkg6.junit.xml 2>&1 | tee artifacts/suite2-pkg6.log
+          echo "${PIPESTATUS[0]}" > artifacts/suite2-pkg6.exit
+
+      # ── Suite 3: ShiftPhases234MySqlConcurrencyTest ───────────────────────
+      - name: Run Suite 3 - Shift Phases 2, 3, 4 Concurrency (10 tests)
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          export DB_DATABASE="s111_phase234_audit_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          php -r '$db = getenv("DB_DATABASE"); $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password"); $pdo->exec("CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");'
+          php artisan migrate:fresh --force
+          vendor/bin/phpunit tests/Feature/ShiftPhases234MySqlConcurrencyTest.php \
+            --log-junit=artifacts/suite3-phase234.junit.xml 2>&1 | tee artifacts/suite3-phase234.log
+          echo "${PIPESTATUS[0]}" > artifacts/suite3-phase234.exit
+
+      # ── Suite 4: ShiftPhases567MySqlConcurrencyTest ───────────────────────
+      - name: Run Suite 4 - Shift Phases 5, 6, 7 Concurrency (12 tests)
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          export DB_DATABASE="s111_phase567_test_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          php -r '$db = getenv("DB_DATABASE"); $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password"); $pdo->exec("CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");'
+          export S111_PHASE567_MYSQL_TESTS=1
+          php artisan migrate:fresh --force
+          vendor/bin/phpunit tests/Feature/ShiftPhases567MySqlConcurrencyTest.php \
+            --log-junit=artifacts/suite4-phase567.junit.xml 2>&1 | tee artifacts/suite4-phase567.log
+          echo "${PIPESTATUS[0]}" > artifacts/suite4-phase567.exit
+
+      # ── Suite 5: ShiftPhases8910MySqlConcurrencyTest ──────────────────────
+      - name: Run Suite 5 - Shift Phases 8, 9, 10 Concurrency (10 tests)
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          export DB_DATABASE="s111_phase8910_test_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          php -r '$db = getenv("DB_DATABASE"); $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password"); $pdo->exec("CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");'
+          export S111_PHASE8910_MYSQL_TESTS=1
+          php artisan migrate:fresh --force
+          vendor/bin/phpunit tests/Feature/ShiftPhases8910MySqlConcurrencyTest.php \
+            --log-junit=artifacts/suite5-phase8910.junit.xml 2>&1 | tee artifacts/suite5-phase8910.log
+          echo "${PIPESTATUS[0]}" > artifacts/suite5-phase8910.exit
+
+      # ── Suite 6: ShiftNotWorkedMySqlConcurrencyTest ───────────────────────
+      - name: Run Suite 6 - Shift Not Worked Concurrency (3 tests)
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          export DB_DATABASE="pkg7_test_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          php -r '$db = getenv("DB_DATABASE"); $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password"); $pdo->exec("CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");'
+          export PKG7_MYSQL_TESTS=1
+          php artisan migrate:fresh --force
+          vendor/bin/phpunit tests/Feature/ShiftNotWorkedMySqlConcurrencyTest.php \
+            --log-junit=artifacts/suite6-notworked.junit.xml 2>&1 | tee artifacts/suite6-notworked.log
+          echo "${PIPESTATUS[0]}" > artifacts/suite6-notworked.exit
+
+      # ── Suite 7: Admin Legacy Refresh & Revocation Concurrency (7 tests) ──
+      - name: Run Suite 7 - Admin Refresh & Revocation Concurrency (7 tests)
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          export DB_DATABASE="s12_at02_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          php -r '$db = getenv("DB_DATABASE"); $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password"); $pdo->exec("CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");'
+          php artisan migrate:fresh --force
+          vendor/bin/phpunit tests/Feature/AdminLegacyRefreshConcurrencyTest.php \
+            --log-junit=artifacts/suite7-admin-refresh.junit.xml 2>&1 | tee artifacts/suite7-admin-refresh.log
+          echo "${PIPESTATUS[0]}" > artifacts/suite7-admin-refresh.exit
+
+          export DB_DATABASE="s12_fs12_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          php -r '$db = getenv("DB_DATABASE"); $pdo = new PDO("mysql:host=127.0.0.1;port=3306", "root", "assab-ci-only-root-password"); $pdo->exec("CREATE DATABASE IF NOT EXISTS $db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");'
+          php artisan migrate:fresh --force
+          vendor/bin/phpunit tests/Feature/AdminSessionRevocationTest.php --filter=legacy_logout_concurrency \
+            --log-junit=artifacts/suite7-admin-logout.junit.xml 2>&1 | tee artifacts/suite7-admin-logout.log
+          echo "${PIPESTATUS[0]}" > artifacts/suite7-admin-logout.exit
+
+      # ── Summarize all JUnit XML reports ───────────────────────────────────
+      - name: Summarize P5 Financial Concurrency Results
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import sys
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          junit_files = sorted(Path('artifacts').glob('*.junit.xml'))
+          summary = {
+              'status': 'PASS',
+              'suites_evaluated': len(junit_files),
+              'total_tests': 0,
+              'passed': 0,
+              'failures': 0,
+              'errors': 0,
+              'skipped': 0,
+              'suite_details': [],
+              'failing_tests': []
+          }
+
+          for jf in junit_files:
+              root = ET.parse(jf).getroot()
+              cases = root.findall('.//testcase')
+              n_tests = len(cases)
+              n_fails = len(root.findall('.//failure'))
+              n_errs = len(root.findall('.//error'))
+              n_skips = len(root.findall('.//skipped'))
+              
+              suite_name = jf.stem
+              status = 'PASS' if (n_fails == 0 and n_errs == 0 and n_skips == 0 and n_tests > 0) else 'FAIL'
+              if status == 'FAIL':
+                  summary['status'] = 'FAIL'
+
+              summary['total_tests'] += n_tests
+              summary['failures'] += n_fails
+              summary['errors'] += n_errs
+              summary['skipped'] += n_skips
+              summary['passed'] += (n_tests - n_fails - n_errs - n_skips)
+
+              summary['suite_details'].append({
+                  'file': jf.name,
+                  'status': status,
+                  'tests': n_tests,
+                  'passed': n_tests - n_fails - n_errs - n_skips,
+                  'failures': n_fails,
+                  'errors': n_errs,
+                  'skipped': n_skips
+              })
+
+              for c in cases:
+                  if c.find('failure') is not None or c.find('error') is not None:
+                      summary['failing_tests'].append(f"{c.get('classname')}::{c.get('name')}")
+
+          Path('artifacts/p5-results.json').write_text(json.dumps(summary, indent=2) + '\n')
+          print(json.dumps(summary, indent=2))
+
+          # Check exit codes
+          exit_files = list(Path('artifacts').glob('*.exit'))
+          for ef in exit_files:
+              code = int(ef.read_text().strip() or '0')
+              if code != 0:
+                  print(f"FAILED exit code in {ef.name}: {code}")
+                  sys.exit(1)
+
+          if summary['status'] != 'PASS' or summary['total_tests'] == 0:
+              sys.exit(1)
+          PY
+
+      - name: Write SHA256 manifest
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          find artifacts -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 -r sha256sum > artifacts/SHA256SUMS.txt
+
+      - name: Drop disposable test databases
+        if: always()
+        shell: bash
+        run: |
+          php <<'PHP'
+          <?php
+          try {
+              $pdo = new PDO('mysql:host=127.0.0.1;port=3306', 'root', 'assab-ci-only-root-password');
+              $schemas = $pdo->query("SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME NOT IN ('information_schema','mysql','performance_schema','sys')")->fetchAll(PDO::FETCH_COLUMN);
+              foreach ($schemas as $s) {
+                  $pdo->exec("DROP DATABASE `$s`");
+                  echo "Dropped disposable schema: $s\n";
+              }
+          } catch (Throwable $e) {
+              echo "Cleanup notice: " . $e->getMessage() . "\n";
+          }
+          PHP
+
+      - name: Upload P5 concurrency logs and JUnit artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: assab-p5-mariadb-concurrency-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 30

@@ -104,7 +104,12 @@ try {
             if ($manager) {
                 \Illuminate\Support\Facades\Auth::guard()->setUser($manager);
             }
-            $request = \Illuminate\Http\Request::create('/api/branch-manager/workday/daily-close/submit', 'POST', ['final_notes' => 'Audited daily close submission']);
+            $expectedRevision = $input['expected_revision'] ?? 1;
+            $request = \Illuminate\Http\Request::create('/api/branch-manager/workday/daily-close/submit', 'POST', [
+                'final_notes' => 'Audited daily close submission',
+                'branch_manager_shift_id' => $day->id,
+                'expected_revision' => $expectedRevision,
+            ]);
             $request->setUserResolver(fn () => $manager);
             $response = app(\Modules\Shift\Http\Controllers\BranchManagerShiftController::class)->submitDailyReport($request);
             if ($response->getStatusCode() !== 200) {

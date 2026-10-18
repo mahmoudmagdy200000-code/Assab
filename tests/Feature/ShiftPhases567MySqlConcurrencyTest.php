@@ -188,10 +188,26 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
         $this->assertSame('conflict', $second['status']);
         $this->assertSame('STALE_REPORT_REVISION', $second['code']);
 
-        // Assert exactly one new revision created, exactly zero liability postings, zero custody entries
+        // Under COR-07 / RESOLVED-02, accountant correction reconciles posting deltas immediately.
+        // Assert exactly one new revision created, exactly one liability posting, exactly one custody entry.
         $this->assertSame($initialRevisions + 1, $this->revisionCount($cashierShift));
-        $this->assertSame($initialPostings, ShiftLiabilityPosting::where('cashier_shift_id', $cashierShift->id)->count());
-        $this->assertSame($initialCustody, CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)->count());
+        $postings = ShiftLiabilityPosting::where('cashier_shift_id', $cashierShift->id)->get();
+        $this->assertCount(1, $postings);
+        $posting = $postings->sole();
+        $this->assertSame(1000, (int) $posting->delta_halalas);
+        $this->assertSame('posted', $posting->status);
+        $this->assertSame('cashier', $posting->responsible_type);
+        $this->assertSame($cashier->id, $posting->responsible_id);
+
+        $custodyRows = CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)->get();
+        $this->assertCount(1, $custodyRows);
+        $custody = $custodyRows->sole();
+        $this->assertEquals(10.00, (float) $custody->amount);
+        $this->assertSame('Variance', $custody->transaction_type);
+        $this->assertFalse((bool) $custody->is_cash_in, 'Debit shortage charge must have is_cash_in=false');
+        $this->assertSame($cashier->id, $custody->cashier_id);
+        $this->assertSame($custody->id, $posting->ledger_id);
+        $this->assertSame(1000, $this->ledgerNetHalalas($cashierShift, $cashier));
 
         // Assert exactly 2 outbox events recorded (report_corrected + liability_share_changed)
         $currentRev = $this->currentRevision($cashierShift);
@@ -200,36 +216,43 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
 
     public function test_concurrent_manager_approvals_with_shortage_are_idempotent_or_reject_duplicate(): void
     {
-        [$branch, $manager, $accountant, $day, $cashierShift, $cashier] = $this->fixture();
+        [$branch, $manager, $accountant, $day, $cashierShift, $cashier] = $this->fixture(7000);
 
-        // Setup real shortage of 10.00 SAR (1000 halalas) via accountant correction
-        $shares = [
-            ['type' => 'cashier', 'id' => $cashier->id, 'amount' => 1000],
-        ];
-        $rev2 = app(AccountantReportCorrectionService::class)->correct(
+        // Setup real cashier shortage of 10.00 SAR (1000 halalas) on Revision 1 requiring manager review
+        $rev1 = $this->currentRevision($cashierShift);
+        $review = app(ShiftReportManagerReviewService::class)->requireFor(
             $cashierShift,
-            $accountant,
-            ['card_payments' => '10.00'],
-            $shares,
-            1,
-            null,
-            'Real shortage setup of 10.00 SAR',
-            (string) \Illuminate\Support\Str::uuid()
+            $rev1,
+            -1000,
+            'Physical cashier shortage requiring manager review'
         );
-        $this->assertSame(2, $rev2->revision_number);
-
-        // Assert pending manager review exists
-        $review = ShiftReportManagerReview::where('report_revision_id', $rev2->id)->sole();
         $this->assertSame('pending', $review->status);
         $this->assertTrue((bool) $review->has_shortage);
 
-        // Two concurrent approvals race to approve Revision 2
+        $allocation = ShiftLiabilityAllocation::create([
+            'company_id' => $cashierShift->shift->branch->asab_company_id,
+            'branch_id' => $cashierShift->shift->branch_id,
+            'cashier_shift_id' => $cashierShift->id,
+            'version' => 1,
+            'report_revision' => (string) $rev1->revision_number,
+            'variance_halalas' => -1000,
+            'created_by_type' => 'branch_manager',
+            'created_by_id' => $manager->id,
+            'manager_approval_status' => 'pending',
+        ]);
+        $allocation->shares()->create([
+            'responsible_type' => 'cashier',
+            'responsible_id' => $cashier->id,
+            'amount_halalas' => 1000,
+        ]);
+
+        // Two concurrent approvals race to approve Revision 1
         [$first, $second] = $this->race(
             [
                 'command' => 'manager_approve',
                 'shift_id' => $cashierShift->id,
                 'manager_id' => $manager->id,
-                'expected_revision' => 2,
+                'expected_revision' => 1,
                 'expected_allocation_version' => 1,
                 'reason' => 'Manager approval winner',
             ],
@@ -237,7 +260,7 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
                 'command' => 'manager_approve',
                 'shift_id' => $cashierShift->id,
                 'manager_id' => $manager->id,
-                'expected_revision' => 2,
+                'expected_revision' => 1,
                 'expected_allocation_version' => 1,
                 'reason' => 'Manager approval competing duplicate',
             ]
@@ -259,6 +282,7 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
         $this->assertEquals(10.00, (float) $custody->first()->amount);
         $this->assertSame('Variance', $custody->first()->transaction_type);
         $this->assertFalse((bool) $custody->first()->is_cash_in, 'Debit shortage charge must have is_cash_in=false');
+        $this->assertSame(1000, $this->ledgerNetHalalas($cashierShift, $cashier));
     }
 
     public function test_redistribution_vs_posting_actual_race_and_union_consistency(): void
@@ -268,7 +292,7 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
 
         $service = app(AccountantReportCorrectionService::class);
 
-        // Step 1: Initial shortage of 10.00 SAR allocated 100% to Cashier 1, creating Revision 2 with pending review
+        // Step 1: Initial shortage of 10.00 SAR allocated 100% to Cashier 1, creating Revision 2
         $shares1 = [
             ['type' => 'cashier', 'id' => $cashier1->id, 'amount' => 1000],
         ];
@@ -315,47 +339,34 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
         $this->assertSame('created', $first['status']);
         $this->assertSame(3, $first['revision_number']);
 
-        // Competing approval of stale revision 2 rejected with STALE_REPORT_REVISION
+        // Competing approval of stale revision 2 detected that stakeholder set expanded (Cashier 2 added)
         $this->assertSame('conflict', $second['status']);
-        $this->assertSame('STALE_REPORT_REVISION', $second['code']);
+        $this->assertSame('REPORT_AFFECTED_SET_CHANGED', $second['code']);
 
-        // Partial posting prevented: zero postings and zero custody transactions exist
-        $this->assertSame(0, ShiftLiabilityPosting::where('cashier_shift_id', $cashierShift->id)->count());
-        $this->assertSame(0, CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)->count());
-
-        // Step 3: Now manager approves the current replacement Revision 3
-        $review3 = app(ShiftReportManagerReviewService::class)->approveCurrent(
-            $cashierShift,
-            $manager,
-            3,
-            2,
-            'Manager approved redistributed Revision 3',
-            (string) \Illuminate\Support\Str::uuid()
-        );
-        $this->assertSame('approved', $review3->status);
-
+        // Step 3: Under COR-07 accountant authority, redistribution immediately posted.
         // Prove final financial ledger records from actual rows:
         $custodyRows = CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)->get();
-        $this->assertCount(2, $custodyRows);
+        $this->assertCount(3, $custodyRows);
 
-        $c1Entry = $custodyRows->where('cashier_id', $cashier1->id)->first();
-        $c2Entry = $custodyRows->where('cashier_id', $cashier2->id)->first();
-
-        $this->assertNotNull($c1Entry);
-        $this->assertNotNull($c2Entry);
-        $this->assertEquals(6.00, (float) $c1Entry->amount);
-        $this->assertSame('Variance', $c1Entry->transaction_type);
-        $this->assertFalse((bool) $c1Entry->is_cash_in, 'Debit shortage charge must have is_cash_in=false');
-        $this->assertEquals(4.00, (float) $c2Entry->amount);
-        $this->assertSame('Variance', $c2Entry->transaction_type);
-        $this->assertFalse((bool) $c2Entry->is_cash_in, 'Debit shortage charge must have is_cash_in=false');
+        // Cashier 1 initial debit 10.00, credit 4.00 delta => net 6.00 SAR
+        // Cashier 2 debit 4.00 delta => net 4.00 SAR
+        $this->assertSame(600, $this->ledgerNetHalalas($cashierShift, $cashier1));
+        $this->assertSame(400, $this->ledgerNetHalalas($cashierShift, $cashier2));
+        $this->assertSame(1000, $this->ledgerNetHalalas($cashierShift, $cashier1) + $this->ledgerNetHalalas($cashierShift, $cashier2));
 
         // Prove all postings are fully posted without partial failure
         $postings = ShiftLiabilityPosting::where('cashier_shift_id', $cashierShift->id)->get();
-        $this->assertCount(2, $postings);
+        $this->assertCount(3, $postings);
         foreach ($postings as $p) {
             $this->assertSame('posted', $p->status);
         }
+        $c1Net = (int) ShiftLiabilityPosting::where('cashier_shift_id', $cashierShift->id)
+            ->where('responsible_id', $cashier1->id)->sum('delta_halalas');
+        $c2Net = (int) ShiftLiabilityPosting::where('cashier_shift_id', $cashierShift->id)
+            ->where('responsible_id', $cashier2->id)->sum('delta_halalas');
+        $this->assertSame(600, $c1Net, 'Cashier 1 net liability must be 600 halalas (6.00 SAR).');
+        $this->assertSame(400, $c2Net, 'Cashier 2 net liability must be 400 halalas (4.00 SAR).');
+        $this->assertSame(1000, $c1Net + $c2Net, 'Total net liability must remain 1000 halalas (10.00 SAR).');
     }
 
     public function test_redistribution_after_posted_shortage_preserves_balance_and_applies_atomic_deltas(): void
@@ -365,7 +376,7 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
 
         $service = app(AccountantReportCorrectionService::class);
 
-        // Initial 10.00 shortage on Cashier 1 approved and posted
+        // Initial 10.00 shortage on Cashier 1 posted under accountant authority (COR-07)
         $service->correct(
             $cashierShift,
             $accountant,
@@ -376,57 +387,46 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
             'Initial 10.00 shortage on Cashier 1',
             (string) \Illuminate\Support\Str::uuid()
         );
-        app(ShiftReportManagerReviewService::class)->approveCurrent(
-            $cashierShift,
-            $manager,
-            2,
-            1,
-            'Initial approval',
-            (string) \Illuminate\Support\Str::uuid()
-        );
         $this->assertSame(1, CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)->count());
-
-        // Accountant redistributes: Cashier 1 = 6.00, Cashier 2 = 4.00
-        $rev3 = $service->correct(
-            $cashierShift,
-            $accountant,
-            ['card_payments' => '10.00'],
-            [
-                ['type' => 'cashier', 'id' => $cashier1->id, 'amount' => 600],
-                ['type' => 'cashier', 'id' => $cashier2->id, 'amount' => 400],
-            ],
-            2,
-            1,
-            'Redistribute shortage: 60/40',
-            (string) \Illuminate\Support\Str::uuid()
-        );
-        $this->assertSame(3, $rev3->revision_number);
-
-        // Pending evidence does not change the previously approved financial balance.
         $this->assertSame(1000, $this->ledgerNetHalalas($cashierShift, $cashier1));
         $this->assertSame(0, $this->ledgerNetHalalas($cashierShift, $cashier2));
 
-        // Concurrent approval race on Revision 3
+        // Concurrent redistribution race on Revision 2:
+        // Worker 1 redistributes 60/40
+        // Worker 2 attempts competing redistribution on stale revision 2
         [$first, $second] = $this->race(
             [
-                'command' => 'manager_approve',
+                'command' => 'accountant_correct',
                 'shift_id' => $cashierShift->id,
-                'manager_id' => $manager->id,
-                'expected_revision' => 3,
-                'expected_allocation_version' => 2,
+                'accountant_id' => $accountant->id,
+                'payload' => ['card_payments' => '10.00'],
+                'shares' => [
+                    ['type' => 'cashier', 'id' => $cashier1->id, 'amount' => 600],
+                    ['type' => 'cashier', 'id' => $cashier2->id, 'amount' => 400],
+                ],
+                'expected_revision' => 2,
+                'expected_allocation_version' => 1,
+                'reason' => 'Redistribute shortage 60/40 winner',
             ],
             [
-                'command' => 'manager_approve',
+                'command' => 'accountant_correct',
                 'shift_id' => $cashierShift->id,
-                'manager_id' => $manager->id,
-                'expected_revision' => 3,
-                'expected_allocation_version' => 2,
+                'accountant_id' => $accountant->id,
+                'payload' => ['card_payments' => '10.00'],
+                'shares' => [
+                    ['type' => 'cashier', 'id' => $cashier1->id, 'amount' => 500],
+                    ['type' => 'cashier', 'id' => $cashier2->id, 'amount' => 500],
+                ],
+                'expected_revision' => 2,
+                'expected_allocation_version' => 1,
+                'reason' => 'Redistribute shortage 50/50 competing stale',
             ]
         );
 
-        $this->assertSame('approved', $first['status']);
+        $this->assertSame('created', $first['status']);
+        $this->assertSame(3, $first['revision_number']);
         $this->assertSame('conflict', $second['status']);
-        $this->assertSame('NO_PENDING_MANAGER_REVIEW', $second['code']);
+        $this->assertSame('STALE_REPORT_REVISION', $second['code']);
 
         // Verify union consistency: no partial reversal
         // Cashier 1 initial: 10.00 debit, delta: -4.00 credit => net balance = 6.00
@@ -457,7 +457,9 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
 
     public function test_forced_deadlock_retry_does_not_duplicate_balance_history_outbox_or_notifications(): void
     {
-        [$branch, $manager, $accountant, $day, $cashierShift, $cashier] = $this->fixture();
+        [$branch, $manager, $accountant, $day, $cashierShift, $cashier1] = $this->fixture();
+        $cashier2 = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);
+
         // Fail after real evidence writes and outbox callback registration, before commit.
         $snapshots = new class extends ShiftReportRevisionSnapshotService
         {
@@ -494,7 +496,7 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
         $operationId = (string) \Illuminate\Support\Str::uuid();
         $rev2 = app(AccountantReportCorrectionService::class)->correct(
             $cashierShift, $accountant, ['card_payments' => '10.00'],
-            [['type' => 'cashier', 'id' => $cashier->id, 'amount' => 1000]],
+            [['type' => 'cashier', 'id' => $cashier1->id, 'amount' => 1000]],
             1, null, 'Shortage correction with injected retry', $operationId
         );
         $this->assertSame(2, $snapshots->attempts);
@@ -511,37 +513,54 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
         $this->assertSame(0, app(\Modules\Shift\Services\ShiftReportCorrectionNotificationService::class)->dispatchPending($rev2->id));
         $this->assertSame(2, DB::table('notifications')->whereIn('id', $outbox->pluck('id'))->count());
 
-        // Fail separately after approval writes its actual ledger and posting.
-        $postingAttempts = 0;
+        // Part 2: Fail separately during shortage redistribution posting writes to verify ledger deadlock retry and rollback
+        $postingFaultAttempts = 0;
         $rolledBackPostingId = null;
         $rolledBackLedgerId = null;
         Event::listen('eloquent.created: '.ShiftLiabilityPosting::class,
-            function (ShiftLiabilityPosting $posting) use (&$postingAttempts, &$rolledBackPostingId, &$rolledBackLedgerId, $cashierShift): void {
+            function (ShiftLiabilityPosting $posting) use (&$postingFaultAttempts, &$rolledBackPostingId, &$rolledBackLedgerId, $cashierShift): void {
                 if ($posting->cashier_shift_id !== $cashierShift->id) {
                     return;
                 }
-                $postingAttempts++;
-                if ($postingAttempts === 1) {
+                if ($rolledBackPostingId === null) {
+                    $postingFaultAttempts++;
                     $rolledBackPostingId = $posting->id;
                     $rolledBackLedgerId = $posting->ledger_id;
-                    throw new QueryException('mysql', 'fault after approval ledger writes', [],
+                    throw new QueryException('mysql', 'fault after posting writes', [],
                         new \PDOException('Deadlock found when trying to get lock; try restarting transaction', 1213));
                 }
             });
-        $review = app(ShiftReportManagerReviewService::class)->approveCurrent(
-            $cashierShift, $manager, 2, 1, 'Approval committed on retry', (string) \Illuminate\Support\Str::uuid()
+
+        $redistribOpId = (string) \Illuminate\Support\Str::uuid();
+        $rev3 = app(AccountantReportCorrectionService::class)->correct(
+            $cashierShift,
+            $accountant,
+            ['card_payments' => '10.00'],
+            [
+                ['type' => 'cashier', 'id' => $cashier1->id, 'amount' => 600],
+                ['type' => 'cashier', 'id' => $cashier2->id, 'amount' => 400],
+            ],
+            2,
+            1,
+            'Redistribution committed on retry',
+            $redistribOpId
         );
-        $this->assertSame(2, $postingAttempts);
+
+        $this->assertSame(1, $postingFaultAttempts, 'Injected deadlock fault occurred exactly once before transaction retry.');
         $this->assertFalse(ShiftLiabilityPosting::whereKey($rolledBackPostingId)->exists());
         $this->assertFalse(CashierCustodyTransaction::whereKey($rolledBackLedgerId)->exists());
-        $this->assertSame('approved', $review->status);
-        $this->assertSame(1, ShiftLiabilityPosting::where('cashier_shift_id', $cashierShift->id)->count());
-        $this->assertSame(1, CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)->count());
-        $this->assertSame(1000, $this->ledgerNetHalalas($cashierShift, $cashier));
-        $this->assertSame(2, $this->revisionCount($cashierShift));
-        $this->assertSame(2, ShiftReportCorrection::where('operation_id', $operationId)->count());
-        $this->assertSame(2, ShiftReportCorrectionNotification::where('report_revision_id', $rev2->id)->count());
-        $this->assertSame(2, DB::table('notifications')->whereIn('id', $outbox->pluck('id'))->count());
+        $this->assertSame(3, $rev3->revision_number);
+        $this->assertSame(3, $this->revisionCount($cashierShift));
+        $this->assertSame(3, ShiftLiabilityPosting::where('cashier_shift_id', $cashierShift->id)->count());
+        $this->assertSame(3, CashierCustodyTransaction::where('related_shift_id', $cashierShift->id)->count());
+        $this->assertSame(600, $this->ledgerNetHalalas($cashierShift, $cashier1));
+        $this->assertSame(400, $this->ledgerNetHalalas($cashierShift, $cashier2));
+        $this->assertSame(1000, $this->ledgerNetHalalas($cashierShift, $cashier1) + $this->ledgerNetHalalas($cashierShift, $cashier2));
+        $outbox3 = ShiftReportCorrectionNotification::where('report_revision_id', $rev3->id)->get();
+        $this->assertCount(3, $outbox3, 'Outbox must contain 1 report_corrected + 2 liability_share_changed notifications without retry duplicates.');
+        $this->assertSame(1, $outbox3->where('event_type', 'report_corrected')->count());
+        $this->assertSame(2, $outbox3->where('event_type', 'liability_share_changed')->count());
+        $this->assertSame(3, DB::table('notifications')->whereIn('id', $outbox3->pluck('id'))->count());
     }
 
     public function test_public_accountant_command_retries_deadlock_and_replays_response(): void
@@ -577,12 +596,31 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
         $outbox = ShiftReportCorrectionNotification::where('report_revision_id', $this->currentRevision($shift)->id)->get();
         $this->assertCount(2, $outbox);
         $this->assertSame(2, DB::table('notifications')->whereIn('id', $outbox->pluck('id'))->count());
-        $this->assertSame(0, CashierCustodyTransaction::where('related_shift_id', $shift->id)->count());
+
+        // Under COR-07 accountant authority, shortage allocation immediately reconciles posting and custody
+        $custodyRows = CashierCustodyTransaction::where('related_shift_id', $shift->id)->get();
+        $this->assertCount(1, $custodyRows);
+        $custody = $custodyRows->sole();
+        $this->assertEquals(10.00, (float) $custody->amount);
+        $this->assertSame('Variance', $custody->transaction_type);
+        $this->assertFalse((bool) $custody->is_cash_in);
+        $this->assertSame(1000, $this->ledgerNetHalalas($shift, $cashier));
+
+        $postings = ShiftLiabilityPosting::where('cashier_shift_id', $shift->id)->get();
+        $this->assertCount(1, $postings);
+        $this->assertSame(1000, (int) $postings->sole()->delta_halalas);
+        $this->assertSame('posted', $postings->sole()->status);
+        $this->assertSame($custody->id, $postings->sole()->ledger_id);
     }
 
     public function test_correction_vs_daily_submitted_boundary_rejects_correction(): void
     {
         [$branch, $manager, $accountant, $day, $cashierShift] = $this->fixture();
+
+        // Ensure manager revision is recorded on workday
+        DB::transaction(function () use ($day, $manager) {
+            app(ShiftReportRevisionService::class)->recordManagerRevision($day, 'branch_manager', $manager->id, 0);
+        });
 
         // Mark workday as completed so it is eligible for daily close submission
         $day->update(['status' => 'completed']);
@@ -600,6 +638,7 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
             [
                 'command' => 'submit_boundary',
                 'day_id' => $day->id,
+                'expected_revision' => 1,
             ],
             [
                 'command' => 'accountant_correct',

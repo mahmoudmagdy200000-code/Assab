@@ -1313,4 +1313,513 @@ class ShiftReportRevisionAndAllocationVersionTest extends TestCase
 
         $this->assertSame(2, $resLegit->json('reportRevision'), 'Legitimate matching bridge must resolve reportRevision');
     }
+
+    /**
+     * FIN-01: Operation GET projects confirmedOpeningHalalas from confirmed receipt evidence (10.00 SAR -> 1000 halalas),
+     * never derives from configured float (50000 halalas), and preserves correct unchanged expected cash.
+     */
+    public function test_shift_operation_read_projects_confirmed_opening_from_receipt_evidence_and_preserves_expected_cash(): void
+    {
+        $op = $this->createShiftOperation();
+
+        // 1. Revision with confirmed cash count
+        $rev1 = $this->revisionService->recordCashierRevision($this->cashierShiftA, 'cashier', $this->cashierA->id);
+
+        // 2. Confirmed handover receipt of 10.00 SAR (1,000 halalas) into this cashier shift
+        DB::table('cashier_shift_handover_receipts')->insert([
+            'id' => (string) Str::uuid(),
+            'cashier_shift_handover_id' => null,
+            'branch_manager_cash_transfer_id' => null,
+            'receiving_cashier_shift_id' => $this->cashierShiftA->id,
+            'receiving_cashier_id' => $this->cashierA->id,
+            'report_revision_id' => $rev1->id,
+            'confirmed_amount' => '10.00',
+            'confirmed_by_id' => $this->cashierA->id,
+            'confirmed_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        // Cash count with 10.00 SAR confirmed opening
+        ShiftReportCashCount::create([
+            'report_revision_id' => $rev1->id,
+            'counted_revision_id' => $rev1->id,
+            'evidence_revision_id' => $rev1->id,
+            'cashier_shift_id' => $this->cashierShiftA->id,
+            'gross_halalas' => 11500,
+            'cards_halalas' => 5000,
+            'apps_halalas' => 2500,
+            'confirmed_opening_halalas' => 1000,
+            'pending_incoming_counted_halalas' => 0,
+            'counted_halalas' => 3000,
+            'expected_halalas' => 5000, // 11500 - 5000 - 2500 + 1000 = 5000
+            'variance_halalas' => -2000,
+        ]);
+
+        // Update operation payload: configured float is 50000 (500.00 SAR), expected cash is 5000 (50.00 SAR)
+        $op->update([
+            'payload' => array_merge($op->payload ?? [], [
+                'salesHalalas' => 11500,
+                'cardTotalHalalas' => 5000,
+                'aggregatorTotalsHalalas' => 2500,
+                'openingFloatHalalas' => 50000, // configured float
+                'cashExpectedHalalas' => 5000,  // expected cash: 115 - 50 - 25 + 10 = 50 SAR
+                'cashActualHalalas' => 3000,
+                'varianceHalalas' => -2000,
+            ]),
+        ]);
+
+        $res = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$op->id}")
+            ->assertOk();
+
+        // FIN-01 assertions:
+        // Confirmed opening is projected as 1,000 halalas (from confirmed receipt 10.00 SAR)
+        $this->assertSame(1000, $res->json('confirmedOpeningHalalas'));
+        $this->assertSame(1000, $res->json('payload.confirmedOpeningHalalas'));
+        $this->assertSame(1000, $res->json('payload.confirmed_opening_halalas'));
+
+        // Configured float remains untouched and separate
+        $this->assertSame(50000, $res->json('payload.openingFloatHalalas'));
+
+        // Expected cash remains 5,000 halalas (unchanged financial calculation)
+        $this->assertSame(5000, $res->json('payload.cashExpectedHalalas'));
+    }
+
+    /**
+     * COR-05-01: Operation GET projects cash_collected and handover_notes,
+     * distinguishing authoritative null notes from unsupported fields.
+     */
+    public function test_shift_operation_read_projects_cash_collected_and_authoritative_null_notes(): void
+    {
+        $op = $this->createShiftOperation();
+
+        // Case A: Cashier shift with cash_collected and authoritative null notes
+        $this->cashierShiftA->update([
+            'cash_collected' => '60.00',
+            'handover_notes' => null,
+        ]);
+
+        $resA = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$op->id}")
+            ->assertOk();
+
+        $this->assertSame(6000, $resA->json('cashCollectedHalalas'));
+        $this->assertSame(6000, $resA->json('payload.cashCollectedHalalas'));
+        $this->assertSame('60.00', $resA->json('payload.cash_collected'));
+        $this->assertTrue(array_key_exists('handoverNotes', $resA->json()));
+        $this->assertNull($resA->json('handoverNotes'), 'Authoritative null note must be projected as null');
+        $this->assertTrue(array_key_exists('handoverNotes', $resA->json('payload')));
+        $this->assertNull($resA->json('payload.handoverNotes'));
+
+        // Case B: Cashier shift with non-null handover notes
+        $this->cashierShiftA->update([
+            'handover_notes' => 'Old handover notes from cashier',
+        ]);
+
+        $resB = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$op->id}")
+            ->assertOk();
+
+        $this->assertSame('Old handover notes from cashier', $resB->json('handoverNotes'));
+        $this->assertSame('Old handover notes from cashier', $resB->json('payload.handoverNotes'));
+        $this->assertSame('Old handover notes from cashier', $resB->json('payload.handover_notes'));
+    }
+
+    /**
+     * COR-05-02: Operation GET projects lastCorrection evidence for current revision
+     * to safely reconcile lost responses without duplicate financial POSTs.
+     */
+    public function test_shift_operation_read_projects_last_correction_for_lost_post_response_attribution(): void
+    {
+        $op = $this->createShiftOperation();
+
+        // 1. Revision 2 setup
+        $rev1 = $this->revisionService->recordCashierRevision($this->cashierShiftA, 'cashier', $this->cashierA->id);
+        $rev2 = $this->revisionService->recordCashierRevision($this->cashierShiftA, 'accountant', $this->accountantA->id);
+        DB::table('shift_report_aggregates')->where('source_id', $this->cashierShiftA->id)->update(['current_revision_number' => 2]);
+
+        // 2. Record accountant correction command in shift_report_corrections
+        DB::table('shift_report_corrections')->insert([
+            'id' => (string) Str::uuid(),
+            'report_aggregate_id' => $rev2->report_aggregate_id,
+            'previous_revision_id' => $rev1->id,
+            'new_revision_id' => $rev2->id,
+            'previous_revision_number' => 1,
+            'new_revision_number' => 2,
+            'field_name' => 'card_payments',
+            'field_type' => 'monetary_halalas',
+            'old_value' => '40.00',
+            'new_value' => '30.00',
+            'old_halalas' => 4000,
+            'new_halalas' => 3000,
+            'reason' => 'Audit adjustment on card receipts',
+            'actor_type' => 'accountant',
+            'actor_id' => $this->accountantA->id,
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'operation_id' => $op->id,
+            'created_at' => now(),
+        ]);
+
+        $res = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$op->id}")
+            ->assertOk();
+
+        $this->assertSame(2, $res->json('reportRevision'));
+        $this->assertNotNull($res->json('lastCorrection'));
+        $this->assertSame(2, $res->json('lastCorrection.revisionNumber'));
+        $this->assertSame((string) $op->id, $res->json('lastCorrection.commandId'));
+        $this->assertSame('Audit adjustment on card receipts', $res->json('lastCorrection.reason'));
+        $this->assertSame((string) $this->accountantA->id, $res->json('lastCorrection.actorId'));
+        $this->assertSame('accountant', $res->json('lastCorrection.actorType'));
+        $this->assertSame($res->json('lastCorrection'), $res->json('payload.lastCorrection'));
+    }
+
+    /**
+     * COR-05-02 Regression:
+     * Two shifts in the same branch with the same report revision (revision 2).
+     * Another shift's correction MUST NOT appear as the target shift's lastCorrection.
+     */
+    public function test_cor_05_02_regression_two_shifts_same_branch_same_revision_strictly_isolated(): void
+    {
+        $opA = $this->createShiftOperation();
+
+        // Setup Shift B in the same branch
+        $template = ShiftTemplate::factory()->create([
+            'branch_id' => $this->branchA->id,
+            'name' => 'Evening Shift Template',
+            'start_time' => '18:00:00',
+            'end_time' => '02:00:00',
+        ]);
+        $cashierB = Cashier::factory()->create(['branch_id' => $this->branchA->id]);
+        $cashierShiftB = CashierShift::factory()->create([
+            'shift_id' => $template->id,
+            'cashier_id' => $cashierB->id,
+            'total_sales' => '100.00',
+            'card_payments' => '40.00',
+            'cash_collected' => '60.00',
+            'closing_balance' => '60.00',
+            'variance' => '0.00',
+            'status' => 'in_progress',
+        ]);
+        $adminShiftB = AdminShift::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'user_id' => $this->accountantA->id,
+            'legacy_shift_id' => $cashierShiftB->id,
+            'name' => 'Shift B Same Branch',
+            'start_time' => now()->subHours(4),
+            'status' => 'active',
+        ]);
+        $opB = Operation::create([
+            'public_id' => 'SHF-' . strtoupper(Str::random(6)),
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'module_key' => 'shifts',
+            'origin' => 'mobile',
+            'source_module' => 'shifts',
+            'source_id' => $adminShiftB->id,
+            'amount' => 10000,
+            'match' => 'exact',
+            'status' => Operation::STATUS_PENDING,
+            'payload' => [
+                'shiftId' => $adminShiftB->id,
+                'legacyShiftId' => $cashierShiftB->id,
+            ],
+        ]);
+
+        // Both shifts reach revision 2
+        $revA1 = $this->revisionService->recordCashierRevision($this->cashierShiftA, 'cashier', $this->cashierA->id);
+        $revA2 = $this->revisionService->recordCashierRevision($this->cashierShiftA, 'accountant', $this->accountantA->id);
+        DB::table('shift_report_aggregates')->where('source_id', $this->cashierShiftA->id)->update(['current_revision_number' => 2]);
+
+        $revB1 = $this->revisionService->recordCashierRevision($cashierShiftB, 'cashier', $cashierB->id);
+        $revB2 = $this->revisionService->recordCashierRevision($cashierShiftB, 'accountant', $this->accountantA->id);
+        DB::table('shift_report_aggregates')->where('source_id', $cashierShiftB->id)->update(['current_revision_number' => 2]);
+
+        $cmdA = (string) Str::uuid();
+        $cmdB = (string) Str::uuid();
+
+        // Correction for Shift A
+        DB::table('shift_report_corrections')->insert([
+            'id' => (string) Str::uuid(),
+            'report_aggregate_id' => $revA2->report_aggregate_id,
+            'previous_revision_id' => $revA1->id,
+            'new_revision_id' => $revA2->id,
+            'previous_revision_number' => 1,
+            'new_revision_number' => 2,
+            'field_name' => 'card_payments',
+            'field_type' => 'monetary_halalas',
+            'old_value' => '40.00',
+            'new_value' => '30.00',
+            'old_halalas' => 4000,
+            'new_halalas' => 3000,
+            'reason' => 'Correction for Shift A only',
+            'actor_type' => 'accountant',
+            'actor_id' => $this->accountantA->id,
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'operation_id' => $cmdA,
+            'created_at' => now()->subMinute(),
+        ]);
+
+        // Correction for Shift B (created later in the same branch at revision 2)
+        DB::table('shift_report_corrections')->insert([
+            'id' => (string) Str::uuid(),
+            'report_aggregate_id' => $revB2->report_aggregate_id,
+            'previous_revision_id' => $revB1->id,
+            'new_revision_id' => $revB2->id,
+            'previous_revision_number' => 1,
+            'new_revision_number' => 2,
+            'field_name' => 'card_payments',
+            'field_type' => 'monetary_halalas',
+            'old_value' => '40.00',
+            'new_value' => '35.00',
+            'old_halalas' => 4000,
+            'new_halalas' => 3500,
+            'reason' => 'Correction for Shift B only',
+            'actor_type' => 'accountant',
+            'actor_id' => $this->accountantA->id,
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'operation_id' => $cmdB,
+            'created_at' => now(),
+        ]);
+
+        // Query Operation A: MUST project Shift A's correction and NEVER Shift B's
+        $resA = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$opA->id}")
+            ->assertOk();
+
+        $this->assertSame(2, $resA->json('reportRevision'));
+        $this->assertSame(2, $resA->json('lastCorrection.revisionNumber'));
+        $this->assertSame($cmdA, $resA->json('lastCorrection.commandId'));
+        $this->assertSame('Correction for Shift A only', $resA->json('lastCorrection.reason'));
+        $this->assertNotSame($cmdB, $resA->json('lastCorrection.commandId'));
+
+        // Query Operation B: MUST project Shift B's correction and NEVER Shift A's
+        $resB = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$opB->id}")
+            ->assertOk();
+
+        $this->assertSame(2, $resB->json('reportRevision'));
+        $this->assertSame(2, $resB->json('lastCorrection.revisionNumber'));
+        $this->assertSame($cmdB, $resB->json('lastCorrection.commandId'));
+        $this->assertSame('Correction for Shift B only', $resB->json('lastCorrection.reason'));
+        $this->assertNotSame($cmdA, $resB->json('lastCorrection.commandId'));
+    }
+
+    /**
+     * COR-05-02 Regression:
+     * Two corrections by the same accountant using the same reason.
+     * Demonstrates that reason and actor ID do NOT prove command success,
+     * and only exact commandId (Idempotency-Key) attributes the command.
+     */
+    public function test_cor_05_02_regression_same_accountant_and_reason_distinguished_by_command_id(): void
+    {
+        $op = $this->createShiftOperation();
+
+        $rev1 = $this->revisionService->recordCashierRevision($this->cashierShiftA, 'cashier', $this->cashierA->id);
+        $rev2 = $this->revisionService->recordCashierRevision($this->cashierShiftA, 'accountant', $this->accountantA->id);
+        $rev3 = $this->revisionService->recordCashierRevision($this->cashierShiftA, 'accountant', $this->accountantA->id);
+        DB::table('shift_report_aggregates')->where('source_id', $this->cashierShiftA->id)->update(['current_revision_number' => 3]);
+
+        $cmd1 = (string) Str::uuid();
+        $cmd2 = (string) Str::uuid();
+        $sharedReason = 'Routine end of day card reconciliation';
+
+        // Rev 2 correction
+        DB::table('shift_report_corrections')->insert([
+            'id' => (string) Str::uuid(),
+            'report_aggregate_id' => $rev2->report_aggregate_id,
+            'previous_revision_id' => $rev1->id,
+            'new_revision_id' => $rev2->id,
+            'previous_revision_number' => 1,
+            'new_revision_number' => 2,
+            'field_name' => 'card_payments',
+            'field_type' => 'monetary_halalas',
+            'old_value' => '40.00',
+            'new_value' => '30.00',
+            'old_halalas' => 4000,
+            'new_halalas' => 3000,
+            'reason' => $sharedReason,
+            'actor_type' => 'accountant',
+            'actor_id' => $this->accountantA->id,
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'operation_id' => $cmd1,
+            'created_at' => now()->subMinute(),
+        ]);
+
+        // Rev 3 correction (same accountant, same reason text, but new command identity)
+        DB::table('shift_report_corrections')->insert([
+            'id' => (string) Str::uuid(),
+            'report_aggregate_id' => $rev3->report_aggregate_id,
+            'previous_revision_id' => $rev2->id,
+            'new_revision_id' => $rev3->id,
+            'previous_revision_number' => 2,
+            'new_revision_number' => 3,
+            'field_name' => 'card_payments',
+            'field_type' => 'monetary_halalas',
+            'old_value' => '30.00',
+            'new_value' => '25.00',
+            'old_halalas' => 3000,
+            'new_halalas' => 2500,
+            'reason' => $sharedReason,
+            'actor_type' => 'accountant',
+            'actor_id' => $this->accountantA->id,
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'operation_id' => $cmd2,
+            'created_at' => now(),
+        ]);
+
+        $res = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$op->id}")
+            ->assertOk();
+
+        // Latest revision is 3: lastCorrection MUST match $cmd2, not $cmd1
+        $this->assertSame(3, $res->json('reportRevision'));
+        $this->assertSame(3, $res->json('lastCorrection.revisionNumber'));
+        $this->assertSame($cmd2, $res->json('lastCorrection.commandId'));
+        $this->assertNotSame($cmd1, $res->json('lastCorrection.commandId'));
+    }
+
+    /**
+     * COR-05-02 Regression:
+     * Lost response after successful financial POST vs when POST did not commit.
+     * Demonstrates idempotency, zero duplicate side effects, and strict tenant/branch isolation.
+     */
+    public function test_cor_05_02_regression_lost_response_reconciliation_and_zero_duplicate_effects(): void
+    {
+        $testTemplate = ShiftTemplate::factory()->create(['branch_id' => $this->branchA->id]);
+        $testCashier = Cashier::factory()->create(['branch_id' => $this->branchA->id]);
+        $testShift = CashierShift::factory()->create([
+            'shift_id' => $testTemplate->id,
+            'cashier_id' => $testCashier->id,
+            'total_sales' => '100.00',
+            'net_sales' => '86.96',
+            'vat_amount' => '13.04',
+            'card_payments' => '40.00',
+            'cash_collected' => '60.00',
+            'closing_balance' => '60.00',
+            'variance' => '0.00',
+            'status' => 'in_progress',
+        ]);
+        $testAdminShift = AdminShift::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'legacy_shift_id' => $testShift->id,
+            'name' => 'Test Isolated Shift',
+            'status' => 'active',
+        ]);
+        $op = Operation::create([
+            'public_id' => 'SHF-' . strtoupper(Str::random(6)),
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'module_key' => 'shifts',
+            'origin' => 'mobile',
+            'source_module' => 'shifts',
+            'source_id' => $testAdminShift->id,
+            'amount' => 10000,
+            'match' => 'exact',
+            'status' => Operation::STATUS_PENDING,
+            'payload' => [
+                'shiftId' => $testAdminShift->id,
+                'legacyShiftId' => $testShift->id,
+            ],
+        ]);
+
+        // 1. Initial CashCount at Rev 1
+        $rev1 = $this->revisionService->recordCashierRevision($testShift, 'cashier', $testCashier->id);
+        ShiftReportCashCount::create([
+            'report_revision_id' => $rev1->id,
+            'counted_revision_id' => $rev1->id,
+            'evidence_revision_id' => $rev1->id,
+            'cashier_shift_id' => $testShift->id,
+            'gross_halalas' => 10000,
+            'cards_halalas' => 4000,
+            'apps_halalas' => 0,
+            'confirmed_opening_halalas' => 0,
+            'pending_incoming_counted_halalas' => 0,
+            'counted_halalas' => 6000,
+            'expected_halalas' => 6000,
+            'variance_halalas' => 0,
+        ]);
+
+        $clientCommandId = (string) Str::uuid();
+        $payload = [
+            'expected_revision' => 1,
+            'reason' => 'Reconciling lost response test',
+            'changes' => [
+                'card_payments' => '30.00',
+            ],
+            'shortage_allocations' => [
+                [
+                    'type' => 'cashier',
+                    'id' => $testCashier->id,
+                    'amount' => 1000,
+                ],
+            ],
+        ];
+
+        // 2. Client executes POST /accountant/shifts/{id}/corrections with Idempotency-Key
+        $postRes = $this->withHeader('Idempotency-Key', $clientCommandId)
+            ->actingAs($this->accountantA, 'sanctum')
+            ->postJson("/api/v1/accountant/shifts/{$testShift->id}/corrections", $payload);
+        $postRes->assertOk();
+
+        $this->assertSame(2, $postRes->json('revision_number'));
+
+        // 3. Assume response was lost in transit: Client reads Operation GET to reconcile
+        $opRes = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$op->id}")
+            ->assertOk();
+
+        // Exact attribution proven:
+        $this->assertSame(2, $opRes->json('reportRevision'));
+        $this->assertNotNull($opRes->json('lastCorrection'));
+        $this->assertSame(2, $opRes->json('lastCorrection.revisionNumber'));
+        $this->assertSame($clientCommandId, $opRes->json('lastCorrection.commandId'));
+
+        // 4. Client replays exact same POST: returns cached snapshot, ZERO duplicate records
+        $correctionsCountBefore = DB::table('shift_report_corrections')->count();
+        $allocationsCountBefore = DB::table('shift_liability_allocations')->count();
+
+        $replayRes = $this->withHeader('Idempotency-Key', $clientCommandId)
+            ->actingAs($this->accountantA, 'sanctum')
+            ->postJson("/api/v1/accountant/shifts/{$testShift->id}/corrections", $payload)
+            ->assertOk();
+
+        $this->assertSame($postRes->getContent(), $replayRes->getContent());
+        $this->assertSame($correctionsCountBefore, DB::table('shift_report_corrections')->count(), 'Zero duplicate corrections');
+        $this->assertSame($allocationsCountBefore, DB::table('shift_liability_allocations')->count(), 'Zero duplicate allocations');
+
+        // 5. Lost response when POST did NOT commit:
+        // A stale request with different commandId fails with 409 and never mutates
+        $failedCommandId = (string) Str::uuid();
+        $stalePayload = array_merge($payload, ['expected_revision' => 1]); // Stale! Current is 2
+
+        $failRes = $this->withHeader('Idempotency-Key', $failedCommandId)
+            ->actingAs($this->accountantA, 'sanctum')
+            ->postJson("/api/v1/accountant/shifts/{$testShift->id}/corrections", $stalePayload);
+
+        $failRes->assertStatus(409);
+
+        // Operation GET still reflects only the committed command, not the failed one
+        $opResAfterFail = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/operations/{$op->id}")
+            ->assertOk();
+
+        $this->assertSame(2, $opResAfterFail->json('reportRevision'));
+        $this->assertSame($clientCommandId, $opResAfterFail->json('lastCorrection.commandId'));
+        $this->assertNotSame($failedCommandId, $opResAfterFail->json('lastCorrection.commandId'));
+
+        // 6. Strict tenant and branch isolation:
+        // Accountant B in foreign branch cannot view Operation A (returns 404 NotFound)
+        $this->actingAs($this->accountantB, 'sanctum')
+            ->getJson("/api/v1/operations/{$op->id}")
+            ->assertNotFound();
+    }
 }

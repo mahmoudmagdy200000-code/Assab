@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Http\Controllers\Operations;
 
+use App\Support\ShiftFinancialCalculator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -119,20 +120,46 @@ class OperationController extends AsabController
             }
             // BD-2 / BD-3 read-only shortage liability allocation, manager approval status,
             // report revision number, and allocation version for shift operations.
+            // FIN-01 / COR-05 confirmed opening, cash collected, handover notes, and correction attribution.
             if ($op->module_key === 'shifts') {
                 $cashierShiftId = $this->resolveCashierShiftId($op);
                 $liability = $this->presentShiftLiability($op, $cashierShiftId);
                 $reportRevision = $this->resolveShiftReportRevision($op, $cashierShiftId);
                 $allocationVersion = $liability !== null ? (int) $liability['version'] : null;
+                $confirmedOpeningHalalas = $this->resolveConfirmedOpeningHalalas($op, $cashierShiftId);
+                $shiftFields = $this->resolveCashierShiftFields($op, $cashierShiftId);
+                $lastCorrection = $this->resolveShiftLastCorrection($op, $cashierShiftId, $reportRevision);
 
                 $data['reportRevision'] = $reportRevision;
                 $data['allocationVersion'] = $allocationVersion;
                 $data['liability'] = $liability;
+                $data['confirmedOpeningHalalas'] = $confirmedOpeningHalalas;
+
+                if ($shiftFields !== null) {
+                    $data['cashCollectedHalalas'] = $shiftFields['cashCollectedHalalas'];
+                    $data['handoverNotes'] = $shiftFields['handoverNotes'];
+                }
+                if ($lastCorrection !== null) {
+                    $data['lastCorrection'] = $lastCorrection;
+                }
 
                 if (is_array($data['payload'])) {
                     $data['payload']['reportRevision'] = $reportRevision;
                     $data['payload']['allocationVersion'] = $allocationVersion;
                     $data['payload']['liability'] = $liability;
+                    $data['payload']['confirmedOpeningHalalas'] = $confirmedOpeningHalalas;
+                    $data['payload']['confirmed_opening_halalas'] = $confirmedOpeningHalalas;
+
+                    if ($shiftFields !== null) {
+                        $data['payload']['cashCollectedHalalas'] = $shiftFields['cashCollectedHalalas'];
+                        $data['payload']['cash_collected_halalas'] = $shiftFields['cashCollectedHalalas'];
+                        $data['payload']['cash_collected'] = $shiftFields['cashCollected'];
+                        $data['payload']['handoverNotes'] = $shiftFields['handoverNotes'];
+                        $data['payload']['handover_notes'] = $shiftFields['handoverNotes'];
+                    }
+                    if ($lastCorrection !== null) {
+                        $data['payload']['lastCorrection'] = $lastCorrection;
+                    }
                 }
             }
             $data['auditTrail'] = $op->steps->map(fn ($s) => [
@@ -790,5 +817,118 @@ class OperationController extends AsabController
 
             default => null,
         };
+    }
+
+    /**
+     * FIN-01 — Project confirmed opening evidence (in halalas) from the cashier shift's
+     * confirmed cash-count/receipt evidence. Enforces tenant, branch, and revision association.
+     * Never derives from configured float. Returns null if no confirmed evidence exists.
+     */
+    private function resolveConfirmedOpeningHalalas(Operation $op, ?string $cashierShiftId = null): ?int
+    {
+        $cashierShiftId ??= $this->resolveCashierShiftId($op);
+        if (! $cashierShiftId) {
+            return null;
+        }
+
+        // 1. If a cash count exists for the current revision, use its stored confirmed_opening_halalas
+        $count = app(\Modules\Shift\Services\ShiftCashCountService::class)->currentFor($cashierShiftId);
+        if ($count !== null) {
+            return (int) $count->confirmed_opening_halalas;
+        }
+
+        // 2. If confirmed receipts exist in cashier_shift_handover_receipts, sum them
+        $hasReceipts = DB::table('cashier_shift_handover_receipts')
+            ->where('receiving_cashier_shift_id', $cashierShiftId)
+            ->exists();
+
+        if ($hasReceipts) {
+            return app(\Modules\Shift\Services\ShiftCashCountService::class)->confirmedOpeningHalalas($cashierShiftId);
+        }
+
+        return null;
+    }
+
+    /**
+     * COR-05-01 — Project authoritative cashier shift fields (cash_collected and handover_notes).
+     * Distinguishes authoritative null notes from an unsupported shift.
+     *
+     * @return array{cashCollectedHalalas: ?int, cashCollected: ?string, handoverNotes: ?string}|null
+     */
+    private function resolveCashierShiftFields(Operation $op, ?string $cashierShiftId = null): ?array
+    {
+        $cashierShiftId ??= $this->resolveCashierShiftId($op);
+        if (! $cashierShiftId) {
+            return null;
+        }
+
+        $row = DB::table('cashier_shifts')
+            ->where('id', $cashierShiftId)
+            ->select('cash_collected', 'handover_notes')
+            ->first();
+
+        if (! $row) {
+            return null;
+        }
+
+        $cashCollectedHalalas = $row->cash_collected !== null
+            ? ShiftFinancialCalculator::storedSarToHalalas($row->cash_collected)
+            : null;
+
+        $cashCollected = $row->cash_collected !== null
+            ? number_format((float) $row->cash_collected, 2, '.', '')
+            : null;
+
+        return [
+            'cashCollectedHalalas' => $cashCollectedHalalas,
+            'cashCollected' => $cashCollected,
+            'handoverNotes' => $row->handover_notes,
+        ];
+    }
+
+    /**
+     * COR-05-02 — Project the latest accountant correction command evidence for the current revision
+     * and specific cashier shift report aggregate so that clients can safely verify exact command attribution
+     * on lost responses without repeating financial POSTs or cross-shift pollution.
+     *
+     * @return array{revisionNumber: int, commandId: string, reason: string, actorType: string, actorId: string, createdAt: string}|null
+     */
+    private function resolveShiftLastCorrection(Operation $op, ?string $cashierShiftId, ?int $reportRevision): ?array
+    {
+        $cashierShiftId ??= $this->resolveCashierShiftId($op);
+        if (! $cashierShiftId || ! $reportRevision) {
+            return null;
+        }
+
+        $aggregate = DB::table('shift_report_aggregates')
+            ->where('source_type', 'cashier_shift')
+            ->where('source_id', $cashierShiftId)
+            ->first();
+
+        if (! $aggregate) {
+            return null;
+        }
+
+        $correction = DB::table('shift_report_corrections')
+            ->where('report_aggregate_id', $aggregate->id)
+            ->where('company_id', $op->company_id)
+            ->where('branch_id', $op->branch_id)
+            ->where('new_revision_number', $reportRevision)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $correction) {
+            return null;
+        }
+
+        return [
+            'revisionNumber' => (int) $correction->new_revision_number,
+            'commandId' => (string) $correction->operation_id,
+            'reason' => (string) $correction->reason,
+            'actorType' => (string) $correction->actor_type,
+            'actorId' => (string) $correction->actor_id,
+            'createdAt' => (string) $correction->created_at,
+        ];
     }
 }
