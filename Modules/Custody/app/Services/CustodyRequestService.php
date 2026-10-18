@@ -4,6 +4,9 @@ namespace Modules\Custody\Services;
 
 use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Modules\Admin\Services\MobileBranchScopeService;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BrandOwner\Models\BrandOwner;
 use Modules\Custody\Models\CustodyRequest;
@@ -15,7 +18,43 @@ class CustodyRequestService
     public function __construct(
         private readonly CustodyNotifier $notifier,
         private readonly CustodyTransactionService $transactions,
+        private readonly MobileBranchScopeService $branchScope,
     ) {}
+
+    /**
+     * BRC v3.4 F-09 — constrain a request query to what a brand-level actor (brand owner / brand manager) may reach.
+     *
+     * Authority = the branches of the brands the SERVER resolves for the actor (MobileBranchScopeService, fail-closed:
+     * no resolvable brand => no branch => nothing). A request's branch is its own branch_id, or — for legacy rows that
+     * never stamped one — its manager's branch. Creator identity is NOT an authorization bypass:
+     * if brand access is revoked, even the creator cannot read or decide that branch's requests.
+     * Nothing the client sends feeds this.
+     */
+    public function scopeForOwnerActor(Builder $query, BrandOwner $actor): Builder
+    {
+        $branchIds = $this->branchScope->visibleBranchIds($actor);
+
+        return $query->where(function (Builder $w) use ($branchIds) {
+            $w->whereIn('branch_id', $branchIds)
+                ->orWhere(function (Builder $legacy) use ($branchIds) {
+                    $legacy->whereNull('branch_id')
+                        ->whereIn('branch_manager_id', BranchManager::withTrashed()->whereIn('branch_id', $branchIds)->select('id'));
+                });
+        });
+    }
+
+    public function ownerCanAccess(string $requestId, BrandOwner $actor): bool
+    {
+        return $this->scopeForOwnerActor(CustodyRequest::query()->whereKey($requestId), $actor)->exists();
+    }
+
+    /** Out of scope == unknown id: the same exception, so existence is not disclosed. */
+    private function assertOwnerScope(CustodyRequest $request, BrandOwner $actor): void
+    {
+        if (! $this->ownerCanAccess($request->id, $actor)) {
+            throw (new ModelNotFoundException)->setModel(CustodyRequest::class, [$request->id]);
+        }
+    }
 
     /**
      * Create new custody request
@@ -210,13 +249,16 @@ class CustodyRequestService
         ?string $status = null,
         ?string $preferredReceiptMethod = null,
         bool $isBrandOwner = false,
-        ?string $branchId = null
+        ?string $branchId = null,
+        ?BrandOwner $ownerActor = null
     ): array {
         // Branch scope, not just manager scope: a manager reassigned to a new
         // branch used to drag their previous branch's requests into it — the
         // «فرع جديد وفيه بيانات قديمة» report (2026-08-03).
         $query = $isBrandOwner
-            ? CustodyRequest::query()
+            ? ($ownerActor !== null
+                ? $this->scopeForOwnerActor(CustodyRequest::query(), $ownerActor)
+                : CustodyRequest::query()->whereRaw('1 = 0'))
             : CustodyRequest::where('branch_manager_id', $branchManagerId)
                 ->when($branchId, fn ($q) => $q->where('branch_id', $branchId));
 
@@ -381,10 +423,12 @@ class CustodyRequestService
     /**
      * History for Brand Owner Owner Payment Form: requests created by this brand owner.
      */
-    public function getBrandOwnerRequestHistory(string $brandOwnerId, int $limit = 10): array
+    public function getBrandOwnerRequestHistory(BrandOwner $actor, int $limit = 10): array
     {
-        $requests = CustodyRequest::where('created_by_brand_owner_id', $brandOwnerId)
-            ->orderBy('created_at', 'desc')
+        $requests = $this->scopeForOwnerActor(
+            CustodyRequest::where('created_by_brand_owner_id', $actor->id),
+            $actor,
+        )->orderBy('created_at', 'desc')
             ->limit($limit)
             ->get();
 
@@ -409,6 +453,7 @@ class CustodyRequestService
     {
         $request = DB::transaction(function () use ($requestId, $actor) {
             $request = CustodyRequest::lockForUpdate()->findOrFail($requestId);
+            $this->assertOwnerScope($request, $actor);
 
             if (strcasecmp((string) $request->status, 'Pending') !== 0) {
                 throw new \RuntimeException('Only pending custody requests can be approved.');
@@ -550,6 +595,7 @@ class CustodyRequestService
     {
         $request = DB::transaction(function () use ($requestId, $actor, $reason) {
             $request = CustodyRequest::lockForUpdate()->findOrFail($requestId);
+            $this->assertOwnerScope($request, $actor);
 
             if (strcasecmp((string) $request->status, 'Pending') !== 0) {
                 throw new \RuntimeException('Only pending custody requests can be rejected.');

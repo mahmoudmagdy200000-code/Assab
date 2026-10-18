@@ -190,6 +190,42 @@ class ShiftCashCountHttpTest extends TestCase
         });
     }
 
+    /** AC-44 / DIFF-07: a 0.01 SAR shortage is recorded in full and assigned in full — no tolerance (HTTP path). */
+    public function test_ac44_over_real_http_a_one_halala_shortage_is_recorded_and_fully_assigned(): void
+    {
+        $this->confirmedOpening();
+
+        $response = $this->end($this->fin01Payload([
+            'counted_cash' => '49.99',
+            'shortage_allocations' => [['responsible_type' => 'cashier', 'responsible_id' => $this->recipient->id, 'amount' => '0.01']],
+        ]))->assertOk();
+
+        $this->assertEquals([
+            'counted_cash' => 49.99, 'expected_cash' => 50.0, 'cash_variance' => -0.01, 'cash_variance_type' => 'shortage',
+            'pending_incoming_cash' => 0.0, 'confirmed_opening_cash' => 10.0,
+        ], $response->json('data.summary.cash_reconciliation'));
+
+        $count = ShiftReportCashCount::where('cashier_shift_id', $this->recipientShift->id)->sole();
+        $this->assertSame(4999, $count->counted_halalas);
+        $this->assertSame(-1, $count->variance_halalas);
+        $allocation = ShiftLiabilityAllocation::where('cashier_shift_id', $this->recipientShift->id)->sole();
+        $this->assertSame(-1, $allocation->variance_halalas);
+        $this->assertSame([1], ShiftLiabilityShare::where('allocation_id', $allocation->id)->pluck('amount_halalas')->all());
+    }
+
+    public function test_ac44_a_one_halala_shortage_without_a_complete_assignment_is_not_tolerated(): void
+    {
+        $this->confirmedOpening();
+        $payload = $this->fin01Payload(['counted_cash' => '49.99']);
+        unset($payload['shortage_allocations']);
+
+        $response = $this->end($payload);
+
+        $this->assertGreaterThanOrEqual(400, $response->status());
+        $this->assertSame(0, ShiftLiabilityAllocation::where('cashier_shift_id', $this->recipientShift->id)->count());
+        $this->assertNotSame(ShiftStatus::COMPLETED, $this->recipientShift->fresh()->status);
+    }
+
     public function test_missing_counted_cash_is_rejected_and_never_treated_as_zero(): void
     {
         $payload = $this->fin01Payload();

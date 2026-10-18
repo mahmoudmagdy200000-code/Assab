@@ -86,7 +86,8 @@ class CustodyRequestController extends BaseController
                 $status,
                 $preferredReceiptMethod,
                 $isBrandOwner,
-                $isBrandOwner ? null : ($user->branch_id ?? null)
+                $isBrandOwner ? null : ($user->branch_id ?? null),
+                $isBrandOwner ? $user : null
             );
 
             return $this->successResponse([
@@ -109,7 +110,12 @@ class CustodyRequestController extends BaseController
             // so another branch's request (amount, purpose, attachments) is neither readable nor confirmable.
             // Brand owners and brand managers keep their existing access (their own scoping is a separate decision).
             $user = auth()->user();
-            if (! ($user instanceof BrandOwner)) {
+            if ($user instanceof BrandOwner) {
+                // F-09: brand owners / brand managers reach only the requests of their own brands (fail-closed).
+                if (! $this->requestService->ownerCanAccess($requestId, $user)) {
+                    return $this->errorResponse('Custody request not found', 404);
+                }
+            } else {
                 $owned = $user instanceof BranchManager
                     && \Modules\Custody\Models\CustodyRequest::whereKey($requestId)->where('branch_manager_id', $user->id)->exists();
                 if (! $owned) {
@@ -229,7 +235,7 @@ class CustodyRequestController extends BaseController
         try {
             $user = auth()->user();
             $history = $user instanceof BrandOwner
-                ? $this->requestService->getBrandOwnerRequestHistory($user->id)
+                ? $this->requestService->getBrandOwnerRequestHistory($user)
                 : $this->requestService->getRequestHistory(auth()->id());
 
             return $this->successResponse([

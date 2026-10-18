@@ -43,6 +43,13 @@ class OwnerPaymentFormController extends BaseController
             return $this->validationErrorResponse($validator->errors());
         }
 
+        // F-09: the recipient must be a manager of a branch under the owner's own brands (server-resolved, fail-closed).
+        // Out of scope is answered exactly like an unknown recipient id.
+        $recipientBranch = \Modules\BranchManagers\Models\BranchManager::whereKey($request->input('recipientEmployeeId'))->value('branch_id');
+        if (! app(\Modules\Admin\Services\MobileBranchScopeService::class)->canSee($actor, $recipientBranch)) {
+            return $this->validationErrorResponse(['recipientEmployeeId' => ['The selected recipient employee id is invalid.']]);
+        }
+
         try {
             $normalized = match ($method) {
                 'cash_handover', 'cash handover' => 'Cash Handover',

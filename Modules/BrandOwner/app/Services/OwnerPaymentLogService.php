@@ -3,11 +3,13 @@
 namespace Modules\BrandOwner\Services;
 
 use Illuminate\Database\Eloquent\Builder;
+use Modules\Admin\Services\MobileBranchScopeService;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BrandOwner\Models\BrandOwner;
 use Modules\BrandOwner\Models\CashSalesTransferRequest;
 use Modules\Cashier\Models\Cashier;
 use Modules\Custody\Models\CustodyRequest;
+use Modules\Custody\Services\CustodyRequestService;
 
 /**
  * Aggregates Owner Payment Logs across:
@@ -19,6 +21,11 @@ use Modules\Custody\Models\CustodyRequest;
  */
 class OwnerPaymentLogService
 {
+    public function __construct(
+        private readonly CustodyRequestService $custodyRequests,
+        private readonly MobileBranchScopeService $branchScope,
+    ) {}
+
     public function listForBrandOwner(BrandOwner $brandOwner, array $filters, int $page, int $pageSize): array
     {
         $type = $this->normalizeMethod($filters['type'] ?? null);
@@ -56,10 +63,12 @@ class OwnerPaymentLogService
 
     public function findDetails(BrandOwner $brandOwner, string $id): ?array
     {
-        $payment = CustodyRequest::with(['branch', 'branchManager.branch'])
-            ->where('id', $id)
-            ->where('created_by_brand_owner_id', $brandOwner->id)
-            ->first();
+        $payment = $this->custodyRequests->scopeForOwnerActor(
+            CustodyRequest::with(['branch', 'branchManager.branch'])
+                ->where('id', $id)
+                ->where('created_by_brand_owner_id', $brandOwner->id),
+            $brandOwner,
+        )->first();
         if ($payment) {
             return $this->paymentFormDetails($payment);
         }
@@ -67,6 +76,7 @@ class OwnerPaymentLogService
         $transfer = CashSalesTransferRequest::with(['branch'])
             ->where('id', $id)
             ->where('brand_owner_id', $brandOwner->id)
+            ->whereIn('branch_id', $this->branchScope->visibleBranchIds($brandOwner))
             ->first();
         if ($transfer) {
             return $this->cashSalesTransferDetails($transfer);
@@ -77,9 +87,12 @@ class OwnerPaymentLogService
 
     private function fetchPaymentForm(BrandOwner $brandOwner, ?string $method, ?string $sortByDate, ?string $branchId)
     {
-        $query = CustodyRequest::query()
-            ->with(['branch', 'branchManager.branch'])
-            ->where('created_by_brand_owner_id', $brandOwner->id);
+        $query = $this->custodyRequests->scopeForOwnerActor(
+            CustodyRequest::query()
+                ->with(['branch', 'branchManager.branch'])
+                ->where('created_by_brand_owner_id', $brandOwner->id),
+            $brandOwner,
+        );
 
         if ($method) {
             $query->where('preferred_receipt_method', $method);
@@ -107,7 +120,8 @@ class OwnerPaymentLogService
     {
         $query = CashSalesTransferRequest::query()
             ->with(['branch'])
-            ->where('brand_owner_id', $brandOwner->id);
+            ->where('brand_owner_id', $brandOwner->id)
+            ->whereIn('branch_id', $this->branchScope->visibleBranchIds($brandOwner));
 
         if ($method) {
             $query->where('handover_method', $method);

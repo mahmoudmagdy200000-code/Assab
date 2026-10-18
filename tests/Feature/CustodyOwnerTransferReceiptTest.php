@@ -9,6 +9,7 @@ use Modules\BranchManagers\Models\BranchManager;
 use Modules\BrandOwner\Models\BrandOwner;
 use Modules\Custody\Models\CustodyRequest;
 use Modules\Custody\Models\CustodyTransaction;
+use Tests\Concerns\LinksMobileBrandScope;
 use Tests\TestCase;
 
 /**
@@ -20,6 +21,7 @@ use Tests\TestCase;
  */
 class CustodyOwnerTransferReceiptTest extends TestCase
 {
+    use LinksMobileBrandScope;
     use RefreshDatabase;
 
     private Branch $branch;
@@ -43,6 +45,8 @@ class CustodyOwnerTransferReceiptTest extends TestCase
             'is_first_login' => false,
             'status' => 'active',
         ]);
+        // F-09: an owner may address only managers of branches under their own brand.
+        $this->linkBrandOwner($this->owner, $this->branch);
     }
 
     private function ownerTransfer(array $overrides = []): CustodyRequest

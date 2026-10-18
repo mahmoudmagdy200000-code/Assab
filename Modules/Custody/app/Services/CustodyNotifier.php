@@ -2,6 +2,7 @@
 
 namespace Modules\Custody\Services;
 
+use Modules\Admin\Services\MobileBranchScopeService;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BrandOwner\Models\BrandOwner;
 use Modules\Custody\Models\CustodyRequest;
@@ -21,6 +22,7 @@ class CustodyNotifier
     public function __construct(
         private readonly NotificationServiceInterface $notifications,
         private readonly \Psr\Log\LoggerInterface $log,
+        private readonly MobileBranchScopeService $branchScope,
     ) {}
 
     /** Owner → manager transfer: the recipient must know cash is on its way. */
@@ -43,17 +45,30 @@ class CustodyNotifier
         );
     }
 
-    /** Manager → owner request: the approver must know it is waiting. */
+    /**
+     * Manager → owner request: the approver must know it is waiting.
+     *
+     * F-09: only active brand owners whose brands (server-resolved, fail-closed) include the request's branch are told —
+     * never a role-wide fan-out, which disclosed the branch and amount to every company's owners.
+     */
     public function requestAwaitingOwner(CustodyRequest $request): void
     {
         $this->send(
-            fn () => $this->notifications->sendToRole(
-                'brand_owner',
-                NotificationType::CUSTODY_REQUEST_CREATED,
-                $this->payload($request),
-                NotificationPriority::MEDIUM,
-                $request->branch_id,
-            ),
+            function () use ($request) {
+                $recipients = [];
+                foreach (BrandOwner::query()->where('is_active', true)->cursor() as $owner) {
+                    if ($this->branchScope->canSee($owner, $request->branch_id)) {
+                        $recipients[] = $owner;
+                    }
+                }
+
+                $this->notifications->sendToMany(
+                    $recipients,
+                    NotificationType::CUSTODY_REQUEST_CREATED,
+                    $this->payload($request),
+                    NotificationPriority::MEDIUM,
+                );
+            },
             $request,
             'request_created',
         );
