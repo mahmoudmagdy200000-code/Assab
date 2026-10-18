@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Str;
 use Modules\Admin\Events\OperationApproved;
 use Modules\Admin\Events\OperationFinalApproved;
 use Modules\Admin\Events\OperationRejected;
@@ -108,12 +109,26 @@ class ExpenseDecisionAuthorityTest extends TestCase
     /** An operation of another module (decision rights unchanged). */
     private function otherOp(string $module = 'sales', string $status = Operation::STATUS_PENDING, array $attrs = []): Operation
     {
-        return Operation::create(array_merge([
+        $attributes = array_merge([
             'public_id' => OperationSequence::next('OPS'), 'company_id' => $this->company->id,
             'branch_id' => $this->branch->id, 'module_key' => $module, 'amount' => 1000, 'match' => 'exact',
             'origin' => 'mobile', 'status' => $status, 'submitted_by_id' => $this->accountant->id,
             'submitted_at' => now(), 'operation_date' => now(),
-        ], $attrs));
+        ], $attrs);
+        if ($module !== 'sales') {
+            return Operation::create($attributes);
+        }
+        $uploader = $this->dashUser(Str::uuid().'@test.invalid', 'Synthetic uploader', 'branch');
+        $uploader->roleAssignments()->where('role_key', 'branch')->firstOrFail()->update(['scope' => 'branch', 'branch_ids' => [$this->branch->id]]);
+        $previousActor = auth('sanctum')->user();
+        $response = $this->actingAs($uploader, 'sanctum')->postJson('/api/v1/company/me/branch/upload',
+            ['reportType' => 'sales', 'salesHalalas' => 1000])->assertCreated();
+        $op = Operation::findOrFail($response->json('operations.0.id'));
+        unset($attributes['company_id'], $attributes['submitted_by_id']);
+        $op->forceFill($attributes)->save();
+        $this->actingAs($previousActor ?? $this->head, 'sanctum');
+
+        return $op->fresh();
     }
 
     /** Row counts that must not move on a refused decision. */

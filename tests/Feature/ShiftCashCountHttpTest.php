@@ -812,8 +812,8 @@ class ShiftCashCountHttpTest extends TestCase
             ->where('status', 'pending')->count());
     }
 
-    /** D15: a balanced counted shift still closes normally, and one refusal does not fail the rest of a bulk. */
-    public function test_bulk_final_approval_reports_each_item_and_balanced_counted_shifts_still_close(): void
+    /** Protected PKG-6 selections are atomic; D15 individual financial guards remain intact. */
+    public function test_bulk_refuses_counted_shifts_and_individual_balanced_close_remains_supported(): void
     {
         [, $shortageOp] = $this->countedShortageOperation();
         $accountant = AsabUser::where('email', 'acc@s110.test')->firstOrFail();
@@ -837,10 +837,24 @@ class ShiftCashCountHttpTest extends TestCase
         $service->approve($shortageOp, $accountant);
         $service->approve($balancedOp, $accountant);
         ShiftLiabilityAllocation::where('cashier_shift_id', $this->recipientShift->id)->whereNull('superseded_at')->update(['superseded_at' => now()]);
-        $result = $service->bulkFinalApprove([$shortageOp->id, $balancedOp->id], $head);
-
-        $this->assertSame([$balancedOp->public_id], $result['finalApproved']);
-        $this->assertSame([['id' => $shortageOp->id, 'code' => 'BRANCH_LIABILITY_APPROVAL_PENDING']], $result['failed']);
+        try {
+            $service->bulkFinalApprove([$shortageOp->id, $balancedOp->id], $head);
+            $this->fail('Protected counted shifts may not enter Bulk Final Approval');
+        } catch (\Modules\Admin\Exceptions\AsabException $error) {
+            $this->assertSame('BULK_WORKFLOW_NOT_ALLOWED', $error->errorCode);
+        }
+        $this->assertSame(Operation::STATUS_APPROVED, $shortageOp->fresh()->status);
+        $this->assertSame(Operation::STATUS_APPROVED, $balancedOp->fresh()->status);
+        $this->assertSame('pending_review', $balancedAdmin->fresh()->status);
+        $this->assertSame(0, EmployeeMovement::count());
+        // Preserve individual D15 liability enforcement and balanced financial close.
+        try {
+            $service->finalApprove($shortageOp->fresh(), $head);
+            $this->fail('A shortage still requires its approved allocation');
+        } catch (\Modules\Admin\Exceptions\AsabException $error) {
+            $this->assertSame('BRANCH_LIABILITY_APPROVAL_PENDING', $error->errorCode);
+        }
+        $service->finalApprove($balancedOp->fresh(), $head);
         $this->assertSame('closed', $balancedAdmin->fresh()->status);
         $this->assertSame(0, EmployeeMovement::count());
     }

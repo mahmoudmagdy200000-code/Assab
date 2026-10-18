@@ -10,21 +10,177 @@ use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 use Modules\Admin\Events\OperationApproved;
 use Modules\Admin\Models\Operation;
-use Modules\Admin\Services\RealtimeBroadcaster;
 use Modules\Admin\Services\OperationService;
+use Modules\Admin\Services\RealtimeBroadcaster;
 use Tests\TestCase;
 
 class OperationWorkflowMutationGuardTest extends TestCase
 {
-    use RefreshDatabase, Pkg6ReviewFixture, OperationWorkflowFixture;
+    use OperationWorkflowFixture, Pkg6ReviewFixture, RefreshDatabase;
+
+    private function nativeShiftOperation(): Operation
+    {
+        // The shared PKG-6 fixture uses a non-numeric SHF id. Keep that unrelated
+        // fixture outside OperationSequence's numeric high-water calculation.
+        $this->operation->update(['public_id' => 'PROTECTED-'.$this->operation->id]);
+        $shift = \Modules\Admin\Models\Shift::create([
+            'company_id' => $this->head->company_id, 'branch_id' => $this->day->branch_id,
+            'role' => 'cashier', 'status' => 'active', 'started_at' => now(),
+            'sales_amount' => 0, 'opening_float' => 0,
+        ]);
+
+        return app(\Modules\Admin\Services\ShiftCloseService::class)
+            ->close($shift, ['cashActualHalalas' => 0], $this->accountant, 'system')['operation'];
+    }
+
+    public function test_verified_native_bulk_preserves_approve_return_final_and_idempotent_replay(): void
+    {
+        $op = $this->nativeShiftOperation();
+        $this->actingAs($this->accountant, 'sanctum')->postJson('/api/v1/operations/bulk-approve',
+            ['operationIds' => [$op->id]])->assertOk()->assertJsonPath('approved.0', $op->public_id);
+        $this->actingAs($this->head, 'sanctum')->postJson('/api/v1/operations/bulk-return',
+            ['operationIds' => [$op->id]])->assertOk()->assertJsonPath('returned.0', $op->public_id);
+        $this->assertSame('pending', $op->fresh()->status);
+        app(OperationService::class)->approve($op->fresh(), $this->accountant);
+        $key = (string) Str::uuid();
+        $this->withHeader('Idempotency-Key', $key)->postJson('/api/v1/operations/bulk-final-approve',
+            ['operationIds' => [$op->id]])->assertOk()->assertJsonPath('finalApproved.0', $op->public_id);
+        $this->assertSame('closed', \Modules\Admin\Models\Shift::findOrFail($op->payload['shiftId'])->status);
+        $before = $this->state();
+        $this->postJson('/api/v1/operations/bulk-final-approve', ['operationIds' => [$op->id]])->assertOk();
+        $this->assertEquals($before, $this->state(), 'Same-key native final retry has no additional effect');
+        $this->withHeader('Idempotency-Key', (string) Str::uuid())->postJson('/api/v1/operations/bulk-final-approve',
+            ['operationIds' => [$op->id]])->assertOk()->assertJsonPath('failed.0.code', 'OP_NOT_APPROVED');
+        $this->assertEquals($before, $this->state());
+    }
 
     private function state(): array
     {
         $state = [];
-        foreach (['asab_operations', 'asab_approval_steps', 'asab_employee_movements', 'personal_ledger_transactions', 'cashier_custody_transactions', 'asab_notifications'] as $table) {
+        foreach (['asab_operations', 'asab_shifts', 'asab_approval_steps', 'asab_employee_movements', 'personal_ledger_transactions', 'cashier_custody_transactions', 'custody_transactions', 'asab_notifications'] as $table) {
             $state[$table] = DB::table($table)->orderBy('id')->get()->toArray();
         }
+
         return $state;
+    }
+
+    public function test_native_plus_protected_selection_and_inconsistent_relationships_have_zero_effect(): void
+    {
+        $valid = $this->nativeShiftOperation();
+        $foreignCompany = \Modules\Admin\Models\AsabCompany::create(['name' => 'Foreign', 'plan' => 'Professional', 'status' => 'active']);
+        $otherBranch = \Modules\Branch\Models\Branch::factory()->create(['asab_company_id' => $this->head->company_id]);
+        $cases = [
+            'missing shift' => fn ($op) => $op->update(['payload' => array_replace($op->payload, ['shiftId' => (string) Str::uuid()])]),
+            'conflicting source' => fn ($op) => $op->update(['source_id' => (string) Str::uuid()]),
+            'null protected marker' => fn ($op) => $op->update(['payload' => $op->payload + ['pkg6Review' => null]]),
+            'financial mismatch' => fn ($op) => $op->update(['payload' => array_replace($op->payload, ['cashActualHalalas' => 1])]),
+            'wrong branch' => fn ($op) => \Modules\Admin\Models\Shift::findOrFail($op->payload['shiftId'])->update(['branch_id' => $otherBranch->id]),
+            'wrong company' => fn ($op) => \Modules\Admin\Models\Shift::findOrFail($op->payload['shiftId'])->update(['company_id' => $foreignCompany->id]),
+            'manager projection' => fn ($op) => \Modules\Admin\Models\Shift::findOrFail($op->payload['shiftId'])->update(['role' => 'branch_manager']),
+            'protected legacy link' => fn ($op) => \Modules\Admin\Models\Shift::findOrFail($op->payload['shiftId'])->update(['legacy_shift_id' => $this->source->id]),
+            'unclosed source' => fn ($op) => \Modules\Admin\Models\Shift::findOrFail($op->payload['shiftId'])->update(['status' => 'active']),
+            'missing submit evidence' => fn ($op) => $op->steps()->delete(),
+            'duplicate association' => function ($op) {
+                $copy = $op->replicate();
+                $copy->public_id = 'DUP-'.Str::uuid();
+                $copy->save();
+            },
+        ];
+        $invalid = [];
+        foreach ($cases as $name => $corrupt) {
+            $op = $this->nativeShiftOperation();
+            $corrupt($op);
+            $invalid[$name] = $op->fresh();
+        }
+        $invalid['SAL'] = $this->sal();
+        $invalid['SHF'] = $this->operation;
+        $invalid['unknown sales'] = $this->sal(['payload' => []]);
+        Event::fake([OperationApproved::class, \Modules\Admin\Events\OperationFinalApproved::class,
+            \Modules\Admin\Events\OperationReturnedForReview::class]);
+        $this->mock(RealtimeBroadcaster::class, function ($mock): void {
+            $mock->shouldNotReceive('operationStatusChanged', 'approvalPending', 'notificationNew', 'shiftChanged');
+        });
+        foreach ($invalid as $name => $op) {
+            foreach (['bulk-approve', 'bulk-final-approve', 'bulk-return'] as $route) {
+                $before = $this->state();
+                $this->actingAs($this->head, 'sanctum')->withHeader('Idempotency-Key', (string) Str::uuid())
+                    ->postJson('/api/v1/operations/'.$route, ['operationIds' => [$valid->id, $op->id]])
+                    ->assertStatus(409);
+                $this->assertEquals($before, $this->state(), $name.' must reject before every mutation');
+            }
+        }
+        Event::assertNothingDispatched();
+    }
+
+    public function test_public_upload_cannot_forge_a_native_shift_relationship(): void
+    {
+        $native = $this->nativeShiftOperation();
+        $uploader = \Modules\Admin\Models\AsabUser::create(['company_id' => $this->head->company_id,
+            'name' => 'Uploader', 'email' => Str::uuid().'@test.invalid', 'password' => 'synthetic-only', 'status' => 'active']);
+        \Modules\Admin\Models\AsabUserRole::create(['user_id' => $uploader->id, 'role_key' => 'branch',
+            'scope' => 'branch', 'branch_ids' => [$this->day->branch_id]]);
+        foreach (['/api/v1/branch/upload/shift-close', '/api/v1/company/me/branch/upload'] as $url) {
+            $response = $this->actingAs($uploader, 'sanctum')->postJson($url, [
+                'reportType' => 'shift-close', 'shiftId' => $native->payload['shiftId'],
+                'legacyShiftId' => null, 'payload' => $native->payload, 'origin' => 'dashboard',
+            ])->assertCreated();
+            $forged = Operation::findOrFail($response->json('id') ?? $response->json('createdOperationId'));
+            $this->assertArrayNotHasKey('shiftId', $forged->payload);
+            $before = $this->state();
+            $this->actingAs($this->head, 'sanctum')->postJson('/api/v1/operations/bulk-approve',
+                ['operationIds' => [$native->id, $forged->id]])->assertStatus(409);
+            $this->assertEquals($before, $this->state());
+        }
+    }
+
+    public function test_native_bulk_preserves_role_and_scope_fail_closed_guards(): void
+    {
+        $native = $this->nativeShiftOperation();
+        $before = $this->state();
+        $this->actingAs($this->accountant, 'sanctum')->postJson('/api/v1/operations/bulk-final-approve',
+            ['operationIds' => [$native->id]])->assertForbidden();
+        foreach (['bulk-approve', 'bulk-final-approve', 'bulk-return'] as $route) {
+            $this->actingAs($this->head, 'sanctum')->postJson('/api/v1/operations/'.$route,
+                ['operationIds' => [$native->id, (string) Str::uuid()]])->assertForbidden();
+            $this->assertEquals($before, $this->state());
+        }
+        $otherBranch = \Modules\Branch\Models\Branch::factory()->create(['asab_company_id' => $this->head->company_id]);
+        $foreignShift = \Modules\Admin\Models\Shift::create(['company_id' => $this->head->company_id,
+            'branch_id' => $otherBranch->id, 'status' => 'active', 'started_at' => now(), 'sales_amount' => 0, 'opening_float' => 0]);
+        $foreign = app(\Modules\Admin\Services\ShiftCloseService::class)
+            ->close($foreignShift, ['cashActualHalalas' => 0], $this->accountant, 'system')['operation'];
+        $restricted = \Modules\Admin\Models\AsabUser::create(['company_id' => $this->head->company_id,
+            'name' => 'Limited head', 'email' => Str::uuid().'@test.invalid', 'password' => 'test', 'status' => 'active']);
+        \Modules\Admin\Models\AsabUserRole::create(['user_id' => $restricted->id, 'role_key' => 'head',
+            'scope' => 'branch', 'branch_ids' => [$this->day->branch_id]]);
+        $before = $this->state();
+        foreach (['bulk-approve', 'bulk-final-approve', 'bulk-return'] as $route) {
+            $this->actingAs($restricted, 'sanctum')->postJson('/api/v1/operations/'.$route,
+                ['operationIds' => [$native->id, $foreign->id]])->assertForbidden();
+            $this->assertEquals($before, $this->state(), 'A valid foreign Native id cannot be silently filtered out');
+        }
+    }
+
+    public function test_native_source_is_re_read_during_bulk_preflight_before_any_transition(): void
+    {
+        $op = $this->nativeShiftOperation();
+        $before = $this->state();
+        $interleaved = false;
+        DB::listen(function ($query) use ($op, &$interleaved): void {
+            if (! $interleaved && str_starts_with(strtolower(ltrim($query->sql)), 'select')
+                && str_contains($query->sql, 'asab_operations') && in_array($op->id, $query->bindings, true)) {
+                $interleaved = true;
+                DB::table('asab_shifts')->where('id', $op->payload['shiftId'])->update(['status' => 'active']);
+            }
+        });
+        try {
+            app(OperationService::class)->bulkApprove([$op->id], $this->accountant);
+            $this->fail('A stale Native source must not be approved');
+        } catch (\Modules\Admin\Exceptions\AsabException $error) {
+            $this->assertSame('BULK_WORKFLOW_NOT_ALLOWED', $error->errorCode);
+        }
+        $this->assertTrue($interleaved);
+        $this->assertEquals($before, $this->state(), 'The entire transaction, including the injected change, rolls back');
     }
 
     public function test_direct_sal_and_unknown_return_and_reject_routes_write_nothing(): void
@@ -136,7 +292,8 @@ class OperationWorkflowMutationGuardTest extends TestCase
     {
         $first = $this->nativeLegacy();
         $second = $this->nativeLegacy();
-        $realtime = new class extends RealtimeBroadcaster {
+        $realtime = new class extends RealtimeBroadcaster
+        {
             public array $calls = [];
 
             public function operationStatusChanged(Operation $op, string $oldStatus, string $newStatus, \Modules\Admin\Models\AsabUser $actor): void
@@ -190,6 +347,7 @@ class OperationWorkflowMutationGuardTest extends TestCase
         $this->assertSame(0, $eventCalls, 'Application events are not dispatched before the outer commit');
         $this->assertSame([], $realtime->calls, 'Realtime and notification broadcasts are not emitted before the outer commit');
     }
+
     public function test_bulk_does_not_silently_drop_missing_or_unassigned_ids(): void
     {
         $legacy = $this->nativeLegacy();
@@ -241,5 +399,4 @@ class OperationWorkflowMutationGuardTest extends TestCase
             $this->assertEquals($before, $this->state());
         }
     }
-
 }

@@ -187,15 +187,24 @@ class DashboardMobileShiftCloseGuardTest extends TestCase
         $this->assertSame(0, EmployeeMovement::count());
     }
 
-    public function test_bulk_final_approval_reports_blocked_mobile_shortage_and_still_finalises_native(): void
+    public function test_bulk_final_approval_rejects_mixed_mobile_selection_and_preserves_native_only_bulk(): void
     {
         $mobileOp = $this->approvedMobileShortageOperation(true);
         $nativeOp = $this->approvedMobileShortageOperation(false);
 
-        $result = app(OperationService::class)->bulkFinalApprove([$mobileOp->id, $nativeOp->id], $this->head);
-
+        try {
+            app(OperationService::class)->bulkFinalApprove([$mobileOp->id, $nativeOp->id], $this->head);
+            $this->fail('A protected mixed selection must be rejected as a whole');
+        } catch (AsabException $e) {
+            $this->assertSame('BULK_WORKFLOW_NOT_ALLOWED', $e->errorCode);
+        }
+        $this->assertSame(Operation::STATUS_APPROVED, $nativeOp->fresh()->status);
+        $this->assertSame('pending_review', AdminShift::find($nativeOp->payload['shiftId'])->status);
+        $this->assertSame(0, EmployeeMovement::count());
+        // The verified Native-only selection remains supported, without admitting the mobile member.
+        $result = app(OperationService::class)->bulkFinalApprove([$nativeOp->id], $this->head);
         $this->assertSame([$nativeOp->public_id], $result['finalApproved']);
-        $this->assertSame([['id' => $mobileOp->id, 'code' => 'BRANCH_LIABILITY_APPROVAL_PENDING']], $result['failed']);
+        $this->assertSame([], $result['failed']);
         $this->assertSame(Operation::STATUS_APPROVED, $mobileOp->fresh()->status);
         $this->assertSame('pending_review', AdminShift::find($mobileOp->payload['shiftId'])->status);
         $this->assertSame(Operation::STATUS_FINAL, $nativeOp->fresh()->status);
@@ -210,9 +219,8 @@ class DashboardMobileShiftCloseGuardTest extends TestCase
         $res = $this->actingAs($this->head, 'sanctum')->withHeader('Idempotency-Key', (string) Str::uuid())
             ->postJson('/api/v1/operations/bulk-final-approve', ['operationIds' => [$mobileOp->id]]);
 
-        $res->assertOk();
-        $this->assertSame([], $res->json('finalApproved'));
-        $this->assertSame('BRANCH_LIABILITY_APPROVAL_PENDING', $res->json('failed.0.code'));
+        $res->assertStatus(409)->assertJsonPath('error.code', 'BULK_WORKFLOW_NOT_ALLOWED');
+        $this->assertSame(Operation::STATUS_APPROVED, $mobileOp->fresh()->status);
         $this->assertSame(0, EmployeeMovement::count());
     }
 

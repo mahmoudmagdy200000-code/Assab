@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Modules\Admin\Models\ApprovalStep;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
@@ -66,7 +67,7 @@ class OperationsPipelineTest extends TestCase
 
     private function op(array $attrs = []): Operation
     {
-        return Operation::create(array_merge([
+        $attributes = array_merge([
             'public_id' => OperationSequence::next('OPS'),
             'company_id' => $this->company->id,
             'branch_id' => $this->branchA->id,
@@ -78,7 +79,21 @@ class OperationsPipelineTest extends TestCase
             'submitted_by_id' => $this->branchManager->id,
             'submitted_at' => now(),
             'operation_date' => now(),
-        ], $attrs));
+        ], $attrs);
+        if ($attributes['module_key'] !== 'sales') {
+            return Operation::create($attributes);
+        }
+        $branchId = $attributes['branch_id'];
+        $uploader = $branchId === $this->branchA->id ? $this->branchManager
+            : $this->user(Str::uuid().'@test.invalid', 'branch', 'branch', ['branch_ids' => [$branchId]]);
+        $response = $this->actingAs($uploader, 'sanctum')
+            ->postJson('/api/v1/company/me/branch/upload', ['reportType' => 'sales', 'salesHalalas' => $attributes['amount']])
+            ->assertCreated();
+        $op = Operation::findOrFail($response->json('operations.0.id'));
+        unset($attributes['company_id'], $attributes['submitted_by_id']);
+        $op->forceFill($attributes)->save();
+
+        return $op->fresh();
     }
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
@@ -105,8 +120,8 @@ class OperationsPipelineTest extends TestCase
 
         $trail = $this->actingAs($this->head, 'sanctum')
             ->getJson("/api/v1/operations/{$op->id}/audit-trail")->assertOk()->json('data');
-        $this->assertSame(['approved', 'final'], array_column($trail, 'stageId'));
-        $this->assertTrue($trail[1]['isTerminal']);
+        $this->assertSame(['submit', 'approved', 'final'], array_column($trail, 'stageId'));
+        $this->assertTrue($trail[2]['isTerminal']);
     }
 
     public function test_state_machine_rejects_out_of_order_transitions(): void
@@ -298,14 +313,22 @@ class OperationsPipelineTest extends TestCase
         $alreadyApproved = $this->op(['status' => Operation::STATUS_APPROVED]);
         $otherBranch = $this->op(['branch_id' => $this->branchB->id]);
 
+        foreach ([$otherBranch->id, 'missing-id'] as $unavailable) {
+            $this->actingAs($this->accountant, 'sanctum')
+                ->postJson('/api/v1/operations/bulk-approve', [
+                    'operationIds' => [$pending->id, $alreadyApproved->id, $unavailable],
+                ])->assertForbidden()->assertJsonPath('error.code', 'BULK_SCOPE_FORBIDDEN');
+            $this->assertSame(Operation::STATUS_PENDING, $pending->fresh()->status);
+            $this->assertSame(Operation::STATUS_PENDING, $otherBranch->fresh()->status);
+            $this->assertSame(0, ApprovalStep::where('stage_id', 'approved')->count());
+        }
+        // Available, authorized Legacy-only selections retain per-item status failures.
         $body = $this->actingAs($this->accountant, 'sanctum')
             ->postJson('/api/v1/operations/bulk-approve', [
-                'operationIds' => [$pending->id, $alreadyApproved->id, $otherBranch->id, 'missing-id'],
+                'operationIds' => [$pending->id, $alreadyApproved->id],
             ])->assertOk()->json();
-
         $this->assertSame([$pending->public_id], $body['approved']);
         $this->assertSame(['OP_NOT_PENDING'], array_column($body['failed'], 'code'));
-        // Out-of-scope and unknown ids never reach the service.
         $this->assertSame(Operation::STATUS_PENDING, $otherBranch->fresh()->status);
     }
 

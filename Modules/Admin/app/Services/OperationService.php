@@ -535,11 +535,61 @@ class OperationService
                 || $actor->status !== 'active' || ! $actor->hasAnyAsabRole(['accountant', 'head'])) {
                 throw new AsabException('BULK_SCOPE_FORBIDDEN', 'Bulk selection is outside actor scope', 'نطاق العمليات غير مصرح به', 403);
             }
-            if ($op->module_key === 'shifts' || ($op->module_key === 'sales'
+            if (($op->module_key === 'shifts' && ! $this->verifiedNativeShiftForBulk($op)) || ($op->module_key === 'sales'
                 && app(OperationWorkflowClassifier::class)->classify($op) !== OperationWorkflowClassifier::LEGACY)) {
                 throw new AsabException('BULK_WORKFLOW_NOT_ALLOWED', 'Protected workflows require individual review', 'يلزم مراجعة فردية لمسار العملية', 409);
             }
         }
+    }
+
+    private function verifiedNativeShiftForBulk(Operation $op): bool
+    {
+        // ShiftCloseService writes this relationship, its financial projection and
+        // the submit step in the same transaction as pending_review. Public upload
+        // controllers do not accept shiftId. Neither origin nor a missing review
+        // marker establishes Native provenance by itself.
+        $payload = $op->payload;
+        if (! is_array($payload) || ! is_string($payload['shiftId'] ?? null) || $payload['shiftId'] === ''
+            || ! array_key_exists('legacyShiftId', $payload) || $payload['legacyShiftId'] !== null
+            || $op->source_id !== null || $op->source_module !== null || $op->is_correction) {
+            return false;
+        }
+        foreach (['pkg6Review', 'reportReview', 'managerShiftId'] as $protected) {
+            if (array_key_exists($protected, $payload)) {
+                return false;
+            }
+        }
+        $shift = \Modules\Admin\Models\Shift::query()->whereKey($payload['shiftId'])->lockForUpdate()->first();
+        if ($shift === null || $shift->role !== \Modules\Admin\Models\Shift::ROLE_CASHIER
+            || $shift->legacy_shift_id !== null || $shift->company_id !== $op->company_id
+            || $shift->branch_id !== $op->branch_id || ! in_array($shift->status, ['pending_review', 'closed'], true)
+            || ! \Modules\Branch\Models\Branch::whereKey($op->branch_id)->where('asab_company_id', $op->company_id)->lockForUpdate()->first()) {
+            return false;
+        }
+        // Conflicting source coordinates or another live association are not
+        // resolved by guessing. Rejected historical cycles remain immutable.
+        $links = Operation::withoutGlobalScopes()->where('module_key', 'shifts')
+            ->where('status', '!=', Operation::STATUS_REJECTED)
+            ->where(fn ($q) => $q->where('payload->shiftId', $shift->id)->orWhere('source_id', $shift->id))
+            ->orderBy('id')->lockForUpdate()->get(['id']);
+        if ($links->count() !== 1 || $links->first()->id !== $op->id) {
+            return false;
+        }
+        $submit = $op->steps()->where('stage_id', 'submit')->lockForUpdate()->get();
+        if ($submit->count() !== 1 || ! is_string($op->submitted_by_id)
+            || $submit->first()->actor_user_id !== $op->submitted_by_id) {
+            return false;
+        }
+        foreach (['salesHalalas' => 'sales_amount', 'cashExpectedHalalas' => 'cash_expected',
+            'cashActualHalalas' => 'cash_actual', 'varianceHalalas' => 'variance'] as $key => $column) {
+            if (! is_int($payload[$key] ?? null) || $shift->$column === null || $payload[$key] !== $shift->$column) {
+                return false;
+            }
+        }
+
+        return $op->amount === $shift->sales_amount
+            && array_key_exists('cashierEmployeeId', $payload)
+            && $payload['cashierEmployeeId'] === $shift->cashier_employee_id;
     }
 
     private function lockOperation(Operation $op): Operation
