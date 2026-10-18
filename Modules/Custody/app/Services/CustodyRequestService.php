@@ -26,16 +26,16 @@ class CustodyRequestService
      *
      * Authority = the branches of the brands the SERVER resolves for the actor (MobileBranchScopeService, fail-closed:
      * no resolvable brand => no branch => nothing). A request's branch is its own branch_id, or — for legacy rows that
-     * never stamped one — its manager's branch. A request the actor created themselves stays visible to them.
+     * never stamped one — its manager's branch. Creator identity is NOT an authorization bypass:
+     * if brand access is revoked, even the creator cannot read or decide that branch's requests.
      * Nothing the client sends feeds this.
      */
     public function scopeForOwnerActor(Builder $query, BrandOwner $actor): Builder
     {
         $branchIds = $this->branchScope->visibleBranchIds($actor);
 
-        return $query->where(function (Builder $w) use ($branchIds, $actor) {
-            $w->where('created_by_brand_owner_id', $actor->id)
-                ->orWhereIn('branch_id', $branchIds)
+        return $query->where(function (Builder $w) use ($branchIds) {
+            $w->whereIn('branch_id', $branchIds)
                 ->orWhere(function (Builder $legacy) use ($branchIds) {
                     $legacy->whereNull('branch_id')
                         ->whereIn('branch_manager_id', BranchManager::withTrashed()->whereIn('branch_id', $branchIds)->select('id'));
@@ -423,10 +423,12 @@ class CustodyRequestService
     /**
      * History for Brand Owner Owner Payment Form: requests created by this brand owner.
      */
-    public function getBrandOwnerRequestHistory(string $brandOwnerId, int $limit = 10): array
+    public function getBrandOwnerRequestHistory(BrandOwner $actor, int $limit = 10): array
     {
-        $requests = CustodyRequest::where('created_by_brand_owner_id', $brandOwnerId)
-            ->orderBy('created_at', 'desc')
+        $requests = $this->scopeForOwnerActor(
+            CustodyRequest::where('created_by_brand_owner_id', $actor->id),
+            $actor,
+        )->orderBy('created_at', 'desc')
             ->limit($limit)
             ->get();
 
