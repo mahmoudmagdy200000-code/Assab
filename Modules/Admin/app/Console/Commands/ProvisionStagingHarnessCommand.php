@@ -33,7 +33,7 @@ final class ProvisionStagingHarnessCommand extends Command
             $namespace = (string) ($this->option('namespace') ?: config('admin.harness.default_namespace'));
 
             $guard->assertTarget($environment, $driver, $database, $allowed);
-            $server = DB::selectOne('SELECT VERSION() AS version, DATABASE() AS database');
+            $server = DB::selectOne('SELECT VERSION() AS version, DATABASE() AS `database`');
             $actualDatabase = (string) ($server->database ?? '');
             $guard->assertTarget($environment, $driver, $actualDatabase, $allowed);
             if (! hash_equals($database, $actualDatabase)) {
