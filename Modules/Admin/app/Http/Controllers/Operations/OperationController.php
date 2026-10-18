@@ -297,17 +297,27 @@ class OperationController extends AsabController
         });
     }
 
+    private function scopedBulkIds(array $ids): array
+    {
+        $rows = $this->scopeToAssignedBranches(
+            Operation::query()->where(fn ($q) => $q->whereIn('id', $ids)->orWhereIn('public_id', $ids)),
+        )->get(['id', 'public_id']);
+        foreach ($ids as $id) {
+            if (! $rows->contains(fn ($op) => $op->id === $id || $op->public_id === $id)) {
+                throw new \Modules\Admin\Exceptions\AsabException('BULK_SCOPE_FORBIDDEN', 'Incomplete authorized selection', 'مجموعة العمليات غير متاحة بالكامل', 403);
+            }
+        }
+        return $rows->pluck('id')->all();
+    }
+
     public function bulkApprove(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
             $data = $request->validate(['operationIds' => 'required|array', 'operationIds.*' => 'string']);
 
-            // Zero-trust: drop ids outside the caller's assigned branch scope
-            // before they reach the approval service.
+            // Refuse the whole selection if any requested row is unavailable.
             $ids = $data['operationIds'];
-            $allowed = $this->scopeToAssignedBranches(
-                Operation::query()->where(fn ($q) => $q->whereIn('id', $ids)->orWhereIn('public_id', $ids)),
-            )->pluck('id')->all();
+            $allowed = $this->scopedBulkIds($ids);
 
             return $this->ok($this->service->bulkApprove($allowed, $request->user()));
         });
@@ -329,9 +339,7 @@ class OperationController extends AsabController
             ]);
 
             $ids = $data['operationIds'];
-            $allowed = $this->scopeToAssignedBranches(
-                Operation::query()->where(fn ($q) => $q->whereIn('id', $ids)->orWhereIn('public_id', $ids)),
-            )->pluck('id')->all();
+            $allowed = $this->scopedBulkIds($ids);
 
             return $this->ok($this->service->bulkFinalApprove(
                 $allowed, $request->user(),
@@ -366,9 +374,7 @@ class OperationController extends AsabController
             ]);
 
             $ids = $data['operationIds'];
-            $allowed = $this->scopeToAssignedBranches(
-                Operation::query()->where(fn ($q) => $q->whereIn('id', $ids)->orWhereIn('public_id', $ids)),
-            )->pluck('id')->all();
+            $allowed = $this->scopedBulkIds($ids);
 
             return $this->ok($this->service->bulkReturnForReview($allowed, $request->user(), $data['note'] ?? null));
         });
@@ -587,6 +593,7 @@ class OperationController extends AsabController
             'brandName' => $brandId ? ($maps['brands'][$brandId] ?? null) : null,
             'date' => optional($op->operation_date)->toDateString(),
             'moduleKey' => $op->module_key,
+            'workflowKind' => app(\Modules\Admin\Services\OperationWorkflowClassifier::class)->classify($op),
             'sourceModule' => $op->source_module,
             'sourceId' => $op->source_id,
             'amount' => $op->amount,

@@ -58,27 +58,26 @@ class OperationService
             return $op->fresh();
         });
 
-        $this->rt->operationStatusChanged($fresh, Operation::STATUS_PENDING, Operation::STATUS_APPROVED, $actor);
-        $pendingFinal = Operation::where('company_id', $fresh->company_id)->where('status', Operation::STATUS_APPROVED)->count();
-        $this->rt->approvalPending($fresh->company_id, $actor->id, $pendingFinal);
-        $this->notifications->pushToRole(
-            $fresh->company_id, 'head', 'operation.pending_final',
-            'عملية بانتظار الاعتماد النهائي', $fresh->public_id.' — '.$fresh->module_key,
-            null, ['type' => 'operation', 'id' => $fresh->id],
-        );
-        // Reverse leg of branch → accountant → head: tell the branch manager who
-        // uploaded it that their report cleared review (their upload/status chip
-        // flips to «success»). Mirrors the reject path, which already notifies.
-        if ($fresh->submitted_by_id) {
-            $this->notifications->push(
-                $fresh->submitted_by_id, 'operation.approved',
-                'تم قبول تقريرك', $fresh->public_id.' — '.$fresh->module_key,
+        // A bulk transition is nested in an outer transaction. Defer every
+        // externally visible projection until that outermost transaction commits.
+        DB::afterCommit(function () use ($fresh, $actor): void {
+            $this->rt->operationStatusChanged($fresh, Operation::STATUS_PENDING, Operation::STATUS_APPROVED, $actor);
+            $pendingFinal = Operation::where('company_id', $fresh->company_id)->where('status', Operation::STATUS_APPROVED)->count();
+            $this->rt->approvalPending($fresh->company_id, $actor->id, $pendingFinal);
+            $this->notifications->pushToRole(
+                $fresh->company_id, 'head', 'operation.pending_final',
+                'عملية بانتظار الاعتماد النهائي', $fresh->public_id.' — '.$fresh->module_key,
                 null, ['type' => 'operation', 'id' => $fresh->id],
             );
-        }
-        // The mobile record stays «pending» but learns WHO approved it, so the
-        // branch manager and the brand owner read «موافق عليه من المحاسب».
-        event(new \Modules\Admin\Events\OperationApproved($fresh, $actor));
+            if ($fresh->submitted_by_id) {
+                $this->notifications->push(
+                    $fresh->submitted_by_id, 'operation.approved',
+                    'تم قبول تقريرك', $fresh->public_id.' — '.$fresh->module_key,
+                    null, ['type' => 'operation', 'id' => $fresh->id],
+                );
+            }
+            event(new \Modules\Admin\Events\OperationApproved($fresh, $actor));
+        });
 
         return $fresh;
     }
@@ -127,6 +126,7 @@ class OperationService
                 // the same request would now mean "return to accountant" — refuse.
                 $this->assertStatus($op, $expectedStatus, $expectedStatus === Operation::STATUS_APPROVED ? 'OP_NOT_APPROVED' : 'OP_NOT_PENDING');
             }
+            $this->assertSalesReturnAllowed($op);
             $this->assertMutable($op, 'لا يمكن رفض العملية');
             app(\Modules\Shift\Services\ShiftReportReviewService::class)->assertMutableOperation($op);
 
@@ -161,15 +161,17 @@ class OperationService
             return [$op->fresh(), $prev, $label];
         });
 
-        $this->rt->operationStatusChanged($fresh, $prev, Operation::STATUS_REJECTED, $actor);
-        if ($fresh->submitted_by_id) {
-            $this->notifications->push(
-                $fresh->submitted_by_id, 'operation.rejected',
-                'عمليتك مرفوضة', $fresh->public_id.' — السبب: '.$label,
-                null, ['type' => 'operation', 'id' => $fresh->id],
-            );
-        }
-        event(new \Modules\Admin\Events\OperationRejected($fresh, $actor, $label));
+        DB::afterCommit(function () use ($fresh, $prev, $actor, $label): void {
+            $this->rt->operationStatusChanged($fresh, $prev, Operation::STATUS_REJECTED, $actor);
+            if ($fresh->submitted_by_id) {
+                $this->notifications->push(
+                    $fresh->submitted_by_id, 'operation.rejected',
+                    'عمليتك مرفوضة', $fresh->public_id.' — السبب: '.$label,
+                    null, ['type' => 'operation', 'id' => $fresh->id],
+                );
+            }
+            event(new \Modules\Admin\Events\OperationRejected($fresh, $actor, $label));
+        });
 
         return $fresh;
     }
@@ -183,6 +185,10 @@ class OperationService
             $op = $this->lockOperation($op);
             $this->assertDecisionAuthorized($op);
             $this->assertStatus($op, Operation::STATUS_APPROVED, 'OP_NOT_APPROVED');
+            if ($op->module_key === 'sales' && app(OperationWorkflowClassifier::class)->classify($op) === OperationWorkflowClassifier::SAL
+                && ($op->payload['pkg6Review']['phase'] ?? null) !== 'head_review') {
+                throw new AsabException('REPORT_NOT_IN_HEAD_REVIEW', 'Day report is not in head review', 'التقرير ليس في مرحلة مراجعة رئيس الحسابات', 409);
+            }
             app(\Modules\Shift\Services\ShiftReportReviewService::class)->authorizeReview($op, $actor, 'head');
             app(\Modules\Shift\Services\ShiftReportReviewService::class)->approvalSnapshot($op, final: true);
             $op->update([
@@ -207,27 +213,27 @@ class OperationService
             return $op->fresh();
         });
 
-        try {
-            // Remaining listeners mirror already-committed state or maintain
-            // projections. The required shift close/allocation ran above in
-            // the approval transaction, so an optional bridge failure cannot
-            // make a committed approval appear to fail.
-            $this->rt->operationStatusChanged($fresh, Operation::STATUS_APPROVED, Operation::STATUS_FINAL, $actor);
-            if ($fresh->submitted_by_id) {
-                $this->notifications->push(
-                    $fresh->submitted_by_id, 'operation.final_approved',
-                    'تم اعتماد عمليتك نهائياً', $fresh->public_id.($conditional ? ' (اعتماد مشروط)' : ''),
-                    null, ['type' => 'operation', 'id' => $fresh->id],
-                );
+        DB::afterCommit(function () use ($fresh, $actor, $conditional): void {
+            try {
+                // Required shift close/allocation ran in the state transaction.
+                // These remaining bridges are post-commit projections.
+                $this->rt->operationStatusChanged($fresh, Operation::STATUS_APPROVED, Operation::STATUS_FINAL, $actor);
+                if ($fresh->submitted_by_id) {
+                    $this->notifications->push(
+                        $fresh->submitted_by_id, 'operation.final_approved',
+                        'تم اعتماد عمليتك نهائياً', $fresh->public_id.($conditional ? ' (اعتماد مشروط)' : ''),
+                        null, ['type' => 'operation', 'id' => $fresh->id],
+                    );
+                }
+                event(new \Modules\Admin\Events\OperationFinalApproved($fresh, $actor));
+            } catch (\Throwable $exception) {
+                $this->log->error('Final approval projection failed after commit', [
+                    'operation_id' => $fresh->id,
+                    'module_key' => $fresh->module_key,
+                    'error' => $exception->getMessage(),
+                ]);
             }
-            event(new \Modules\Admin\Events\OperationFinalApproved($fresh, $actor));
-        } catch (\Throwable $exception) {
-            $this->log->error('Final approval projection failed after commit', [
-                'operation_id' => $fresh->id,
-                'module_key' => $fresh->module_key,
-                'error' => $exception->getMessage(),
-            ]);
-        }
+        });
 
         return $fresh;
     }
@@ -247,6 +253,7 @@ class OperationService
             $this->assertDecisionAuthorized($op);
             $this->assertStatus($op, Operation::STATUS_APPROVED, 'OP_NOT_APPROVED');
 
+            $this->assertSalesReturnAllowed($op);
             app(\Modules\Shift\Services\ShiftReportReviewService::class)->headReturned($op, $actor, $note);
             $accountantId = $op->approved_by_id; // capture before clearing
             app(\Modules\Shift\Services\ShiftReportReviewService::class)->assertMutableOperation($op);
@@ -260,15 +267,17 @@ class OperationService
             return [$op->fresh(), $accountantId];
         });
 
-        $this->rt->operationStatusChanged($fresh, Operation::STATUS_APPROVED, Operation::STATUS_PENDING, $actor);
-        if ($accountantId) {
-            $this->notifications->push(
-                $accountantId, 'operation.returned_for_review',
-                'عملية أُعيدت للمراجعة', $fresh->public_id.($note ? ' — '.$note : ''),
-                null, ['type' => 'operation', 'id' => $fresh->id],
-            );
-        }
-        event(new \Modules\Admin\Events\OperationReturnedForReview($fresh, $actor, $note));
+        DB::afterCommit(function () use ($fresh, $accountantId, $actor, $note): void {
+            $this->rt->operationStatusChanged($fresh, Operation::STATUS_APPROVED, Operation::STATUS_PENDING, $actor);
+            if ($accountantId) {
+                $this->notifications->push(
+                    $accountantId, 'operation.returned_for_review',
+                    'عملية أُعيدت للمراجعة', $fresh->public_id.($note ? ' — '.$note : ''),
+                    null, ['type' => 'operation', 'id' => $fresh->id],
+                );
+            }
+            event(new \Modules\Admin\Events\OperationReturnedForReview($fresh, $actor, $note));
+        });
 
         return $fresh;
     }
@@ -384,24 +393,27 @@ class OperationService
      */
     public function bulkApprove(array $ids, AsabUser $actor): array
     {
-        $approved = [];
-        $failed = [];
-        foreach ($ids as $id) {
-            $op = Operation::find($id) ?? Operation::where('public_id', $id)->first();
-            if (! $op) {
-                $failed[] = ['id' => $id, 'code' => 'NOT_FOUND'];
+        return DB::transaction(function () use ($ids, $actor) {
+            $this->assertBulkAllowed($ids, $actor);
+            $approved = [];
+            $failed = [];
+            foreach ($ids as $id) {
+                $op = Operation::find($id) ?? Operation::where('public_id', $id)->first();
+                if (! $op) {
+                    $failed[] = ['id' => $id, 'code' => 'NOT_FOUND'];
 
-                continue;
+                    continue;
+                }
+                try {
+                    $this->approve($op, $actor);
+                    $approved[] = $op->public_id;
+                } catch (AsabException $e) {
+                    $failed[] = ['id' => $id, 'code' => $e->errorCode];
+                }
             }
-            try {
-                $this->approve($op, $actor);
-                $approved[] = $op->public_id;
-            } catch (AsabException $e) {
-                $failed[] = ['id' => $id, 'code' => $e->errorCode];
-            }
-        }
 
-        return ['approved' => $approved, 'failed' => $failed];
+            return ['approved' => $approved, 'failed' => $failed];
+        });
     }
 
     /**
@@ -414,29 +426,32 @@ class OperationService
      */
     public function bulkFinalApprove(array $ids, AsabUser $actor, bool $conditional = false, ?string $conditionalNote = null): array
     {
-        $finalApproved = [];
-        $failed = [];
-        foreach ($ids as $id) {
-            $op = Operation::find($id) ?? Operation::where('public_id', $id)->first();
-            if (! $op) {
-                $failed[] = ['id' => $id, 'code' => 'NOT_FOUND'];
+        return DB::transaction(function () use ($ids, $actor, $conditional, $conditionalNote) {
+            $this->assertBulkAllowed($ids, $actor);
+            $finalApproved = [];
+            $failed = [];
+            foreach ($ids as $id) {
+                $op = Operation::find($id) ?? Operation::where('public_id', $id)->first();
+                if (! $op) {
+                    $failed[] = ['id' => $id, 'code' => 'NOT_FOUND'];
 
-                continue;
+                    continue;
+                }
+                try {
+                    $this->finalApprove($op, $actor, $conditional, $conditionalNote);
+                    $finalApproved[] = $op->public_id;
+                } catch (AsabException $e) {
+                    $failed[] = ['id' => $id, 'code' => $e->errorCode];
+                } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
+                    $failed[] = ['id' => $id, 'code' => $e->getMessage()];
+                } catch (\Throwable $e) {
+                    // A non-domain error on one op must not abort the whole batch.
+                    $failed[] = ['id' => $id, 'code' => 'INTERNAL_ERROR'];
+                }
             }
-            try {
-                $this->finalApprove($op, $actor, $conditional, $conditionalNote);
-                $finalApproved[] = $op->public_id;
-            } catch (AsabException $e) {
-                $failed[] = ['id' => $id, 'code' => $e->errorCode];
-            } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
-                $failed[] = ['id' => $id, 'code' => $e->getMessage()];
-            } catch (\Throwable $e) {
-                // A non-domain error on one op must not abort the whole batch.
-                $failed[] = ['id' => $id, 'code' => 'INTERNAL_ERROR'];
-            }
-        }
 
-        return ['finalApproved' => $finalApproved, 'failed' => $failed];
+            return ['finalApproved' => $finalApproved, 'failed' => $failed];
+        });
     }
 
     /**
@@ -447,26 +462,29 @@ class OperationService
      */
     public function bulkReturnForReview(array $ids, AsabUser $actor, ?string $note = null): array
     {
-        $returned = [];
-        $failed = [];
-        foreach ($ids as $id) {
-            $op = Operation::find($id) ?? Operation::where('public_id', $id)->first();
-            if (! $op) {
-                $failed[] = ['id' => $id, 'code' => 'NOT_FOUND'];
+        return DB::transaction(function () use ($ids, $actor, $note) {
+            $this->assertBulkAllowed($ids, $actor);
+            $returned = [];
+            $failed = [];
+            foreach ($ids as $id) {
+                $op = Operation::find($id) ?? Operation::where('public_id', $id)->first();
+                if (! $op) {
+                    $failed[] = ['id' => $id, 'code' => 'NOT_FOUND'];
 
-                continue;
+                    continue;
+                }
+                try {
+                    $this->returnForReview($op, $actor, $note);
+                    $returned[] = $op->public_id;
+                } catch (AsabException $e) {
+                    $failed[] = ['id' => $id, 'code' => $e->errorCode];
+                } catch (\Throwable $e) {
+                    $failed[] = ['id' => $id, 'code' => 'INTERNAL_ERROR'];
+                }
             }
-            try {
-                $this->returnForReview($op, $actor, $note);
-                $returned[] = $op->public_id;
-            } catch (AsabException $e) {
-                $failed[] = ['id' => $id, 'code' => $e->errorCode];
-            } catch (\Throwable $e) {
-                $failed[] = ['id' => $id, 'code' => 'INTERNAL_ERROR'];
-            }
-        }
 
-        return ['returned' => $returned, 'failed' => $failed];
+            return ['returned' => $returned, 'failed' => $failed];
+        });
     }
 
     /**
@@ -491,6 +509,39 @@ class OperationService
      * Re-read the operation with a row lock. Must be called inside a transaction;
      * every status check and write of a transition then runs on this locked copy.
      */
+    private function assertSalesReturnAllowed(Operation $op): void
+    {
+        if ($op->module_key === 'sales' && app(OperationWorkflowClassifier::class)->classify($op) !== OperationWorkflowClassifier::LEGACY) {
+            throw new AsabException('RETURN_INDIVIDUAL_SHF_REQUIRED', 'Return the individual shift instead', 'يجب إرجاع الوردية الفردية', 409);
+        }
+    }
+
+    private function assertBulkAllowed(array $ids, AsabUser $actor): void
+    {
+        // Resolve/lock in stable order; no mutation happens until the entire selection passes.
+        $ids = array_values(array_unique($ids));
+        sort($ids, SORT_STRING);
+        foreach ($ids as $id) {
+            $stub = Operation::find($id) ?? Operation::where('public_id', $id)->first();
+            if ($stub === null) {
+                throw new AsabException('BULK_SELECTION_INVALID', 'Incomplete bulk selection', 'مجموعة العمليات غير متاحة بالكامل', 409);
+            }
+            $op = $this->lockOperation($stub);
+            $ctx = app(\Modules\Admin\Support\TenantContext::class);
+            $companies = $ctx->resolved ? $ctx->companyIds() : [$actor->company_id];
+            $branches = $ctx->resolved ? app(TenantBranchResolver::class)->operationBranchIds($ctx) : null;
+            if (! in_array($op->company_id, $companies, true)
+                || ($branches !== null && ! in_array($op->branch_id, $branches, true))
+                || $actor->status !== 'active' || ! $actor->hasAnyAsabRole(['accountant', 'head'])) {
+                throw new AsabException('BULK_SCOPE_FORBIDDEN', 'Bulk selection is outside actor scope', 'نطاق العمليات غير مصرح به', 403);
+            }
+            if ($op->module_key === 'shifts' || ($op->module_key === 'sales'
+                && app(OperationWorkflowClassifier::class)->classify($op) !== OperationWorkflowClassifier::LEGACY)) {
+                throw new AsabException('BULK_WORKFLOW_NOT_ALLOWED', 'Protected workflows require individual review', 'يلزم مراجعة فردية لمسار العملية', 409);
+            }
+        }
+    }
+
     private function lockOperation(Operation $op): Operation
     {
         return app(\Modules\Shift\Services\ShiftReportReviewService::class)->lockOperation($op);
@@ -507,6 +558,9 @@ class OperationService
      */
     private function assertDecisionAuthorized(Operation $op): void
     {
+        if ($op->module_key === 'sales' && app(OperationWorkflowClassifier::class)->classify($op) === OperationWorkflowClassifier::UNKNOWN) {
+            throw new AsabException('WORKFLOW_SOURCE_REQUIRED', 'Verified workflow source is required', 'يلزم مصدر موثوق لمسار العملية', 409);
+        }
         if ($op->module_key === 'expenses') {
             throw new AsabException(
                 'EXPENSE_DECISION_NOT_AUTHORIZED',

@@ -33,6 +33,8 @@ class HeadFinalApprovalQueueTest extends TestCase
 
     private AsabUser $accountant;
 
+    private array $uploaders = [];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -55,8 +57,7 @@ class HeadFinalApprovalQueueTest extends TestCase
 
     private function op(array $attrs = []): Operation
     {
-        return Operation::create(array_merge([
-            'public_id' => strtoupper(Str::random(12)),
+        $attributes = array_merge([
             'company_id' => $this->company->id,
             'branch_id' => $this->branchA->id,
             'module_key' => 'sales',
@@ -68,7 +69,50 @@ class HeadFinalApprovalQueueTest extends TestCase
             'operation_date' => now(),
             'reviewed_at' => now(),
             'submitted_at' => now(),
-        ], $attrs));
+        ], $attrs);
+
+        // This suite exercises bulk/return behavior for Legacy sales. Use the
+        // actual branch-upload controller so trusted provenance is server-written
+        // atomically, rather than constructing a sales row with a fake marker.
+        if ($attributes['module_key'] === 'sales') {
+            $branchId = (string) $attributes['branch_id'];
+            $uploader = $this->uploaders[$branchId] ??= $this->createBranchUploader($branchId);
+            $response = $this->actingAs($uploader, 'sanctum')
+                ->withHeader('Idempotency-Key', (string) Str::uuid())
+                ->postJson('/api/v1/company/me/branch/upload', [
+                    'reportType' => 'sales',
+                    'salesHalalas' => (int) $attributes['amount'],
+                ])->assertCreated();
+            $this->withoutHeader('Idempotency-Key');
+            $op = Operation::findOrFail($response->json('operations.0.id'));
+            unset($attributes['company_id'], $attributes['submitted_by_id']);
+            $op->forceFill($attributes)->save();
+
+            return $op->fresh();
+        }
+
+        // Non-sales fixtures are not Legacy sales and remain outside the new
+        // workflow classification contract.
+        return Operation::create(array_merge(['public_id' => strtoupper(Str::random(12))], $attributes));
+    }
+
+    private function createBranchUploader(string $branchId): AsabUser
+    {
+        $uploader = AsabUser::create([
+            'company_id' => $this->company->id,
+            'name' => 'Synthetic branch uploader',
+            'email' => Str::uuid().'@test.invalid',
+            'password' => 'synthetic-only',
+            'status' => 'active',
+        ]);
+        AsabUserRole::create([
+            'user_id' => $uploader->id,
+            'role_key' => 'branch',
+            'scope' => 'branch',
+            'branch_ids' => [$branchId],
+        ]);
+
+        return $uploader;
     }
 
     private function asHead()
@@ -84,9 +128,11 @@ class HeadFinalApprovalQueueTest extends TestCase
         $b = $this->op();
         $pending = $this->op(['status' => Operation::STATUS_PENDING, 'approved_by_id' => null]);
 
-        $body = $this->asHead()->postJson('/api/v1/operations/bulk-final-approve', [
+        $response = $this->asHead()->postJson('/api/v1/operations/bulk-final-approve', [
             'operationIds' => [$a->id, $b->id, $pending->id],
-        ])->assertOk()->json();
+        ]);
+        $this->assertSame(200, $response->status(), json_encode($response->json()));
+        $body = $response->json();
 
         $this->assertCount(2, $body['finalApproved']);
         $this->assertCount(1, $body['failed']);

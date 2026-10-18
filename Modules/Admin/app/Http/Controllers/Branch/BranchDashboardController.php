@@ -124,7 +124,7 @@ class BranchDashboardController extends AsabController
             ], fn ($v) => $v !== null);
 
             $op = $this->factory->createFromUpload(
-                $moduleMap[$reportType], $payload, $request->user(), $this->branchId($request), $amount, 'mobile', 'dashboard',
+                $moduleMap[$reportType], $payload, $request->user(), $this->branchId($request), $amount, 'mobile', 'dashboard', nativeLegacySales: $reportType === 'sales',
             );
             $attachments = $this->attachments->store($request, $op, 'operation');
 

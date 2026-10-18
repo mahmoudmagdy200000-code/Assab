@@ -32,7 +32,7 @@ class OperationFactory
      * @param  string  $channel  physical surface the record was submitted from
      *                           (`mobile_app` | `dashboard`); orthogonal to $origin.
      */
-    public function createFromUpload(string $moduleKey, array $payload, AsabUser $submitter, ?string $branchId, int $amount = 0, string $origin = 'mobile', string $channel = 'mobile_app'): Operation
+    public function createFromUpload(string $moduleKey, array $payload, AsabUser $submitter, ?string $branchId, int $amount = 0, string $origin = 'mobile', string $channel = 'mobile_app', bool $nativeLegacySales = false): Operation
     {
         if (! OperationEnums::isValidOrigin($origin)) {
             throw new AsabException(
@@ -46,7 +46,13 @@ class OperationFactory
 
         $op = OperationSequence::createWithPublicId(
             self::PREFIX[$moduleKey] ?? 'OPS',
-            fn (string $publicId) => DB::transaction(function () use ($publicId, $moduleKey, $payload, $submitter, $branchId, $amount, $origin, $channel) {
+            fn (string $publicId) => DB::transaction(function () use ($publicId, $moduleKey, $payload, $submitter, $branchId, $amount, $origin, $channel, $nativeLegacySales) {
+                if ($nativeLegacySales && ($moduleKey !== 'sales' || ! \Modules\Branch\Models\Branch::whereKey($branchId)
+                    ->where('asab_company_id', $submitter->company_id)->exists()
+                    || ! $submitter->roleAssignments()->where('role_key', 'branch')->get()
+                        ->contains(fn ($grant) => in_array($branchId, $grant->branch_ids ?? [], true)))) {
+                    throw new AsabException('WORKFLOW_SOURCE_SCOPE_INVALID', 'Invalid native upload scope', 'نطاق مصدر العملية غير صالح', 403);
+                }
                 $op = Operation::create([
                     'public_id' => $publicId,
                     'company_id' => $submitter->company_id,
@@ -67,6 +73,13 @@ class OperationFactory
                 ApprovalStep::create([
                     'operation_id' => $op->id,
                     'stage_id' => 'submit',
+                    // This flag is supplied only by trusted native upload call sites.
+                    // Proof and operation commit/rollback together; payload cannot grant it.
+                    'meta' => $nativeLegacySales ? ['workflowSource' => [
+                        'kind' => OperationWorkflowClassifier::LEGACY, 'source' => 'native_branch_upload',
+                        'operationId' => $op->id, 'companyId' => $op->company_id,
+                        'branchId' => $op->branch_id, 'actorId' => $submitter->id,
+                    ]] : null,
                     'action' => 'أُنشئ السجل: '.$op->public_id,
                     'actor_user_id' => $submitter->id,
                     'actor_label' => $submitter->name,

@@ -246,9 +246,9 @@ class ShiftReportReviewService
 
     public function managerSource(Operation $operation): ?string
     {
-        return $operation->module_key === 'sales' && $operation->origin === 'mobile'
-            && ! empty($operation->payload['managerShiftId'])
-            ? (string) $operation->payload['managerShiftId'] : null;
+        $classifier = app(\Modules\Admin\Services\OperationWorkflowClassifier::class);
+        return $classifier->classify($operation) === \Modules\Admin\Services\OperationWorkflowClassifier::SAL
+            ? $classifier->daySource($operation) : null;
     }
 
     public function assertMutableCashier(CashierShift $source): void

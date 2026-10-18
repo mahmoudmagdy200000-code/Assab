@@ -69,7 +69,7 @@ class BranchCompanyController extends AsabController
             ]);
             $ops = [];
             if (! empty($data['sales'])) {
-                $op = $this->factory->createFromUpload('sales', $data['sales'], $request->user(), $branchId, (int) ($data['sales']['totalHalalas'] ?? 0), 'mobile', 'dashboard');
+                $op = $this->factory->createFromUpload('sales', $data['sales'], $request->user(), $branchId, (int) ($data['sales']['totalHalalas'] ?? 0), 'mobile', 'dashboard', nativeLegacySales: true);
                 $ops[] = ['id' => $op->id, 'publicId' => $op->public_id, 'moduleKey' => 'sales', 'status' => $op->status];
             }
             if (! empty($data['expenses'])) {
@@ -120,7 +120,7 @@ class BranchCompanyController extends AsabController
             'expenseNote' => $request->input('expenseNote'),
         ];
 
-        $op = $this->factory->createFromUpload($moduleKey, $payload, $request->user(), $branchId, $amount, 'mobile', 'dashboard');
+        $op = $this->factory->createFromUpload($moduleKey, $payload, $request->user(), $branchId, $amount, 'mobile', 'dashboard', nativeLegacySales: $moduleKey === 'sales');
 
         // Persist + link uploaded attachments to the created operation.
         $attachments = $this->attachments->store($request, $op, 'operation');

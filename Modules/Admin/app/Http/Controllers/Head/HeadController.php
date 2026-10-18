@@ -348,7 +348,7 @@ class HeadController extends AsabController
      */
     private function filteredOps(Request $request, string $status)
     {
-        $q = Operation::where('status', $status);
+        $q = $this->scopeToAssignedBranches(Operation::where('status', $status));
         if ($module = $request->query('moduleKey')) {
             $q->where('module_key', $module);
         }
@@ -429,6 +429,8 @@ class HeadController extends AsabController
             'branchId' => $op->branch_id,
             'branchName' => $branch['name'] ?? null,
             'moduleKey' => $op->module_key,
+            'workflowKind' => app(\Modules\Admin\Services\OperationWorkflowClassifier::class)->classify($op),
+            'reportReview' => $op->payload['pkg6Review'] ?? null,
             'moduleLabel' => self::moduleLabel($op->module_key, 'ar'),
             'amount' => $op->amount,
             'amountHalalas' => $op->amount,

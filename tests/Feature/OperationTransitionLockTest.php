@@ -70,8 +70,7 @@ class OperationTransitionLockTest extends TestCase
 
     private function op(string $status = Operation::STATUS_PENDING, array $attrs = []): Operation
     {
-        return Operation::create(array_merge([
-            'public_id' => OperationSequence::next('OPS'),
+        $attributes = array_merge([
             'company_id' => $this->company->id,
             'branch_id' => $this->branch->id,
             'module_key' => 'sales',
@@ -82,7 +81,25 @@ class OperationTransitionLockTest extends TestCase
             'submitted_by_id' => $this->manager->id,
             'submitted_at' => now(),
             'operation_date' => now(),
-        ], $attrs));
+        ], $attrs);
+
+        // Create Legacy sales through the real, scoped branch upload. The server
+        // writes workflowSource in the same transaction as the operation; the
+        // fixture never fabricates a Legacy marker or relies on reportReview=null.
+        $response = $this->actingAs($this->manager, 'sanctum')
+            ->withHeader('Idempotency-Key', (string) \Illuminate\Support\Str::uuid())
+            ->postJson('/api/v1/company/me/branch/upload', [
+                'reportType' => 'sales',
+                'salesHalalas' => (int) $attributes['amount'],
+            ])->assertCreated();
+        $this->withoutHeader('Idempotency-Key');
+        $op = Operation::findOrFail($response->json('operations.0.id'));
+
+        $mutable = $attributes;
+        unset($mutable['company_id'], $mutable['submitted_by_id']);
+        $op->forceFill($mutable)->save();
+
+        return $op->fresh();
     }
 
     /** An approved operation exactly as the accountant leaves it. */
@@ -96,7 +113,9 @@ class OperationTransitionLockTest extends TestCase
 
     private function steps(Operation $op): int
     {
-        return ApprovalStep::query()->where('operation_id', $op->id)->count();
+        // Native-source fixtures begin with their immutable `submit` proof step;
+        // count transition/audit writes separately from that provenance record.
+        return ApprovalStep::query()->where('operation_id', $op->id)->where('stage_id', '!=', 'submit')->count();
     }
 
     private function notifications(?string $type = null): int
@@ -297,7 +316,7 @@ class OperationTransitionLockTest extends TestCase
         $this->assertSame([], $result['returned']);
         $this->assertSame([['id' => $op->id, 'code' => 'OP_NOT_APPROVED']], $result['failed']);
         $this->assertSame(Operation::STATUS_FINAL, Operation::find($op->id)->status);
-        $this->assertSame(0, ApprovalStep::where('operation_id', $op->id)->count());
+        $this->assertSame(0, $this->steps($op));
         $this->assertSame(0, $this->notifications('operation.returned_for_review'));
     }
 
@@ -368,7 +387,7 @@ class OperationTransitionLockTest extends TestCase
 
         $this->assertSame(Operation::STATUS_FINAL, $final->status);
         $this->assertSame(
-            ['approved', 'review', 'approved', 'final'],
+            ['submit', 'approved', 'review', 'approved', 'final'],
             ApprovalStep::where('operation_id', $op->id)->orderBy('occurred_at')->orderBy('id')->pluck('stage_id')->all(),
         );
         $this->assertSame($this->head->id, $final->final_approved_by_id);
@@ -492,7 +511,7 @@ class OperationTransitionLockTest extends TestCase
             $res = $this->svc->requestClarification(Operation::find($op->id), $this->accountant, 'please clarify');
 
             $this->assertSame($status, $res->status);
-            $this->assertSame(1, ApprovalStep::where('operation_id', $op->id)->count());
+            $this->assertSame(1, $this->steps($op));
         }
         $this->assertSame(2, $this->notifications('operation.clarification_requested'));
     }
@@ -507,6 +526,6 @@ class OperationTransitionLockTest extends TestCase
         $this->assertSame(Operation::STATUS_APPROVED, $second->status);
         $this->assertSame([['sku' => 'A']], $second->payload['lines']);
         $this->assertSame('second', $second->payload['documentation']['note'], 'repeat documentation refreshes the note');
-        $this->assertSame(2, ApprovalStep::where('operation_id', $op->id)->count(), 'each legitimate documentation is audited');
+        $this->assertSame(2, $this->steps($op), 'each legitimate documentation is audited');
     }
 }
