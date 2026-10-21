@@ -19,7 +19,22 @@ class ExceptionController extends AsabController
     {
         return $this->run(function () use ($request) {
             $user = $request->user();
-            $companyId = $user->hasAsabRole('admin') ? $request->query('companyId') : $user->company_id;
+            $ctx = app(\Modules\Admin\Support\TenantContext::class);
+
+            if ($ctx->isGlobalAdmin()) {
+                $companyId = $request->query('companyId') ?? $user->company_id;
+            } else {
+                $requestedCompanyId = $request->query('companyId');
+                if ($requestedCompanyId && ! in_array($requestedCompanyId, $ctx->companyIds(), true)) {
+                    throw new \Modules\Admin\Exceptions\AsabException(
+                        'FORBIDDEN',
+                        'Company access denied',
+                        'غير مصرح بالوصول إلى هذه الشركة',
+                        403,
+                    );
+                }
+                $companyId = $requestedCompanyId ?? $ctx->companyId ?? $user->company_id;
+            }
 
             $rows = $this->service->all($companyId, $request->query('branchId'));
 

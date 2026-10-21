@@ -98,7 +98,7 @@ abstract class AsabController extends Controller
     {
         $ctx = app(\Modules\Admin\Support\TenantContext::class);
 
-        return $ctx->isAdmin ? null : $ctx->companyIds();
+        return $ctx->isGlobalAdmin() ? null : $ctx->companyIds();
     }
 
     /**
@@ -136,7 +136,7 @@ abstract class AsabController extends Controller
     protected function assignedBrandIds(): ?array
     {
         $ctx = app(\Modules\Admin\Support\TenantContext::class);
-        if ($ctx->isAdmin) {
+        if ($ctx->isGlobalAdmin()) {
             return null;
         }
         if (! $ctx->hasTenant()) {

@@ -279,6 +279,11 @@ class CashierService
 
         $branchId = Cashier::whereKey($cashierId)->value('branch_id');
 
+        $manager = auth('branch_manager')->user() ?? auth()->user();
+        if ($manager && isset($manager->branch_id) && $branchId !== null && $manager->branch_id !== $branchId) {
+            throw new \Illuminate\Auth\Access\AuthorizationException('Cannot assign shifts to a cashier of another branch');
+        }
+
         foreach ($dates as $date) {
             $d = $date->format('Y-m-d');
             foreach ($shiftIds as $shiftId) {

@@ -173,8 +173,7 @@ class ShortagePostingService
                     $operationId
                 );
 
-                $posting = ShiftLiabilityPosting::create([
-                    'id' => $postingId,
+                $posting = new ShiftLiabilityPosting([
                     'company_id' => $companyId,
                     'branch_id' => $branchId,
                     'cashier_shift_id' => $shift->id,
@@ -194,6 +193,10 @@ class ShortagePostingService
                     'ledger_id' => $ledgerId,
                     'status' => 'posted',
                 ]);
+                // The model guards id from mass assignment. Preserve the UUID
+                // already written by the ledger adapter, inside this transaction.
+                $posting->id = $postingId;
+                $posting->save();
 
                 $postingState->update([
                     'last_approved_target_halalas' => $targetHalalas,

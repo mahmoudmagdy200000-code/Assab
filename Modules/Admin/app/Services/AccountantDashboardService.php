@@ -175,7 +175,7 @@ class AccountantDashboardService
     private function companyIds(AsabUser $actor): array
     {
         $ctx = app(TenantContext::class);
-        $ids = $ctx->isAdmin ? [] : $ctx->companyIds();
+        $ids = $ctx->isGlobalAdmin() ? [] : $ctx->companyIds();
 
         return $ids !== [] ? $ids : [$actor->company_id];
     }

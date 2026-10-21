@@ -46,7 +46,7 @@ Route::prefix('cashier/auth')->middleware('throttle:cashier-auth')->group(functi
 */
 
 Route::prefix('branch-manager/cashiers')
-    ->middleware(['auth:sanctum', 'branch.manager.or.cashier'])
+    ->middleware(['auth:sanctum', 'branch.manager'])
     ->group(function () {
         // Get All Cashiers and Branch Managers (must be before {cashier} route to avoid route model binding conflict)
         Route::get('/all', [\Modules\Shift\Http\Controllers\CashierShiftController::class, 'getAllCashiersAndBranchManagerAccount'])

@@ -47,7 +47,7 @@ class TenantBranchResolver
     private function fingerprint(TenantContext $ctx): string
     {
         return implode('|', [
-            $ctx->isAdmin ? 'admin' : 'user',
+            $ctx->isGlobalAdmin() ? 'global_admin' : ($ctx->isAdmin ? 'scoped_admin' : 'user'),
             // Without this a platform account and a plain companyless one share
             // a key (both have no companyId) and inherit each other's answer.
             $ctx->isPlatform ? 'platform' : 'tenant',
@@ -66,7 +66,7 @@ class TenantBranchResolver
         // company, so it is unrestricted like the admin. Its controllers narrow
         // by ownership — the supplier portal by payload->supplierId — rather
         // than by branch.
-        if ($ctx->isAdmin || $ctx->isPlatform) {
+        if ($ctx->isGlobalAdmin() || $ctx->isPlatform) {
             return null;
         }
         if (! $ctx->hasTenant()) {
@@ -124,7 +124,7 @@ class TenantBranchResolver
      */
     public function operationBranchIds(TenantContext $ctx): ?array
     {
-        if ($ctx->isAdmin || $ctx->scope === 'all') {
+        if ($ctx->isGlobalAdmin() || $ctx->scope === 'all') {
             return null;
         }
 

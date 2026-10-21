@@ -168,6 +168,10 @@ class CashierManagementController extends BaseController
      */
     public function store(Request $request): JsonResponse
     {
+        if (! auth()->user() instanceof BranchManager) {
+            return $this->errorResponse('Only branch managers can create cashiers', 403);
+        }
+
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'email' => 'required|email|unique:cashiers,email',
@@ -302,6 +306,8 @@ class CashierManagementController extends BaseController
                     'completed' => $completedShifts,
                 ],
             ], 'Cashier details retrieved successfully');
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse('Cashier not found in your branch', 404);
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -313,6 +319,10 @@ class CashierManagementController extends BaseController
      */
     public function update(Request $request, string $cashier): JsonResponse
     {
+        if (! auth()->user() instanceof BranchManager) {
+            return $this->errorResponse('Only branch managers can update cashiers', 403);
+        }
+
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|string|max:255',
             'email' => 'sometimes|email|unique:cashiers,email,'.$cashier,
@@ -379,6 +389,8 @@ class CashierManagementController extends BaseController
                     'store_branch_name' => $cashierModel->branch->name ?? 'N/A',
                 ],
             ], 'Cashier updated successfully');
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse('Cashier not found in your branch', 404);
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }

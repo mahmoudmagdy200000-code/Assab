@@ -17,6 +17,8 @@ use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
 use Modules\Shift\Models\ShiftLiabilityAllocation;
+use Modules\Shift\Services\CashierShiftStartService;
+use Modules\Shift\Services\ShiftCashCountService;
 use Modules\Shift\Services\ShiftReportRevisionService;
 use Modules\Shift\Services\ShortagePostingService;
 use Tests\TestCase;
@@ -141,38 +143,62 @@ class ShiftReturnFinalizationGuardTest extends TestCase
             'status' => 'completed',
         ]);
 
+        // Prepare a completed, genuinely counted report through the mobile path.
+        // The decoy must never supply evidence for the exact legacy source.
+        $cashier = $this->legacy->cashier;
+        app(CashierShiftStartService::class)->startShift($this->legacy);
+        $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->legacy->id}/end", [
+            'total_sales' => '10.00',
+            'cash_collected' => '10.00',
+            'card_payments' => '0.00',
+            'counted_cash' => '0.00',
+            'shortage_allocations' => [
+                ['responsible_type' => 'cashier', 'responsible_id' => $cashier->id, 'amount' => '10.00'],
+            ],
+        ], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertOk();
+
+        $count = app(ShiftCashCountService::class)->currentFor($this->legacy->id);
+        $this->assertNotNull($count);
+        $this->assertSame(-1000, $count->variance_halalas);
+        $this->assertNull(app(ShiftCashCountService::class)->currentFor($decoy->id));
+        $allocation = ShiftLiabilityAllocation::where('cashier_shift_id', $this->legacy->id)
+            ->whereNull('superseded_at')->sole();
+        $this->assertSame($count->evidence_revision_id, $allocation->report_revision);
+        $this->assertSame(1000, (int) $allocation->shares()->sum('amount_halalas'));
+        $revision = app(ShiftReportRevisionService::class)->currentCashierRevision($this->legacy->fresh());
+        $this->actingAs($this->manager, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$this->legacy->id}/liability/approve", [
+            'version' => $allocation->version,
+            'expected_revision' => $revision->revision_number,
+        ], ['Idempotency-Key' => (string) \Illuminate\Support\Str::uuid()])->assertOk();
+        $allocation->refresh();
+        $this->assertSame('approved', $allocation->manager_approval_status);
+        $this->assertNotNull($allocation->manager_approved_at);
+
         $service = app(\Modules\Admin\Services\ShiftCloseService::class);
         $closed = $service->close($mirror, ['cashActualHalalas' => 0], $this->accountant);
         $operation = $closed['operation'];
         $operation->update(['status' => Operation::STATUS_FINAL]);
         $mirror->update(['cash_count_state' => 'counted']);
 
-        $allocation = ShiftLiabilityAllocation::create([
-            'company_id' => $this->accountant->company_id,
-            'branch_id' => $this->branch->id,
-            'cashier_shift_id' => $this->legacy->id,
-            'version' => 1,
-            'report_revision' => '1',
-            'variance_halalas' => -1000,
-            'created_by_type' => 'branch_manager',
-            'created_by_id' => $this->manager->id,
-            'manager_approval_status' => 'approved',
-            'manager_approved_by' => $this->manager->id,
-            'manager_approved_at' => now(),
-        ]);
-
+        // Observe exact source selection, while executing the real reconciler.
+        // Its expected revision is numeric; allocation evidence is a UUID.
+        $realPosting = app(ShortagePostingService::class);
+        $beforePostings = DB::table('shift_liability_postings')->orderBy('id')->get()->all();
         $posting = \Mockery::mock(ShortagePostingService::class);
-        $posting->shouldReceive('reconcile')->once()->withArgs(function ($shift, $actor, $revision, $version) use ($allocation, $decoy) {
+        $posting->shouldReceive('reconcile')->once()->withArgs(function ($shift, $actor, $expectedRevision, $version) use ($allocation, $decoy, $revision) {
             return $shift->is($this->legacy)
                 && ! $shift->is($decoy)
-                && $revision === (int) $allocation->report_revision
+                && $expectedRevision === $revision->revision_number
                 && $version === $allocation->version;
-        })->andReturn(['cashier_shift_id' => $this->legacy->id, 'postings' => [], 'total_deltas' => 0]);
+        })->andReturnUsing(fn (...$args) => $realPosting->reconcile(...$args));
         app()->instance(ShortagePostingService::class, $posting);
 
         $service->onFinalApproved($operation, $this->accountant);
 
         $this->assertSame('closed', $mirror->fresh()->status);
+        $this->assertEquals($beforePostings, DB::table('shift_liability_postings')->orderBy('id')->get()->all());
+        $this->assertSame(1000, (int) DB::table('shift_liability_postings')->where('cashier_shift_id', $this->legacy->id)->sum('delta_halalas'));
+        $this->assertSame(0, DB::table('shift_liability_postings')->where('cashier_shift_id', $decoy->id)->count());
     }
 
     public function test_daily_submission_checks_carried_reports_older_than_the_recent_window(): void

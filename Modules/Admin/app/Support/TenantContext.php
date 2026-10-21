@@ -74,6 +74,11 @@ class TenantContext
         return $this->companyId !== null;
     }
 
+    public function isGlobalAdmin(): bool
+    {
+        return $this->isAdmin && $this->scope === 'all';
+    }
+
     /**
      * The company ids to filter by. Falls back to the primary company so a
      * context built by hand (tests, jobs) behaves exactly as before.

@@ -75,10 +75,12 @@ class PipelineController extends AsabController
         });
     }
 
-    /** Only an admin may target another company; everyone else is token-scoped. */
+    /** Only a global admin may target another company; everyone else is token-scoped. */
     private function companyScope(Request $request): ?string
     {
-        return $request->user()->hasAsabRole('admin') ? $request->query('companyId') : null;
+        $ctx = app(\Modules\Admin\Support\TenantContext::class);
+
+        return $ctx->isGlobalAdmin() ? $request->query('companyId') : null;
     }
 
     /**
@@ -88,7 +90,8 @@ class PipelineController extends AsabController
      */
     private function targetCompanyId(Request $request): string
     {
-        $companyId = $this->companyScope($request) ?? $request->user()->company_id;
+        $ctx = app(\Modules\Admin\Support\TenantContext::class);
+        $companyId = $this->companyScope($request) ?? $ctx->companyId ?? $request->user()->company_id;
 
         if (! $companyId) {
             throw new AsabException(
@@ -96,6 +99,15 @@ class PipelineController extends AsabController
                 'companyId is required for platform admins',
                 'يجب تحديد الشركة',
                 422,
+            );
+        }
+
+        if (! $ctx->isGlobalAdmin() && ! in_array($companyId, $ctx->companyIds(), true)) {
+            throw new AsabException(
+                'FORBIDDEN',
+                'Company access denied',
+                'غير مصرح بالوصول إلى هذه الشركة',
+                403,
             );
         }
 

@@ -70,7 +70,7 @@ trait BelongsToTenant
         static::addGlobalScope('tenant', function (Builder $builder) use ($platformVisible, $sharesPlatformRows) {
             $ctx = app(TenantContext::class);
 
-            if ($ctx->isAdmin) {
+            if ($ctx->isGlobalAdmin()) {
                 return;
             }
 

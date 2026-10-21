@@ -489,7 +489,12 @@ class UserController extends AsabController
             // tenant resolver ORs any non-empty id array regardless of the scope
             // string, so an array left over from the wizard would NARROW an
             // account that is supposed to be unrestricted.
-            'admin' => [
+            'admin' => isset($data['scope']) && $data['scope'] !== 'all' ? [
+                'scope' => $data['scope'],
+                'brand_ids' => $data['brands'] ?? [],
+                'restaurant_ids' => $data['restaurants'] ?? [],
+                'branch_ids' => $data['branches'] ?? [],
+            ] : [
                 'scope' => 'all',
                 'brand_ids' => [],
                 'restaurant_ids' => [],

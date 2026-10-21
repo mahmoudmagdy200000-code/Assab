@@ -404,6 +404,75 @@ class ShiftShortagePostingApprovalIntegrationTest extends TestCase
         $this->assertSame(-150.00, $custodyService->getPersonalBalanceOnly($this->cashierA->id));
     }
 
+    /** E2E-F4-LEDGER-LINK: all three real adapters must have a resolvable reciprocal posting identity. */
+    public function test_new_postings_have_no_ledger_orphans_and_reconciliation_does_not_duplicate(): void
+    {
+        $revision = app(ShiftReportRevisionService::class)->recordCashierRevision(
+            $this->cashierShift, 'cashier', $this->cashierA->id, 0);
+        $this->recordCurrentCashCount($revision, -6000);
+        $employee = \Modules\Admin\Models\Employee::create([
+            'company_id' => $this->company->id, 'branch_id' => $this->branch->id,
+            'emp_number' => 'LEDGER-LINK-001', 'name' => 'Synthetic liability employee',
+            'role' => 'staff', 'status' => 'active',
+        ]);
+        $liability = app(\Modules\Shift\Liability\ShiftLiabilityService::class);
+        $allocation = $liability->allocate($this->cashierShift->id, $this->cashierA, [
+            ['type' => 'cashier', 'id' => $this->cashierA->id, 'amount' => 2000],
+            ['type' => 'branch_manager', 'id' => $this->manager->id, 'amount' => 2000],
+            ['type' => 'employee', 'id' => $employee->id, 'amount' => 2000],
+        ], 0, true);
+        $liability->approve($this->cashierShift->id, $this->manager, $allocation->version, true);
+        $tables = ['shift_liability_postings', 'shift_liability_posting_states',
+            'asab_employee_movements', 'cashier_custody_transactions', 'personal_ledger_transactions'];
+        $snapshot = static function () use ($tables): array {
+            $rows = [];
+            foreach ($tables as $table) {
+                $rows[$table] = \Illuminate\Support\Facades\DB::table($table)->orderBy('id')->get()->map(fn ($row) => (array) $row)->all();
+            }
+
+            return $rows;
+        };
+        $before = $snapshot();
+        $this->postingService->reconcile($this->cashierShift, $this->manager, 1, $allocation->version, 'LINK-INITIAL');
+        $after = $snapshot();
+        $this->assertCount(3, $after['shift_liability_postings']);
+        $this->assertSame(6000, (int) ShiftLiabilityPosting::where('cashier_shift_id', $this->cashierShift->id)->sum('delta_halalas'));
+        $orphans = [];
+        $joins = [];
+        foreach (['asab_employee_movements', 'cashier_custody_transactions', 'personal_ledger_transactions'] as $table) {
+            $base = \Illuminate\Support\Facades\DB::table($table.' as ledger')
+                ->whereNotNull('ledger.posting_id')
+                ->where('ledger.lineage_key', 'like', $this->cashierShift->id.':%');
+            $orphans[$table] = (clone $base)->leftJoin('shift_liability_postings as posting', 'posting.id', '=', 'ledger.posting_id')
+                ->whereNull('posting.id')->pluck('ledger.id')->all();
+            $joins[$table] = (clone $base)->join('shift_liability_postings as posting', 'posting.id', '=', 'ledger.posting_id')
+                ->where('posting.ledger_table', $table)->whereColumn('posting.ledger_id', 'ledger.id')
+                ->whereColumn('posting.lineage_key', 'ledger.lineage_key')->count();
+        }
+        $path = getenv('FINDING_A_EVIDENCE_JSONL');
+        if ($path !== false && $path !== '') {
+            file_put_contents($path, json_encode(['stage' => 'initial', 'before' => $before, 'after' => $after,
+                'orphans' => $orphans, 'joined_counts' => $joins], JSON_THROW_ON_ERROR)."\n", FILE_APPEND | LOCK_EX);
+        }
+        $this->assertSame([], array_merge(...array_values($orphans)), 'Ledger JOIN exposes orphan posting_id back-references.');
+        $this->assertSame([1, 1, 1], array_values($joins));
+        foreach (ShiftLiabilityPosting::where('cashier_shift_id', $this->cashierShift->id)->get() as $posting) {
+            $ledger = \Illuminate\Support\Facades\DB::table($posting->ledger_table)->where('id', $posting->ledger_id)->sole();
+            $this->assertSame($posting->id, $ledger->posting_id);
+            $this->assertSame(2000, $posting->delta_halalas);
+            $this->assertSame(2000, $posting->target_halalas);
+        }
+        $result = $this->postingService->reconcile($this->cashierShift, $this->manager, 1, $allocation->version, 'LINK-REPLAY');
+        $this->assertSame(0, $result['total_deltas']); // This field counts posting rows, never halalas.
+        $replayed = $snapshot();
+        foreach (['shift_liability_postings', 'asab_employee_movements', 'cashier_custody_transactions', 'personal_ledger_transactions'] as $table) {
+            $this->assertSame($after[$table], $replayed[$table]);
+        }
+        if ($path !== false && $path !== '') {
+            file_put_contents($path, json_encode(['stage' => 'replay', 'after' => $replayed], JSON_THROW_ON_ERROR)."\n", FILE_APPEND | LOCK_EX);
+        }
+    }
+
     private function recordCurrentCashCount($revision, int $varianceHalalas): void
     {
         ShiftReportCashCount::create([

@@ -53,7 +53,9 @@ class ShiftCloseService
         return DB::transaction(function () use ($shift, $actor, $origin, $cashActual, $card, $aggregator, $data) {
             if ($shift->legacy_shift_id !== null && ! $shift->isBranchManagerShift()) {
                 $legacy = CashierShift::withoutEagerLoads()->find($shift->legacy_shift_id);
-                if ($legacy) app(\Modules\Shift\Services\ShiftReportReviewService::class)->lockCashier($legacy);
+                if ($legacy) {
+                    app(\Modules\Shift\Services\ShiftReportReviewService::class)->lockCashier($legacy);
+                }
             }
             $this->assertFreshLegacyCount($shift);
             $shift = Shift::query()->whereKey($shift->id)->lockForUpdate()->firstOrFail();
@@ -285,10 +287,22 @@ class ShiftCloseService
                     throw new AsabException('BRANCH_LIABILITY_APPROVAL_PENDING', 'The shortage is governed by the branch liability allocation and its manager approval', 'عجز هذه الوردية يُحدَّد بتوزيع الفرع واعتماد مدير الفرع', 409);
                 }
 
+                $report = app(\Modules\Shift\Liability\LiabilityEvidenceSource::class)->report($cashierShift->id);
+                app(\Modules\Shift\Liability\ShiftLiabilityService::class)->assertDailyReportReady($report);
+                $currentRevision = app(\Modules\Shift\Services\ShiftReportRevisionService::class)
+                    ->currentCashierRevision($cashierShift);
+
+                // Under the same transaction/root locks, three comparisons are
+                // inert here: reconcile's current expectedRevision, readiness's
+                // same-source currentReport comparison, and latest version vs
+                // itself. Live protection is current UUID/numeric evidence,
+                // active allocation, variance/scope, valid shares and approval/
+                // confirmation; OperationService also validates the SHF snapshot.
+                // Other reconcile callers retain their caller-supplied tokens.
                 app(\Modules\Shift\Services\ShortagePostingService::class)->reconcile(
                     $cashierShift,
                     $actor,
-                    (int) $activeAlloc->report_revision,
+                    $currentRevision->revision_number,
                     $activeAlloc->version,
                     (string) \Illuminate\Support\Str::uuid()
                 );
