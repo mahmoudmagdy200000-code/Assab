@@ -415,9 +415,12 @@ class DistributionController extends AsabController
             DB::transaction(function () use ($assignment, $data, $add) {
                 $ids = collect($assignment->restaurant_ids ?? []);
                 $ids = $add ? $ids->push($data['restaurantId'])->unique() : $ids->reject(fn ($i) => $i === $data['restaurantId']);
+                // F2-B: distribution edits an additional restaurant grant, never the
+                // authoritative scope. A brand-scoped accountant keeps their
+                // original brands alongside individually assigned restaurants;
+                // removing the last extra restaurant must not invalidate that role.
                 $assignment->update([
                     'restaurant_ids' => $ids->values()->all(),
-                    'scope' => 'restaurant',
                     'module_keys' => $assignment->module_keys ?: self::DIST_MODULES,
                 ]);
                 $this->modules->resyncUnion($assignment);

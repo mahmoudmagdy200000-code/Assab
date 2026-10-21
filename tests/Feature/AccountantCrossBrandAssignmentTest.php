@@ -188,4 +188,43 @@ class AccountantCrossBrandAssignmentTest extends TestCase
 
         $this->assertSame([$this->brandA->id], collect($brands)->pluck('id')->all());
     }
+
+    /** F2-B: distribution must not silently downgrade the authoritative brand grant. */
+    public function test_assigning_foreign_restaurant_keeps_original_brand_grant_authoritative(): void
+    {
+        $this->assignRestaurantB();
+
+        $assignment = $this->accountant->fresh()->roleAssignments()
+            ->where('role_key', 'accountant')->firstOrFail();
+
+        $this->assertSame('brand', $assignment->scope);
+        $this->assertSame([$this->brandA->id], $assignment->brand_ids);
+        $this->assertSame([$this->restaurantB->id], $assignment->restaurant_ids);
+    }
+
+    /** Coverage of one restaurant may reveal its brand pill, not other restaurants of that brand. */
+    public function test_assigning_foreign_restaurant_does_not_grant_sibling_restaurant(): void
+    {
+        $sibling = AsabRestaurant::create([
+            'brand_id' => $this->brandB->id,
+            'company_id' => $this->brandB->company_id,
+            'name' => 'مطعم 2',
+            'status' => 'active',
+        ]);
+        $siblingBranch = Branch::factory()->create([
+            'name' => 'مطعم 22',
+            'asab_brand_id' => $this->brandB->id,
+            'asab_restaurant_id' => $sibling->id,
+            'asab_company_id' => $this->brandB->company_id,
+        ]);
+
+        $this->assignRestaurantB();
+
+        $this->actingAs($this->accountant, 'sanctum')
+            ->getJson("/api/v1/accountant/inventory/branches/{$this->branchB->id}/daily-list")
+            ->assertStatus(200);
+        $this->actingAs($this->accountant, 'sanctum')
+            ->getJson("/api/v1/accountant/inventory/branches/{$siblingBranch->id}/daily-list")
+            ->assertStatus(404);
+    }
 }
