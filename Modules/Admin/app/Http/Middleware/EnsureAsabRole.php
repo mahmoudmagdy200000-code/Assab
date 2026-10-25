@@ -5,6 +5,7 @@ namespace Modules\Admin\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Models\CompanyUser;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -27,6 +28,15 @@ class EnsureAsabRole
 
         if ($user->status !== 'active') {
             return $this->deny('USER_INACTIVE', 'User account is not active', 'الحساب غير مُفعّل', 403);
+        }
+
+        if ($user->company_id !== null) {
+            $membership = CompanyUser::where('company_id', $user->company_id)
+                ->where('user_id', $user->id)
+                ->first();
+            if (! $membership || $membership->status !== 'active') {
+                return $this->deny('MEMBERSHIP_INACTIVE', 'User membership in company is not active', 'عضوية المستخدم في الشركة غير نشطة', 403);
+            }
         }
 
         return $next($request);

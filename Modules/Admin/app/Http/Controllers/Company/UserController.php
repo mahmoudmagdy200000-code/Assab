@@ -7,12 +7,15 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\PersonalAccessToken;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Mail\CompanyInvitationMail;
+use Modules\Admin\Models\AdminSession;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabRole;
+use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\CompanyInvitation;
 use Modules\Admin\Models\CompanyUser;
@@ -188,12 +191,16 @@ class UserController extends AsabController
             if ($cu->user_id === $request->user()->id) {
                 throw new AsabException('CANNOT_DISABLE_SELF', 'Cannot disable yourself', 'لا يمكنك إيقاف حسابك', 409);
             }
+            if ($cu->status === 'archived') {
+                throw new AsabException('CANNOT_TOGGLE_ARCHIVED', 'Cannot toggle status of archived member', 'لا يمكن تعديل حالة عضو مؤرشف بواسطة التبديل السريع', 409);
+            }
             if ($cu->status === 'active' && $cu->role_key === 'company-admin' && $this->isLastAdmin($cu)) {
                 throw new AsabException('LAST_ACTIVE_ADMIN', 'Cannot disable the last admin', 'لا يمكن إيقاف آخر أدمن نشط', 409);
             }
             $new = $cu->status === 'active' ? 'inactive' : 'active';
             $cu->update(['status' => $new]);
             if ($new === 'inactive') {
+                $this->revokeCompanyUserSessions($cu->user_id, $cu->company_id);
                 $this->rt->userLifecycle($request->user()->company_id, 'suspended', $cu->fresh());
             }
 
@@ -208,9 +215,80 @@ class UserController extends AsabController
             if ($cu->role_key === 'company-admin' && $this->isLastAdmin($cu)) {
                 throw new AsabException('LAST_ACTIVE_ADMIN', 'Cannot remove the last admin', 'لا يمكن حذف آخر أدمن', 409);
             }
-            $cu->delete();
+            $cu->update(['status' => 'archived']);
+            $this->revokeCompanyUserSessions($cu->user_id, $cu->company_id);
+            $this->rt->userLifecycle($request->user()->company_id, 'archived', $cu->fresh());
 
             return $this->noContent();
+        });
+    }
+
+    /**
+     * S1-12 atomic session and token revocation following the strict lock hierarchy:
+     * Lock 1: User -> Lock 2: Sessions -> Lock 3: Tokens
+     * Scoped to company_id, protecting independent accounts/companies.
+     */
+    private function revokeCompanyUserSessions(string $userId, string $companyId): void
+    {
+        DB::transaction(function () use ($userId, $companyId) {
+            // Lock 1: User
+            $user = AsabUser::where('id', $userId)->lockForUpdate()->first();
+            if (! $user) {
+                return;
+            }
+
+            // Lock 2: Sessions for this company
+            $sessions = AdminSession::where('user_id', $userId)
+                ->where('company_id', $companyId)
+                ->whereNull('revoked_at')
+                ->orderBy('id', 'asc')
+                ->lockForUpdate()
+                ->get();
+
+            $tokenIdsToDelete = [];
+
+            foreach ($sessions as $session) {
+                $session->update(['revoked_at' => now()]);
+                if ($session->current_access_token_id) {
+                    $tokenIdsToDelete[] = $session->current_access_token_id;
+                }
+                if ($session->current_refresh_token_id) {
+                    $tokenIdsToDelete[] = $session->current_refresh_token_id;
+                }
+                if ($session->legacy_access_token_id) {
+                    $tokenIdsToDelete[] = $session->legacy_access_token_id;
+                }
+            }
+
+            $sessionIds = $sessions->pluck('id')->all();
+            if (! empty($sessionIds)) {
+                $familyTokenIds = PersonalAccessToken::whereIn('session_id', $sessionIds)
+                    ->pluck('id')
+                    ->all();
+                $tokenIdsToDelete = array_merge($tokenIdsToDelete, $familyTokenIds);
+            }
+
+            // Lock 3: Delete family-linked tokens in deterministic ascending order
+            if (! empty($tokenIdsToDelete)) {
+                $tokenIdsToDelete = array_values(array_unique($tokenIdsToDelete));
+                sort($tokenIdsToDelete);
+                PersonalAccessToken::whereIn('id', $tokenIdsToDelete)
+                    ->orderBy('id', 'asc')
+                    ->lockForUpdate()
+                    ->get()
+                    ->each->delete();
+            }
+
+            // Pre-Implementation Correction 2:
+            // Delete Legacy tokens (session_id = null) for this user to prevent replay.
+            // Uses both morph relation and direct tokenable_id to support any model morph mapping.
+            $user->tokens()->whereNull('session_id')->lockForUpdate()->get()->each->delete();
+
+            PersonalAccessToken::where('tokenable_id', $userId)
+                ->whereNull('session_id')
+                ->lockForUpdate()
+                ->get()
+                ->each->delete();
         });
     }
 
