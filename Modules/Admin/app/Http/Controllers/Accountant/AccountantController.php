@@ -418,7 +418,7 @@ class AccountantController extends AsabController
                 'invoiceIndex' => 'sometimes|integer|min:0',
                 'assetName' => 'required|string|max:200',
                 'category' => 'required|string|max:32',
-                'usefulLifeMonths' => ['required', 'integer', AssetEnums::usefulLifeRule()],
+                'usefulLifeMonths' => ['sometimes', 'nullable', 'integer', AssetEnums::usefulLifeRule()],
                 'targetBranches' => 'required|array|min:1',
                 'targetBranches.*' => 'required|string',
                 'custodian' => 'required|string|max:200',

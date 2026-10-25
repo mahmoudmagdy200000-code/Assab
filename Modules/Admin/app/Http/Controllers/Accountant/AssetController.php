@@ -81,7 +81,7 @@ class AssetController extends AsabController
                 // 'cost' is the canonical field; 'priceHalalas' is the doc alias — accept either.
                 'cost' => 'required_without:priceHalalas|integer|min:0',
                 'priceHalalas' => 'required_without:cost|integer|min:0',
-                'usefulLifeMonths' => ['required', 'integer', AssetEnums::usefulLifeRule()],
+                'usefulLifeMonths' => ['sometimes', 'nullable', 'integer', AssetEnums::usefulLifeRule()],
                 'custodian' => 'nullable|string|max:200',
                 'notes' => 'nullable|string',
             ]);
@@ -99,7 +99,7 @@ class AssetController extends AsabController
                 'serial' => $data['serial'] ?? null,
                 'cost' => $cost,
                 'book_value' => $cost,
-                'useful_life_months' => $data['usefulLifeMonths'],
+                'useful_life_months' => $data['usefulLifeMonths'] ?? 60,
                 'case_type' => 'acc_register',
                 'status' => 'pending_branch',
                 'custodian' => $data['custodian'] ?? null,
@@ -250,8 +250,6 @@ class AssetController extends AsabController
             'bookValue' => $a->book_value,
             'bookValueHalalas' => $a->book_value,
             'usefulLifeMonths' => $a->useful_life_months,
-            'monthlyDepreciationHalalas' => AssetEnums::monthlyDepreciation($cost, $a->useful_life_months),
-            'annualDepreciationHalalas' => AssetEnums::annualDepreciation($cost, $a->useful_life_months),
             'status' => $a->status,
             'statusLabelAr' => AssetEnums::statusLabelAr($a->status),
             'invNum' => $a->inv_num,
