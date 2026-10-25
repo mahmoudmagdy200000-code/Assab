@@ -632,7 +632,7 @@ class AuthService
             ->where('user_id', $user->id)
             ->first();
 
-        if ($membership && $membership->status !== 'active') {
+        if (! $membership || $membership->status !== 'active') {
             throw new AsabException('MEMBERSHIP_INACTIVE', 'User membership in company is not active', 'عضوية المستخدم في الشركة غير نشطة', 403);
         }
     }

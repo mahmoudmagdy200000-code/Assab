@@ -356,4 +356,212 @@ class MemberRemovalAccessTest extends TestCase
         $this->assertNull($sessionB->fresh()->revoked_at, 'Company B session must NOT be revoked');
         $this->assertNotNull(PersonalAccessToken::find($tokenB->accessToken->id), 'Company B token must NOT be deleted');
     }
+
+    /**
+     * 9. Security Rule MEM-01: Full Fail-Closed Membership & Platform Admin Matrix:
+     * - Company user with company_id but MISSING membership record in asab_company_users:
+     *     - Login rejected (HTTP 403 MEMBERSHIP_INACTIVE)
+     *     - Token refresh rejected (HTTP 403 MEMBERSHIP_INACTIVE)
+     *     - Protected company API access rejected (HTTP 403 MEMBERSHIP_INACTIVE)
+     * - Inactive member:
+     *     - Login rejected (HTTP 403 MEMBERSHIP_INACTIVE)
+     *     - Refresh rejected (HTTP 403 MEMBERSHIP_INACTIVE)
+     *     - Protected company API access rejected (HTTP 403 MEMBERSHIP_INACTIVE)
+     * - Archived member:
+     *     - Login rejected (HTTP 403 MEMBERSHIP_INACTIVE)
+     *     - Refresh rejected (HTTP 403 MEMBERSHIP_INACTIVE)
+     *     - Protected company API access rejected (HTTP 403 MEMBERSHIP_INACTIVE)
+     * - Old tokens after deactivation:
+     *     - Revoked/deleted token rejected with HTTP 401 Unauthorized
+     * - Valid active company member:
+     *     - Login succeeds (HTTP 200 OK)
+     *     - Refresh succeeds (HTTP 200 OK)
+     *     - Protected company API access allowed (HTTP 200 OK)
+     * - Legitimate Platform Admin (company_id === null):
+     *     - Login succeeds (HTTP 200 OK)
+     *     - Refresh succeeds (HTTP 200 OK)
+     *     - Protected company API access fails closed with HTTP 403 WRONG_TENANT (no company)
+     */
+    public function test_fail_closed_membership_and_platform_admin_security_matrix(): void
+    {
+        // Case A: Company user with company_id but MISSING membership record
+        $userWithoutMembership = AsabUser::create([
+            'name' => 'Orphan User',
+            'email' => 'orphan@alpha.test',
+            'password' => $this->password,
+            'status' => 'active',
+            'company_id' => $this->companyA->id,
+        ]);
+        AsabUserRole::create([
+            'user_id' => $userWithoutMembership->id,
+            'role_key' => 'company-admin',
+            'scope' => 'all',
+        ]);
+        $this->assertNull(CompanyUser::where('company_id', $this->companyA->id)->where('user_id', $userWithoutMembership->id)->first());
+
+        // Login MUST be rejected with 403 MEMBERSHIP_INACTIVE
+        $loginRes = $this->postJson('/api/v1/auth/login', [
+            'email' => $userWithoutMembership->email,
+            'password' => $this->password,
+        ]);
+        $loginRes->assertStatus(403)
+            ->assertJsonPath('error.code', 'MEMBERSHIP_INACTIVE');
+
+        // Refresh MUST be rejected with 403 MEMBERSHIP_INACTIVE
+        $orphanRefresh = $userWithoutMembership->createToken('refresh', ['admin:refresh']);
+        $refreshRes = $this->postJson('/api/v1/auth/refresh', [
+            'refreshToken' => $orphanRefresh->plainTextToken,
+        ]);
+        $refreshRes->assertStatus(403)
+            ->assertJsonPath('error.code', 'MEMBERSHIP_INACTIVE');
+
+        // Protected company API access with bearer token MUST be rejected with 403 MEMBERSHIP_INACTIVE
+        app('auth')->forgetGuards();
+        $orphanAccess = $userWithoutMembership->createToken('access', ['admin:access']);
+        $apiRes = $this->withHeader('Authorization', 'Bearer '.$orphanAccess->plainTextToken)
+            ->getJson('/api/v1/company/me/users');
+        $apiRes->assertStatus(403)
+            ->assertJsonPath('error.code', 'MEMBERSHIP_INACTIVE');
+
+        // Case B: Inactive company member
+        // Assign company-admin role so authorization passes to the membership check
+        $this->memberA->roleAssignments()->delete();
+        AsabUserRole::create([
+            'user_id' => $this->memberA->id,
+            'role_key' => 'company-admin',
+            'scope' => 'all',
+        ]);
+        $this->companyUserA->update(['status' => 'inactive']);
+
+        $inactiveLogin = $this->postJson('/api/v1/auth/login', [
+            'email' => $this->memberA->email,
+            'password' => $this->password,
+        ]);
+        $inactiveLogin->assertStatus(403)
+            ->assertJsonPath('error.code', 'MEMBERSHIP_INACTIVE');
+
+        $inactiveRefresh = $this->memberA->createToken('refresh', ['admin:refresh']);
+        $inactiveRefreshRes = $this->postJson('/api/v1/auth/refresh', [
+            'refreshToken' => $inactiveRefresh->plainTextToken,
+        ]);
+        $inactiveRefreshRes->assertStatus(403)
+            ->assertJsonPath('error.code', 'MEMBERSHIP_INACTIVE');
+
+        app('auth')->forgetGuards();
+        $inactiveAccess = $this->memberA->createToken('access', ['admin:access']);
+        $inactiveApiRes = $this->withHeader('Authorization', 'Bearer '.$inactiveAccess->plainTextToken)
+            ->getJson('/api/v1/company/me/users');
+        $inactiveApiRes->assertStatus(403)
+            ->assertJsonPath('error.code', 'MEMBERSHIP_INACTIVE');
+
+        // Case C: Archived company member
+        $this->companyUserA->update(['status' => 'archived']);
+
+        $archivedLogin = $this->postJson('/api/v1/auth/login', [
+            'email' => $this->memberA->email,
+            'password' => $this->password,
+        ]);
+        $archivedLogin->assertStatus(403)
+            ->assertJsonPath('error.code', 'MEMBERSHIP_INACTIVE');
+
+        $archivedRefresh = $this->memberA->createToken('refresh', ['admin:refresh']);
+        $archivedRefreshRes = $this->postJson('/api/v1/auth/refresh', [
+            'refreshToken' => $archivedRefresh->plainTextToken,
+        ]);
+        $archivedRefreshRes->assertStatus(403)
+            ->assertJsonPath('error.code', 'MEMBERSHIP_INACTIVE');
+
+        app('auth')->forgetGuards();
+        $archivedAccess = $this->memberA->createToken('access', ['admin:access']);
+        $archivedApiRes = $this->withHeader('Authorization', 'Bearer '.$archivedAccess->plainTextToken)
+            ->getJson('/api/v1/company/me/users');
+        $archivedApiRes->assertStatus(403)
+            ->assertJsonPath('error.code', 'MEMBERSHIP_INACTIVE');
+
+        // Case D: Valid active company member
+        $this->companyUserA->update(['status' => 'active']);
+
+        $activeLogin = $this->postJson('/api/v1/auth/login', [
+            'email' => $this->memberA->email,
+            'password' => $this->password,
+        ]);
+        $activeLogin->assertOk();
+        $this->assertNotEmpty($activeLogin->json('accessToken'));
+        $this->assertNotEmpty($activeLogin->json('refreshToken'));
+
+        $activeRefresh = $this->memberA->createToken('refresh', ['admin:refresh']);
+        $activeRefreshRes = $this->postJson('/api/v1/auth/refresh', [
+            'refreshToken' => $activeRefresh->plainTextToken,
+        ]);
+        $activeRefreshRes->assertOk();
+
+        app('auth')->forgetGuards();
+        $activeAccess = $this->memberA->createToken('access', ['admin:access']);
+        $activeApiRes = $this->withHeader('Authorization', 'Bearer '.$activeAccess->plainTextToken)
+            ->getJson('/api/v1/company/me/users');
+        $activeApiRes->assertOk();
+
+        // Case E: Old tokens after deactivation are revoked/deleted and return 401
+        $this->actingAs($this->adminA, 'sanctum')
+            ->postJson("/api/v1/company/me/users/{$this->companyUserA->id}/toggle-status")
+            ->assertOk();
+
+        app('auth')->forgetGuards();
+
+        $oldTokenApiRes = $this->withHeader('Authorization', 'Bearer '.$activeAccess->plainTextToken)
+            ->getJson('/api/v1/company/me/users');
+        $oldTokenApiRes->assertStatus(401);
+
+        // Case F: Legitimate Platform Admin (company_id === null)
+        $platformAdmin = AsabUser::create([
+            'name' => 'True Platform Admin',
+            'email' => 'true.admin@platform.test',
+            'password' => $this->password,
+            'status' => 'active',
+            'company_id' => null,
+        ]);
+        AsabUserRole::create([
+            'user_id' => $platformAdmin->id,
+            'role_key' => 'admin',
+            'scope' => 'all',
+        ]);
+
+        // Platform Admin can log in
+        $platformLogin = $this->postJson('/api/v1/auth/login', [
+            'email' => $platformAdmin->email,
+            'password' => $this->password,
+        ]);
+        $platformLogin->assertOk();
+
+        // Platform Admin can refresh
+        $platformRefresh = $platformAdmin->createToken('refresh', ['admin:refresh']);
+        $platformRefreshRes = $this->postJson('/api/v1/auth/refresh', [
+            'refreshToken' => $platformRefresh->plainTextToken,
+        ]);
+        $platformRefreshRes->assertOk();
+
+        // Platform Admin (role: admin, company_id: null) CANNOT access company admin surface (403 WRONG_ROLE)
+        $platformCompanyApi = $this->actingAs($platformAdmin, 'sanctum')
+            ->getJson('/api/v1/company/me/users');
+        $platformCompanyApi->assertStatus(403)
+            ->assertJsonPath('error.code', 'WRONG_ROLE');
+
+        // Companyless user even with company-admin role CANNOT access company surface (ResolveTenant rejects with 403 WRONG_TENANT)
+        $companylessAdmin = AsabUser::create([
+            'name' => 'Companyless Admin',
+            'email' => 'companyless.admin@platform.test',
+            'password' => $this->password,
+            'status' => 'active',
+            'company_id' => null,
+        ]);
+        AsabUserRole::create([
+            'user_id' => $companylessAdmin->id,
+            'role_key' => 'company-admin',
+            'scope' => 'all',
+        ]);
+        $companylessApi = $this->actingAs($companylessAdmin, 'sanctum')
+            ->getJson('/api/v1/company/me/users');
+        $companylessApi->assertStatus(403)
+            ->assertJsonPath('error.code', 'WRONG_TENANT');
+    }
 }
