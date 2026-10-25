@@ -67,19 +67,68 @@ class EmployeeAllocationService
 
     /**
      * Reverse any existing debits of `$category` posted for `$op` — the
-     * idempotency primitive. Deletes rather than posting compensating credits:
-     * these are correction retries, not accounting reversals.
+     * idempotency primitive (AUD-01).
+     *
+     * Posts compensating credit entries opposite each debit movement to maintain
+     * a complete audit trail without deleting records.
      */
     public function reverse(Operation $op, string $category): int
     {
-        return EmployeeMovement::where('ref_operation_id', $op->id)
+        $existingDebits = EmployeeMovement::where('ref_operation_id', $op->id)
             ->where('category', $category)
-            ->delete();
+            ->where('movement_type', 'debit')
+            ->get();
+
+        if ($existingDebits->isEmpty()) {
+            return 0;
+        }
+
+        $existingCredits = EmployeeMovement::where('ref_operation_id', $op->id)
+            ->where('category', $category)
+            ->where('movement_type', 'credit')
+            ->get();
+
+        $reversedRefs = $existingCredits->pluck('ref')->filter()->all();
+
+        $count = 0;
+        foreach ($existingDebits as $debit) {
+            $reversalRef = 'REV-'.substr(str_replace('-', '', $debit->id), 0, 20);
+            if (in_array($reversalRef, $reversedRefs, true)) {
+                continue;
+            }
+
+            EmployeeMovement::create([
+                'employee_id' => $debit->employee_id,
+                'movement_date' => now(),
+                'description' => 'عكس — '.$debit->description,
+                'movement_type' => 'credit',
+                'category' => $category,
+                'amount' => $debit->amount,
+                'ref_operation_id' => $op->id,
+                'created_by_id' => auth()->id() ?? $debit->created_by_id,
+                'ref' => $reversalRef,
+            ]);
+
+            $reversedRefs[] = $reversalRef;
+            $count++;
+        }
+
+        return $count;
     }
 
     public function hasPosted(Operation $op, string $category): bool
     {
-        return EmployeeMovement::where('ref_operation_id', $op->id)->where('category', $category)->exists();
+        $debits = (int) EmployeeMovement::where('ref_operation_id', $op->id)
+            ->where('category', $category)
+            ->where('movement_type', 'debit')
+            ->sum('amount');
+
+        $credits = (int) EmployeeMovement::where('ref_operation_id', $op->id)
+            ->where('category', $category)
+            ->where('movement_type', 'credit')
+            ->sum('amount');
+
+        return ($debits - $credits) > 0;
     }
 
     /**
