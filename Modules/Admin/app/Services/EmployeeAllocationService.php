@@ -92,7 +92,7 @@ class EmployeeAllocationService
 
         $count = 0;
         foreach ($existingDebits as $debit) {
-            $reversalRef = 'REV-'.substr(str_replace('-', '', $debit->id), 0, 20);
+            $reversalRef = 'REV-'.substr(str_replace('-', '', (string) $debit->id), 0, 28);
             if (in_array($reversalRef, $reversedRefs, true)) {
                 continue;
             }
