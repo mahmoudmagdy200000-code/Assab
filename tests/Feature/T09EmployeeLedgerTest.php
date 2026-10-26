@@ -7,6 +7,7 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\EmployeeMovement;
 use Modules\Admin\Services\ExportService;
@@ -59,6 +60,7 @@ class T09EmployeeLedgerTest extends TestCase
     {
         $u = AsabUser::create(['company_id' => $this->company->id, 'name' => $role, 'email' => $email, 'password' => 'secret-password', 'status' => 'active']);
         AsabUserRole::create(['user_id' => $u->id, 'role_key' => $role, 'scope' => $scope, 'branch_ids' => $branchIds]);
+        CompanyUser::create(['company_id' => $this->company->id, 'user_id' => $u->id, 'role_key' => $role, 'status' => 'active']);
 
         return $u;
     }

@@ -9,6 +9,7 @@ use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\Asset;
 use Modules\Admin\Models\AssetDraft;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\OperationSequence;
 use Modules\Branch\Models\Branch;
@@ -44,6 +45,12 @@ class FixedAssetsRegisterTest extends TestCase
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $this->accountant->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
     }
 
     private function acc()
@@ -320,6 +327,12 @@ class FixedAssetsRegisterTest extends TestCase
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $otherAcc->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $other->id,
+            'user_id' => $otherAcc->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
 
         $this->actingAs($otherAcc, 'sanctum')->postJson('/api/v1/company/me/assets', [
             'name' => 'أصل', 'category' => 'other', 'branchId' => $otherBranch->id,

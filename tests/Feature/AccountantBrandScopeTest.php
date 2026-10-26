@@ -11,6 +11,7 @@ use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\Asset;
 use Modules\Admin\Models\AssetDraft;
 use Modules\Admin\Models\CashCustody;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Models\Operation;
@@ -58,12 +59,18 @@ class AccountantBrandScopeTest extends TestCase
         AsabUserRole::create([
             'user_id' => $this->accountant->id, 'role_key' => 'accountant', 'scope' => 'brand', 'brand_ids' => [$this->brandA->id],
         ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id, 'user_id' => $this->accountant->id, 'role_key' => 'accountant', 'status' => 'active',
+        ]);
 
         $this->head = AsabUser::create([
             'company_id' => $this->company->id, 'name' => 'رئيس الحسابات', 'email' => 'head@asab.test',
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $this->head->id, 'role_key' => 'head', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id, 'user_id' => $this->head->id, 'role_key' => 'head', 'status' => 'active',
+        ]);
     }
 
     private function asAccountant()
