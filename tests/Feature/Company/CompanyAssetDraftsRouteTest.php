@@ -8,6 +8,7 @@ use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\AssetDraft;
+use Modules\Admin\Models\CompanyUser;
 use Tests\TestCase;
 
 class CompanyAssetDraftsRouteTest extends TestCase
@@ -34,6 +35,12 @@ class CompanyAssetDraftsRouteTest extends TestCase
             'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $this->accountantA->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->companyA->id,
+            'user_id' => $this->accountantA->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
 
         $this->companyB = AsabCompany::create(['name' => 'Company B', 'plan' => 'Professional', 'status' => 'active']);
         $brandB = AsabBrand::create(['company_id' => $this->companyB->id, 'name' => 'Brand B', 'sub_status' => 'active', 'status' => 'active']);
@@ -46,6 +53,12 @@ class CompanyAssetDraftsRouteTest extends TestCase
             'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $this->accountantB->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->companyB->id,
+            'user_id' => $this->accountantB->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
     }
 
     public function test_unauthenticated_user_cannot_access_company_asset_drafts(): void
