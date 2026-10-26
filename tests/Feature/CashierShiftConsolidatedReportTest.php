@@ -7,6 +7,7 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Aggregator\Models\Aggregator;
 use Modules\Branch\Models\Branch;
@@ -92,6 +93,12 @@ class CashierShiftConsolidatedReportTest extends TestCase
             'role_key' => 'branch',
             'scope' => 'branch',
             'branch_ids' => [$this->branch->id],
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->managerUser->id,
+            'role_key' => 'branch',
+            'status' => 'active',
         ]);
 
         $this->cashier = Cashier::factory()->create([
