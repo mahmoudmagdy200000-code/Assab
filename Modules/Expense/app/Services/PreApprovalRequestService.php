@@ -84,10 +84,7 @@ class PreApprovalRequestService
             }
         }
 
-        // EXP-02 / EXP-05: a non-draft create is a submission — charge the branch custody once, or refuse it.
-        if (! ($data['is_draft'] ?? false)) {
-            app(ExpenseCustodyService::class)->reserve($expense);
-        }
+        // EXP-10: Pre-approvals do NOT reserve custody. Custody is charged only upon actual expense invoice submission.
 
         $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
 
@@ -202,9 +199,7 @@ class PreApprovalRequestService
 
         // Draft flipped to pending = a submission — bridge it (idempotent).
         if ($wasDraft && $expense->fresh()->status === 'pending') {
-            // EXP-02 / EXP-05: the draft became a submission — charge the branch custody once, or refuse it.
-            app(ExpenseCustodyService::class)->reserve($expense->fresh());
-
+            // EXP-10: Pre-approvals do NOT reserve custody.
             event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense->fresh()));
         }
 

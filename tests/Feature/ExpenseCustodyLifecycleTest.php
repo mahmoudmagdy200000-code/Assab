@@ -232,23 +232,23 @@ class ExpenseCustodyLifecycleTest extends TestCase
         $this->assertSame($expenses, Expense::count());
     }
 
-    public function test_pre_approval_submission_charges_the_custody_once_and_refuses_when_short(): void
+    public function test_pre_approval_submission_does_not_charge_custody(): void
     {
         $this->fund($this->bmA1, 1000);
         $this->salesCash($this->bmA1, 5000);
 
+        // Pre-approval request for 600 does NOT touch custody (Rule EXP-10)
         $id = $this->submittedId($this->postPreApproval($this->bmA1, 600));
-        $this->assertEqualsWithDelta(400.0, $this->custody($this->bmA1), 0.001);
-        $this->assertSame(['600.00'], $this->outs($id));
+        $this->assertEqualsWithDelta(1000.0, $this->custody($this->bmA1), 0.001);
+        $this->assertCount(0, $this->movements($id));
 
-        $before = $this->ledgerSnapshot();
-        $expenses = Expense::count();
-        $this->postPreApproval($this->bmA1, 600)->assertStatus(400)->assertJsonPath('message', 'Insufficient custody balance');
-        $this->assertSame($before, $this->ledgerSnapshot());
-        $this->assertSame($expenses, Expense::count());
+        // Even with insufficient balance for an actual expense, a pre-approval request is accepted
+        $second = $this->submittedId($this->postPreApproval($this->bmA1, 1500));
+        $this->assertEqualsWithDelta(1000.0, $this->custody($this->bmA1), 0.001);
+        $this->assertCount(0, $this->movements($second));
     }
 
-    public function test_pre_approval_draft_flipped_to_pending_through_update_charges_once_or_is_refused(): void
+    public function test_pre_approval_draft_flipped_to_pending_does_not_charge_custody(): void
     {
         Storage::fake('public');
         $flip = fn (string $id): TestResponse => $this->actor($this->bmA1)->post(
@@ -262,15 +262,9 @@ class ExpenseCustodyLifecycleTest extends TestCase
         $this->assertCount(0, $this->movements($id));
 
         $flip($id)->assertOk();
-        $this->assertEqualsWithDelta(100.0, $this->custody($this->bmA1), 0.001);
-        $this->assertSame(['600.00'], $this->outs($id));
-
-        // A second draft cannot be flipped once the custody no longer covers it, and stays a draft.
-        $second = $this->submittedId($this->postPreApproval($this->bmA1, 600, ['is_draft' => true]));
-        $before = $this->ledgerSnapshot();
-        $flip($second)->assertStatus(400)->assertJsonPath('message', 'Insufficient custody balance');
-        $this->assertSame('draft', Expense::find($second)->status);
-        $this->assertSame($before, $this->ledgerSnapshot());
+        // Flipping pre-approval draft to pending does NOT charge custody (Rule EXP-10)
+        $this->assertEqualsWithDelta(700.0, $this->custody($this->bmA1), 0.001);
+        $this->assertCount(0, $this->movements($id));
     }
 
     public function test_grouped_invoice_draft_flipped_to_pending_through_update_charges_once_or_is_refused(): void
@@ -305,14 +299,27 @@ class ExpenseCustodyLifecycleTest extends TestCase
     public function test_duplicating_an_expense_is_a_new_request_with_its_own_single_charge(): void
     {
         $this->fund($this->bmA1, 2000);
+        $original = $this->submittedId($this->postSingleInvoice($this->bmA1, 600));
+
+        $copyId = $this->submittedId($this->actor($this->bmA1)->postJson("/api/branch-manager/expenses/single-invoice/{$original}/duplicate"));
+
+        $this->assertNotSame($original, $copyId);
+        $this->assertSame(['690.00'], $this->outs($original));
+        $this->assertSame(['690.00'], $this->outs($copyId));
+        $this->assertEqualsWithDelta(620.0, $this->custody($this->bmA1), 0.001);
+    }
+
+    public function test_duplicating_a_pre_approval_request_does_not_charge_custody(): void
+    {
+        $this->fund($this->bmA1, 2000);
         $original = $this->submittedId($this->postPreApproval($this->bmA1, 600));
 
         $copyId = $this->submittedId($this->actor($this->bmA1)->postJson("/api/branch-manager/expenses/pre-approval/{$original}/duplicate"));
 
         $this->assertNotSame($original, $copyId);
-        $this->assertSame(['600.00'], $this->outs($original));
-        $this->assertSame(['600.00'], $this->outs($copyId));
-        $this->assertEqualsWithDelta(800.0, $this->custody($this->bmA1), 0.001);
+        $this->assertCount(0, $this->movements($original));
+        $this->assertCount(0, $this->movements($copyId));
+        $this->assertEqualsWithDelta(2000.0, $this->custody($this->bmA1), 0.001);
     }
 
     // ── AC-27 / EXP-02: deduct once at SUBMISSION ────────────────────────────
