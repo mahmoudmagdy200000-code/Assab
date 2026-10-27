@@ -820,8 +820,10 @@ Route::prefix('v1')->group(function () {
                     // ACC-2.3 review modal — what the accountant read off the document.
                     Route::patch('expense-invoices/{invoiceId}/invoices/{invoiceIndex}', [AccountantCompanyController::class, 'reviewInvoice']);
                     Route::post('expense-invoices/{invoiceId}/convert-to-asset-draft', [AccountantController::class, 'convertToAsset']);
+                    Route::get('asset-drafts', [AssetController::class, 'drafts']);
                     Route::post('asset-drafts/{draftId}/confirm', [AssetController::class, 'confirmDraft']);
                     Route::post('asset-drafts/{draftId}/discard', [AssetController::class, 'discardDraft']);
+                    Route::delete('asset-drafts/{draftId}', [AssetController::class, 'discardDraft']);
 
                     Route::get('inventory/export', [CompanyExportController::class, 'inventoryExport']);
                     Route::get('inventory/branches', [InventoryController::class, 'index']);
