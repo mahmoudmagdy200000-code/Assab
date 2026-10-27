@@ -203,4 +203,41 @@ class BrandRestaurantCreationGuardTest extends TestCase
         $response->assertStatus(201);
         $this->assertTrue(AsabRestaurant::where('name', 'Platform Created Restaurant')->exists());
     }
+
+    public function test_non_platform_roles_cannot_create_brand_or_restaurant(): void
+    {
+        // Accountant
+        $accountant = AsabUser::create([
+            'company_id' => $this->company->id,
+            'name' => 'Accountant User',
+            'email' => 'acc@guard-test.invalid',
+            'password' => 'secret-password',
+            'status' => 'active',
+        ]);
+        AsabUserRole::create([
+            'user_id' => $accountant->id,
+            'role_key' => 'accountant',
+            'scope' => 'all',
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $accountant->id,
+            'status' => 'active',
+            'role_key' => 'accountant',
+        ]);
+
+        $brandCountBefore = AsabBrand::count();
+        $restCountBefore = AsabRestaurant::count();
+
+        $resBrand = $this->actingAs($accountant, 'sanctum')
+            ->postJson('/api/v1/company/me/brands', ['name' => 'Acc Brand', 'abbr' => 'AB']);
+        $resBrand->assertStatus(403);
+
+        $resRest = $this->actingAs($accountant, 'sanctum')
+            ->postJson('/api/v1/company/me/restaurants', ['name' => 'Acc Restaurant', 'brandId' => $this->existingBrand->id]);
+        $resRest->assertStatus(403);
+
+        $this->assertEquals($brandCountBefore, AsabBrand::count(), 'No brand record may be created by non-platform role');
+        $this->assertEquals($restCountBefore, AsabRestaurant::count(), 'No restaurant record may be created by non-platform role');
+    }
 }
