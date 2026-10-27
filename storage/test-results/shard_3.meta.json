@@ -1,0 +1,14 @@
+{
+    "shard": 3,
+    "exit_code": 0,
+    "duration": 420.41,
+    "command": "php -d memory_limit=1G vendor\/bin\/phpunit --log-junit \"D:\\claude\\ASSAB ERP GITHUB BACKEND ANTIGRAVITY\\worktree_be_wave1_integration\/storage\/test-results\/shard_3.xml\" \"tests\/Feature\/AccountantCrossBrandAssignmentTest.php\" \"tests\/Feature\/AdminOnboardingUploadTest.php\" \"tests\/Feature\/AggregatorPayloadNullSafetyTest.php\" \"tests\/Feature\/BranchFixedAssetsUploadPersistenceTest.php\" \"tests\/Feature\/BrandManagerAssignmentServiceTest.php\" \"tests\/Feature\/BridgeBackfillCommandTest.php\" \"tests\/Feature\/Company\/CompanyAssetDraftsRouteTest.php\" \"tests\/Feature\/DailyRollupTest.php\" \"tests\/Feature\/ErpBatchLifecycleTest.php\" \"tests\/Feature\/ExpenseLifecycleOriginAfterRetagTest.php\" \"tests\/Feature\/FinancialStatementOriginOwnershipTest.php\" \"tests\/Feature\/IdempotencyCommitRecoveryTest.php\" \"tests\/Feature\/ManagerBranchSyncTest.php\" \"tests\/Feature\/NotificationAlertSettingsTest.php\" \"tests\/Feature\/Pkg67FenceOrderingTest.php\" \"tests\/Feature\/Pkg6ReviewMySqlConcurrencyTest.php\" \"tests\/Feature\/ProcurementOperationsTest.php\" \"tests\/Feature\/ScopedAdminTenantAccessTest.php\" \"tests\/Feature\/ShiftCashCountServiceTest.php\" \"tests\/Feature\/ShiftEndAtomicityTest.php\" \"tests\/Feature\/ShiftLiabilityApprovalHttpTest.php\" \"tests\/Feature\/ShiftNotWorkedHttpTest.php\" \"tests\/Feature\/ShiftPhases567IntegrationTest.php\" \"tests\/Feature\/ShiftReportCorrectionServiceTest.php\" \"tests\/Feature\/ShiftRequestReservationTest.php\" \"tests\/Feature\/ShiftUndecidedInboundCashHttpTest.php\" \"tests\/Feature\/UserAssignmentRulesTest.php\"",
+    "files_declared": 27,
+    "files_executed": 27,
+    "tests": 189,
+    "assertions": 918,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 5,
+    "timestamp": "2026-10-27T15:40:24+00:00"
+}

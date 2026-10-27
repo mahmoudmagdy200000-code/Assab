@@ -1,0 +1,14 @@
+{
+    "shard": 6,
+    "exit_code": 0,
+    "duration": 553.71,
+    "command": "php -d memory_limit=1G vendor\/bin\/phpunit --log-junit \"D:\\claude\\ASSAB ERP GITHUB BACKEND ANTIGRAVITY\\worktree_be_wave1_integration\/storage\/test-results\/shard_6.xml\" \"tests\/Feature\/AccountantModuleMatrixTest.php\" \"tests\/Feature\/AdminSessionRefreshTest.php\" \"tests\/Feature\/AsabReportsDistributionTest.php\" \"tests\/Feature\/BranchManagerPriceComparisonTest.php\" \"tests\/Feature\/BrandOwnerFinancialReportingTest.php\" \"tests\/Feature\/CashierExpenseWriteDelegationTest.php\" \"tests\/Feature\/CustodyFundingRequestLifecycleTest.php\" \"tests\/Feature\/DemoTopUpCommandTest.php\" \"tests\/Feature\/ExpenseCategoryItemsTest.php\" \"tests\/Feature\/ExpenseReportsIsolationTest.php\" \"tests\/Feature\/FullDemoSeederSmokeTest.php\" \"tests\/Feature\/InventoryBrandSelectionTest.php\" \"tests\/Feature\/MobileBrandBranchScopeTest.php\" \"tests\/Feature\/OperationTransitionLockTest.php\" \"tests\/Feature\/Pkg67MariaDbCompositionTest.php\" \"tests\/Feature\/PlatformSupplierProcurementTest.php\" \"tests\/Feature\/PurchaseSupplierPickerTest.php\" \"tests\/Feature\/ShiftAccountantCorrectionAuthorizationTest.php\" \"tests\/Feature\/ShiftCommandIdempotencyHttpTest.php\" \"tests\/Feature\/ShiftHandoverSettlementHttpTest.php\" \"tests\/Feature\/ShiftLiabilityReadTest.php\" \"tests\/Feature\/ShiftNotWorkedServiceTest.php\" \"tests\/Feature\/ShiftReassignHandoverCountTest.php\" \"tests\/Feature\/ShiftReportManagerReviewSchemaTest.php\" \"tests\/Feature\/ShiftS111CompleteWorkflowTest.php\" \"tests\/Feature\/SupplierCatalogUploadTest.php\" \"tests\/Feature\/WasteDamageReportTest.php\"",
+    "files_declared": 27,
+    "files_executed": 27,
+    "tests": 330,
+    "assertions": 2074,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 22,
+    "timestamp": "2026-10-27T16:10:09+00:00"
+}

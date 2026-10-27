@@ -1,0 +1,14 @@
+{
+    "shard": 2,
+    "exit_code": 0,
+    "duration": 420,
+    "command": "php -d memory_limit=1G vendor\/bin\/phpunit --log-junit \"D:\\claude\\ASSAB ERP GITHUB BACKEND ANTIGRAVITY\\worktree_be_wave1_integration\/storage\/test-results\/shard_2.xml\" \"tests\/Feature\/AccountantCompanyBindingTest.php\" \"tests\/Feature\/AdminLegacyRefreshConcurrencyTest.php\" \"tests\/Feature\/AdminUserLookupLabelTest.php\" \"tests\/Feature\/BranchEmployeesUploadTest.php\" \"tests\/Feature\/BrandCompanyLinkTest.php\" \"tests\/Feature\/Brc04bLegacyResponsibilityRetirementTest.php\" \"tests\/Feature\/Company\/BrandRestaurantCreationGuardTest.php\" \"tests\/Feature\/DailyQuickInventoryNullSafetyTest.php\" \"tests\/Feature\/EmployeeTitleGrantsNoPermissionTest.php\" \"tests\/Feature\/ExpenseInvoicesTest.php\" \"tests\/Feature\/FcmNotificationDeliveryTest.php\" \"tests\/Feature\/HeadFinalApprovalQueueTest.php\" \"tests\/Feature\/LoginDeviceRegistrationTest.php\" \"tests\/Feature\/NewBranchShiftsAndScopeTest.php\" \"tests\/Feature\/Pkg2OwnershipCensusCommandTest.php\" \"tests\/Feature\/Pkg6ReviewAuthorizationTest.php\" \"tests\/Feature\/ProcurementItemsListTest.php\" \"tests\/Feature\/SalesVarianceAllocationTest.php\" \"tests\/Feature\/ShiftCashCountHttpTest.php\" \"tests\/Feature\/ShiftDailySalesLegacyProtectionTest.php\" \"tests\/Feature\/ShiftLegacyMoneyCompatibilityTest.php\" \"tests\/Feature\/ShiftMoneyValidationTest.php\" \"tests\/Feature\/ShiftPhases234MySqlConcurrencyTest.php\" \"tests\/Feature\/ShiftReportCorrectionSchemaTest.php\" \"tests\/Feature\/ShiftRequestReplacementTest.php\" \"tests\/Feature\/ShiftTransferReceiptTest.php\" \"tests\/Feature\/TwoWorldFeedbackLoopTest.php\"",
+    "files_declared": 27,
+    "files_executed": 27,
+    "tests": 301,
+    "assertions": 1751,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 14,
+    "timestamp": "2026-10-27T15:32:23+00:00"
+}
