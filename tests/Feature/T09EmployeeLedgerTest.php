@@ -178,6 +178,8 @@ class T09EmployeeLedgerTest extends TestCase
         $this->assertSame(0, $st['openingBalanceHalalas']);
         $this->assertSame(7000, $st['closingBalanceHalalas']);
         $this->assertFalse($st['autoDeductFromSalary']);
+        $this->assertArrayHasKey('hasDebitBalance', $st);
+        $this->assertFalse($st['hasDebitBalance']);
         // Newest-first: first row is the debit carrying running 7000, last the credit at 10000.
         $this->assertSame(7000, $st['movements'][0]['runningBalanceHalalas']);
         $this->assertSame(10000, $st['movements'][1]['runningBalanceHalalas']);
@@ -197,6 +199,8 @@ class T09EmployeeLedgerTest extends TestCase
         $st = $this->acc()->getJson("/api/v1/company/me/employees/{$this->empA->id}/movements")->assertOk()->json();
         $this->assertSame(-4000, $st['balance']);
         $this->assertTrue($st['autoDeductFromSalary']);
+        $this->assertArrayHasKey('hasDebitBalance', $st);
+        $this->assertTrue($st['hasDebitBalance']);
         $this->assertSame('مديون للشركة', $st['balanceCaption']['labelAr']);
     }
 

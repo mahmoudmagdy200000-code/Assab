@@ -116,6 +116,7 @@ class EmployeeLedgerService
             'balanceHalalas' => $current,
             'balanceCaption' => Cat::balanceCaption($current),
             'autoDeductFromSalary' => $current < 0,
+            'hasDebitBalance' => $current < 0,
             'totalCredit' => (int) (clone $windowed)->where('movement_type', 'credit')->sum('amount'),
             'totalDebit' => (int) (clone $windowed)->where('movement_type', 'debit')->sum('amount'),
             'movementCount' => $total,
