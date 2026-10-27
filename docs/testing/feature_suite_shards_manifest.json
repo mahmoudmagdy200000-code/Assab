@@ -1,0 +1,62 @@
+{
+    "timestamp": "2026-10-27T09:26:09+00:00",
+    "git_head": "4e876aef0ecd50215ad028ecf3508e01e835e294",
+    "git_branch": "review/v35-be-wave1-candidate",
+    "total_discovered_files": 266,
+    "total_shards": 10,
+    "shards_executed": [
+        1
+    ],
+    "summary": {
+        "total_tests": 186,
+        "total_assertions": 1183,
+        "total_failures": 0,
+        "total_errors": 0,
+        "total_skipped": 0,
+        "all_exit_zero": true
+    },
+    "shard_details": {
+        "1": {
+            "shard": 1,
+            "files_count": 27,
+            "files": [
+                "tests/Feature/AccountantBrandScopeTest.php",
+                "tests/Feature/AdminDashboardBatch1Test.php",
+                "tests/Feature/AdminUploadDataRoundTripTest.php",
+                "tests/Feature/BranchDashboardReadsTest.php",
+                "tests/Feature/BrandCompanyImmutabilityTest.php",
+                "tests/Feature/BrandUnlinkedBranchesTest.php",
+                "tests/Feature/Company/BranchRoleScopeTest.php",
+                "tests/Feature/DailyInventoryCountSheetTest.php",
+                "tests/Feature/EmployeeRosterIntegrityTest.php",
+                "tests/Feature/ExpenseExportSecurityTest.php",
+                "tests/Feature/FcmDeviceTokenTest.php",
+                "tests/Feature/HeadBackendFollowupsTest.php",
+                "tests/Feature/LiveShiftBoardTest.php",
+                "tests/Feature/MonthlyInventoryRealtimeParityTest.php",
+                "tests/Feature/Pkg2MigrationRollbackGuardTest.php",
+                "tests/Feature/Pkg6ReturnResubmissionTest.php",
+                "tests/Feature/ProcurementItemConsolidationTest.php",
+                "tests/Feature/SalesReconciliationTest.php",
+                "tests/Feature/ShiftAuditFindingsReproductionTest.php",
+                "tests/Feature/ShiftDailyLockSupersessionTest.php",
+                "tests/Feature/ShiftLegacyFinalRejectionCorrectionTest.php",
+                "tests/Feature/ShiftManagerReportCorrectionTest.php",
+                "tests/Feature/ShiftPhases234IntegrationTest.php",
+                "tests/Feature/ShiftReportCorrectionNotificationsTest.php",
+                "tests/Feature/ShiftRequestLifecycleSchemaTest.php",
+                "tests/Feature/ShiftTransferPhysicalReturnTest.php",
+                "tests/Feature/T09EmployeeLedgerTest.php"
+            ],
+            "exit_code": 0,
+            "duration_seconds": 554.75,
+            "tests": 186,
+            "assertions": 1183,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "xml_path": "storage/test-results/shard_1.xml",
+            "log_path": "storage/test-results/shard_1.log"
+        }
+    }
+}

@@ -1,0 +1,62 @@
+{
+    "timestamp": "2026-10-27T09:26:09+00:00",
+    "git_head": "4e876aef0ecd50215ad028ecf3508e01e835e294",
+    "git_branch": "review\/v35-be-wave1-candidate",
+    "total_discovered_files": 266,
+    "total_shards": 10,
+    "shards_executed": [
+        1
+    ],
+    "summary": {
+        "total_tests": 186,
+        "total_assertions": 1183,
+        "total_failures": 0,
+        "total_errors": 0,
+        "total_skipped": 0,
+        "all_exit_zero": true
+    },
+    "shard_details": {
+        "1": {
+            "shard": 1,
+            "files_count": 27,
+            "files": [
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/AccountantBrandScopeTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/AdminDashboardBatch1Test.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/AdminUploadDataRoundTripTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/BranchDashboardReadsTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/BrandCompanyImmutabilityTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/BrandUnlinkedBranchesTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/Company\/BranchRoleScopeTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/DailyInventoryCountSheetTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/EmployeeRosterIntegrityTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/ExpenseExportSecurityTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/FcmDeviceTokenTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/HeadBackendFollowupsTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/LiveShiftBoardTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/MonthlyInventoryRealtimeParityTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/Pkg2MigrationRollbackGuardTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/Pkg6ReturnResubmissionTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/ProcurementItemConsolidationTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/SalesReconciliationTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/ShiftAuditFindingsReproductionTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/ShiftDailyLockSupersessionTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/ShiftLegacyFinalRejectionCorrectionTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/ShiftManagerReportCorrectionTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/ShiftPhases234IntegrationTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/ShiftReportCorrectionNotificationsTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/ShiftRequestLifecycleSchemaTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/ShiftTransferPhysicalReturnTest.php",
+                "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/T09EmployeeLedgerTest.php"
+            ],
+            "exit_code": 0,
+            "duration_seconds": 554.75,
+            "tests": 186,
+            "assertions": 1183,
+            "failures": 0,
+            "errors": 0,
+            "skipped": 0,
+            "xml_path": "D:\\claude\\ASSAB ERP GITHUB BACKEND ANTIGRAVITY\\worktree_be_wave1_integration\/storage\/test-results\/shard_1.xml",
+            "log_path": "D:\\claude\\ASSAB ERP GITHUB BACKEND ANTIGRAVITY\\worktree_be_wave1_integration\/storage\/test-results\/shard_1.log"
+        }
+    }
+}
