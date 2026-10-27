@@ -1,26 +1,30 @@
 {
-    "timestamp": "2026-10-27T10:30:07+00:00",
-    "git_head": "04ece692fe0a9974611194f8126fae669af0d8b4",
+    "timestamp": "2026-10-27T12:59:11+00:00",
+    "git_head": "73f7b1cbaaded89749fb821d46aff3ab52d654f1",
     "git_branch": "review\/v35-be-wave1-candidate",
+    "sharding_strategy": "deterministic_phpunit_file_based",
     "total_discovered_files": 266,
-    "total_shards": 10,
-    "shards_executed": [
-        1
-    ],
-    "summary": {
-        "total_tests": 256,
-        "total_assertions": 1322,
+    "total_configured_shards": 10,
+    "shards_reconciled": 1,
+    "all_shards_complete": false,
+    "audit_reconciliation": {
+        "total_unique_test_cases": 186,
+        "total_unique_assertions": 1183,
         "total_failures": 0,
         "total_errors": 0,
-        "total_skipped": 4,
-        "all_exit_zero": true,
-        "overall_success": true
+        "total_unique_skipped": 0,
+        "skipped_test_identities": [],
+        "duplicate_test_identities_count": 0,
+        "duplicate_test_identities": [],
+        "zero_omissions": false,
+        "zero_duplicates": true
     },
     "shard_details": {
         "1": {
             "shard": 1,
-            "runner": "paratest",
-            "files_count": 27,
+            "runner": "phpunit_file_based",
+            "files_declared": 27,
+            "files_executed": 27,
             "files": [
                 "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/AccountantBrandScopeTest.php",
                 "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/AdminDashboardBatch1Test.php",
@@ -50,17 +54,15 @@
                 "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/ShiftTransferPhysicalReturnTest.php",
                 "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/T09EmployeeLedgerTest.php"
             ],
-            "exit_code": 0,
-            "duration_seconds": 166.29,
-            "tests": 256,
-            "assertions": 1322,
+            "tests": 186,
+            "assertions": 1183,
             "failures": 0,
             "errors": 0,
-            "skipped": 4,
+            "skipped": 0,
             "xml_valid": true,
             "passed": true,
-            "xml_path": "D:\\claude\\ASSAB ERP GITHUB BACKEND ANTIGRAVITY\\worktree_be_wave1_integration\/storage\/test-results\/shard_1.xml",
-            "log_path": "D:\\claude\\ASSAB ERP GITHUB BACKEND ANTIGRAVITY\\worktree_be_wave1_integration\/storage\/test-results\/shard_1.log"
+            "xml_path": "storage\/test-results\/shard_1.xml",
+            "log_path": "storage\/test-results\/shard_1.log"
         }
     }
 }

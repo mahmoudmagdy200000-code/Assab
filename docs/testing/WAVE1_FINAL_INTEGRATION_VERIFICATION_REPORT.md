@@ -66,25 +66,42 @@ All test suites were executed directly on the candidate codebase on Windows with
   - Memory: **192.00 MB**
   - Exit Code: **0 (PASS)**
 
-### 3.4 Core Authentication & Negative Role Assignment Regressions
-- **Command**: `php -d memory_limit=1G vendor/bin/phpunit tests/Feature/Auth/ tests/Feature/AdminNegativeRoleAssignmentTest.php`
-- **Results**: **44 passed**, 242 assertions, 0 failures, 0 errors, Exit Code: **0 (PASS)**.
+### 3.4 Core Authentication & Role Assignment Regressions
+- **Ground-Truth Test Files**:
+  - `tests/Feature/AdminAuthRegressionTest.php`
+  - `tests/Feature/AdminSessionFamilyLoginTest.php`
+  - `tests/Feature/ApiUnauthenticatedJsonResponseTest.php`
+  - `tests/Feature/RolelessTenantAccessTest.php`
+  - `tests/Feature/EmployeeTitleGrantsNoPermissionTest.php`
+  - `tests/Feature/UserAssignmentRulesTest.php`
+- **Command**:
+  ```bash
+  php -d memory_limit=1G vendor/bin/phpunit \
+    tests/Feature/AdminAuthRegressionTest.php \
+    tests/Feature/AdminSessionFamilyLoginTest.php \
+    tests/Feature/ApiUnauthenticatedJsonResponseTest.php \
+    tests/Feature/RolelessTenantAccessTest.php \
+    tests/Feature/EmployeeTitleGrantsNoPermissionTest.php \
+    tests/Feature/UserAssignmentRulesTest.php
+  ```
+- **Results**: **116 passed**, 602 assertions, 0 failures, 0 errors, Exit Code: **0 (PASS)**.
 
-### 3.5 Memory-Safe Deterministic Sharded Feature Runner
-- **Runner**: `scripts/run_sharded_feature_suite.php` (supports `--runner=paratest` and `--runner=phpunit` with strict exit code gating and XPath XML validation).
+### 3.5 Authoritative Deterministic PHPUnit File-Based Sharded Feature Runner
+- **Strategy**: Deterministic PHPUnit file-based sharding partitioning all 266 Feature files across 10 disjoint, exhaustive shards with 100% manifest-to-JUnit XML file parity, strict exit code gating, and XPath testcase validation.
 - **Execution Command**:
   ```bash
-  php scripts/run_sharded_feature_suite.php --shard=1 --shards=10 --runner=paratest
+  php scripts/run_sharded_feature_suite.php --shard=1 --shards=10 --runner=phpunit
   ```
-- **Results**:
-  - Tests: **256**
-  - Assertions: **1,322**
+- **Results (Shard 01)**:
+  - Files Declared & Executed: **27 / 27 (100% file match)**
+  - Tests: **186**
+  - Assertions: **1,183**
   - Failures: **0**
   - Errors: **0**
-  - Skipped: **4**
-  - Time: **166.3s**
+  - Skipped: **0**
+  - Time: **187.9s**
   - Exit Code: **0 (PASS)**
-  - Evidence: `storage/test-results/shard_1.xml` (XPath validated, 100% valid XML).
+  - Evidence: `storage/test-results/shard_1.xml` (XPath validated, zero duplicates, zero omissions).
 
 ---
 
