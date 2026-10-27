@@ -1,6 +1,6 @@
 {
-    "timestamp": "2026-10-27T09:26:09+00:00",
-    "git_head": "4e876aef0ecd50215ad028ecf3508e01e835e294",
+    "timestamp": "2026-10-27T10:30:07+00:00",
+    "git_head": "04ece692fe0a9974611194f8126fae669af0d8b4",
     "git_branch": "review\/v35-be-wave1-candidate",
     "total_discovered_files": 266,
     "total_shards": 10,
@@ -8,16 +8,18 @@
         1
     ],
     "summary": {
-        "total_tests": 186,
-        "total_assertions": 1183,
+        "total_tests": 256,
+        "total_assertions": 1322,
         "total_failures": 0,
         "total_errors": 0,
-        "total_skipped": 0,
-        "all_exit_zero": true
+        "total_skipped": 4,
+        "all_exit_zero": true,
+        "overall_success": true
     },
     "shard_details": {
         "1": {
             "shard": 1,
+            "runner": "paratest",
             "files_count": 27,
             "files": [
                 "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/AccountantBrandScopeTest.php",
@@ -49,12 +51,14 @@
                 "D:\/claude\/ASSAB ERP GITHUB BACKEND ANTIGRAVITY\/worktree_be_wave1_integration\/tests\/Feature\/T09EmployeeLedgerTest.php"
             ],
             "exit_code": 0,
-            "duration_seconds": 554.75,
-            "tests": 186,
-            "assertions": 1183,
+            "duration_seconds": 166.29,
+            "tests": 256,
+            "assertions": 1322,
             "failures": 0,
             "errors": 0,
-            "skipped": 0,
+            "skipped": 4,
+            "xml_valid": true,
+            "passed": true,
             "xml_path": "D:\\claude\\ASSAB ERP GITHUB BACKEND ANTIGRAVITY\\worktree_be_wave1_integration\/storage\/test-results\/shard_1.xml",
             "log_path": "D:\\claude\\ASSAB ERP GITHUB BACKEND ANTIGRAVITY\\worktree_be_wave1_integration\/storage\/test-results\/shard_1.log"
         }
