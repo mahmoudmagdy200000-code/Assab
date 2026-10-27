@@ -9,6 +9,7 @@ use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabIdentityMap;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Notifications\UserPasswordResetNotification;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
@@ -43,6 +44,12 @@ class BranchManagerCredentialSyncTest extends TestCase
             'email' => 'admin@bm.test', 'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $this->admin->id, 'role_key' => 'admin', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->admin->id,
+            'role_key' => 'admin',
+            'status' => 'active',
+        ]);
     }
 
     private function createBranchUser(string $email, ?string $branchId = null, array $extra = []): \Illuminate\Testing\TestResponse

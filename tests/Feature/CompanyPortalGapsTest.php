@@ -83,6 +83,14 @@ class CompanyPortalGapsTest extends TestCase
     {
         $u = AsabUser::create(['company_id' => $companyId, 'name' => $role, 'email' => $email, 'password' => 'secret-password', 'status' => 'active']);
         AsabUserRole::create(['user_id' => $u->id, 'role_key' => $role, 'scope' => 'all']);
+        if ($companyId) {
+            CompanyUser::create([
+                'company_id' => $companyId,
+                'user_id' => $u->id,
+                'role_key' => $role,
+                'status' => 'active',
+            ]);
+        }
 
         return $u;
     }

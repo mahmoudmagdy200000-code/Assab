@@ -10,6 +10,7 @@ use Modules\Admin\Models\AsabIdentityMap;
 use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Notifications\UserPasswordResetNotification;
 use Modules\Admin\Services\ProcurementCatalogBridgeService;
 use Modules\Supplier\Models\Supplier as LegacySupplier;
@@ -41,6 +42,12 @@ class SupplierCredentialSyncTest extends TestCase
             'email' => 'admin@sup.test', 'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $this->admin->id, 'role_key' => 'admin', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->admin->id,
+            'role_key' => 'admin',
+            'status' => 'active',
+        ]);
     }
 
     private function asabSupplier(string $email, array $overrides = []): AsabSupplier

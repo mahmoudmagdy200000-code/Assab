@@ -8,6 +8,7 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Operation;
 use Modules\Branch\Models\Branch;
 use Tests\TestCase;
@@ -37,6 +38,12 @@ class HeadBackendFollowupsTest extends TestCase
             'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $this->head->id, 'role_key' => 'head', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->head->id,
+            'role_key' => 'head',
+            'status' => 'active',
+        ]);
     }
 
     private function accountant(string $name, array $branchIds = []): AsabUser
@@ -50,6 +57,12 @@ class HeadBackendFollowupsTest extends TestCase
         ]);
         AsabUserRole::create([
             'user_id' => $u->id, 'role_key' => 'accountant', 'scope' => 'branch', 'branch_ids' => $branchIds,
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $u->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
         ]);
 
         return $u;

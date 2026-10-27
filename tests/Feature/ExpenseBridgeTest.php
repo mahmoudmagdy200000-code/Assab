@@ -8,6 +8,7 @@ use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\BranchHierarchyLinker;
 use Modules\Branch\Models\Branch;
@@ -78,6 +79,12 @@ class ExpenseBridgeTest extends TestCase
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $accountant->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $company->id,
+            'user_id' => $accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
 
         $invoices = $this->actingAs($accountant, 'sanctum')
             ->getJson("/api/v1/operations/{$op->id}")->assertOk()->json('expenses.invoices');
@@ -126,6 +133,12 @@ class ExpenseBridgeTest extends TestCase
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $accountant->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $company->id,
+            'user_id' => $accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
 
         $body = $this->actingAs($accountant, 'sanctum')
             ->getJson("/api/v1/operations/{$op->id}")->assertOk()->json();
@@ -178,6 +191,12 @@ class ExpenseBridgeTest extends TestCase
         ]);
         AsabUserRole::create([
             'user_id' => $accountant->id, 'role_key' => 'accountant', 'scope' => 'brand', 'brand_ids' => [$brand->id],
+        ]);
+        CompanyUser::create([
+            'company_id' => $company->id,
+            'user_id' => $accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
         ]);
 
         $this->actingAs($accountant, 'sanctum')

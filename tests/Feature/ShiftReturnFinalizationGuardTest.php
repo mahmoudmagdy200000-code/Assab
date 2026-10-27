@@ -8,6 +8,7 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\Shift as AdminShift;
 use Modules\Branch\Models\Branch;
@@ -52,6 +53,12 @@ class ShiftReturnFinalizationGuardTest extends TestCase
         $this->accountant = AsabUser::create(['company_id' => $company->id, 'name' => 'Accountant',
             'email' => 'return-guard@test.test', 'password' => 'secret-password', 'status' => 'active']);
         AsabUserRole::create(['user_id' => $this->accountant->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $company->id,
+            'user_id' => $this->accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
     }
 
     public function test_admin_close_cannot_bypass_a_required_physical_recount(): void

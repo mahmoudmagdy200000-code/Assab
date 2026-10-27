@@ -12,6 +12,7 @@ use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\AutoReminderRule;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\BranchShiftConfig;
 use Modules\Admin\Models\CashCustody;
 use Modules\Admin\Models\Employee;
@@ -80,12 +81,24 @@ class Meeting20260809FixesTest extends TestCase
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $this->accountant->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
 
         $this->manager = AsabUser::create([
             'company_id' => $this->company->id, 'name' => 'مدير فرع', 'email' => 'brm@fix.test',
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $this->manager->id, 'role_key' => 'branch', 'scope' => 'branch', 'branch_ids' => [$this->branchA->id]]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->manager->id,
+            'role_key' => 'branch',
+            'status' => 'active',
+        ]);
 
         $this->supplier = AsabSupplier::create([
             'company_id' => $this->company->id, 'name' => 'شركة الدواجن الوطنية', 'category' => 'دواجن',
@@ -381,6 +394,12 @@ class Meeting20260809FixesTest extends TestCase
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $scoped->id, 'role_key' => 'accountant', 'scope' => 'branch', 'branch_ids' => [$this->branchA->id]]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $scoped->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
         $this->actingAs($scoped, 'sanctum')
             ->putJson("/api/v1/company/me/branches/{$this->branchB->id}/shift-config", ['numShifts' => 1])
             ->assertStatus(404);
@@ -562,6 +581,12 @@ class Meeting20260809FixesTest extends TestCase
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $scoped->id, 'role_key' => 'accountant', 'scope' => 'branch', 'branch_ids' => [$this->branchA->id]]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $scoped->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
 
         $rows = $this->actingAs($scoped, 'sanctum')->getJson('/api/v1/company/me/reminders')->assertOk()->json('data');
 

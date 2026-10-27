@@ -67,6 +67,10 @@ class EmployeeBranchFilterManagerTest extends TestCase
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $u->id, 'role_key' => $role, 'scope' => $scope, 'branch_ids' => $branchIds]);
+        CompanyUser::firstOrCreate(
+            ['company_id' => $this->company->id, 'user_id' => $u->id],
+            ['role_key' => $role, 'status' => 'active']
+        );
 
         return $u;
     }
@@ -147,10 +151,6 @@ class EmployeeBranchFilterManagerTest extends TestCase
 
         $newManager = $this->user('mgr2@roster.test', 'branch', 'branch', [$this->branchB->id]);
         $newManager->forceFill(['name' => 'مدير جديد'])->save();
-        CompanyUser::create([
-            'company_id' => $this->company->id, 'user_id' => $newManager->id,
-            'role_key' => 'branch', 'status' => 'active',
-        ]);
         AsabRestaurant::create(['company_id' => $this->company->id, 'brand_id' => $this->brand->id, 'name' => 'مطعم']);
 
         $companyAdmin = $this->user('ca@roster.test', 'company-admin', 'all');

@@ -9,6 +9,7 @@ use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\BranchInventoryList;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Models\Setting;
 use Modules\Branch\Models\Branch;
@@ -66,6 +67,12 @@ class BranchDashboardReadsTest extends TestCase
             'role_key' => 'branch',
             'scope' => 'branch',
             'branch_ids' => [$this->branch->id],
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->manager->id,
+            'role_key' => 'branch',
+            'status' => 'active',
         ]);
 
         $this->otherCompany = AsabCompany::create(['name' => 'Other Co', 'plan' => 'Basic', 'status' => 'active']);

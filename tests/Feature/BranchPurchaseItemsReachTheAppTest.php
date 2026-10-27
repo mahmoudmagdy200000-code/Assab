@@ -8,6 +8,7 @@ use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Services\RawMaterialBranchSyncService;
 use Modules\Branch\Models\Branch;
@@ -67,6 +68,12 @@ class BranchPurchaseItemsReachTheAppTest extends TestCase
         AsabUserRole::create([
             'user_id' => $user->id, 'role_key' => 'accountant', 'scope' => 'brand',
             'brand_ids' => [$this->brand->id], 'module_keys' => ['inventory'],
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $user->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
         ]);
 
         return $user;

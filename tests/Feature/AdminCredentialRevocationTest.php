@@ -332,6 +332,12 @@ class AdminCredentialRevocationTest extends TestCase
             'two_factor_confirmed_at' => now(),
             'two_factor_method' => 'totp',
         ])->save();
+        \Modules\Admin\Models\CompanyUser::create([
+            'company_id' => $company->id,
+            'user_id' => $this->user->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
 
         // 1. Initiate 2FA login
         $initial = $this->auth->login($this->user->email, 'OldSecurePass123!');

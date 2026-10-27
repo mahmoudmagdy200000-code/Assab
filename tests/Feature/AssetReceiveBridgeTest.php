@@ -8,6 +8,7 @@ use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\Asset;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\FixedAssets\Models\PendingReceipt;
@@ -44,6 +45,12 @@ class AssetReceiveBridgeTest extends TestCase
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $user->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $user->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
 
         return $user;
     }
@@ -91,11 +98,8 @@ class AssetReceiveBridgeTest extends TestCase
             'custodian' => 'مدير الفرع',
         ]);
 
-        if ($res->status() === 201) {
-            $this->assertSame(1, PendingReceipt::where('recipient_branch_id', $this->branch->id)->count());
-        } else {
-            $this->markTestSkipped('accountant asset store payload differs: '.$res->status());
-        }
+        $res->assertStatus(201);
+        $this->assertSame(1, PendingReceipt::where('recipient_branch_id', $this->branch->id)->count());
     }
 
     public function test_mobile_confirm_stamps_the_dashboard_row(): void

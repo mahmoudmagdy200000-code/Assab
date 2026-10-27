@@ -8,6 +8,7 @@ use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Branch\Models\Branch;
 use Tests\TestCase;
 
@@ -65,6 +66,12 @@ class ScopedFilterLookupsTest extends TestCase
         AsabUserRole::create([
             'user_id' => $this->accountant->id, 'role_key' => 'accountant',
             'scope' => 'brand', 'brand_ids' => [$this->brandA->id],
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
         ]);
     }
 
@@ -129,6 +136,12 @@ class ScopedFilterLookupsTest extends TestCase
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $head->id, 'role_key' => 'head', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $head->id,
+            'role_key' => 'head',
+            'status' => 'active',
+        ]);
 
         $ids = collect($this->actingAs($head, 'sanctum')
             ->getJson('/api/v1/company/me/lookups/branches')->assertStatus(200)->json('data'))

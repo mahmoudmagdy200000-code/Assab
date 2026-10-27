@@ -7,6 +7,7 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Shift as AsabShift;
 use Modules\Admin\Services\ShiftLatenessService;
@@ -57,6 +58,12 @@ class ManagerLiveShiftBoardTest extends TestCase
         AsabUserRole::create([
             'user_id' => $this->accountant->id, 'role_key' => 'accountant', 'scope' => 'brand',
             'brand_ids' => [$this->brand->id],
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
         ]);
     }
 
@@ -171,6 +178,12 @@ class ManagerLiveShiftBoardTest extends TestCase
         ]);
         AsabUserRole::create([
             'user_id' => $brm->id, 'role_key' => 'branch', 'scope' => 'branch', 'branch_ids' => [$this->branch->id],
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $brm->id,
+            'role_key' => 'branch',
+            'status' => 'active',
         ]);
 
         $body = $this->actingAs($brm, 'sanctum')

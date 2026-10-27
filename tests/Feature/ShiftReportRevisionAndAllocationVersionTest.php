@@ -64,6 +64,7 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\EmployeeMovement;
 use Modules\Admin\Models\Operation;
@@ -165,6 +166,12 @@ class ShiftReportRevisionAndAllocationVersionTest extends TestCase
             'role_key' => 'head',
             'scope' => 'all',
         ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->head->id,
+            'role_key' => 'head',
+            'status' => 'active',
+        ]);
 
         $this->accountantA = AsabUser::create([
             'company_id' => $this->company->id,
@@ -179,6 +186,12 @@ class ShiftReportRevisionAndAllocationVersionTest extends TestCase
             'scope' => 'branch',
             'branch_ids' => [$this->branchA->id],
         ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->accountantA->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
 
         $this->accountantB = AsabUser::create([
             'company_id' => $this->company->id,
@@ -192,6 +205,12 @@ class ShiftReportRevisionAndAllocationVersionTest extends TestCase
             'role_key' => 'accountant',
             'scope' => 'branch',
             'branch_ids' => [$this->branchB->id],
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->accountantB->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
         ]);
 
         $this->cashierA = Cashier::factory()->create([

@@ -7,6 +7,7 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\OperationSequence;
 use Modules\Admin\Support\ModuleCatalog;
@@ -52,12 +53,24 @@ class AccountantDashboardTest extends TestCase
             'user_id' => $this->accountant->id, 'role_key' => 'accountant', 'scope' => 'brand',
             'brand_ids' => [$this->brandA->id], 'module_keys' => ['sales', 'expenses'],
         ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
 
         $this->head = AsabUser::create([
             'company_id' => $this->company->id, 'name' => 'رئيس الحسابات', 'email' => 'head@dash.test',
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $this->head->id, 'role_key' => 'head', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->head->id,
+            'role_key' => 'head',
+            'status' => 'active',
+        ]);
     }
 
     private function op(array $attrs = []): Operation

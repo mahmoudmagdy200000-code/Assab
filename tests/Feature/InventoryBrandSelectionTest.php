@@ -8,6 +8,7 @@ use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Branch\Models\Branch;
 use Tests\TestCase;
@@ -61,6 +62,12 @@ class InventoryBrandSelectionTest extends TestCase
             'status' => 'active',
         ]);
         AsabUserRole::create(array_merge(['user_id' => $user->id, 'role_key' => 'accountant'], $role));
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $user->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
 
         return $user;
     }
