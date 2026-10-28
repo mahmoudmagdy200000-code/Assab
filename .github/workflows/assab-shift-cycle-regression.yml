@@ -1,0 +1,40 @@
+name: ASSAB Shift Cycle Security Regression (Isolated SQLite)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'task/shift-cycle-security-fixes-20261028'
+
+jobs:
+  shift-security-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      COMPOSER_NO_INTERACTION: '1'
+
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Setup PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, curl, dom, fileinfo, gd, intl, mbstring, pdo_sqlite, tokenizer, xml, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Install Composer Dependencies
+        run: composer install --prefer-dist --no-progress --no-suggest
+
+      - name: Run Reviewer Security Regression Tests
+        run: |
+          php artisan test --filter=ReviewerProbeStartHandoverEligibilityTest
+          php artisan test --filter=ReviewerProbeStartByManagerAsCashierTest

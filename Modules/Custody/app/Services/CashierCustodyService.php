@@ -87,15 +87,7 @@ class CashierCustodyService
 
         $handover->loadMissing(['cashierShift']);
         $shift = $handover->cashierShift;
-        $cashAmount = 0.0;
-        if ($shift) {
-            $cashAmount = (float) ($shift->cash_collected ?? 0);
-            if ($cashAmount <= 0) {
-                $cashAmount = (float) $handover->handover_amount;
-            }
-        } else {
-            $cashAmount = (float) $handover->handover_amount;
-        }
+        $cashAmount = (float) ($shift?->cash_collected ?? 0.0);
 
         $toName = $this->resolveRecipientName($handover);
 
