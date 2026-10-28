@@ -111,7 +111,7 @@ jobs:
           ALTER USER 'assab_proof_user'@'%' IDENTIFIED BY '${EPHEMERAL_TEST_PW}';
           REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'assab_proof_user'@'%';
           -- Least privilege: escaped literal underscores (\_) strictly restrict access to disposable proof schemas
-          GRANT CREATE, DROP, ALTER, SELECT, INSERT, UPDATE, DELETE, INDEX, REFERENCES, LOCK TABLES 
+          GRANT CREATE, DROP, ALTER, SELECT, INSERT, UPDATE, DELETE, INDEX, REFERENCES, LOCK TABLES, CREATE VIEW, SHOW VIEW, CREATE ROUTINE, ALTER ROUTINE, EXECUTE
             ON \`assab\_proof\_be09\_%\`.* TO 'assab_proof_user'@'%';
           FLUSH PRIVILEGES;
           SQL
@@ -274,7 +274,7 @@ jobs:
           if [[ "${{ matrix.suite }}" == "Feature" ]]; then
             # Adheres strictly to assab-php-test-safety.md: max 2 workers, recycle workers regularly (-m 10), 1G memory
             php -d memory_limit=1G vendor/bin/paratest -p2 -m 10 --passthru-php="-dmemory_limit=1G" \
-              --testsuite=Feature --log-junit="artifacts/sqlite-feature.junit.xml" 2>&1 | tee artifacts/sqlite-feature.log
+              --testsuite=Feature --log-junit="artifacts/sqlite-${{ matrix.suite }}.junit.xml" 2>&1 | tee "artifacts/sqlite-${{ matrix.suite }}.log"
             PIPE_STATUS=("${PIPESTATUS[@]}")
           else
             php -d memory_limit=1G vendor/bin/phpunit --testsuite="${{ matrix.suite }}" \
