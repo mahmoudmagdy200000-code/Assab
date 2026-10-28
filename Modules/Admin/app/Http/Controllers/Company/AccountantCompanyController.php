@@ -746,6 +746,17 @@ class AccountantCompanyController extends AsabController
     {
         return $this->run(function () use ($request, $id, $txnId) {
             $custody = $this->scopeToAssignedBranches(CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))->findOrFail($id);
+
+            if (! $this->isCustodyWriteAuthorized($request->user())) {
+                return $this->fail(
+                    'CUSTODY_MANUAL_WRITE_PROHIBITED',
+                    'Manual custody approvals are prohibited under policy FUND-04/06.',
+                    'اعتماد حركات العهدة اليدوية محظور بموجب السياسة المعتمدة',
+                    [],
+                    403
+                );
+            }
+
             $txn = CashTransaction::where('custody_id', $custody->id)->findOrFail($txnId);
 
             if ($txn->status === 'rejected') {
@@ -774,8 +785,19 @@ class AccountantCompanyController extends AsabController
     public function rejectTransaction(Request $request, string $id, string $txnId): JsonResponse
     {
         return $this->run(function () use ($request, $id, $txnId) {
-            $data = $request->validate(['reason' => 'required|string|max:255']);
             $custody = $this->scopeToAssignedBranches(CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))->findOrFail($id);
+
+            if (! $this->isCustodyWriteAuthorized($request->user())) {
+                return $this->fail(
+                    'CUSTODY_MANUAL_WRITE_PROHIBITED',
+                    'Manual custody transaction rejections are prohibited under policy FUND-04/06.',
+                    'رفض حركات العهدة اليدوية محظور بموجب السياسة المعتمدة',
+                    [],
+                    403
+                );
+            }
+
+            $data = $request->validate(['reason' => 'required|string|max:255']);
             $txn = CashTransaction::where('custody_id', $custody->id)->findOrFail($txnId);
 
             if ($txn->status === 'rejected') {
@@ -802,8 +824,19 @@ class AccountantCompanyController extends AsabController
     public function settleCustody(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $data = $request->validate(['newDepositHalalas' => 'sometimes|integer|min:0']);
             $custody = $this->scopeToAssignedBranches(CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))->findOrFail($id);
+
+            if (! $this->isCustodyWriteAuthorized($request->user())) {
+                return $this->fail(
+                    'CUSTODY_MANUAL_WRITE_PROHIBITED',
+                    'Manual custody settlements are prohibited under policy FUND-04/06.',
+                    'تسوية العهدة اليدوية محظورة بموجب السياسة المعتمدة',
+                    [],
+                    403
+                );
+            }
+
+            $data = $request->validate(['newDepositHalalas' => 'sometimes|integer|min:0']);
 
             DB::transaction(function () use ($custody, $data, $request) {
                 $usedBefore = (int) $custody->used;

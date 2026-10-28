@@ -92,7 +92,20 @@ class CashCustodyController extends AsabController
     public function addTransaction(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $custody = $this->scopeToAssignedBranches(CashCustody::query())->findOrFail($id);
+            $custody = $this->scopeToAssignedBranches(
+                CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user()))
+            )->findOrFail($id);
+
+            if (! $this->isCustodyWriteAuthorized($request->user())) {
+                return $this->fail(
+                    'CUSTODY_MANUAL_WRITE_PROHIBITED',
+                    'Manual custody transaction writes are prohibited under policy FUND-04/06.',
+                    'تعديل حركات العهدة اليدوية محظور بموجب السياسة المعتمدة',
+                    [],
+                    403
+                );
+            }
+
             $data = $request->validate([
                 'txnType' => 'required|in:credit,debit',
                 'amount' => 'required|integer|min:1',

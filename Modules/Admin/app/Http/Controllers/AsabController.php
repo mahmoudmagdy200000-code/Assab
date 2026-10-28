@@ -180,4 +180,48 @@ abstract class AsabController extends Controller
             throw (new ModelNotFoundException)->setModel(\Modules\Admin\Models\AsabBrand::class);
         }
     }
+
+    /**
+     * Check if user holds authority for manual cash custody writes under Business Rules v3.5 (FUND-04 / FUND-06).
+     * Owner and Brand Manager hold approval authority; standard accountant and head accountant do not.
+     */
+    protected function isCustodyWriteAuthorized(mixed $user): bool
+    {
+        if (! $user) {
+            return false;
+        }
+
+        if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
+            return true;
+        }
+
+        if ($user instanceof \Modules\Admin\Models\AsabUser) {
+            $authorizedRoles = [
+                'owner',
+                'brand-owner',
+                'brand_owner',
+                'brand-manager',
+                'brand_manager',
+                'company-admin',
+                'admin',
+            ];
+
+            if ($user->hasAnyAsabRole($authorizedRoles)) {
+                return true;
+            }
+
+            if ($user->company_id !== null) {
+                $membershipRole = \Modules\Admin\Models\CompanyUser::where('company_id', $user->company_id)
+                    ->where('user_id', $user->id)
+                    ->where('status', 'active')
+                    ->value('role_key');
+
+                if ($membershipRole && in_array($membershipRole, $authorizedRoles, true)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
 }

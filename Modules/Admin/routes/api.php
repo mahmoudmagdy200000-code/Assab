@@ -894,9 +894,8 @@ Route::prefix('v1')->group(function () {
                     Route::post('operations/{id}/request-clarification', [OperationController::class, 'requestClarification']);
                 });
 
-                // Cash custody (§5.3 ACC-8 + §5.2 HEAD-4) — the head OWNS تعزيز العهدة,
-                // so this block admits both accountant and head on the company surface.
-                Route::middleware(['asab.role:accountant,head', 'asab.idempotency'])->group(function () {
+                // Cash custody (§5.3 ACC-8 + §5.2 HEAD-4 / FUND-04 / FUND-06)
+                Route::middleware(['asab.role:accountant,head,company-admin,brand-manager,owner', 'asab.idempotency'])->group(function () {
                     Route::get('cash-custody/export', [CompanyExportController::class, 'cashCustody']);
                     Route::get('cash-custody', [CashCustodyController::class, 'index']);
                     Route::get('cash-custody/{id}/transactions', [AccountantCompanyController::class, 'cashTransactions']);
