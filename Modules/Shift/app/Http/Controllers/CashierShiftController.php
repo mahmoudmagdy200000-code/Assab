@@ -343,6 +343,8 @@ class CashierShiftController extends BaseController
             ], 'Shift started successfully');
         } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
             return HandoverErrorResponse::from($e, 'start shift');
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse('Shift not found or you do not have access to it.', 404);
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -902,6 +904,10 @@ class CashierShiftController extends BaseController
         try {
             $branchManager = auth()->user();
 
+            if (! ($branchManager instanceof BranchManager)) {
+                return $this->errorResponse('Unauthorized: Only branch managers can start shifts on behalf of cashiers', 403);
+            }
+
             // First try to find by shift ID (optimized eager loading)
             $shiftModel = CashierShift::with([
                 'shift' => function ($q) {
@@ -954,6 +960,10 @@ class CashierShiftController extends BaseController
 
             if ($shiftModel->status !== ShiftStatus::NOT_STARTED && $shiftModel->status !== ShiftStatus::REASSIGNED) {
                 return $this->errorResponse('Shift has already been started', 400);
+            }
+
+            if (! $shiftModel->shift_date->isToday()) {
+                return $this->errorResponse('You can only start shifts scheduled for today', 400);
             }
 
             $shiftModel->startShift();

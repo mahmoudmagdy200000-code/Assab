@@ -374,6 +374,31 @@ class ShiftEndController extends Controller
                         'message' => 'Next cashier not found',
                     ], 404);
                 }
+
+                if ((string) $nextCashier->id === (string) $shiftModel->cashier_id) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Cannot hand over shift to yourself',
+                        'error_code' => 'HANDOVER_RECIPIENT_NOT_ELIGIBLE',
+                    ], 422);
+                }
+
+                if ((string) $nextCashier->branch_id !== (string) $shiftModel->shift->branch_id) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Cashier belongs to another branch',
+                        'error_code' => 'HANDOVER_RECIPIENT_NOT_ELIGIBLE',
+                    ], 422);
+                }
+
+                if ($nextCashier->status !== 'active') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Cashier is not active',
+                        'error_code' => 'HANDOVER_RECIPIENT_NOT_ELIGIBLE',
+                    ], 422);
+                }
+
                 $handoverToId = $nextCashier->id;
                 $handoverToName = $nextCashier->name;
             }
@@ -573,6 +598,31 @@ class ShiftEndController extends Controller
                         'message' => 'Next cashier not found',
                     ], 404);
                 }
+
+                if ((string) $nextCashier->id === (string) $shiftModel->cashier_id) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Cannot hand over shift to yourself',
+                        'error_code' => 'HANDOVER_RECIPIENT_NOT_ELIGIBLE',
+                    ], 422);
+                }
+
+                if ((string) $nextCashier->branch_id !== (string) $shiftModel->shift->branch_id) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Cashier belongs to another branch',
+                        'error_code' => 'HANDOVER_RECIPIENT_NOT_ELIGIBLE',
+                    ], 422);
+                }
+
+                if ($nextCashier->status !== 'active') {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Cashier is not active',
+                        'error_code' => 'HANDOVER_RECIPIENT_NOT_ELIGIBLE',
+                    ], 422);
+                }
+
                 $handoverToId = $nextCashier->id;
                 $handoverToName = $nextCashier->name;
             }

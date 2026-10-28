@@ -190,6 +190,11 @@ class ShiftEndService
                 if (! empty($data['branch_manager_id']) && (string) $data['branch_manager_id'] !== (string) $handoverToId) {
                     throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('ONLY_ASSIGNED_BRANCH_MANAGER_RECIPIENT');
                 }
+            } elseif ($handoverToType === 'cashier') {
+                $nextCashier = Cashier::find($handoverToId);
+                if (! $nextCashier || (string) $nextCashier->id === (string) $shift->cashier_id || (string) $nextCashier->branch_id !== (string) $shift->shift->branch_id || $nextCashier->status !== 'active') {
+                    throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('HANDOVER_RECIPIENT_NOT_ELIGIBLE');
+                }
             }
 
             // Then, record handover
