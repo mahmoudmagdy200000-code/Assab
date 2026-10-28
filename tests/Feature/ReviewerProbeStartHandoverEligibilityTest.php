@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
@@ -41,6 +42,26 @@ class ReviewerProbeStartHandoverEligibilityTest extends TestCase
         return $shift->fresh();
     }
 
+    /**
+     * Deterministic snapshot of every custody row (raw table, so soft-deleted rows are included)
+     * for one shift, or for the whole table when no shift is given. Full rows are captured
+     * (id, amount, transaction_type, is_cash_in, related_shift_id, related_handover_id,
+     * timestamps, deleted_at, ...) so inserted, updated and deleted rows are all detectable.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function custodySnapshot(?string $shiftId = null): array
+    {
+        $query = DB::table('cashier_custody_transactions');
+        if ($shiftId !== null) {
+            $query->where('related_shift_id', $shiftId);
+        }
+
+        return $query->orderBy('id')->get()
+            ->map(fn ($row) => (array) $row)
+            ->all();
+    }
+
     public function test_self_handover_is_rejected_and_persists_no_records(): void
     {
         $branch = Branch::factory()->create();
@@ -49,6 +70,8 @@ class ReviewerProbeStartHandoverEligibilityTest extends TestCase
         $sender = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $mgr->id, 'status' => 'active']);
 
         $shift = $this->completedShiftFor($sender, $template);
+        $shiftCustodyBefore = $this->custodySnapshot($shift->id);
+        $allCustodyBefore = $this->custodySnapshot();
 
         $res = $this->actingAs($sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$shift->id}/start-handover", [
             'handover_to_type' => 'cashier',
@@ -64,9 +87,10 @@ class ReviewerProbeStartHandoverEligibilityTest extends TestCase
             'handover_to_id' => $sender->id,
         ]);
 
-        $this->assertDatabaseMissing('cashier_custody_transactions', [
-            'related_shift_id' => $shift->id,
-        ]);
+        // Legitimate shift-closure custody rows may pre-exist; the rejected request must leave
+        // every custody row (this shift and the whole table) byte-for-byte unchanged.
+        $this->assertSame($shiftCustodyBefore, $this->custodySnapshot($shift->id), 'Rejected handover must not insert, update or delete custody rows for the shift');
+        $this->assertSame($allCustodyBefore, $this->custodySnapshot(), 'Rejected handover must not alter any custody row');
     }
 
     public function test_cross_branch_handover_is_rejected_and_persists_no_records(): void
@@ -81,6 +105,8 @@ class ReviewerProbeStartHandoverEligibilityTest extends TestCase
         $otherBranchCashier = Cashier::factory()->create(['branch_id' => $branchB->id, 'created_by' => $mgrB->id, 'status' => 'active']);
 
         $shift = $this->completedShiftFor($sender, $templateA);
+        $shiftCustodyBefore = $this->custodySnapshot($shift->id);
+        $allCustodyBefore = $this->custodySnapshot();
 
         $res = $this->actingAs($sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$shift->id}/start-handover", [
             'handover_to_type' => 'cashier',
@@ -96,9 +122,10 @@ class ReviewerProbeStartHandoverEligibilityTest extends TestCase
             'handover_to_id' => $otherBranchCashier->id,
         ]);
 
-        $this->assertDatabaseMissing('cashier_custody_transactions', [
-            'related_shift_id' => $shift->id,
-        ]);
+        // Legitimate shift-closure custody rows may pre-exist; the rejected request must leave
+        // every custody row (this shift and the whole table) byte-for-byte unchanged.
+        $this->assertSame($shiftCustodyBefore, $this->custodySnapshot($shift->id), 'Rejected handover must not insert, update or delete custody rows for the shift');
+        $this->assertSame($allCustodyBefore, $this->custodySnapshot(), 'Rejected handover must not alter any custody row');
     }
 
     public function test_inactive_recipient_handover_is_rejected_and_persists_no_records(): void
@@ -111,6 +138,8 @@ class ReviewerProbeStartHandoverEligibilityTest extends TestCase
         $deactivatedCashier = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $mgr->id, 'status' => 'deactivated']);
 
         $shift = $this->completedShiftFor($sender, $template);
+        $shiftCustodyBefore = $this->custodySnapshot($shift->id);
+        $allCustodyBefore = $this->custodySnapshot();
 
         $res = $this->actingAs($sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$shift->id}/start-handover", [
             'handover_to_type' => 'cashier',
@@ -126,9 +155,10 @@ class ReviewerProbeStartHandoverEligibilityTest extends TestCase
             'handover_to_id' => $deactivatedCashier->id,
         ]);
 
-        $this->assertDatabaseMissing('cashier_custody_transactions', [
-            'related_shift_id' => $shift->id,
-        ]);
+        // Legitimate shift-closure custody rows may pre-exist; the rejected request must leave
+        // every custody row (this shift and the whole table) byte-for-byte unchanged.
+        $this->assertSame($shiftCustodyBefore, $this->custodySnapshot($shift->id), 'Rejected handover must not insert, update or delete custody rows for the shift');
+        $this->assertSame($allCustodyBefore, $this->custodySnapshot(), 'Rejected handover must not alter any custody row');
     }
 
     public function test_eligible_same_branch_active_cashier_handover_succeeds(): void
