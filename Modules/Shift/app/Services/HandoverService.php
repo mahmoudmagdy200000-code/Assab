@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\HandoverStatus;
 use Modules\Shift\Enums\ShiftHistoryAction;
 use Modules\Shift\Enums\ShiftStatus;
@@ -25,6 +26,7 @@ use Modules\Shift\Models\ShiftTransferAttempt;
 use Modules\Shift\Models\ShiftTransferRejectionEvidence;
 use Modules\Shift\Models\ShiftTransferReturn;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 /**
@@ -118,6 +120,10 @@ class HandoverService
             // Update shift with handover details so the recipient sees the request in cashier requests
             $nextCashierId = $data['next_cashier_id'] ?? ($handoverToType === 'cashier' ? $handoverToId : null);
             if ($handoverToType === 'cashier' && $nextCashierId) {
+                $recipientCashier = Cashier::find($nextCashierId);
+                if (! $recipientCashier || (string) $recipientCashier->id === (string) $shift->cashier_id || (string) $recipientCashier->branch_id !== (string) $shift->shift->branch_id || $recipientCashier->status !== 'active') {
+                    throw new AccessDeniedHttpException('HANDOVER_RECIPIENT_NOT_ELIGIBLE');
+                }
                 $shift->update([
                     'next_cashier_id' => $nextCashierId,
                 ]);

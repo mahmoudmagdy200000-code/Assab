@@ -70,9 +70,9 @@ class CashierCustodyService
     }
 
     /**
-     * Record Cash-IN (Total Sales) when a cashier sends a handover.
-     * Amount = sum of shift payment methods: cash_collected + card_payments + aggregator (salesBreakdown).
-     * Falls back to total_sales then handover_amount if sum is zero.
+     * Record Cash-IN (Cash Collected) when a cashier sends a handover.
+     * Amount = physical cash collected during the shift (cash_collected).
+     * Falls back to handover_amount if cash_collected is zero or null.
      */
     public function recordCashCollected(CashierShiftHandover $handover, Cashier $sendingCashier): CashierCustodyTransaction
     {
@@ -85,22 +85,16 @@ class CashierCustodyService
             return $existing;
         }
 
-        $handover->loadMissing(['cashierShift', 'cashierShift.salesBreakdown']);
+        $handover->loadMissing(['cashierShift']);
         $shift = $handover->cashierShift;
-        $totalSales = 0.0;
+        $cashAmount = 0.0;
         if ($shift) {
-            $cashCollected = (float) ($shift->cash_collected ?? 0);
-            $cardPayments = (float) ($shift->card_payments ?? 0);
-            $aggregatorTotal = (float) $shift->salesBreakdown->sum('amount');
-            $totalSales = $cashCollected + $cardPayments + $aggregatorTotal;
-            if ($totalSales <= 0) {
-                $totalSales = (float) ($shift->total_sales ?? 0);
-            }
-            if ($totalSales <= 0) {
-                $totalSales = (float) $handover->handover_amount;
+            $cashAmount = (float) ($shift->cash_collected ?? 0);
+            if ($cashAmount <= 0) {
+                $cashAmount = (float) $handover->handover_amount;
             }
         } else {
-            $totalSales = (float) $handover->handover_amount;
+            $cashAmount = (float) $handover->handover_amount;
         }
 
         $toName = $this->resolveRecipientName($handover);
@@ -108,7 +102,7 @@ class CashierCustodyService
         return CashierCustodyTransaction::create([
             'cashier_id' => $sendingCashier->id,
             'transaction_type' => 'Total Sales',
-            'amount' => $totalSales,
+            'amount' => $cashAmount,
             'is_cash_in' => true,
             'counterpart_name' => $toName,
             'related_shift_id' => $handover->cashier_shift_id,
