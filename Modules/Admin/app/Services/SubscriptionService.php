@@ -35,11 +35,11 @@ class SubscriptionService
         $sub = CompanySubscription::withoutGlobalScopes()->with('plan')->where('company_id', $companyId)->first();
         if (! $sub) {
             $asabSub = \Modules\Admin\Models\AsabSubscription::withoutGlobalScopes()->where('company_id', $companyId)->first();
-            if ($asabSub) {
+            if ($asabSub && ! empty($asabSub->plan)) {
                 $plan = Plan::where('code', strtolower($asabSub->plan))
                     ->orWhere('name_ar', $asabSub->plan)
                     ->orWhere('name_en', $asabSub->plan)
-                    ->first() ?? Plan::where('status', 'active')->first();
+                    ->first();
 
                 if ($plan) {
                     $sub = CompanySubscription::create([
@@ -164,18 +164,19 @@ class SubscriptionService
             if ($immediate) {
                 $sub->update(['plan_id' => $target->id, 'billing_cycle' => $cycle]);
                 $this->regateModules($sub->company_id, $target);
+
+                // Synchronize legacy store only when the transition takes effect immediately.
+                \Modules\Admin\Models\AsabSubscription::withoutGlobalScopes()->where('company_id', $sub->company_id)->update([
+                    'plan' => $target->name_ar ?? $target->code,
+                ]);
             } else {
-                // Deferred to period end: record intent only.
+                // Deferred to period end: record intent only, preserving current effective plan.
                 $sub->update(['billing_cycle' => $cycle]);
             }
 
             $change = $this->logChange($sub, $type, $fromPlanId, $target->id, $actor, $proration, $fromCycle, $cycle);
 
             $invoice = null;
-            // SUB-01 / BE-11: Discontinue auto-generated proration BillingInvoice («من غير فوترة حاليًا»).
-            \Modules\Admin\Models\AsabSubscription::withoutGlobalScopes()->where('company_id', $sub->company_id)->update([
-                'plan' => $target->name_ar ?? $target->code,
-            ]);
 
             $msg = $type === 'downgrade' ? 'subscription.downgraded' : 'subscription.upgraded';
             $this->notifyAdmins($sub->company_id, $msg, 'تم تحديث خطة الاشتراك', 'الخطة الجديدة: '.$target->name_ar);

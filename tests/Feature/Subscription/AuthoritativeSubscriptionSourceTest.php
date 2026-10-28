@@ -4,6 +4,7 @@ namespace Tests\Feature\Subscription;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Admin\Models\AsabCompany;
+use Modules\Admin\Models\AsabSubscription;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\BillingInvoice;
@@ -219,5 +220,117 @@ class AuthoritativeSubscriptionSourceTest extends TestCase
         // Entire transaction must be rolled back: company and user must NOT exist
         $this->assertDatabaseMissing('asab_companies', ['name' => 'Doomed Enterprise Co']);
         $this->assertDatabaseMissing('asab_users', ['email' => 'admin@doomed-enterprise.test']);
+    }
+
+    public function test_current_fails_closed_when_legacy_plan_cannot_be_resolved_in_catalog(): void
+    {
+        $company = AsabCompany::create([
+            'name' => 'Legacy Unresolvable Plan Co',
+            'plan' => 'UnknownLegacyTier',
+            'status' => 'active',
+        ]);
+
+        AsabSubscription::create([
+            'company_id' => $company->id,
+            'plan' => 'UnknownLegacyTier',
+            'status' => 'active',
+            'expires_at' => now()->addMonths(3),
+            'days_left' => 90,
+            'monthly_price' => 50000,
+            'reminder_enabled' => true,
+        ]);
+
+        $adminUser = AsabUser::create([
+            'company_id' => $company->id,
+            'name' => 'Legacy Admin',
+            'email' => 'admin@unresolvable-legacy.test',
+            'password' => 'secret-password',
+            'status' => 'active',
+        ]);
+        AsabUserRole::create([
+            'user_id' => $adminUser->id,
+            'role_key' => 'company-admin',
+            'scope' => 'all',
+        ]);
+        CompanyUser::create([
+            'company_id' => $company->id,
+            'user_id' => $adminUser->id,
+            'role_key' => 'company-admin',
+            'status' => 'active',
+        ]);
+
+        // When legacy plan cannot be mapped to any catalog plan, fail closed: do NOT assign first active plan arbitrarily
+        $res = $this->actingAs($adminUser, 'sanctum')->getJson('/api/v1/company/me/subscription');
+
+        $res->assertStatus(404);
+        $this->assertSame(0, CompanySubscription::where('company_id', $company->id)->count());
+    }
+
+    public function test_deferred_subscription_change_preserves_legacy_plan_until_effective(): void
+    {
+        $company = AsabCompany::create([
+            'name' => 'Deferred Upgrade Co',
+            'plan' => 'Basic',
+            'status' => 'active',
+        ]);
+        $sub = CompanySubscription::create([
+            'company_id' => $company->id,
+            'plan_id' => $this->basicPlan->id,
+            'status' => 'active',
+            'billing_cycle' => 'monthly',
+            'current_period_start' => now()->subDays(10),
+            'current_period_end' => now()->addDays(20),
+            'start_date' => now()->subDays(10),
+            'auto_renew' => true,
+        ]);
+        $asabSub = AsabSubscription::create([
+            'company_id' => $company->id,
+            'plan' => $this->basicPlan->name_ar,
+            'status' => 'active',
+            'expires_at' => now()->addDays(20),
+            'days_left' => 20,
+            'monthly_price' => $this->basicPlan->price_monthly,
+            'reminder_enabled' => true,
+        ]);
+        $adminUser = AsabUser::create([
+            'company_id' => $company->id,
+            'name' => 'Deferred Admin',
+            'email' => 'admin@deferred-upgrade.test',
+            'password' => 'secret-password',
+            'status' => 'active',
+        ]);
+        AsabUserRole::create([
+            'user_id' => $adminUser->id,
+            'role_key' => 'company-admin',
+            'scope' => 'all',
+        ]);
+        CompanyUser::create([
+            'company_id' => $company->id,
+            'user_id' => $adminUser->id,
+            'role_key' => 'company-admin',
+            'status' => 'active',
+        ]);
+
+        // Case A: Deferred change (applyImmediately = false) must preserve the current plan in both stores
+        $resDeferred = $this->actingAs($adminUser, 'sanctum')->postJson('/api/v1/company/me/subscription/upgrade', [
+            'targetPlanCode' => 'professional',
+            'billingCycle' => 'annual',
+            'applyImmediately' => false,
+        ]);
+
+        $resDeferred->assertOk();
+        $this->assertSame($this->basicPlan->id, $sub->fresh()->plan_id);
+        $this->assertSame($this->basicPlan->name_ar, $asabSub->fresh()->plan);
+
+        // Case B: Immediate change (applyImmediately = true) updates both stores
+        $resImmediate = $this->actingAs($adminUser, 'sanctum')->postJson('/api/v1/company/me/subscription/upgrade', [
+            'targetPlanCode' => 'professional',
+            'billingCycle' => 'annual',
+            'applyImmediately' => true,
+        ]);
+
+        $resImmediate->assertOk();
+        $this->assertSame($this->proPlan->id, $sub->fresh()->plan_id);
+        $this->assertSame($this->proPlan->name_ar, $asabSub->fresh()->plan);
     }
 }
