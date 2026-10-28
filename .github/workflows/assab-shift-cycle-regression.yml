@@ -11,6 +11,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
+      APP_ENV: testing
+      APP_DEBUG: 'false'
+      APP_KEY: base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      APP_URL: http://127.0.0.1
       DB_CONNECTION: sqlite
       DB_DATABASE: ':memory:'
       CACHE_STORE: array
@@ -27,7 +31,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: bcmath, curl, dom, fileinfo, gd, intl, mbstring, pdo_sqlite, tokenizer, xml, zip
+          extensions: bcmath, curl, dom, fileinfo, gd, intl, mbstring, pdo_sqlite, sqlite3, tokenizer, xml, zip
           coverage: none
           tools: composer:v2
 

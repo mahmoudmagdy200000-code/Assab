@@ -50,7 +50,7 @@ class ReviewerProbeStartHandoverEligibilityTest extends TestCase
 
         $shift = $this->completedShiftFor($sender, $template);
 
-        $res = $this->actingAs($sender, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$shift->id}/start-handover", [
+        $res = $this->actingAs($sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$shift->id}/start-handover", [
             'handover_to_type' => 'cashier',
             'next_cashier_id' => $sender->id,
             'handover_amount' => 100,
@@ -82,7 +82,7 @@ class ReviewerProbeStartHandoverEligibilityTest extends TestCase
 
         $shift = $this->completedShiftFor($sender, $templateA);
 
-        $res = $this->actingAs($sender, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$shift->id}/start-handover", [
+        $res = $this->actingAs($sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$shift->id}/start-handover", [
             'handover_to_type' => 'cashier',
             'next_cashier_id' => $otherBranchCashier->id,
             'handover_amount' => 100,
@@ -112,7 +112,7 @@ class ReviewerProbeStartHandoverEligibilityTest extends TestCase
 
         $shift = $this->completedShiftFor($sender, $template);
 
-        $res = $this->actingAs($sender, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$shift->id}/start-handover", [
+        $res = $this->actingAs($sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$shift->id}/start-handover", [
             'handover_to_type' => 'cashier',
             'next_cashier_id' => $deactivatedCashier->id,
             'handover_amount' => 100,
@@ -142,7 +142,7 @@ class ReviewerProbeStartHandoverEligibilityTest extends TestCase
 
         $shift = $this->completedShiftFor($sender, $template);
 
-        $res = $this->actingAs($sender, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$shift->id}/start-handover", [
+        $res = $this->actingAs($sender, 'sanctum')->postJson("/api/v1/cashier/shifts/{$shift->id}/start-handover", [
             'handover_to_type' => 'cashier',
             'next_cashier_id' => $eligibleRecipient->id,
             'handover_amount' => 100,
@@ -171,7 +171,7 @@ class ReviewerProbeStartHandoverEligibilityTest extends TestCase
 
         $shift = $this->completedShiftFor($sender, $templateA);
 
-        $res = $this->actingAs($sender, 'sanctum')->getJson("/api/v1/branch-manager/shifts/{$shift->id}/available-recipients");
+        $res = $this->actingAs($sender, 'sanctum')->getJson("/api/v1/cashier/shifts/{$shift->id}/available-recipients");
         $res->assertStatus(200);
 
         $recipients = collect($res->json('data.recipients') ?? $res->json('data') ?? []);
@@ -182,6 +182,9 @@ class ReviewerProbeStartHandoverEligibilityTest extends TestCase
 
         // Must NOT include other branch cashier
         $this->assertNotContains((string) $otherBranchCashier->id, $recipientIds, 'Other branch cashier must not be present');
+
+        // Must NOT include deactivated cashier
+        $this->assertNotContains((string) $deactivatedCashier->id, $recipientIds, 'Deactivated cashier must not be present');
 
         // Eligible cashier must be present
         $this->assertContains((string) $eligibleCashier->id, $recipientIds, 'Eligible same-branch cashier must be present');
