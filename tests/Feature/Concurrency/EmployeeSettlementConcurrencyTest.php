@@ -42,6 +42,7 @@ class EmployeeSettlementConcurrencyTest extends TestCase
     private array $workers = [];
     private ?string $barriersDir = null;
     private array $createdCompanyIds = [];
+    private array $createdBranchIds = [];
     private array $createdEmployeeIds = [];
     private array $createdOperationIds = [];
 
@@ -73,6 +74,7 @@ class EmployeeSettlementConcurrencyTest extends TestCase
         }
 
         $this->createdCompanyIds = [];
+        $this->createdBranchIds = [];
         $this->createdEmployeeIds = [];
         $this->createdOperationIds = [];
 
@@ -102,30 +104,36 @@ class EmployeeSettlementConcurrencyTest extends TestCase
         }
 
         // Guaranteed cleanup in reverse foreign key order (leaves zero debris for subsequent tests)
-        if (! empty($this->createdCompanyIds)) {
-            DB::table('asab_employee_settlement_requests')->whereIn('company_id', $this->createdCompanyIds)->delete();
-        }
+        try {
+            if (! empty($this->createdCompanyIds)) {
+                DB::table('asab_employee_settlement_requests')->whereIn('company_id', $this->createdCompanyIds)->delete();
+            }
 
-        if (! empty($this->createdEmployeeIds)) {
-            DB::table('asab_employee_settlement_requests')->whereIn('employee_id', $this->createdEmployeeIds)->delete();
-            DB::table('asab_employee_movements')->whereIn('employee_id', $this->createdEmployeeIds)->delete();
-            DB::table('asab_employees')->whereIn('id', $this->createdEmployeeIds)->delete();
-            $this->createdEmployeeIds = [];
-        }
+            if (! empty($this->createdEmployeeIds)) {
+                DB::table('asab_employee_settlement_requests')->whereIn('employee_id', $this->createdEmployeeIds)->delete();
+                DB::table('asab_employee_movements')->whereIn('employee_id', $this->createdEmployeeIds)->delete();
+                DB::table('asab_employees')->whereIn('id', $this->createdEmployeeIds)->delete();
+                $this->createdEmployeeIds = [];
+            }
 
-        if (! empty($this->createdOperationIds)) {
-            DB::table('asab_operations')->whereIn('id', $this->createdOperationIds)->delete();
-            $this->createdOperationIds = [];
-        }
+            if (! empty($this->createdOperationIds)) {
+                DB::table('asab_operations')->whereIn('id', $this->createdOperationIds)->delete();
+                $this->createdOperationIds = [];
+            }
 
-        if (! empty($this->createdCompanyIds)) {
-            DB::table('asab_users')->whereIn('company_id', $this->createdCompanyIds)->delete();
-            DB::table('branches')->whereIn('company_id', $this->createdCompanyIds)->delete();
-            DB::table('asab_companies')->whereIn('id', $this->createdCompanyIds)->delete();
-            $this->createdCompanyIds = [];
-        }
+            if (! empty($this->createdBranchIds)) {
+                DB::table('branches')->whereIn('id', $this->createdBranchIds)->delete();
+                $this->createdBranchIds = [];
+            }
 
-        parent::tearDown();
+            if (! empty($this->createdCompanyIds)) {
+                DB::table('asab_users')->whereIn('company_id', $this->createdCompanyIds)->delete();
+                DB::table('asab_companies')->whereIn('id', $this->createdCompanyIds)->delete();
+                $this->createdCompanyIds = [];
+            }
+        } finally {
+            parent::tearDown();
+        }
     }
 
     /**
@@ -346,7 +354,8 @@ PHP;
 
         $company = AsabCompany::create(['name' => 'Concurrency Co 1', 'subdomain' => 'concurr-'.Str::random(6)]);
         $this->createdCompanyIds[] = $company->id;
-        $branch = Branch::create(['company_id' => $company->id, 'name' => 'Main', 'city' => 'Riyadh']);
+        $branch = Branch::create(['name' => 'Main', 'location' => 'Riyadh', 'city' => 'Riyadh', 'asab_company_id' => $company->id]);
+        $this->createdBranchIds[] = $branch->id;
         $employee = Employee::create([
             'company_id' => $company->id,
             'branch_id' => $branch->id,
@@ -422,7 +431,8 @@ PHP;
 
         $company = AsabCompany::create(['name' => 'Concurrency Co 2', 'subdomain' => 'concurr-'.Str::random(6)]);
         $this->createdCompanyIds[] = $company->id;
-        $branch = Branch::create(['company_id' => $company->id, 'name' => 'Main', 'city' => 'Riyadh']);
+        $branch = Branch::create(['name' => 'Main', 'location' => 'Riyadh', 'city' => 'Riyadh', 'asab_company_id' => $company->id]);
+        $this->createdBranchIds[] = $branch->id;
         $employee = Employee::create([
             'company_id' => $company->id,
             'branch_id' => $branch->id,
@@ -466,6 +476,9 @@ PHP;
         $res2 = $this->awaitWorkerResult('w2');
 
         $this->assertNotSame($res1['conn'], $res2['conn']);
+        $this->assertSame('OK', $res1['status']);
+        $this->assertSame('OK', $res2['status']);
+        $this->assertSame($res1['res']['id'], $res2['res']['id'], 'Both workers must resolve to the exact same idempotent settlement request ID');
         $this->assertSame(1, EmployeeSettlementRequest::where('company_id', $company->id)->where('idempotency_key', $sharedKey)->count(), 'Exactly one record in DB');
     }
 
@@ -489,7 +502,8 @@ PHP;
 
         $company = AsabCompany::create(['name' => 'Concurrency Co 3', 'subdomain' => 'concurr-'.Str::random(6)]);
         $this->createdCompanyIds[] = $company->id;
-        $branch = Branch::create(['company_id' => $company->id, 'name' => 'Main', 'city' => 'Riyadh']);
+        $branch = Branch::create(['name' => 'Main', 'location' => 'Riyadh', 'city' => 'Riyadh', 'asab_company_id' => $company->id]);
+        $this->createdBranchIds[] = $branch->id;
         $employee = Employee::create([
             'company_id' => $company->id,
             'branch_id' => $branch->id,
@@ -569,7 +583,8 @@ PHP;
 
         $company = AsabCompany::create(['name' => 'Allocation Co', 'subdomain' => 'alloc-'.Str::random(6)]);
         $this->createdCompanyIds[] = $company->id;
-        $branch = Branch::create(['company_id' => $company->id, 'name' => 'Branch 1', 'city' => 'Riyadh']);
+        $branch = Branch::create(['name' => 'Branch 1', 'location' => 'Riyadh', 'city' => 'Riyadh', 'asab_company_id' => $company->id]);
+        $this->createdBranchIds[] = $branch->id;
         $employeeA = Employee::create([
             'company_id' => $company->id,
             'branch_id' => $branch->id,
