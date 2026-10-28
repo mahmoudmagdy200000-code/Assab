@@ -151,4 +151,40 @@ class EmployeeAllocationReversalTest extends TestCase
         $this->assertSame(2, EmployeeMovement::count()); // still 1 debit, 1 credit
         $this->assertSame(0, $this->ledger->currentBalance($this->emp1->id));
     }
+
+    public function test_post_replaces_prior_allocation_cleanly_without_duplicate_financial_impact(): void
+    {
+        $op = $this->makeOp();
+        $category = 'waste_charge';
+
+        // 1. First allocation: charges emp1 3000 halalas
+        $this->service->post($op, $category, 'خصم هدر', [
+            ['employee' => $this->emp1, 'amountHalalas' => 3000],
+        ], $this->accountant);
+
+        $this->assertSame(-3000, $this->ledger->currentBalance($this->emp1->id));
+        $this->assertSame(0, $this->ledger->currentBalance($this->emp2->id));
+
+        // 2. Second allocation on the same operation & category: charges emp2 4000 halalas
+        // Must automatically reverse emp1's 3000 halalas via compensating credit and post 4000 for emp2
+        $this->service->post($op, $category, 'خصم هدر', [
+            ['employee' => $this->emp2, 'amountHalalas' => 4000],
+        ], $this->accountant);
+
+        // Verification:
+        // emp1 balance returned to 0 (3000 debit + 3000 compensating credit)
+        $this->assertSame(0, $this->ledger->currentBalance($this->emp1->id), 'Emp 1 balance cleared via compensating credit');
+        // emp2 balance is now -4000 (4000 debit)
+        $this->assertSame(-4000, $this->ledger->currentBalance($this->emp2->id), 'Emp 2 balance reflects active charge');
+
+        // Total movements: 2 debits (3000 + 4000) and 1 compensating credit (3000)
+        $this->assertSame(2, EmployeeMovement::where('movement_type', 'debit')->count());
+        $this->assertSame(1, EmployeeMovement::where('movement_type', 'credit')->count());
+        $this->assertSame(3, EmployeeMovement::count());
+
+        $credit = EmployeeMovement::where('movement_type', 'credit')->first();
+        $this->assertSame($this->emp1->id, $credit->employee_id);
+        $this->assertSame(3000, (int) $credit->amount);
+        $this->assertStringStartsWith('REV-', $credit->ref);
+    }
 }

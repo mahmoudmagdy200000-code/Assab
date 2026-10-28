@@ -210,23 +210,43 @@ class T09EmployeeLedgerTest extends TestCase
     {
         $this->move($this->empA, 'debit', 5000, 'advance');
 
-        $body = $this->acc()->postJson("/api/v1/company/me/employees/{$this->empA->id}/settle-balance", [])
+        $res = $this->acc()->postJson("/api/v1/company/me/employees/{$this->empA->id}/settle-balance", [
+            'reason' => 'تسوية رصيد معتمدة بالكامل',
+        ])->assertStatus(201)->json();
+        $this->assertSame('pending', $res['status']);
+        $settlementId = $res['id'];
+
+        $head = $this->user('head@ledger.test', 'head', 'all');
+        $body = $this->actingAs($head, 'sanctum')
+            ->postJson("/api/v1/company/me/employee-settlements/{$settlementId}/approve")
             ->assertOk()->json();
+
         $this->assertSame(0, $body['balanceHalalas']);
         $this->assertSame('credit', $body['movementType']);
         $this->assertSame('settlement', $body['category']);
         $this->assertSame(0, $this->ledgerBalance($this->empA));
 
         // Already zero → 409.
-        $this->acc()->postJson("/api/v1/company/me/employees/{$this->empA->id}/settle-balance", [])
-            ->assertStatus(409)->assertJsonPath('error.code', 'BALANCE_ALREADY_SETTLED');
+        $this->acc()->postJson("/api/v1/company/me/employees/{$this->empA->id}/settle-balance", [
+            'reason' => 'تسوية رصيد مكررة',
+        ])->assertStatus(409)->assertJsonPath('error.code', 'BALANCE_ALREADY_SETTLED');
     }
 
     public function test_settle_balance_partial(): void
     {
         $this->move($this->empA, 'debit', 5000, 'advance');
-        $body = $this->acc()->postJson("/api/v1/company/me/employees/{$this->empA->id}/settle-balance", ['amountHalalas' => 2000])
+        $res = $this->acc()->postJson("/api/v1/company/me/employees/{$this->empA->id}/settle-balance", [
+            'amountHalalas' => 2000,
+            'reason' => 'تسوية جزئية للرصيد',
+        ])->assertStatus(201)->json();
+        $this->assertSame('pending', $res['status']);
+        $settlementId = $res['id'];
+
+        $head = $this->user('head@ledger.test', 'head', 'all');
+        $body = $this->actingAs($head, 'sanctum')
+            ->postJson("/api/v1/company/me/employee-settlements/{$settlementId}/approve")
             ->assertOk()->json();
+
         $this->assertSame(-3000, $body['balanceHalalas']);
         $this->assertSame(-3000, $this->ledgerBalance($this->empA));
     }

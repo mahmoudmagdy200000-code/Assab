@@ -1,0 +1,371 @@
+name: ASSAB BE-09 MySQL 8.4 Concurrency & Sharded SQLite CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'fix/v35-be-09-wave2'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: assab-be09-ci-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  APP_ENV: testing
+  APP_DEBUG: 'false'
+  APP_KEY: base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+  APP_URL: http://127.0.0.1
+  CACHE_STORE: array
+  MAIL_MAILER: array
+  QUEUE_CONNECTION: sync
+  SESSION_DRIVER: array
+  COMPOSER_NO_INTERACTION: '1'
+  MYSQL_TEST_HOST: 127.0.0.1
+  MYSQL_TEST_PORT: '3306'
+  MYSQL_TEST_USER: assab_proof_user
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 1: Oracle MySQL 8.4 Concurrency Proof (4 Multi-Process Contention Cases)
+  # ────────────────────────────────────────────────────────────────────────────
+  be09-mysql-concurrency:
+    name: BE-09 Concurrency Proof (Oracle MySQL 8.4 / PHP 8.3)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare artifact directory
+        run: mkdir -p artifacts storage/logs
+
+      - name: Record SHA provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Target Branch: ${{ github.ref }}" | tee artifacts/provenance.txt
+          echo "Head Commit SHA: $(git rev-parse HEAD)" | tee -a artifacts/provenance.txt
+
+      - name: Fail-closed physical environment isolation guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_ACTIONS:-false}" != "true" || "${RUNNER_ENVIRONMENT:-}" != "github-hosted" ]]; then
+            echo "::error title=ENVIRONMENT BARRIER::Concurrency proof must strictly execute inside ephemeral GitHub-hosted runners!" >&2
+            exit 1
+          fi
+          if env | grep -Eiq 'coolify|staging|production|hostinger|railway|live|prod_db'; then
+            echo "::error title=SAFETY GUARD BLOCKED::Forbidden staging or production environment variable detected in runner!" >&2
+            exit 1
+          fi
+          echo "Physical environment isolation verified: GitHub-hosted ephemeral runner with zero external credentials." | tee artifacts/isolation.txt
+
+      - name: Setup PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, curl, dom, fileinfo, gd, intl, mbstring, pdo_mysql, pdo_sqlite, tokenizer, xml, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Install locked Composer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Generate Ephemeral Credentials & Enforce Least-Privilege Role
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Generate cryptographically strong random ephemeral passwords inside the runner
+          EPHEMERAL_ROOT_PW=$(openssl rand -hex 24)
+          EPHEMERAL_TEST_PW=$(openssl rand -hex 24)
+
+          # Mask both passwords from all runner outputs, logs, and traces
+          echo "::add-mask::${EPHEMERAL_ROOT_PW}"
+          echo "::add-mask::${EPHEMERAL_TEST_PW}"
+
+          # Set root password immediately on the ephemeral container
+          mysql -h 127.0.0.1 -P 3306 -u root \
+            -e "ALTER USER 'root'@'%' IDENTIFIED BY '${EPHEMERAL_ROOT_PW}';"
+
+          # Create dedicated least-privilege test user with ephemeral password
+          MYSQL_PWD="${EPHEMERAL_ROOT_PW}" mysql -h 127.0.0.1 -P 3306 -u root <<SQL
+          CREATE USER IF NOT EXISTS 'assab_proof_user'@'%' IDENTIFIED BY '${EPHEMERAL_TEST_PW}';
+          ALTER USER 'assab_proof_user'@'%' IDENTIFIED BY '${EPHEMERAL_TEST_PW}';
+          REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'assab_proof_user'@'%';
+          -- Least privilege: escaped literal underscores (\_) strictly restrict access to disposable proof schemas
+          GRANT CREATE, DROP, ALTER, SELECT, INSERT, UPDATE, DELETE, INDEX, REFERENCES, LOCK TABLES 
+            ON \`assab\_proof\_be09\_%\`.* TO 'assab_proof_user'@'%';
+          FLUSH PRIVILEGES;
+          SQL
+
+          # Export credentials to runner environment securely (masked automatically)
+          echo "MYSQL_ROOT_PASSWORD=${EPHEMERAL_ROOT_PW}" >> "$GITHUB_ENV"
+          echo "MYSQL_TEST_PASSWORD=${EPHEMERAL_TEST_PW}" >> "$GITHUB_ENV"
+          echo "Ephemeral credentials generated and masked. Least-privilege grant applied with escaped wildcard."
+
+      - name: Clear cached configuration
+        run: |
+          php artisan config:clear
+          php artisan cache:clear
+
+      - name: Execute BE-09 Oracle MySQL 8.4 Concurrency Proof Harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/ci/run_mysql_be09_concurrency_proof.sh
+
+          set +e
+          ./scripts/ci/run_mysql_be09_concurrency_proof.sh 2>&1 | tee artifacts/be09_concurrency_proof.log
+          PIPE_STATUS=("${PIPESTATUS[@]}")
+          set -e
+
+          HARNESS_EXIT="${PIPE_STATUS[0]}"
+          TEE_EXIT="${PIPE_STATUS[1]}"
+
+          echo "${HARNESS_EXIT}" > artifacts/be09_proof.exit
+
+          # Fail-closed: non-zero harness execution MUST fail the step immediately
+          if [[ "${HARNESS_EXIT}" -ne 0 ]]; then
+            echo "::error title=CONCURRENCY PROOF FAILED::Harness script failed with exit code ${HARNESS_EXIT}." >&2
+            exit "${HARNESS_EXIT}"
+          fi
+
+          if [[ "${TEE_EXIT}" -ne 0 ]]; then
+            echo "::error title=LOGGING FAILED::tee failed to write artifacts log with exit code ${TEE_EXIT}." >&2
+            exit "${TEE_EXIT}"
+          fi
+
+      - name: Enforce Concurrency JUnit Zero-Skip & Zero-Failure Verification
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXIT_FILE="artifacts/be09_proof.exit"
+          if [[ -f "${EXIT_FILE}" ]]; then
+            HARNESS_CODE=$(cat "${EXIT_FILE}")
+            if [[ "${HARNESS_CODE}" -ne 0 ]]; then
+              echo "::error title=CONCURRENCY EXECUTION FAILED::Harness exited with non-zero code ${HARNESS_CODE}." >&2
+              exit "${HARNESS_CODE}"
+            fi
+          else
+            echo "::error title=MISSING EXIT FILE::Exit file was not created by harness." >&2
+            exit 1
+          fi
+
+          JUNIT_XML="storage/logs/be09_concurrency_proof_junit.xml"
+          if [[ ! -f "${JUNIT_XML}" ]]; then
+            echo "::error title=MISSING JUNIT::JUnit XML report '${JUNIT_XML}' was not generated." >&2
+            exit 1
+          fi
+
+          cp -f "${JUNIT_XML}" artifacts/ 2>/dev/null || true
+
+          python3 - <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          try:
+              tree = ET.parse('storage/logs/be09_concurrency_proof_junit.xml')
+              root = tree.getroot()
+          except Exception as e:
+              print(f"::error title=INVALID JUNIT XML::Could not parse JUnit XML: {e}", file=sys.stderr)
+              sys.exit(1)
+
+          cases = root.findall('.//testcase')
+          failures = root.findall('.//failure')
+          errors = root.findall('.//error')
+          skipped = root.findall('.//skipped')
+
+          attr_failures = 0
+          attr_errors = 0
+          for ts in root.findall('.//testsuite'):
+              attr_failures += int(ts.attrib.get('failures', 0))
+              attr_errors += int(ts.attrib.get('errors', 0))
+          if root.tag == 'testsuite':
+              attr_failures += int(root.attrib.get('failures', 0))
+              attr_errors += int(root.attrib.get('errors', 0))
+
+          total_failures = max(len(failures), attr_failures)
+          total_errors = max(len(errors), attr_errors)
+
+          print(f"Concurrency JUnit Summary: {len(cases)} tests, {total_failures} failures, {total_errors} errors, {len(skipped)} skipped")
+
+          if len(cases) != 4:
+              print(f"::error title=INCORRECT TEST COUNT::Expected exactly 4 tests, found {len(cases)}.", file=sys.stderr)
+              sys.exit(1)
+
+          if len(skipped) > 0:
+              print(f"::error title=ZERO SKIP VIOLATION::Found {len(skipped)} skipped test(s). Concurrency proof strictly prohibits skipped tests.", file=sys.stderr)
+              sys.exit(1)
+
+          if total_failures > 0 or total_errors > 0:
+              print(f"::error title=TEST FAILURES DETECTED::Failures: {total_failures}, Errors: {total_errors}.", file=sys.stderr)
+              sys.exit(1)
+
+          print("SUCCESS: Concurrency proof strictly verified (4 tests passed, 0 skipped, 0 failures, 0 errors).")
+          PY
+
+      - name: Upload Proof Artifacts (Always preserved on Success or Failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: be09-mysql84-concurrency-evidence
+          path: artifacts/
+          retention-days: 14
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 2: Sharded Full SQLite Test Suite (Adhering to assab-php-test-safety.md)
+  # ────────────────────────────────────────────────────────────────────────────
+  be09-sqlite-sharded-suite:
+    name: SQLite Suite - ${{ matrix.suite }} (PHP 8.3 / Sharded)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [Unit, NFR, Feature]
+    env:
+      DB_CONNECTION: sqlite
+      DB_DATABASE: ':memory:'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare artifact directory
+        run: mkdir -p artifacts
+
+      - name: Setup PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, curl, dom, fileinfo, gd, intl, mbstring, pdo_sqlite, tokenizer, xml, zip
+          coverage: none
+          tools: composer:v2
+
+      - name: Install locked Composer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Run Sharded Suite (${{ matrix.suite }})
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          if [[ "${{ matrix.suite }}" == "Feature" ]]; then
+            # Adheres strictly to assab-php-test-safety.md: max 2 workers, recycle workers regularly (-m 10), 1G memory
+            php -d memory_limit=1G vendor/bin/paratest -p2 -m 10 --passthru-php="-dmemory_limit=1G" \
+              --testsuite=Feature --log-junit="artifacts/sqlite-feature.junit.xml" 2>&1 | tee artifacts/sqlite-feature.log
+            PIPE_STATUS=("${PIPESTATUS[@]}")
+          else
+            php -d memory_limit=1G vendor/bin/phpunit --testsuite="${{ matrix.suite }}" \
+              --log-junit="artifacts/sqlite-${{ matrix.suite }}.junit.xml" 2>&1 | tee "artifacts/sqlite-${{ matrix.suite }}.log"
+            PIPE_STATUS=("${PIPESTATUS[@]}")
+          fi
+          set -e
+
+          SUITE_EXIT="${PIPE_STATUS[0]}"
+          TEE_EXIT="${PIPE_STATUS[1]}"
+
+          echo "${SUITE_EXIT}" > "artifacts/sqlite-${{ matrix.suite }}.exit"
+
+          # Fail-closed: non-zero test execution MUST fail the step immediately
+          if [[ "${SUITE_EXIT}" -ne 0 ]]; then
+            echo "::error title=SUITE FAILED::Suite '${{ matrix.suite }}' failed with exit code ${SUITE_EXIT}." >&2
+            exit "${SUITE_EXIT}"
+          fi
+
+          if [[ "${TEE_EXIT}" -ne 0 ]]; then
+            echo "::error title=LOGGING FAILED::tee failed to write artifacts log with exit code ${TEE_EXIT}." >&2
+            exit "${TEE_EXIT}"
+          fi
+
+      - name: Verify SQLite Suite JUnit Report and Zero Failures
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXIT_FILE="artifacts/sqlite-${{ matrix.suite }}.exit"
+          if [[ -f "${EXIT_FILE}" ]]; then
+            EXIT_CODE=$(cat "${EXIT_FILE}")
+            if [[ "${EXIT_CODE}" -ne 0 ]]; then
+              echo "::error title=SUITE EXECUTION FAILED::Suite '${{ matrix.suite }}' exited with non-zero code ${EXIT_CODE}." >&2
+              exit "${EXIT_CODE}"
+            fi
+          else
+            echo "::error title=MISSING EXIT FILE::Exit file was not created for suite '${{ matrix.suite }}'." >&2
+            exit 1
+          fi
+
+          JUNIT_XML="artifacts/sqlite-${{ matrix.suite }}.junit.xml"
+          if [[ ! -f "${JUNIT_XML}" ]]; then
+            echo "::error title=MISSING JUNIT::JUnit report was not generated for suite '${{ matrix.suite }}'." >&2
+            exit 1
+          fi
+
+          python3 - <<PY
+          import sys
+          import xml.etree.ElementTree as ET
+
+          try:
+              tree = ET.parse("${JUNIT_XML}")
+              root = tree.getroot()
+          except Exception as e:
+              print(f"::error title=INVALID JUNIT::Could not parse JUnit XML for '${{ matrix.suite }}': {e}", file=sys.stderr)
+              sys.exit(1)
+
+          cases = root.findall('.//testcase')
+          failures = root.findall('.//failure')
+          errors = root.findall('.//error')
+
+          attr_failures = 0
+          attr_errors = 0
+          for ts in root.findall('.//testsuite'):
+              attr_failures += int(ts.attrib.get('failures', 0))
+              attr_errors += int(ts.attrib.get('errors', 0))
+          if root.tag == 'testsuite':
+              attr_failures += int(root.attrib.get('failures', 0))
+              attr_errors += int(root.attrib.get('errors', 0))
+
+          total_failures = max(len(failures), attr_failures)
+          total_errors = max(len(errors), attr_errors)
+
+          print(f"Suite '${{ matrix.suite }}' Summary: {len(cases)} tests, {total_failures} failures, {total_errors} errors")
+
+          if len(cases) == 0:
+              print(f"::error title=EMPTY SUITE::Suite '${{ matrix.suite }}' contained 0 tests.", file=sys.stderr)
+              sys.exit(1)
+
+          if total_failures > 0 or total_errors > 0:
+              print(f"::error title=TEST FAILURES DETECTED::Suite '${{ matrix.suite }}' has {total_failures} failures and {total_errors} errors.", file=sys.stderr)
+              sys.exit(1)
+
+          print(f"SUCCESS: Suite '${{ matrix.suite }}' PASSED with 0 failures and 0 errors.")
+          PY
+
+      - name: Upload Shard Artifacts (Always preserved on Success or Failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sqlite-shard-${{ matrix.suite }}
+          path: artifacts/
+          retention-days: 14

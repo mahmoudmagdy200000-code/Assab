@@ -4,7 +4,9 @@ namespace Modules\Admin\Http\Controllers\Accountant;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Services\BrandBranchResolver;
 use Modules\Admin\Services\EmployeeLedgerService;
@@ -115,15 +117,92 @@ class EmployeeController extends AsabController
         });
     }
 
-    /** ACC-7.3 «تسوية الرصيد» — clear the standing balance (or a partial amount). */
-    public function settleBalance(Request $request, string $id): JsonResponse
+    /**
+     * ACC-7.3 / STMT-02 / BE-09 «تسوية الرصيد» — creates a pending settlement request.
+     * Standing balance is NOT credited until Head Accountant approval.
+     */
+    public function settleBalance(Request $request, ?string $id = null): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $employee = $this->scopeToAssignedBranches(Employee::query())->findOrFail($id);
-            $data = $request->validate(['amountHalalas' => 'sometimes|integer|min:1']);
+            $empId = $id ?? $request->input('employeeId');
+            if (! $empId) {
+                throw new AsabException('VALIDATION_ERROR', 'Employee ID is required', 'معرف الموظف مطلوب', 422);
+            }
 
-            return $this->ok($this->ledger->settleBalance($employee, $data['amountHalalas'] ?? null, $request->user()));
+            $employee = $this->scopeToAssignedBranches(Employee::query())->findOrFail($empId);
+
+            $reason = $request->input('reason') ?? $request->input('justificationReason');
+            if (! is_string($reason) || trim($reason) === '') {
+                throw new AsabException('VALIDATION_ERROR', 'A valid non-empty reason is required', 'سبب التسوية إلزامي', 422, [
+                    'reason' => ['Reason is required and cannot be empty'],
+                ]);
+            }
+
+            $data = $request->validate([
+                'amountHalalas' => 'sometimes|integer|min:1',
+            ]);
+
+            $rawKey = $request->header('Idempotency-Key') ?? $request->input('idempotencyKey');
+            $idempotencyKey = (is_string($rawKey) && trim($rawKey) !== '') ? trim($rawKey) : null;
+
+            if ($idempotencyKey !== null && strlen($idempotencyKey) > 64) {
+                throw new AsabException('VALIDATION_ERROR', 'Idempotency key must not exceed 64 characters', 'مفتاح التكرار يجب ألا يتجاوز 64 حرفاً', 422, [
+                    'idempotencyKey' => ['Maximum length is 64 characters'],
+                ]);
+            }
+
+            $settlement = $this->ledger->settleBalance(
+                $employee,
+                $data['amountHalalas'] ?? null,
+                $request->user(),
+                $reason,
+                $idempotencyKey
+            );
+
+            return $this->created($settlement);
         });
+    }
+
+    /**
+     * BE-09 / STMT-02 Head Accountant approval: posts the opposing ledger movement and marks request approved.
+     */
+    public function approveSettlement(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $this->assertCanReviewSettlement($request->user());
+
+            return $this->ok($this->ledger->approveSettlement($id, $request->user()));
+        });
+    }
+
+    /**
+     * BE-09 / STMT-02 Head Accountant rejection: marks request rejected without posting movement.
+     */
+    public function rejectSettlement(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $this->assertCanReviewSettlement($request->user());
+
+            $data = $request->validate([
+                'rejectionReason' => 'nullable|string|max:500',
+                'reason' => 'nullable|string|max:500',
+            ]);
+
+            $reason = $data['rejectionReason'] ?? $data['reason'] ?? null;
+
+            return $this->ok($this->ledger->rejectSettlement($id, $reason, $request->user()));
+        });
+    }
+
+    private function assertCanReviewSettlement(AsabUser $user): void
+    {
+        $allowed = ['head_accountant', 'head'];
+        $hasRole = $user->hasAnyAsabRole($allowed)
+            || $user->roleAssignments()->whereIn('role_key', $allowed)->exists();
+
+        if (! $hasRole) {
+            throw new AsabException('FORBIDDEN', 'Only head accountant can review settlements', 'متاح فقط لرئيس الحسابات', 403);
+        }
     }
 
     /** @param  \Illuminate\Support\Collection<int,?string>  $ids */

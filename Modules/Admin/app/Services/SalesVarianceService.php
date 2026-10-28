@@ -71,11 +71,30 @@ class SalesVarianceService
         $varianceTotal = $variance !== 0 ? $target : $sum;
 
         $rows = DB::transaction(function () use ($op, $allocations, $notes, $actor) {
+            // 1. Establish Operation row lock first to serialize concurrent allocation writes
+            if ($op->exists) {
+                Operation::whereKey($op->id)->lockForUpdate()->first();
+            }
+
+            // 2. Resolve all employees and lock them in deterministic ascending order to prevent deadlocks and serialize against settlement approvals
+            $resolvedEmps = [];
+            foreach ($allocations as $a) {
+                $resolvedEmps[] = [
+                    'employee' => $this->resolveEmployee($op, $a),
+                    'amountHalalas' => (int) $a['amountHalalas'],
+                ];
+            }
+
+            $empIds = collect($resolvedEmps)->pluck('employee.id')->filter()->unique()->sort()->values();
+            if ($empIds->isNotEmpty()) {
+                Employee::whereIn('id', $empIds)->orderBy('id')->lockForUpdate()->get();
+            }
+
             $created = [];
             $stored = [];
-            foreach ($allocations as $a) {
-                $emp = $this->resolveEmployee($op, $a);
-                $amount = (int) $a['amountHalalas'];
+            foreach ($resolvedEmps as $item) {
+                $emp = $item['employee'];
+                $amount = $item['amountHalalas'];
                 $movement = EmployeeMovement::create([
                     'employee_id' => $emp->id,
                     'movement_date' => now(),
