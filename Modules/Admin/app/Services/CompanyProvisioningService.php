@@ -10,6 +10,7 @@ use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\BillingInvoice;
 use Modules\Admin\Models\BillingInvoiceLine;
 use Modules\Admin\Models\CompanySubscription;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Plan;
 use Modules\Admin\Notifications\CompanyAdminWelcomeNotification;
 
@@ -49,6 +50,11 @@ class CompanyProvisioningService
             'scope' => 'all',
         ]);
 
+        CompanyUser::firstOrCreate(
+            ['company_id' => $company->id, 'user_id' => $user->id],
+            ['role_key' => 'company-admin', 'status' => 'active']
+        );
+
         // Best-effort delivery: a mail-transport outage must not fail company creation.
         try {
             $user->notify(new CompanyAdminWelcomeNotification($company->name, $oneTimePassword));
@@ -60,69 +66,56 @@ class CompanyProvisioningService
     }
 
     /**
-     * Provision an annual subscription + its first invoice and emit invoice.created.
-     * Best-effort: if the plan catalog isn't present the company is still created.
+     * Provision an authoritative subscription for the company (SUB-01 / BE-11).
+     *
+     * Creates the active subscription record without auto-generating any BillingInvoice.
+     * Fails loudly inside the surrounding DB::transaction if the plan catalog entry is missing.
+     */
+    public function provisionSubscription(AsabCompany $company, string $planLabel, string $billingCycle = 'monthly'): CompanySubscription
+    {
+        $plan = Plan::where('code', strtolower($planLabel))->first();
+        if (! $plan) {
+            throw new \InvalidArgumentException("No catalog plan matching '{$planLabel}'");
+        }
+
+        $isAnnual = strtolower($billingCycle) === 'annual';
+        $sub = CompanySubscription::firstOrCreate(
+            ['company_id' => $company->id],
+            [
+                'plan_id' => $plan->id,
+                'status' => 'active',
+                'billing_cycle' => $isAnnual ? 'annual' : 'monthly',
+                'current_period_start' => now(),
+                'current_period_end' => $isAnnual ? now()->addYear() : now()->addMonth(),
+                'start_date' => now(),
+                'auto_renew' => true,
+            ],
+        );
+
+        // Also sync AsabSubscription so both stores remain authoritative and consistent
+        \Modules\Admin\Models\AsabSubscription::firstOrCreate(
+            ['company_id' => $company->id],
+            [
+                'plan' => $plan->name_ar ?? $planLabel,
+                'status' => 'active',
+                'expires_at' => $isAnnual ? now()->addYear() : now()->addMonth(),
+                'days_left' => $isAnnual ? 365 : 30,
+                'monthly_price' => $plan->price_monthly ?? 0,
+                'reminder_enabled' => true,
+                'modules' => $company->modules ?? [],
+            ],
+        );
+
+        return $sub;
+    }
+
+    /**
+     * Legacy backward compatibility method: delegates to provisionSubscription with zero invoices.
      */
     public function createAnnualInvoice(AsabCompany $company, string $planLabel): ?BillingInvoice
     {
-        try {
-            $plan = Plan::where('code', strtolower($planLabel))->first();
-            if (! $plan) {
-                Log::warning("Annual invoice skipped — no plan matching '{$planLabel}'");
+        $this->provisionSubscription($company, $planLabel, 'annual');
 
-                return null;
-            }
-
-            $sub = CompanySubscription::firstOrCreate(
-                ['company_id' => $company->id],
-                [
-                    'plan_id' => $plan->id,
-                    'status' => 'active',
-                    'billing_cycle' => 'annual',
-                    'current_period_start' => now(),
-                    'current_period_end' => now()->addYear(),
-                    'start_date' => now(),
-                    'auto_renew' => true,
-                ],
-            );
-
-            $subtotal = (int) ($plan->price_annual ?? 0);
-            $vat = (int) round($subtotal * 0.15);
-            $invoice = BillingInvoice::create([
-                'company_id' => $company->id,
-                'subscription_id' => $sub->id,
-                'public_id' => $this->subscriptions->nextInvoiceId(),
-                'issue_date' => now(),
-                'due_date' => now()->addDays(14),
-                'period_start' => now(),
-                'period_end' => now()->addYear(),
-                'subtotal' => $subtotal,
-                'vat_rate' => 15,
-                'vat_amount' => $vat,
-                'discount' => 0,
-                'total' => $subtotal + $vat,
-                'amount_paid' => 0,
-                'amount_due' => $subtotal + $vat,
-                'status' => 'open',
-                'currency' => 'SAR',
-            ]);
-            BillingInvoiceLine::create([
-                'invoice_id' => $invoice->id,
-                'description' => 'اشتراك سنوي — '.($plan->name_ar ?? $planLabel),
-                'quantity' => 1,
-                'unit_price' => $subtotal,
-                'amount' => $subtotal,
-                'line_type' => 'subscription',
-                'sort_order' => 1,
-            ]);
-
-            $this->rt->invoiceCreated($invoice);
-
-            return $invoice;
-        } catch (\Throwable $e) {
-            Log::warning('Annual invoice provisioning failed: '.$e->getMessage());
-
-            return null;
-        }
+        return null;
     }
 }

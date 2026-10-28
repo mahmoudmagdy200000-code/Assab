@@ -34,6 +34,30 @@ class SubscriptionService
     {
         $sub = CompanySubscription::withoutGlobalScopes()->with('plan')->where('company_id', $companyId)->first();
         if (! $sub) {
+            $asabSub = \Modules\Admin\Models\AsabSubscription::withoutGlobalScopes()->where('company_id', $companyId)->first();
+            if ($asabSub) {
+                $plan = Plan::where('code', strtolower($asabSub->plan))
+                    ->orWhere('name_ar', $asabSub->plan)
+                    ->orWhere('name_en', $asabSub->plan)
+                    ->first() ?? Plan::where('status', 'active')->first();
+
+                if ($plan) {
+                    $sub = CompanySubscription::create([
+                        'company_id' => $companyId,
+                        'plan_id' => $plan->id,
+                        'status' => $asabSub->status ?? 'active',
+                        'billing_cycle' => 'monthly',
+                        'current_period_start' => now(),
+                        'current_period_end' => $asabSub->expires_at ?? now()->addMonth(),
+                        'start_date' => now(),
+                        'auto_renew' => (bool) $asabSub->auto_renew,
+                    ]);
+                    $sub->load('plan');
+                }
+            }
+        }
+
+        if (! $sub) {
             throw new AsabException('NOT_FOUND', 'No subscription for company', 'لا يوجد اشتراك للشركة', 404);
         }
 
@@ -148,10 +172,10 @@ class SubscriptionService
             $change = $this->logChange($sub, $type, $fromPlanId, $target->id, $actor, $proration, $fromCycle, $cycle);
 
             $invoice = null;
-            if ($immediate && $proration > 0) {
-                $invoice = $this->prorationInvoice($sub, $target, $proration);
-                $change->update(['invoice_id' => $invoice->id]);
-            }
+            // SUB-01 / BE-11: Discontinue auto-generated proration BillingInvoice («من غير فوترة حاليًا»).
+            \Modules\Admin\Models\AsabSubscription::withoutGlobalScopes()->where('company_id', $sub->company_id)->update([
+                'plan' => $target->name_ar ?? $target->code,
+            ]);
 
             $msg = $type === 'downgrade' ? 'subscription.downgraded' : 'subscription.upgraded';
             $this->notifyAdmins($sub->company_id, $msg, 'تم تحديث خطة الاشتراك', 'الخطة الجديدة: '.$target->name_ar);
