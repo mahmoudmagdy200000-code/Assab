@@ -142,7 +142,7 @@ class Wave3FinancialConcurrencyTest extends TestCase
             }
 
             if (! empty($this->createdOperationIds)) {
-                DB::table('asab_employee_movements')->whereIn('operation_id', $this->createdOperationIds)->delete();
+                DB::table('asab_employee_movements')->whereIn('ref_operation_id', $this->createdOperationIds)->delete();
                 DB::table('asab_operations')->whereIn('id', $this->createdOperationIds)->delete();
             }
 
@@ -497,14 +497,14 @@ PHP;
         $this->createdEmployeeIds[] = $employee->id;
 
         $movement = EmployeeMovement::create([
-            'company_id' => $company->id,
             'employee_id' => $employee->id,
             'movement_type' => 'debit',
-            'amount_halalas' => 5000,
+            'amount' => 5000,
             'category' => 'shortage',
             'description' => 'عجز وردية متزامن',
             'lineage_key' => 'shift_shortage:'.$shift->id,
-            'created_by_user_id' => $user->id,
+            'created_by_id' => $user->id,
+            'movement_date' => now(),
         ]);
 
         $aggregate = ShiftReportAggregate::create([
@@ -642,7 +642,7 @@ PHP;
 
         // Exactly once: only 1 debit movement recorded for this operation on employee
         $debits = EmployeeMovement::where('employee_id', $employee->id)
-            ->where('operation_id', $op->id)
+            ->where('ref_operation_id', $op->id)
             ->where('movement_type', 'debit')
             ->count();
 
