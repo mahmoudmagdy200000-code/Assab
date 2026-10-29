@@ -173,6 +173,40 @@ class CustodyFundingRequestLifecycleTest extends TestCase
         return CustodyTransaction::where('related_custody_request_id', $id)->count();
     }
 
+    public function test_accountant_funding_list_tracks_approved_sent_and_received_without_posting_early(): void
+    {
+        $id = $this->raise(300);
+        $actor = $this->accountant();
+        $this->actingAs($actor, 'sanctum')->getJson('/api/custody/requests')
+            ->assertOk()->assertJsonCount(0, 'data.requests');
+
+        $this->approve($id)->assertOk();
+        $this->actingAs($actor, 'sanctum')->getJson('/api/custody/requests')
+            ->assertOk()->assertJsonCount(1, 'data.requests')
+            ->assertJsonPath('data.requests.0.id', $id)
+            ->assertJsonPath('data.requests.0.canExecute', true)
+            ->assertJsonPath('data.requests.0.executedAt', null);
+        $this->actingAs($this->manager, 'sanctum')->getJson('/api/custody/requests/'.$id)
+            ->assertOk()->assertJsonPath('data.canConfirmReceipt', false);
+        $this->assertSame(0, $this->postedFor($id));
+
+        $this->execute($id)->assertOk();
+        $this->actingAs($actor, 'sanctum')->getJson('/api/custody/requests')
+            ->assertOk()->assertJsonPath('data.requests.0.canExecute', false)
+            ->assertJsonPath('data.requests.0.status', 'approved');
+        $this->actingAs($this->manager, 'sanctum')->getJson('/api/custody/requests/'.$id)
+            ->assertOk()->assertJsonPath('data.canConfirmReceipt', true);
+        $this->assertSame(0, $this->postedFor($id));
+
+        $this->receive($id)->assertOk();
+        $this->actingAs($actor, 'sanctum')->getJson('/api/custody/requests')
+            ->assertOk()->assertJsonPath('data.requests.0.status', 'completed')
+            ->assertJsonPath('data.requests.0.canExecute', false);
+        $this->actingAs($this->manager, 'sanctum')->getJson('/api/custody/requests/'.$id)
+            ->assertOk()->assertJsonPath('data.canConfirmReceipt', false);
+        $this->assertSame(1, $this->postedFor($id));
+    }
+
     // ── FUND-06 / AC-59 ─────────────────────────────────────────────────────
 
     public function test_ac59_approval_alone_never_raises_the_custody_balance(): void
@@ -259,6 +293,8 @@ class CustodyFundingRequestLifecycleTest extends TestCase
             'branch_ids' => [$this->branch->id],
         ]);
         $this->executeAs($id, $companyAdmin)->assertNotFound();
+        $this->actingAs($companyAdmin, 'sanctum')->getJson('/api/custody/requests')
+            ->assertOk()->assertJsonCount(0, 'data.requests');
 
         $otherBrand = AsabBrand::create([
             'company_id' => $this->branch->asab_company_id,
@@ -282,6 +318,8 @@ class CustodyFundingRequestLifecycleTest extends TestCase
             'brand_ids' => [$otherBrand->id], 'branch_ids' => [$otherBrandBranch->id],
         ]);
         $this->executeAs($id, $otherBrandAccountant)->assertNotFound();
+        $this->actingAs($otherBrandAccountant, 'sanctum')->getJson('/api/custody/requests')
+            ->assertOk()->assertJsonCount(0, 'data.requests');
 
         $foreignCompany = AsabCompany::create(['name' => 'Foreign Co', 'plan' => 'Professional', 'status' => 'active']);
         $foreignBrand = AsabBrand::create(['company_id' => $foreignCompany->id, 'name' => 'Foreign Brand', 'abbr' => 'FB', 'status' => 'active']);
@@ -303,6 +341,8 @@ class CustodyFundingRequestLifecycleTest extends TestCase
             'branch_ids' => [$foreignBranch->id],
         ]);
         $this->executeAs($id, $foreignAccountant)->assertNotFound();
+        $this->actingAs($foreignAccountant, 'sanctum')->getJson('/api/custody/requests')
+            ->assertOk()->assertJsonCount(0, 'data.requests');
 
         $this->assertNull(CustodyRequest::findOrFail($id)->executed_at);
         $this->assertSame(0, $this->postedFor($id));

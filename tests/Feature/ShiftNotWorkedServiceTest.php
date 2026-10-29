@@ -28,6 +28,7 @@ class ShiftNotWorkedServiceTest extends TestCase
             throw new \LogicException('PKG-7 functional tests require explicit disposable SQLite :memory:.');
         }
         parent::setUp();
+        $this->travelTo(today()->setTime(15, 0));
     }
 
     protected function fixture(): array
@@ -35,7 +36,7 @@ class ShiftNotWorkedServiceTest extends TestCase
         $branch = Branch::factory()->create();
         $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
         $cashier = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);
-        $slot = Shift::factory()->create(['branch_id' => $branch->id]);
+        $slot = Shift::factory()->create(['branch_id' => $branch->id, 'start_time' => '08:00:00', 'end_time' => '14:00:00']);
         $shift = CashierShift::factory()->create(['cashier_id' => $cashier->id, 'shift_id' => $slot->id, 'shift_date' => today()]);
 
         return [$branch, $manager, $cashier, $shift];

@@ -17,8 +17,8 @@ use Tests\TestCase;
 
 /**
  * P-01 release guard. The did-not-work route is a request-time, server-side, default-OFF feature
- * (config/features.php: shift_did_not_work). No cutoff rule is encoded here: the flag only decides
- * whether the PKG-7 behaviour is exposed at all.
+ * (config/features.php: shift_did_not_work). The feature gate and scheduled-period eligibility are
+ * independent: enabling the feature does not allow future or still-open assignments.
  */
 class ShiftNotWorkedReleaseGuardTest extends TestCase
 {
@@ -34,12 +34,12 @@ class ShiftNotWorkedReleaseGuardTest extends TestCase
             throw new \LogicException('P-01 guard tests require disposable SQLite :memory:.');
         }
         parent::setUp();
+        $this->travelTo(today()->setTime(15, 0));
         $branch = Branch::factory()->create();
         $this->manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
         $cashier = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $this->manager->id]);
-        $slot = Shift::factory()->create(['branch_id' => $branch->id]);
-        // Deliberately future-dated: the exact case Mohamed has not ruled on.
-        $this->shift = CashierShift::factory()->create(['cashier_id' => $cashier->id, 'shift_id' => $slot->id, 'shift_date' => today()->addDays(30)]);
+        $slot = Shift::factory()->create(['branch_id' => $branch->id, 'start_time' => '08:00:00', 'end_time' => '14:00:00']);
+        $this->shift = CashierShift::factory()->create(['cashier_id' => $cashier->id, 'shift_id' => $slot->id, 'shift_date' => today()]);
     }
 
     private function url(): string

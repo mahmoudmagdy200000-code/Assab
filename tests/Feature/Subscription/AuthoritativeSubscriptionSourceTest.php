@@ -11,6 +11,7 @@ use Modules\Admin\Models\BillingInvoice;
 use Modules\Admin\Models\CompanySubscription;
 use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Plan;
+use Modules\Admin\Models\SubscriptionChange;
 use Tests\TestCase;
 
 /**
@@ -264,6 +265,79 @@ class AuthoritativeSubscriptionSourceTest extends TestCase
 
         $res->assertStatus(404);
         $this->assertSame(0, CompanySubscription::where('company_id', $company->id)->count());
+    }
+
+    public function test_get_projects_valid_legacy_subscription_without_persisting_it(): void
+    {
+        $company = AsabCompany::create([
+            'name' => 'Legacy Read Projection Co',
+            'plan' => 'Basic',
+            'status' => 'active',
+        ]);
+        $legacy = AsabSubscription::create([
+            'company_id' => $company->id,
+            'plan' => 'Basic',
+            'status' => 'active',
+            'expires_at' => now()->addMonths(3),
+            'days_left' => 90,
+            'monthly_price' => $this->basicPlan->price_monthly,
+            'reminder_enabled' => true,
+        ]);
+        $adminUser = AsabUser::create([
+            'company_id' => $company->id,
+            'name' => 'Legacy Read Admin',
+            'email' => 'admin@legacy-read-projection.test',
+            'password' => 'secret-password',
+            'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $adminUser->id, 'role_key' => 'company-admin', 'scope' => 'all']);
+        CompanyUser::create(['company_id' => $company->id, 'user_id' => $adminUser->id, 'role_key' => 'company-admin', 'status' => 'active']);
+
+        $res = $this->actingAs($adminUser, 'sanctum')->getJson('/api/v1/company/me/subscription');
+
+        $res->assertOk()
+            ->assertJsonPath('plan.code', 'basic')
+            ->assertJsonPath('subscription.companyId', $company->id);
+        $this->assertSame($legacy->id, $res->json('subscription.id'));
+        $this->assertSame(0, CompanySubscription::where('company_id', $company->id)->count());
+        $this->assertSame('Basic', $legacy->fresh()->plan);
+    }
+
+    public function test_inactive_target_plan_fails_closed_without_changing_subscription(): void
+    {
+        $company = AsabCompany::create(['name' => 'Inactive Plan Co', 'plan' => 'Basic', 'status' => 'active']);
+        $sub = CompanySubscription::create([
+            'company_id' => $company->id,
+            'plan_id' => $this->basicPlan->id,
+            'status' => 'active',
+            'billing_cycle' => 'monthly',
+            'current_period_start' => now()->subDays(4),
+            'current_period_end' => now()->addDays(26),
+            'start_date' => now()->subDays(4),
+            'auto_renew' => true,
+        ]);
+        $this->proPlan->update(['status' => 'inactive']);
+        $adminUser = AsabUser::create([
+            'company_id' => $company->id,
+            'name' => 'Inactive Plan Admin',
+            'email' => 'admin@inactive-plan.test',
+            'password' => 'secret-password',
+            'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $adminUser->id, 'role_key' => 'company-admin', 'scope' => 'all']);
+        CompanyUser::create(['company_id' => $company->id, 'user_id' => $adminUser->id, 'role_key' => 'company-admin', 'status' => 'active']);
+
+        $res = $this->actingAs($adminUser, 'sanctum')->postJson('/api/v1/company/me/subscription/upgrade', [
+            'targetPlanCode' => 'professional',
+            'billingCycle' => 'annual',
+            'applyImmediately' => true,
+        ]);
+
+        $res->assertStatus(404);
+        $this->assertSame($this->basicPlan->id, $sub->fresh()->plan_id);
+        $this->assertSame('monthly', $sub->fresh()->billing_cycle);
+        $this->assertSame(0, BillingInvoice::where('company_id', $company->id)->count());
+        $this->assertSame(0, SubscriptionChange::where('subscription_id', $sub->id)->count());
     }
 
     public function test_deferred_subscription_change_preserves_legacy_plan_until_effective(): void

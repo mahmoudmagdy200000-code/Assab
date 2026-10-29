@@ -33,35 +33,74 @@ class SubscriptionService
     public function current(string $companyId): CompanySubscription
     {
         $sub = CompanySubscription::withoutGlobalScopes()->with('plan')->where('company_id', $companyId)->first();
-        if (! $sub) {
-            $asabSub = \Modules\Admin\Models\AsabSubscription::withoutGlobalScopes()->where('company_id', $companyId)->first();
-            if ($asabSub && ! empty($asabSub->plan)) {
-                $plan = Plan::where('code', strtolower($asabSub->plan))
-                    ->orWhere('name_ar', $asabSub->plan)
-                    ->orWhere('name_en', $asabSub->plan)
-                    ->first();
-
-                if ($plan) {
-                    $sub = CompanySubscription::create([
-                        'company_id' => $companyId,
-                        'plan_id' => $plan->id,
-                        'status' => $asabSub->status ?? 'active',
-                        'billing_cycle' => 'monthly',
-                        'current_period_start' => now(),
-                        'current_period_end' => $asabSub->expires_at ?? now()->addMonth(),
-                        'start_date' => now(),
-                        'auto_renew' => (bool) $asabSub->auto_renew,
-                    ]);
-                    $sub->load('plan');
-                }
+        if ($sub !== null) {
+            if ($sub->plan === null) {
+                throw new AsabException(
+                    'SUBSCRIPTION_PLAN_INVALID',
+                    'The company subscription references a missing plan.',
+                    'الخطة المرتبطة بالاشتراك غير صالحة',
+                    409,
+                );
             }
+
+            return $sub;
         }
 
-        if (! $sub) {
+        // Read-only compatibility projection for legacy company rows. Do not
+        // promote this data during GET; mutations reject this unsaved model.
+        $legacyRows = \Modules\Admin\Models\AsabSubscription::withoutGlobalScopes()
+            ->where('company_id', $companyId)
+            ->whereNull('brand_id')
+            ->whereNull('restaurant_id')
+            ->limit(2)
+            ->get();
+
+        if ($legacyRows->count() === 0) {
             throw new AsabException('NOT_FOUND', 'No subscription for company', 'لا يوجد اشتراك للشركة', 404);
         }
+        if ($legacyRows->count() !== 1) {
+            throw new AsabException(
+                'SUBSCRIPTION_SOURCE_AMBIGUOUS',
+                'Multiple legacy company subscriptions require reconciliation.',
+                'توجد سجلات اشتراك متعارضة للشركة وتحتاج إلى مطابقة',
+                409,
+            );
+        }
 
-        return $sub;
+        $legacy = $legacyRows->first();
+        $planLabel = trim((string) $legacy->plan);
+        if ($planLabel === '') {
+            throw new AsabException('NOT_FOUND', 'Legacy subscription plan is unresolved', 'خطة الاشتراك القديمة غير معروفة', 404);
+        }
+
+        $plans = Plan::query()->where(function ($query) use ($planLabel) {
+            $query->whereRaw('LOWER(code) = ?', [mb_strtolower($planLabel)])
+                ->orWhere('name_ar', $planLabel)
+                ->orWhere('name_en', $planLabel);
+        })->limit(2)->get();
+
+        if ($plans->count() !== 1) {
+            throw new AsabException('NOT_FOUND', 'Legacy subscription plan is unresolved', 'خطة الاشتراك القديمة غير معروفة', 404);
+        }
+
+        $plan = $plans->first();
+        $projection = new CompanySubscription([
+            'company_id' => $companyId,
+            'plan_id' => $plan->id,
+            'status' => $legacy->status ?? 'active',
+            'billing_cycle' => 'monthly',
+            'current_period_start' => $legacy->created_at ?? now(),
+            'current_period_end' => $legacy->expires_at ?? now()->addMonth(),
+            'start_date' => $legacy->created_at ?? now(),
+            'days_remaining' => $legacy->days_left,
+            'auto_renew' => (bool) $legacy->auto_renew,
+        ]);
+        // Keep the stable legacy identifier in the unchanged response contract;
+        // `exists` remains false, so it cannot be updated as a canonical row.
+        $projection->setAttribute('id', $legacy->id);
+        $projection->setRelation('plan', $plan);
+
+        return $projection;
     }
 
     /**
@@ -70,6 +109,7 @@ class SubscriptionService
     public function upgrade(string $companyId, string $targetCode, string $cycle, AsabUser $actor, bool $applyImmediately = true): array
     {
         $sub = $this->current($companyId);
+        $this->assertCanonicalSubscription($sub);
         $target = $this->planByCode($targetCode);
 
         if ($sub->plan_id === $target->id && $sub->billing_cycle === $cycle) {
@@ -88,6 +128,7 @@ class SubscriptionService
     public function downgrade(string $companyId, string $targetCode, AsabUser $actor, string $effectiveAt = 'period_end'): array
     {
         $sub = $this->current($companyId);
+        $this->assertCanonicalSubscription($sub);
         $target = $this->planByCode($targetCode);
 
         $violations = $this->limits->downgradeViolations($companyId, $target);
@@ -103,6 +144,7 @@ class SubscriptionService
     public function changeCycle(string $companyId, string $cycle, AsabUser $actor): CompanySubscription
     {
         $sub = $this->current($companyId);
+        $this->assertCanonicalSubscription($sub);
         if ($sub->billing_cycle === $cycle) {
             return $sub;
         }
@@ -115,6 +157,7 @@ class SubscriptionService
     public function cancel(string $companyId, string $reason, ?string $feedback, AsabUser $actor, bool $atPeriodEnd = true): CompanySubscription
     {
         $sub = $this->current($companyId);
+        $this->assertCanonicalSubscription($sub);
 
         return DB::transaction(function () use ($sub, $reason, $feedback, $actor, $atPeriodEnd) {
             $sub->update([
@@ -134,6 +177,7 @@ class SubscriptionService
     public function reactivate(string $companyId, AsabUser $actor): CompanySubscription
     {
         $sub = $this->current($companyId);
+        $this->assertCanonicalSubscription($sub);
         if ($sub->status === 'expired') {
             throw new AsabException('SUBSCRIPTION_EXPIRED', 'Subscription expired — full re-subscribe required', 'انتهى الاشتراك — يلزم إعادة الاشتراك بالكامل', 409);
         }
@@ -250,11 +294,23 @@ class SubscriptionService
 
     private function planByCode(string $code): Plan
     {
-        $plan = Plan::where('code', $code)->first();
+        $plan = Plan::where('code', $code)->where('status', 'active')->first();
         if (! $plan) {
             throw new AsabException('NOT_FOUND', 'Plan not found', 'الخطة غير موجودة', 404, ['code' => $code]);
         }
 
         return $plan;
+    }
+
+    private function assertCanonicalSubscription(CompanySubscription $sub): void
+    {
+        if (! $sub->exists) {
+            throw new AsabException(
+                'CANONICAL_SUBSCRIPTION_REQUIRED',
+                'Legacy subscription data must be reconciled before changing the company subscription.',
+                'يجب مطابقة سجل الاشتراك قبل إجراء أي تعديل',
+                409,
+            );
+        }
     }
 }

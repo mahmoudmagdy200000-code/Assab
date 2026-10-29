@@ -26,6 +26,7 @@ class CustodyRequestController extends BaseController
      *
      * Brand Owner: lists all custody requests (no branch_manager scope).
      * Branch Manager: lists own requests only.
+     * Accountant: lists approved/completed funding requests in executable branch scope.
      */
     public function index(Request $request): JsonResponse
     {
@@ -83,6 +84,18 @@ class CustodyRequestController extends BaseController
 
             $user = auth()->user();
             $isBrandOwner = $user instanceof BrandOwner;
+
+            if ($user instanceof AsabUser) {
+                if (! $user->roleAssignments()->where('role_key', 'accountant')->exists()) {
+                    return $this->errorResponse('Only an assigned accountant can list custody funding requests', 403);
+                }
+                $requests = $this->requestService->listAccountantFundingRequests($user, $timePeriod, $status, $preferredReceiptMethod);
+
+                return $this->successResponse(['requests' => $requests], 'Custody requests retrieved successfully');
+            }
+            if (! $isBrandOwner && ! $user instanceof BranchManager) {
+                return $this->errorResponse('Custody requests not available', 403);
+            }
 
             $requests = $this->requestService->listRequests(
                 $isBrandOwner ? null : auth()->id(),

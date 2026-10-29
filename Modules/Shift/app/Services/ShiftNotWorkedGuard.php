@@ -3,6 +3,7 @@
 namespace Modules\Shift\Services;
 
 use Illuminate\Database\Query\Builder;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BranchManagers\Services\BranchManagerService;
@@ -77,11 +78,25 @@ final class ShiftNotWorkedGuard
             throw new ConflictHttpException('SHIFT_NOT_WORKED_NOT_ELIGIBLE');
         }
         $this->assertNoEvidence($shift);
-        // Never declare a dated schedule unused while another assignment owns it.
-        if (CashierShift::withoutEagerLoads()->where('shift_id', $shift->shift_id)
-            ->whereDate('shift_date', $shift->shift_date)->whereKeyNot($shift->id)
-            ->where('status', '!=', ShiftStatus::CANCELED->value)->exists()) {
-            throw new ConflictHttpException('SHIFT_NOT_WORKED_ASSIGNMENT_AMBIGUOUS');
+
+        $workDate = Carbon::parse($shift->shift_date->toDateString(), config('app.timezone'));
+        $today = now()->startOfDay();
+        if ($workDate->greaterThan($today)) {
+            throw new ConflictHttpException('SHIFT_NOT_WORKED_FUTURE_ASSIGNMENT');
+        }
+
+        $schedule = $shift->shift()->first(['start_time', 'end_time']);
+        if (! $schedule || ! $schedule->getRawOriginal('start_time') || ! $schedule->getRawOriginal('end_time')) {
+            throw new ConflictHttpException('SHIFT_NOT_WORKED_PERIOD_UNKNOWN');
+        }
+
+        $periodStart = Carbon::parse($workDate->toDateString().' '.$schedule->getRawOriginal('start_time'), config('app.timezone'));
+        $periodEnd = Carbon::parse($workDate->toDateString().' '.$schedule->getRawOriginal('end_time'), config('app.timezone'));
+        if ($periodEnd->lessThanOrEqualTo($periodStart)) {
+            $periodEnd->addDay();
+        }
+        if (now()->lessThan($periodEnd)) {
+            throw new ConflictHttpException('SHIFT_NOT_WORKED_PERIOD_OPEN');
         }
     }
 

@@ -158,7 +158,8 @@ class CustodyRequestService
             'timeline' => $timeline,
             'approval' => $approval,
             'cancellation' => $this->buildCancellationBlock($request),
-            'canConfirmReceipt' => $this->awaitsReceipt($request),
+            'canConfirmReceipt' => $this->awaitsReceipt($request)
+                && ($request->created_by_brand_owner_id !== null || $request->executed_at !== null),
             'receivedAt' => $request->received_at?->toIso8601String(),
         ];
     }
@@ -313,10 +314,54 @@ class CustodyRequestService
                 'amount' => (float) $request->requested_amount,
                 'preferredReceiptMethod' => $request->preferred_receipt_method,
                 'purpose' => $request->purpose,
-                'canConfirmReceipt' => ! $isBrandOwner && $this->awaitsReceipt($request),
+                'canConfirmReceipt' => ! $isBrandOwner && $this->awaitsReceipt($request)
+                    && ($request->created_by_brand_owner_id !== null || $request->executed_at !== null),
                 'receivedAt' => $request->received_at?->toIso8601String(),
             ];
         })->toArray();
+    }
+
+    /** Approved funding requests visible to the same scoped accountant who may execute them. */
+    public function listAccountantFundingRequests(
+        AsabUser $actor,
+        ?string $timePeriod = null,
+        ?string $status = null,
+        ?string $preferredReceiptMethod = null,
+    ): array {
+        $branchIds = Branch::query()->where('asab_company_id', $actor->company_id)->get()
+            ->filter(fn (Branch $branch) => $this->accountantCanExecuteForBranch($actor, $branch))
+            ->pluck('id')->all();
+
+        $query = CustodyRequest::query()
+            ->whereIn('branch_id', $branchIds)
+            ->whereNull('created_by_brand_owner_id')
+            ->whereIn('status', ['Approved', 'Completed']);
+
+        if ($status !== null) {
+            $query->where('status', $status);
+        }
+        if ($preferredReceiptMethod !== null) {
+            $query->where('preferred_receipt_method', $preferredReceiptMethod);
+        }
+        if ($timePeriod !== null) {
+            $query->where('created_at', '>=', $this->getTimePeriodStartDate($timePeriod));
+        }
+
+        return $query->with(['branch:id,name', 'branchManager:id,name'])
+            ->orderByDesc('created_at')->get()->map(fn (CustodyRequest $request) => [
+                'id' => $request->id,
+                'branchName' => $request->branch?->name,
+                'submittedBy' => $request->branchManager?->name,
+                'status' => strtolower((string) $request->status),
+                'amount' => (string) $request->requested_amount,
+                'preferredReceiptMethod' => $request->preferred_receipt_method,
+                'purpose' => $request->purpose,
+                'executedAt' => $request->executed_at?->toIso8601String(),
+                'receivedAt' => $request->received_at?->toIso8601String(),
+                'transferReference' => $request->transfer_reference,
+                'canExecute' => strcasecmp((string) $request->status, 'Approved') === 0
+                    && $request->executed_at === null && $request->received_at === null,
+            ])->all();
     }
 
     /**
