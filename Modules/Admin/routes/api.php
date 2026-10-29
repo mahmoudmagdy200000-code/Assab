@@ -493,11 +493,8 @@ Route::prefix('v1')->group(function () {
                 // «تحميل PDF» on the statement (?format=pdf|xlsx|csv).
                 Route::get('employees/{id}/statement/export', [CompanyExportController::class, 'employeeStatement']);
                 Route::post('employees/{id}/movements', [EmployeeController::class, 'addMovement']);
-                // ACC-7.3 / STMT-02 / BE-09 «تسوية الرصيد».
+                // ACC-7.3 «تسوية الرصيد».
                 Route::post('employees/{id}/settle-balance', [EmployeeController::class, 'settleBalance']);
-                Route::post('employee-settlements', [EmployeeController::class, 'settleBalance']);
-                Route::post('employee-settlements/{id}/approve', [EmployeeController::class, 'approveSettlement']);
-                Route::post('employee-settlements/{id}/reject', [EmployeeController::class, 'rejectSettlement']);
 
                 // Cash custody (§6.3.11) — filters: brandId, branchId, status.
                 Route::get('cash-custody/export', [CompanyExportController::class, 'cashCustody']);
@@ -877,6 +874,8 @@ Route::prefix('v1')->group(function () {
                     Route::get('employees', [EmployeeController::class, 'index']);
                     Route::get('employees/{id}/movements', [EmployeeController::class, 'statement']);
                     Route::get('employees/{id}/statement/export', [CompanyExportController::class, 'employeeStatement']);
+                    // ACC-7.3 «تسوية الرصيد».
+                    Route::post('employees/{id}/settle-balance', [EmployeeController::class, 'settleBalance']);
                 });
 
                 /*
@@ -895,16 +894,8 @@ Route::prefix('v1')->group(function () {
                     Route::post('operations/{id}/request-clarification', [OperationController::class, 'requestClarification']);
                 });
 
-                // ACC-7.3 / STMT-02 / BE-09 «تسوية الرصيد»
-                Route::middleware(['asab.role:accountant,head,head_accountant', 'asab.idempotency'])->group(function () {
-                    Route::post('employees/{id}/settle-balance', [EmployeeController::class, 'settleBalance']);
-                    Route::post('employee-settlements', [EmployeeController::class, 'settleBalance']);
-                    Route::post('employee-settlements/{id}/approve', [EmployeeController::class, 'approveSettlement']);
-                    Route::post('employee-settlements/{id}/reject', [EmployeeController::class, 'rejectSettlement']);
-                });
-
                 // Cash custody (§5.3 ACC-8 + §5.2 HEAD-4 / FUND-04 / FUND-06)
-                Route::middleware(['asab.role:accountant,head,company-admin,brand-manager,owner', 'asab.idempotency'])->group(function () {
+                Route::middleware(['asab.role:accountant,head,company-admin,brand-owner,brand-manager,owner', 'asab.idempotency'])->group(function () {
                     Route::get('cash-custody/export', [CompanyExportController::class, 'cashCustody']);
                     Route::get('cash-custody', [CashCustodyController::class, 'index']);
                     Route::get('cash-custody/{id}/transactions', [AccountantCompanyController::class, 'cashTransactions']);

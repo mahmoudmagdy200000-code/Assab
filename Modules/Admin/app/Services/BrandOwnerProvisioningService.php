@@ -7,6 +7,7 @@ use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Notifications\BrandOwnerWelcomeNotification;
 use Modules\BrandOwner\Models\BrandOwner as MobileBrandOwner;
 
@@ -75,6 +76,14 @@ class BrandOwnerProvisioningService
         $assignment->scope = 'brand';
         $assignment->brand_ids = array_values(array_unique($brandIds));
         $assignment->save();
+
+        // Mirror the company-admin provisioning contract: a newly provisioned
+        // owner gets an active company membership. firstOrCreate deliberately
+        // leaves an existing inactive or differently-typed membership untouched.
+        CompanyUser::firstOrCreate(
+            ['company_id' => $brand->company_id, 'user_id' => $user->id],
+            ['role_key' => 'brand-owner', 'status' => 'active']
+        );
 
         // Built, not sent: this runs inside the caller's transaction, and mail
         // dispatched here would survive a rollback as a welcome for a brand that

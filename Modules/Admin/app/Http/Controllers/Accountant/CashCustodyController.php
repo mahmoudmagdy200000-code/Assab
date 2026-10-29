@@ -38,7 +38,10 @@ class CashCustodyController extends AsabController
             ]);
 
             // KPIs reflect the whole assigned scope (not the filtered view).
-            $scopeBase = $this->scopeToAssignedBranches(CashCustody::query());
+            $scopeBase = $this->scopeCashCustodyToBrandRole(
+                $this->scopeToAssignedBranches(CashCustody::query()),
+                $request,
+            );
             $kpiSet = (clone $scopeBase)->get(['id', 'branch_id', 'amount', 'used', 'min_alert']);
             $kpis = $this->custody->kpis($kpiSet);
 
@@ -70,7 +73,21 @@ class CashCustodyController extends AsabController
     public function settlementRequest(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $custody = $this->scopeToAssignedBranches(CashCustody::query())->findOrFail($id);
+            $custody = $this->scopeCashCustodyToBrandRole(
+                $this->scopeToAssignedBranches(CashCustody::query()),
+                $request,
+            )->findOrFail($id);
+
+            if (! $this->isCustodyWriteAuthorized($request->user(), $custody)) {
+                return $this->fail(
+                    'CUSTODY_MANUAL_WRITE_PROHIBITED',
+                    'Custody funding requests are restricted to authorized brand roles.',
+                    'طلبات تغذية العهدة مقتصرة على أدوار العلامة المخولة',
+                    [],
+                    403
+                );
+            }
+
             $req = SettlementRequest::create([
                 'custody_id' => $custody->id,
                 'requested_by_id' => $request->user()->id,
@@ -83,20 +100,19 @@ class CashCustodyController extends AsabController
     }
 
     /**
-     * Post a custody transaction. A credit raises the custody amount (تعزيز /
-     * replenish); a debit is a disbursement. `status=pending` records the txn
-     * without touching balances (a disbursement request awaiting approval);
-     * `approved` (default) applies the effect immediately. Debits are guarded
-     * against overdrawing the remaining balance.
+     * Post a generic custody transaction. Credits are refused here because
+     * funding must use a request and branch-receipt workflow. Debits may be
+     * pending or approved (default), and are guarded against overdrawing the
+     * remaining balance.
      */
     public function addTransaction(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $custody = $this->scopeToAssignedBranches(
+            $custody = $this->scopeCashCustodyToBrandRole($this->scopeToAssignedBranches(
                 CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user()))
-            )->findOrFail($id);
+            ), $request)->findOrFail($id);
 
-            if (! $this->isCustodyWriteAuthorized($request->user())) {
+            if (! $this->isCustodyWriteAuthorized($request->user(), $custody)) {
                 return $this->fail(
                     'CUSTODY_MANUAL_WRITE_PROHIBITED',
                     'Manual custody transaction writes are prohibited under policy FUND-04/06.',
@@ -114,6 +130,17 @@ class CashCustodyController extends AsabController
                 'status' => 'nullable|in:pending,approved',
                 'source' => 'nullable|in:treasury,manual',
             ]);
+
+            if ($data['txnType'] === 'credit') {
+                return $this->fail(
+                    'CUSTODY_FUNDING_REQUEST_REQUIRED',
+                    'Custody funding must use the approved request and branch receipt workflow.',
+                    'يجب تنفيذ تغذية العهدة عبر طلب معتمد وتأكيد استلام الفرع',
+                    [],
+                    422
+                );
+            }
+
             $status = $data['status'] ?? 'approved';
             $apply = $status === 'approved';
             $source = $data['source'] ?? 'manual';

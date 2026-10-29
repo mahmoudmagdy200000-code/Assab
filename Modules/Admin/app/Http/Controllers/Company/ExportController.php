@@ -97,11 +97,19 @@ class ExportController extends AsabController
     /** GET /cash-custody/export?brandId=&branchId=&status= */
     public function cashCustody(Request $request): BinaryFileResponse
     {
+        $branchIds = $this->assignedBranchIds();
+        $brandRoleBranchIds = $this->cashCustodyBrandBranchIds($request);
+        if ($brandRoleBranchIds !== null) {
+            $branchIds = $branchIds === null
+                ? $brandRoleBranchIds
+                : array_values(array_intersect($branchIds, $brandRoleBranchIds));
+        }
+
         // Zero-trust: a branch-scoped accountant exports only their branches.
         return $this->exports->cashCustody(
             $this->format($request),
             $request->query('branchId'),
-            $this->assignedBranchIds(),
+            $branchIds,
             ['brandId' => $request->query('brandId'), 'status' => $request->query('status')],
         );
     }
@@ -110,8 +118,11 @@ class ExportController extends AsabController
     public function custodyLedger(Request $request, string $id): BinaryFileResponse
     {
         // Zero-trust: a custody outside the caller's branches reads as absent.
-        $custody = $this->scopeToAssignedBranches(
-            CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user()))
+        $custody = $this->scopeCashCustodyToBrandRole(
+            $this->scopeToAssignedBranches(
+                CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user()))
+            ),
+            $request,
         )->findOrFail($id);
         $ledger = $this->custody->ledger($custody, $request->query('month'), 1, 2000);
 

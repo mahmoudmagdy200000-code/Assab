@@ -6,12 +6,21 @@ use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Modules\Admin\Services\MobileBranchScopeService;
+use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
+use Modules\Admin\Models\AsabBrand;
+use Modules\Admin\Models\AsabRestaurant;
+use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BrandOwner\Models\BrandOwner;
 use Modules\Custody\Models\CustodyRequest;
 use Modules\Custody\Models\CustodyRequestAttachment;
 use Modules\Custody\Models\CustodyRequestTimeline;
+use Modules\Custody\Models\CustodyTransaction;
 
 class CustodyRequestService
 {
@@ -477,6 +486,98 @@ class CustodyRequestService
     }
 
     /**
+     * Record the accountant's transfer execution. This is evidence only: the
+     * branch ledger is posted later, and only by confirmReceipt().
+     */
+    public function executeFundingRequest(
+        string $requestId,
+        AsabUser $actor,
+        string $reference,
+        UploadedFile $proof,
+    ): CustodyRequest {
+        $storedPath = null;
+
+        try {
+            return DB::transaction(function () use ($requestId, $actor, $reference, $proof, &$storedPath) {
+                $request = CustodyRequest::query()->lockForUpdate()->findOrFail($requestId);
+                $branch = Branch::query()->whereKey($request->branch_id)->first();
+                if ($branch === null || ! $this->accountantCanExecuteForBranch($actor, $branch)) {
+                    throw (new ModelNotFoundException)->setModel(CustodyRequest::class, [$requestId]);
+                }
+
+                if ($request->created_by_brand_owner_id !== null) {
+                    throw new \RuntimeException('This owner-initiated transfer does not use accountant execution.');
+                }
+                if (strcasecmp((string) $request->status, 'Approved') !== 0) {
+                    throw new \RuntimeException('Only an approved custody request can be executed.');
+                }
+                if ($request->executed_at !== null || $request->received_at !== null) {
+                    throw new \RuntimeException('This custody request has already been executed or received.');
+                }
+                if ($request->branch_manager_id === null
+                    || (string) $request->branch_manager_id !== (string) BranchManager::active()->where('branch_id', $branch->id)->value('id')) {
+                    throw new \RuntimeException('The request does not target the active manager of this branch.');
+                }
+
+                $extension = strtolower($proof->getClientOriginalExtension() ?: 'bin');
+                $fileName = (string) \Illuminate\Support\Str::uuid().'.'.$extension;
+                $storedPath = $proof->storeAs('custody-requests/'.$request->id.'/execution-proof', $fileName, 'local');
+                if (! $storedPath) {
+                    throw new \RuntimeException('The transfer proof could not be stored.');
+                }
+
+                $request->update([
+                    'executed_by_user_id' => $actor->id,
+                    'executed_at' => now(),
+                    'transfer_reference' => trim($reference),
+                    'execution_proof_path' => $storedPath,
+                    'execution_proof_original_name' => $proof->getClientOriginalName(),
+                    'execution_proof_sha256' => hash_file('sha256', $proof->getRealPath()),
+                ]);
+
+                return $request->fresh(['attachments', 'timeline']);
+            });
+        } catch (\Throwable $exception) {
+            if ($storedPath !== null) {
+                Storage::disk('local')->delete($storedPath);
+            }
+            throw $exception;
+        }
+    }
+
+    private function accountantCanExecuteForBranch(AsabUser $actor, Branch $branch): bool
+    {
+        if ($actor->status !== 'active' || $branch->asab_company_id === null
+            || (string) $actor->company_id !== (string) $branch->asab_company_id) {
+            return false;
+        }
+
+        $membership = CompanyUser::query()
+            ->where('company_id', $branch->asab_company_id)
+            ->where('user_id', $actor->id)
+            ->where('status', 'active')
+            ->first();
+        if ($membership === null || $membership->role_key === 'company-admin') {
+            return false;
+        }
+
+        $brandId = $branch->asab_brand_id;
+        if ($brandId === null && $branch->asab_restaurant_id !== null) {
+            $brandId = AsabRestaurant::query()->whereKey($branch->asab_restaurant_id)->value('brand_id');
+        }
+        if ($brandId === null || ! AsabBrand::query()->where('company_id', $branch->asab_company_id)->whereKey($brandId)->exists()) {
+            return false;
+        }
+
+        return AsabUserRole::query()
+            ->where('user_id', $actor->id)
+            ->where('role_key', 'accountant')
+            ->get(['branch_ids', 'brand_ids'])
+            ->contains(fn (AsabUserRole $role) => in_array((string) $branch->id, array_map('strval', $role->branch_ids ?? []), true)
+                || in_array((string) $brandId, array_map('strval', $role->brand_ids ?? []), true));
+    }
+
+    /**
      * The branch manager confirms the cash/transfer actually arrived. THIS is
      * the step that moves money: until it runs no CustodyTransaction exists and
      * «رصيد عهدة الفرع» reads 0.00 no matter how many requests were approved
@@ -498,10 +599,16 @@ class CustodyRequestService
             if ($request->received_at !== null) {
                 throw new \RuntimeException('This custody request was already received.');
             }
+            if ($request->created_by_brand_owner_id === null && $request->executed_at === null) {
+                throw new \RuntimeException('The accountant must execute the approved transfer before receipt.');
+            }
             // Single source of truth for «receivable» — an owner transfer needs
             // no approval, the manager's own request must be approved first.
             if (! $request->awaitsReceipt()) {
                 throw new \RuntimeException('This custody request is not awaiting receipt.');
+            }
+            if (CustodyTransaction::where('related_custody_request_id', $request->id)->exists()) {
+                throw new \RuntimeException('A financial posting already exists for this custody request.');
             }
 
             // The transaction carries the branch of the RECEIVING manager: a

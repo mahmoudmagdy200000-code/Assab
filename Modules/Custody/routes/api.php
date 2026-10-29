@@ -38,6 +38,7 @@ Route::middleware(['auth:sanctum', 'log.throttle'])->group(function () {
         // Approve / Reject (brand-owner only — enforced inside controller)
         Route::post('requests/{requestId}/approve', [CustodyRequestController::class, 'approve'])->middleware(['throttle:custody-write']);
         Route::post('requests/{requestId}/reject', [CustodyRequestController::class, 'reject'])->middleware(['throttle:custody-write']);
+        Route::post('requests/{requestId}/execute', [CustodyRequestController::class, 'execute'])->middleware(['throttle:custody-write']);
 
         // FUND-05: the manager sends a REJECTED request back for review (same request, history kept).
         Route::post('requests/{requestId}/resubmit', [CustodyRequestController::class, 'resubmit'])->middleware(['throttle:custody-write']);

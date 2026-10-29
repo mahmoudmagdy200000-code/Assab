@@ -5,6 +5,7 @@ namespace Modules\Admin\Http\Controllers;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Validation\ValidationException;
 use Modules\Admin\Exceptions\AsabException;
@@ -113,6 +114,81 @@ abstract class AsabController extends Controller
         return $this->tenantCompanyIds() ?? [$user?->company_id];
     }
 
+    /**
+     * Add an explicit brand boundary for brand-owner/brand-manager/owner cash
+     * custody reads. Their route group also admits company-wide roles, so the
+     * general TenantContext branch scope alone is not sufficient when a brand
+     * role carries a stale or overly broad all-scope assignment.
+     *
+     * null means this is not a brand-role read; [] means fail closed.
+     *
+     * @return string[]|null
+     */
+    protected function cashCustodyBrandBranchIds(Request $request): ?array
+    {
+        $user = $request->user();
+        if (! $user instanceof \Modules\Admin\Models\AsabUser) {
+            return [];
+        }
+
+        $membership = \Modules\Admin\Models\CompanyUser::query()
+            ->where('company_id', $user->company_id)
+            ->where('user_id', $user->id)
+            ->where('status', 'active')
+            ->first();
+
+        if ($membership === null || ! in_array($membership->role_key, ['owner', 'brand-owner', 'brand-manager'], true)) {
+            return null;
+        }
+
+        $companyIds = $this->tenantCompanyIdsFor($user);
+        if ($membership->role_key === 'owner') {
+            $brandIds = \Modules\Admin\Models\AsabBrand::query()
+                ->whereIn('company_id', $companyIds)
+                ->where('owner_user_id', $user->id)
+                ->pluck('id')
+                ->all();
+        } else {
+            $brandIds = $user->roleAssignments()
+                ->where('role_key', $membership->role_key)
+                ->get(['brand_ids'])
+                ->flatMap(fn ($assignment) => $assignment->brand_ids ?? [])
+                ->map(fn ($id) => (string) $id)
+                ->unique()
+                ->values()
+                ->all();
+
+            // A provisioned Brand Owner also has a persisted owner identity.
+            // Include only those linked brands; this is not an inferred grant.
+            if ($membership->role_key === 'brand-owner') {
+                $brandIds = array_merge(
+                    $brandIds,
+                    \Modules\Admin\Models\AsabBrand::query()
+                        ->whereIn('company_id', $companyIds)
+                        ->where('owner_user_id', $user->id)
+                        ->pluck('id')
+                        ->all(),
+                );
+            }
+        }
+
+        $brandIds = \Modules\Admin\Models\AsabBrand::query()
+            ->whereIn('company_id', $companyIds)
+            ->whereIn('id', array_values(array_unique($brandIds)))
+            ->pluck('id')
+            ->all();
+
+        return app(\Modules\Admin\Services\BrandBranchResolver::class)->branchIdsForMany($brandIds);
+    }
+
+    /** Constrain one cash-custody query to a brand role's explicit branches. */
+    protected function scopeCashCustodyToBrandRole($query, Request $request)
+    {
+        $branchIds = $this->cashCustodyBrandBranchIds($request);
+
+        return $branchIds === null ? $query : $query->whereIn('branch_id', $branchIds);
+    }
+
     /** Constrain a company_id-keyed query to tenantCompanyIds(). */
     protected function scopeToTenantCompanies($query, string $column = 'company_id')
     {
@@ -182,46 +258,68 @@ abstract class AsabController extends Controller
     }
 
     /**
-     * Check if user holds authority for manual cash custody writes under Business Rules v3.5 (FUND-04 / FUND-06).
-     * Owner and Brand Manager hold approval authority; standard accountant and head accountant do not.
+     * Check custody-management authority for one custody's brand under FUND-04.
+     * The target custody is already tenant/branch scoped by the caller; this
+     * second check keeps a company-wide role from crossing brand boundaries.
      */
-    protected function isCustodyWriteAuthorized(mixed $user): bool
+    protected function isCustodyWriteAuthorized(mixed $user, \Modules\Admin\Models\CashCustody $custody): bool
     {
-        if (! $user) {
+        if (! $user instanceof \Modules\Admin\Models\AsabUser || $user->status !== 'active') {
             return false;
         }
 
-        if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
+        $membership = \Modules\Admin\Models\CompanyUser::query()
+            ->where('company_id', $custody->company_id)
+            ->where('user_id', $user->id)
+            ->where('status', 'active')
+            ->first();
+        if ($membership === null) {
+            return false;
+        }
+
+        // A company-admin membership is never a funding-owner grant, even if
+        // that login is later attached to a brand record.
+        if ($membership->role_key === 'company-admin') {
+            return false;
+        }
+
+        $branch = \Modules\Branch\Models\Branch::query()
+            ->where('asab_company_id', $custody->company_id)
+            ->find($custody->branch_id);
+        if ($branch === null) {
+            return false;
+        }
+
+        $brandId = $branch->asab_brand_id;
+        if ($brandId === null && $branch->asab_restaurant_id !== null) {
+            $brandId = \Modules\Admin\Models\AsabRestaurant::withoutGlobalScopes()
+                ->where('id', $branch->asab_restaurant_id)
+                ->value('brand_id');
+        }
+
+        $brand = $brandId === null
+            ? null
+            : \Modules\Admin\Models\AsabBrand::query()
+                ->where('company_id', $custody->company_id)
+                ->find($brandId);
+        if ($brand === null) {
+            return false;
+        }
+
+        // Ownership is a persisted brand-to-user identity, never an inference
+        // from the company-admin role or a label supplied by a caller.
+        if ((string) $brand->owner_user_id === (string) $user->id) {
             return true;
         }
 
-        if ($user instanceof \Modules\Admin\Models\AsabUser) {
-            $authorizedRoles = [
-                'owner',
-                'brand-owner',
-                'brand_owner',
-                'brand-manager',
-                'brand_manager',
-                'company-admin',
-                'admin',
-            ];
-
-            if ($user->hasAnyAsabRole($authorizedRoles)) {
-                return true;
-            }
-
-            if ($user->company_id !== null) {
-                $membershipRole = \Modules\Admin\Models\CompanyUser::where('company_id', $user->company_id)
-                    ->where('user_id', $user->id)
-                    ->where('status', 'active')
-                    ->value('role_key');
-
-                if ($membershipRole && in_array($membershipRole, $authorizedRoles, true)) {
-                    return true;
-                }
-            }
+        if (! in_array($membership->role_key, ['brand-owner', 'brand-manager'], true)) {
+            return false;
         }
 
-        return false;
+        return $user->roleAssignments()
+            ->where('role_key', $membership->role_key)
+            ->where('scope', 'brand')
+            ->get(['brand_ids'])
+            ->contains(fn ($assignment) => in_array((string) $brand->id, array_map('strval', $assignment->brand_ids ?? []), true));
     }
 }

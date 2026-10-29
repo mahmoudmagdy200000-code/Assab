@@ -5,6 +5,7 @@ namespace Modules\Shift\Services;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\EmployeeMovement;
 use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Custody\Models\PersonalLedgerTransaction;
@@ -123,6 +124,30 @@ class ShortagePostingService
 
             // 5. Canonical lock ordering: sort lineage keys alphabetically to avoid deadlocks
             ksort($targets);
+
+            // Inventory variance replacement and shortage posting both write
+            // asab_employee_movements. Lock all employee targets in stable ID
+            // order before either path writes that shared ledger.
+            $employeeIds = collect($targets)
+                ->filter(fn (array $target) => $target['type'] === 'employee')
+                ->pluck('id')
+                ->map(fn ($id) => (string) $id)
+                ->unique()
+                ->sort()
+                ->values();
+            if ($employeeIds->isNotEmpty()) {
+                $lockedEmployeeIds = Employee::withTrashed()
+                    ->whereIn('id', $employeeIds)
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->pluck('id')
+                    ->map(fn ($id) => (string) $id)
+                    ->values();
+
+                if ($lockedEmployeeIds->count() !== $employeeIds->count()) {
+                    throw new ConflictHttpException('LIABILITY_EMPLOYEE_NOT_FOUND');
+                }
+            }
 
             $postings = [];
             $review = ShiftReportManagerReview::where('cashier_shift_id', $shift->id)

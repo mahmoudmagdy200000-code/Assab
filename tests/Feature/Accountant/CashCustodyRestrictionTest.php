@@ -11,6 +11,7 @@ use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\CashCustody;
 use Modules\Admin\Models\CashTransaction;
 use Modules\Admin\Models\SettlementRequest;
+use Modules\Admin\Services\BrandOwnerProvisioningService;
 use Modules\Branch\Models\Branch;
 use Tests\TestCase;
 
@@ -18,9 +19,9 @@ use Tests\TestCase;
  * BE-10 Dedicated Regression Suite — Cash Custody Authorization and Tenant Isolation
  *
  * Enforces Business Rules v3.5 (FUND-01 through FUND-07):
- * - FUND-04: Approval/replenishment is restricted to Owner and Brand Manager. Accountant & Head have no approval/write authority.
- * - FUND-06: Balance mutations only occur upon confirmed execution.
- * - FUND-07: Custody replenishment via Owner handover.
+ * - FUND-04: owner and assigned brand roles are scoped; Company Admin is not an owner grant.
+ * - FUND-06: generic credits cannot bypass the approved funding/receipt workflow.
+ * - FUND-07: direct credits and settlement deposits do not mutate custody balance.
  * - Tenant Isolation: Cross-company and cross-brand access must fail-closed with 404 Not Found before role authorization.
  */
 class CashCustodyRestrictionTest extends TestCase
@@ -49,7 +50,11 @@ class CashCustodyRestrictionTest extends TestCase
 
     private AsabUser $owner;
 
+    private AsabUser $brandOwner;
+
     private AsabUser $brandManager;
+
+    private AsabUser $companyAdmin;
 
     private AsabUser $otherAccountant;
 
@@ -79,8 +84,11 @@ class CashCustodyRestrictionTest extends TestCase
         // Company A Users with explicit CompanyUser fixtures
         $this->accountant = $this->createFixtureUser($this->companyA, 'acc_be10@test.com', 'accountant', 'branch', [$this->branchA1->id]);
         $this->head = $this->createFixtureUser($this->companyA, 'head_be10@test.com', 'head', 'all');
-        $this->owner = $this->createFixtureUser($this->companyA, 'owner_be10@test.com', 'company-admin', 'all');
-        $this->brandManager = $this->createFixtureUser($this->companyA, 'bm_be10@test.com', 'brand-manager', 'all');
+        $this->owner = $this->createFixtureUser($this->companyA, 'owner_be10@test.com', 'owner', 'brand', [], [$this->brandA1->id]);
+        $this->brandA1->update(['owner_user_id' => $this->owner->id]);
+        $this->brandOwner = $this->createFixtureUser($this->companyA, 'brand_owner_be10@test.com', 'brand-owner', 'brand', [], [$this->brandA1->id]);
+        $this->brandManager = $this->createFixtureUser($this->companyA, 'bm_be10@test.com', 'brand-manager', 'brand', [], [$this->brandA1->id]);
+        $this->companyAdmin = $this->createFixtureUser($this->companyA, 'company_admin_be10@test.com', 'company-admin', 'all');
 
         // Company B User (Foreign tenant user)
         $this->otherAccountant = $this->createFixtureUser($this->companyB, 'other_acc_be10@test.com', 'accountant', 'all');
@@ -117,7 +125,7 @@ class CashCustodyRestrictionTest extends TestCase
         ]);
     }
 
-    private function createFixtureUser(AsabCompany $company, string $email, string $role, string $scope, array $branchIds = []): AsabUser
+    private function createFixtureUser(AsabCompany $company, string $email, string $role, string $scope, array $branchIds = [], array $brandIds = []): AsabUser
     {
         $u = AsabUser::create([
             'company_id' => $company->id,
@@ -132,6 +140,7 @@ class CashCustodyRestrictionTest extends TestCase
             'role_key' => $role,
             'scope' => $scope,
             'branch_ids' => $branchIds,
+            'brand_ids' => $brandIds,
         ]);
 
         CompanyUser::create([
@@ -146,7 +155,7 @@ class CashCustodyRestrictionTest extends TestCase
 
     // ── 1. Prohibited Operations: Zero Mutations & 403 Forbidden ───────────────
 
-    public function test_accountant_and_head_cannot_manually_add_transactions_or_replenish(): void
+    public function test_accountant_and_head_cannot_use_the_generic_transaction_writer(): void
     {
         $payloadDebit = ['txnType' => 'debit', 'amount' => 50000, 'description' => 'شراء مستلزمات'];
         $payloadCredit = ['txnType' => 'credit', 'amount' => 100000, 'source' => 'treasury'];
@@ -178,6 +187,331 @@ class CashCustodyRestrictionTest extends TestCase
             ->assertJsonPath('error.code', 'CUSTODY_MANUAL_WRITE_PROHIBITED');
 
         $this->assertSame(500000, $this->custodyA1->fresh()->amount);
+        $this->assertSame(0, CashTransaction::where('custody_id', $this->custodyA1->id)->count());
+    }
+
+    public function test_company_admin_is_not_a_funding_owner_and_cannot_mutate_custody(): void
+    {
+        $this->actingAs($this->companyAdmin, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/transactions", [
+                'txnType' => 'debit', 'amount' => 10000, 'description' => 'unauthorized',
+            ])
+            ->assertStatus(403)
+            ->assertJsonPath('error.code', 'CUSTODY_MANUAL_WRITE_PROHIBITED');
+
+        $this->assertSame(0, CashTransaction::where('custody_id', $this->custodyA1->id)->count());
+        $this->assertSame(500000, $this->custodyA1->fresh()->amount);
+        $this->assertSame(0, $this->custodyA1->fresh()->used);
+
+        $pending = CashTransaction::create([
+            'custody_id' => $this->custodyA1->id, 'txn_type' => 'debit', 'amount' => 10000,
+            'description' => 'pending decision', 'status' => 'pending', 'txn_date' => now(),
+            'created_by_id' => $this->accountant->id,
+        ]);
+        $this->actingAs($this->companyAdmin, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/transactions/{$pending->id}/approve")
+            ->assertStatus(403);
+        $this->actingAs($this->companyAdmin, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/transactions/{$pending->id}/reject", ['reason' => 'not authorized'])
+            ->assertStatus(403);
+        $this->actingAs($this->companyAdmin, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/settle", [])
+            ->assertStatus(403);
+        $this->assertSame('pending', $pending->fresh()->status);
+        $this->assertSame(0, $this->custodyA1->fresh()->used);
+        $this->assertSame(500000, $this->custodyA1->fresh()->amount);
+    }
+
+    public function test_actual_brand_owner_provisioning_is_sufficient_for_its_brand_custody(): void
+    {
+        $result = app(BrandOwnerProvisioningService::class)
+            ->provision($this->brandA1, 'provisioned_owner_be10@test.com', 'Provisioned Owner');
+        $owner = $result['user'];
+
+        $this->assertDatabaseHas('asab_company_users', [
+            'company_id' => $this->companyA->id,
+            'user_id' => $owner->id,
+            'role_key' => 'brand-owner',
+            'status' => 'active',
+        ]);
+
+        $visibleCustodies = $this->actingAs($owner, 'sanctum')
+            ->getJson('/api/v1/company/me/cash-custody')
+            ->assertOk()
+            ->json('data');
+        $this->assertSame([$this->custodyA1->id], array_column($visibleCustodies, 'id'));
+
+        $this->actingAs($owner, 'sanctum')
+            ->getJson("/api/v1/company/me/cash-custody/{$this->custodyA2->id}/transactions")
+            ->assertStatus(404);
+        $this->actingAs($owner, 'sanctum')
+            ->getJson("/api/v1/company/me/cash-custody/{$this->custodyB1->id}/transactions")
+            ->assertStatus(404);
+
+        $export = $this->actingAs($owner, 'sanctum')
+            ->get('/api/v1/company/me/cash-custody/export?format=csv')
+            ->assertOk();
+        $exportContent = $export->baseResponse->getFile()->getContent();
+        $this->assertStringContainsString($this->branchA1->name, $exportContent);
+        $this->assertStringNotContainsString($this->branchA2->name, $exportContent);
+        $this->assertStringNotContainsString($this->branchB1->name, $exportContent);
+
+        $this->actingAs($owner, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/transactions", [
+                'txnType' => 'debit', 'amount' => 10000, 'description' => 'provisioned owner scoped debit',
+            ])
+            ->assertStatus(201);
+
+        $this->actingAs($owner, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA2->id}/transactions", [
+                'txnType' => 'debit', 'amount' => 10000, 'description' => 'cross brand debit',
+            ])
+            ->assertStatus(404);
+        $this->actingAs($owner, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyB1->id}/transactions", [
+                'txnType' => 'debit', 'amount' => 10000, 'description' => 'cross company debit',
+            ])
+            ->assertStatus(404);
+
+        $this->assertSame(10000, $this->custodyA1->fresh()->used);
+        $this->assertSame(0, $this->custodyA2->fresh()->used);
+    }
+
+    public function test_admin_http_brand_provisioning_creates_a_scoped_owner_membership(): void
+    {
+        \Illuminate\Support\Facades\Mail::fake();
+        $platformAdmin = AsabUser::create([
+            'name' => 'Platform Admin', 'email' => 'admin-brand-owner-be10@test.com',
+            'password' => 'secret-password', 'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $platformAdmin->id, 'role_key' => 'admin', 'scope' => 'all']);
+
+        $created = $this->actingAs($platformAdmin, 'sanctum')
+            ->postJson('/api/v1/admin/brands', [
+                'name' => 'Provisioned HTTP Brand',
+                'owner' => 'HTTP Owner',
+                'ownerEmail' => 'http-owner-be10@test.com',
+            ])
+            ->assertCreated();
+
+        $brand = AsabBrand::findOrFail($created->json('id'));
+        $owner = AsabUser::findOrFail($brand->owner_user_id);
+        $this->assertDatabaseHas('asab_company_users', [
+            'company_id' => $brand->company_id,
+            'user_id' => $owner->id,
+            'role_key' => 'brand-owner',
+            'status' => 'active',
+        ]);
+
+        $branch = Branch::factory()->create([
+            'name' => 'HTTP Owner Branch',
+            'asab_brand_id' => $brand->id,
+            'asab_company_id' => $brand->company_id,
+        ]);
+        $custody = CashCustody::create([
+            'company_id' => $brand->company_id,
+            'branch_id' => $branch->id,
+            'custodian_name' => 'HTTP Owner Custodian',
+            'amount' => 500000,
+            'used' => 0,
+            'min_alert' => 100000,
+            'status' => 'active',
+        ]);
+
+        $visibleCustodies = $this->actingAs($owner, 'sanctum')
+            ->getJson('/api/v1/company/me/cash-custody')
+            ->assertOk()
+            ->json('data');
+        $this->assertSame([$custody->id], array_column($visibleCustodies, 'id'));
+
+        $this->actingAs($owner, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/settlement-request")
+            ->assertStatus(404);
+
+        $export = $this->actingAs($owner, 'sanctum')
+            ->get('/api/v1/company/me/cash-custody/export?format=csv')
+            ->assertOk();
+        $this->assertStringContainsString($branch->name, $export->baseResponse->getFile()->getContent());
+
+        $this->actingAs($owner, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$custody->id}/settlement-request")
+            ->assertCreated()
+            ->assertJsonPath('status', 'pending');
+
+        $this->actingAs($owner, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$custody->id}/transactions", [
+                'txnType' => 'credit', 'amount' => 100000, 'source' => 'treasury',
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'CUSTODY_FUNDING_REQUEST_REQUIRED');
+
+        $this->assertSame(0, $custody->fresh()->used);
+        $this->assertSame(1, SettlementRequest::where('custody_id', $custody->id)->count());
+    }
+
+    public function test_brand_role_with_all_scope_cannot_read_or_export_other_brands(): void
+    {
+        $wideRole = $this->createFixtureUser(
+            $this->companyA,
+            'wide_brand_owner_be10@test.com',
+            'brand-owner',
+            'all',
+            [],
+            [$this->brandA1->id],
+        );
+
+        $list = $this->actingAs($wideRole, 'sanctum')
+            ->getJson('/api/v1/company/me/cash-custody')
+            ->assertOk()
+            ->json('data');
+
+        $this->assertSame([$this->custodyA1->id], array_column($list, 'id'));
+
+        $this->actingAs($wideRole, 'sanctum')
+            ->getJson("/api/v1/company/me/cash-custody/{$this->custodyA2->id}/transactions")
+            ->assertStatus(404);
+
+        $export = $this->actingAs($wideRole, 'sanctum')
+            ->get('/api/v1/company/me/cash-custody/export?format=csv')
+            ->assertOk();
+
+        $exportContent = $export->baseResponse->getFile()->getContent();
+        $this->assertStringContainsString($this->branchA1->name, $exportContent);
+        $this->assertStringNotContainsString($this->branchA2->name, $exportContent);
+    }
+
+    public function test_company_admin_cannot_create_a_funding_settlement_request(): void
+    {
+        $visibleCustodies = $this->actingAs($this->companyAdmin, 'sanctum')
+            ->getJson('/api/v1/company/me/cash-custody')
+            ->assertOk()
+            ->json('data');
+        $this->assertEqualsCanonicalizing(
+            [$this->custodyA1->id, $this->custodyA2->id],
+            array_column($visibleCustodies, 'id'),
+        );
+
+        $export = $this->actingAs($this->companyAdmin, 'sanctum')
+            ->get('/api/v1/company/me/cash-custody/export?format=csv')
+            ->assertOk();
+        $exportContent = $export->baseResponse->getFile()->getContent();
+        $this->assertStringContainsString($this->branchA1->name, $exportContent);
+        $this->assertStringContainsString($this->branchA2->name, $exportContent);
+        $this->assertStringNotContainsString($this->branchB1->name, $exportContent);
+
+        $this->actingAs($this->companyAdmin, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/settlement-request")
+            ->assertStatus(403)
+            ->assertJsonPath('error.code', 'CUSTODY_MANUAL_WRITE_PROHIBITED');
+
+        $this->actingAs($this->companyAdmin, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/transactions", [
+                'txnType' => 'credit', 'amount' => 100000, 'source' => 'treasury',
+            ])
+            ->assertStatus(403)
+            ->assertJsonPath('error.code', 'CUSTODY_MANUAL_WRITE_PROHIBITED');
+
+        $this->assertSame(0, SettlementRequest::where('custody_id', $this->custodyA1->id)->count());
+    }
+
+    public function test_owner_and_brand_manager_cannot_credit_through_the_generic_cash_transaction_writer(): void
+    {
+        foreach ([$this->owner, $this->brandManager] as $actor) {
+            $this->actingAs($actor, 'sanctum')
+                ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/transactions", [
+                    'txnType' => 'credit', 'amount' => 100000, 'source' => 'treasury',
+                ])
+                ->assertStatus(422)
+                ->assertJsonPath('error.code', 'CUSTODY_FUNDING_REQUEST_REQUIRED');
+        }
+
+        $this->assertSame(500000, $this->custodyA1->fresh()->amount);
+        $this->assertSame(0, $this->custodyA1->fresh()->used);
+        $this->assertSame(0, CashTransaction::where('custody_id', $this->custodyA1->id)->count());
+
+        $pendingCredit = CashTransaction::create([
+            'custody_id' => $this->custodyA1->id, 'txn_type' => 'credit', 'amount' => 100000,
+            'description' => 'legacy pending credit', 'status' => 'pending', 'txn_date' => now(),
+            'created_by_id' => $this->accountant->id,
+        ]);
+        $this->actingAs($this->owner, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/transactions/{$pendingCredit->id}/approve")
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'CUSTODY_FUNDING_REQUEST_REQUIRED');
+        $this->actingAs($this->owner, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/transactions/{$pendingCredit->id}/reject", ['reason' => 'use funding request'])
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'CUSTODY_FUNDING_REQUEST_REQUIRED');
+        $this->assertSame('pending', $pendingCredit->fresh()->status);
+        $this->assertSame(500000, $this->custodyA1->fresh()->amount);
+
+        $appliedLegacyCredit = CashTransaction::create([
+            'custody_id' => $this->custodyA1->id, 'txn_type' => 'credit', 'amount' => 50000,
+            'description' => 'legacy approved credit', 'status' => 'approved', 'txn_date' => now(),
+            'created_by_id' => $this->owner->id,
+        ]);
+        $this->custodyA1->update(['amount' => 550000]);
+        $this->actingAs($this->owner, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/transactions/{$appliedLegacyCredit->id}/reject", ['reason' => 'use funding request'])
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'CUSTODY_FUNDING_REQUEST_REQUIRED');
+        $this->assertSame('approved', $appliedLegacyCredit->fresh()->status);
+        $this->assertSame(550000, $this->custodyA1->fresh()->amount);
+    }
+
+    public function test_brand_owner_with_an_explicit_brand_assignment_can_use_only_that_brand_surface(): void
+    {
+        $this->actingAs($this->brandOwner, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/transactions", [
+                'txnType' => 'debit', 'amount' => 10000, 'description' => 'brand-scoped debit',
+            ])
+            ->assertStatus(201);
+
+        $this->actingAs($this->brandOwner, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA2->id}/transactions", [
+                'txnType' => 'debit', 'amount' => 10000, 'description' => 'cross-brand debit',
+            ])
+            ->assertStatus(404);
+
+        $this->assertSame(10000, $this->custodyA1->fresh()->used);
+        $this->assertSame(0, $this->custodyA2->fresh()->used);
+    }
+
+    public function test_inactive_membership_and_revoked_brand_assignment_fail_closed_without_mutation(): void
+    {
+        CompanyUser::where('company_id', $this->companyA->id)
+            ->where('user_id', $this->owner->id)
+            ->update(['status' => 'inactive']);
+
+        $this->actingAs($this->owner, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/transactions", [
+                'txnType' => 'debit', 'amount' => 10000,
+            ])
+            ->assertStatus(403);
+
+        CompanyUser::where('company_id', $this->companyA->id)
+            ->where('user_id', $this->owner->id)
+            ->update(['status' => 'active']);
+        AsabBrand::whereKey($this->brandA1->id)->update(['owner_user_id' => null]);
+
+        $this->actingAs($this->owner, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/transactions", [
+                'txnType' => 'debit', 'amount' => 10000,
+            ])
+            // Once the persisted brand ownership link is revoked, the brand's
+            // custody is outside this user's resource scope and must be hidden.
+            ->assertStatus(404);
+
+        AsabUserRole::where('user_id', $this->brandOwner->id)
+            ->where('role_key', 'brand-owner')
+            ->update(['brand_ids' => [$this->brandA2->id]]);
+        $this->actingAs($this->brandOwner, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/transactions", [
+                'txnType' => 'debit', 'amount' => 10000,
+            ])
+            ->assertStatus(404);
+
+        $this->assertSame(0, $this->custodyA1->fresh()->used);
         $this->assertSame(0, CashTransaction::where('custody_id', $this->custodyA1->id)->count());
     }
 
@@ -266,16 +600,17 @@ class CashCustodyRestrictionTest extends TestCase
 
         $this->assertSame(150000, $this->custodyA1->fresh()->used);
 
-        // 2. Owner can replenish (credit)
+        // Direct top-ups are no longer accepted through the generic transaction writer.
         $this->actingAs($this->owner, 'sanctum')
             ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/transactions", [
                 'txnType' => 'credit',
                 'amount' => 200000,
                 'source' => 'treasury',
             ])
-            ->assertStatus(201);
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'CUSTODY_FUNDING_REQUEST_REQUIRED');
 
-        $this->assertSame(700000, $this->custodyA1->fresh()->amount);
+        $this->assertSame(500000, $this->custodyA1->fresh()->amount);
 
         // 3. Brand Manager can approve pending transactions
         $pending = CashTransaction::create([
@@ -295,15 +630,25 @@ class CashCustodyRestrictionTest extends TestCase
         $this->assertSame('approved', $pending->fresh()->status);
         $this->assertSame(200000, $this->custodyA1->fresh()->used); // 150000 + 50000
 
-        // 4. Owner can settle custody
+        // 4. Owner can settle spent custody, but a settlement cannot smuggle in a top-up.
         SettlementRequest::create(['custody_id' => $this->custodyA1->id, 'status' => 'pending', 'requested_at' => now()]);
 
         $this->actingAs($this->owner, 'sanctum')
             ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/settle", ['newDepositHalalas' => 300000])
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'CUSTODY_FUNDING_REQUEST_REQUIRED');
+
+        $this->actingAs($this->owner, 'sanctum')
+            ->postJson("/api/v1/company/me/cash-custody/{$this->custodyA1->id}/settle")
             ->assertOk();
 
-        $this->assertSame(0, $this->custodyA1->fresh()->used);
-        $this->assertSame(1000000, $this->custodyA1->fresh()->amount); // 700000 + 300000
+        // Closing settlement does not erase approved spending or reopen funds.
+        $this->assertSame(200000, $this->custodyA1->fresh()->used);
+        $this->assertSame(500000, $this->custodyA1->fresh()->amount);
+        $this->assertSame(300000, $this->custodyA1->fresh()->amount - $this->custodyA1->fresh()->used);
+        $this->assertSame(2, CashTransaction::where('custody_id', $this->custodyA1->id)->count());
+        $this->assertSame(0, CashTransaction::where('custody_id', $this->custodyA1->id)
+            ->where('description', 'تسوية العهدة — إغلاق المصروف')->count());
         $this->assertSame(0, SettlementRequest::where('custody_id', $this->custodyA1->id)->where('status', 'pending')->count());
     }
 

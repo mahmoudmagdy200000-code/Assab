@@ -16,11 +16,21 @@ class EmployeeMovement extends Model
     public $incrementing = false;
 
     protected $fillable = [
-        'employee_id', 'movement_date', 'description', 'movement_type', 'category', 'ref', 'amount', 'ref_operation_id', 'created_by_id', 'lineage_key', 'posting_id',
+        'employee_id', 'movement_date', 'description', 'movement_type', 'category', 'ref', 'amount', 'ref_operation_id', 'created_by_id', 'lineage_key', 'posting_id', 'reversal_of_movement_id',
     ];
 
     protected $casts = [
         'movement_date' => 'datetime',
         'amount' => 'integer',
     ];
+
+    public function reversalOf(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(self::class, 'reversal_of_movement_id');
+    }
+
+    public function reversal(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(self::class, 'reversal_of_movement_id');
+    }
 }

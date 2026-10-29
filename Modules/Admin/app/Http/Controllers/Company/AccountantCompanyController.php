@@ -726,7 +726,10 @@ class AccountantCompanyController extends AsabController
     public function cashTransactions(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $custody = $this->scopeToAssignedBranches(CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))->findOrFail($id);
+            $custody = $this->scopeCashCustodyToBrandRole(
+                $this->scopeToAssignedBranches(CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user()))),
+                $request,
+            )->findOrFail($id);
 
             return $this->ok($this->custody->ledger(
                 $custody,
@@ -745,9 +748,12 @@ class AccountantCompanyController extends AsabController
     public function approveTransaction(Request $request, string $id, string $txnId): JsonResponse
     {
         return $this->run(function () use ($request, $id, $txnId) {
-            $custody = $this->scopeToAssignedBranches(CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))->findOrFail($id);
+            $custody = $this->scopeCashCustodyToBrandRole(
+                $this->scopeToAssignedBranches(CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user()))),
+                $request,
+            )->findOrFail($id);
 
-            if (! $this->isCustodyWriteAuthorized($request->user())) {
+            if (! $this->isCustodyWriteAuthorized($request->user(), $custody)) {
                 return $this->fail(
                     'CUSTODY_MANUAL_WRITE_PROHIBITED',
                     'Manual custody approvals are prohibited under policy FUND-04/06.',
@@ -758,6 +764,16 @@ class AccountantCompanyController extends AsabController
             }
 
             $txn = CashTransaction::where('custody_id', $custody->id)->findOrFail($txnId);
+
+            if ($txn->txn_type === 'credit') {
+                return $this->fail(
+                    'CUSTODY_FUNDING_REQUEST_REQUIRED',
+                    'Custody funding must use the approved request and branch receipt workflow.',
+                    'يجب تنفيذ تغذية العهدة عبر طلب معتمد وتأكيد استلام الفرع',
+                    [],
+                    422
+                );
+            }
 
             if ($txn->status === 'rejected') {
                 throw new AsabException('TXN_REJECTED', 'A rejected transaction cannot be approved', 'لا يمكن اعتماد حركة مرفوضة', 409, ['status' => $txn->status]);
@@ -785,9 +801,12 @@ class AccountantCompanyController extends AsabController
     public function rejectTransaction(Request $request, string $id, string $txnId): JsonResponse
     {
         return $this->run(function () use ($request, $id, $txnId) {
-            $custody = $this->scopeToAssignedBranches(CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))->findOrFail($id);
+            $custody = $this->scopeCashCustodyToBrandRole(
+                $this->scopeToAssignedBranches(CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user()))),
+                $request,
+            )->findOrFail($id);
 
-            if (! $this->isCustodyWriteAuthorized($request->user())) {
+            if (! $this->isCustodyWriteAuthorized($request->user(), $custody)) {
                 return $this->fail(
                     'CUSTODY_MANUAL_WRITE_PROHIBITED',
                     'Manual custody transaction rejections are prohibited under policy FUND-04/06.',
@@ -799,6 +818,16 @@ class AccountantCompanyController extends AsabController
 
             $data = $request->validate(['reason' => 'required|string|max:255']);
             $txn = CashTransaction::where('custody_id', $custody->id)->findOrFail($txnId);
+
+            if ($txn->txn_type === 'credit') {
+                return $this->fail(
+                    'CUSTODY_FUNDING_REQUEST_REQUIRED',
+                    'Custody funding decisions must use the approved request and branch receipt workflow.',
+                    'يجب معالجة قرارات تغذية العهدة عبر الطلب المعتمد وتأكيد استلام الفرع',
+                    [],
+                    422
+                );
+            }
 
             if ($txn->status === 'rejected') {
                 return $this->ok(['id' => $txn->id, 'status' => 'rejected']);
@@ -817,16 +846,18 @@ class AccountantCompanyController extends AsabController
     }
 
     /**
-     * ACC-8 / HEAD-4 settle a custody: zero `used`, post the settlement (and any
-     * new-deposit) txn to the ledger for audit, drain pending settlement requests,
-     * and recompute status — all atomically.
+     * Close a custody settlement request without changing financial availability.
+     * Actual funding is posted only by the approved request/receipt workflow.
      */
     public function settleCustody(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $custody = $this->scopeToAssignedBranches(CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))->findOrFail($id);
+            $custody = $this->scopeCashCustodyToBrandRole(
+                $this->scopeToAssignedBranches(CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user()))),
+                $request,
+            )->findOrFail($id);
 
-            if (! $this->isCustodyWriteAuthorized($request->user())) {
+            if (! $this->isCustodyWriteAuthorized($request->user(), $custody)) {
                 return $this->fail(
                     'CUSTODY_MANUAL_WRITE_PROHIBITED',
                     'Manual custody settlements are prohibited under policy FUND-04/06.',
@@ -838,30 +869,28 @@ class AccountantCompanyController extends AsabController
 
             $data = $request->validate(['newDepositHalalas' => 'sometimes|integer|min:0']);
 
-            DB::transaction(function () use ($custody, $data, $request) {
-                $usedBefore = (int) $custody->used;
-                $deposit = (int) ($data['newDepositHalalas'] ?? 0);
+            if ((int) ($data['newDepositHalalas'] ?? 0) > 0) {
+                return $this->fail(
+                    'CUSTODY_FUNDING_REQUEST_REQUIRED',
+                    'Custody funding must use the approved request and branch receipt workflow.',
+                    'يجب تنفيذ تغذية العهدة عبر طلب معتمد وتأكيد استلام الفرع',
+                    [],
+                    422
+                );
+            }
 
-                // Audit trail: a settlement debit clears the spent portion; an
-                // optional deposit credit records the top-up.
-                if ($usedBefore > 0) {
-                    CashTransaction::create([
-                        'custody_id' => $custody->id, 'txn_type' => 'debit', 'amount' => $usedBefore,
-                        'description' => 'تسوية العهدة — إغلاق المصروف', 'txn_date' => now(),
-                        'status' => 'approved', 'source' => 'manual', 'created_by_id' => $request->user()->id,
-                    ]);
-                }
-                if ($deposit > 0) {
-                    CashTransaction::create([
-                        'custody_id' => $custody->id, 'txn_type' => 'credit', 'amount' => $deposit,
-                        'description' => 'تسوية العهدة — إيداع جديد', 'txn_date' => now(),
-                        'status' => 'approved', 'source' => 'treasury', 'created_by_id' => $request->user()->id,
-                    ]);
-                }
+            DB::transaction(function () use (&$custody, $id, $request) {
+                $custody = $this->scopeCashCustodyToBrandRole(
+                    $this->scopeToAssignedBranches(
+                        CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user()))
+                    ),
+                    $request,
+                )->whereKey($id)->lockForUpdate()->firstOrFail();
 
+                // Closing is metadata only. Preserve both amount and approved usage.
                 $custody->update([
-                    'used' => 0, 'last_settlement_at' => now(), 'days_since_settlement' => 0,
-                    'amount' => (int) $custody->amount + $deposit,
+                    'last_settlement_at' => now(),
+                    'days_since_settlement' => 0,
                 ]);
 
                 // Close any pending settlement requests this settlement fulfils.
@@ -873,7 +902,11 @@ class AccountantCompanyController extends AsabController
 
             $custody->refresh();
 
-            return $this->ok(['id' => $custody->id, 'amountHalalas' => (int) $custody->amount, 'usedHalalas' => 0]);
+            return $this->ok([
+                'id' => $custody->id,
+                'amountHalalas' => (int) $custody->amount,
+                'usedHalalas' => (int) $custody->used,
+            ]);
         });
     }
 

@@ -6,6 +6,9 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Services\MobileBranchScopeService;
+use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BrandOwner\Models\BrandOwner;
 use Modules\Custody\Services\CustodyRequestService;
@@ -13,7 +16,8 @@ use Modules\Custody\Services\CustodyRequestService;
 class CustodyRequestController extends BaseController
 {
     public function __construct(
-        private CustodyRequestService $requestService
+        private CustodyRequestService $requestService,
+        private MobileBranchScopeService $branchScope,
     ) {}
 
     /**
@@ -140,12 +144,15 @@ class CustodyRequestController extends BaseController
      *   purpose                 string (required unless reuseRequestId)
      *   preferredReceiptMethod  cash_handover | bank_transfer
      *                           (also accepts "Cash Handover" / "Bank Transfer" for compatibility)
+     *   branchId                UUID    (required for a brand-level actor; must be in their server-resolved scope)
      *   additionalNotes         string (optional)
      *   attachments[]           file   (optional)
      *   reuseRequestId          string (optional — branch-manager only)
      */
     public function store(Request $request): JsonResponse
     {
+        $user = auth()->user();
+        $brandOwnerRequest = $user instanceof BrandOwner;
         $reuseId = $request->input('reuseRequestId');
         $rules = [
             'requestedAmount' => 'required_without:reuseRequestId|numeric|min:1|max:1000000',
@@ -155,6 +162,9 @@ class CustodyRequestController extends BaseController
             'attachments.*' => 'file|mimes:pdf,jpg,jpeg,png,docx|max:5120',
             'additionalNotes' => 'nullable|string|max:1000',
             'reuseRequestId' => 'nullable|exists:custody_requests,id',
+            'branchId' => $brandOwnerRequest
+                ? 'required_without:reuseRequestId|uuid|exists:branches,id'
+                : 'nullable|uuid|exists:branches,id',
         ];
 
         $validator = Validator::make($request->all(), $rules);
@@ -164,15 +174,38 @@ class CustodyRequestController extends BaseController
         }
 
         try {
-            $user = auth()->user();
+            if (! $user instanceof BrandOwner && ! $user instanceof BranchManager) {
+                return $this->errorResponse('Only a brand-level actor or branch manager can create a custody request', 403);
+            }
             $isBrandOwner = $user instanceof BrandOwner;
+
+            $branchId = $isBrandOwner ? $request->input('branchId') : ($user->branch_id ?? null);
+            $branchManagerId = $isBrandOwner ? null : $user->id;
+            if ($isBrandOwner) {
+                if (! $branchId && $reuseId) {
+                    $previous = \Modules\Custody\Models\CustodyRequest::query()
+                        ->whereKey($reuseId)
+                        ->where('created_by_brand_owner_id', $user->id)
+                        ->first();
+                    $branchId = $previous?->branch_id;
+                }
+                if (! $branchId || ! in_array((string) $branchId, array_map('strval', $this->branchScope->visibleBranchIds($user)), true)) {
+                    return $this->errorResponse('Target branch not found', 404);
+                }
+                $targetBranch = Branch::query()->whereKey($branchId)->first();
+                $targetManager = $targetBranch?->branchManager()->where('is_active', true)->first();
+                if ($targetBranch === null || $targetManager === null) {
+                    return $this->errorResponse('Target branch has no active branch manager', 422);
+                }
+                $branchManagerId = $targetManager->id;
+            }
 
             $method = $request->input('preferredReceiptMethod');
             $normalizedMethod = $this->normalizeReceiptMethod($method);
 
             $data = [
-                'branch_manager_id' => $isBrandOwner ? null : $user->id,
-                'branch_id' => $isBrandOwner ? null : ($user->branch_id ?? null),
+                'branch_manager_id' => $branchManagerId,
+                'branch_id' => $branchId,
                 'created_by_brand_owner_id' => $isBrandOwner ? $user->id : null,
                 'requestedAmount' => $request->input('requestedAmount'),
                 'purpose' => $request->input('purpose'),
@@ -266,6 +299,51 @@ class CustodyRequestController extends BaseController
             ], 'Custody request approved');
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 400);
+        }
+    }
+
+    /** Accountant-only Execute/Send. This writes durable transfer evidence but posts no money. */
+    public function execute(Request $request, string $requestId): JsonResponse
+    {
+        $user = auth()->user();
+        if (! $user instanceof AsabUser
+            || ! $user->roleAssignments()->where('role_key', 'accountant')->exists()) {
+            return $this->errorResponse('Only an assigned accountant can execute a custody transfer', 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'transferReference' => 'required|string|min:2|max:120',
+            'proof' => 'required|file|mimes:pdf,jpg,jpeg,png|max:5120',
+        ]);
+        if ($validator->fails()) {
+            return $this->validationErrorResponse($validator->errors());
+        }
+
+        try {
+            $custodyRequest = $this->requestService->executeFundingRequest(
+                $requestId,
+                $user,
+                $request->string('transferReference')->toString(),
+                $request->file('proof'),
+            );
+
+            return $this->successResponse([
+                'requestId' => $custodyRequest->id,
+                'status' => $this->normalizeStatus($custodyRequest->status),
+                'executedAt' => $custodyRequest->executed_at?->toIso8601String(),
+                'transferReference' => $custodyRequest->transfer_reference,
+                'financiallyPosted' => false,
+            ], 'Custody transfer execution recorded; receipt confirmation is still required');
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return $this->errorResponse('Custody request not found', 404);
+        } catch (\Illuminate\Database\QueryException $e) {
+            report($e);
+            return $this->errorResponse('Could not record custody transfer execution.', 500);
+        } catch (\RuntimeException $e) {
+            return $this->errorResponse($e->getMessage(), 422);
+        } catch (\Throwable $e) {
+            report($e);
+            return $this->errorResponse('Could not record custody transfer execution.', 500);
         }
     }
 

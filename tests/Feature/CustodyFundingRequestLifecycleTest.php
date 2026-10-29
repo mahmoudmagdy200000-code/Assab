@@ -4,9 +4,13 @@ namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Http\UploadedFile;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\AsabBrand;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BrandOwner\Models\BrandManager;
@@ -44,6 +48,8 @@ class CustodyFundingRequestLifecycleTest extends TestCase
     private BranchManager $manager;
 
     private BrandOwner $owner;
+
+    private ?AsabUser $accountantActor = null;
 
     protected function setUp(): void
     {
@@ -116,6 +122,46 @@ class CustodyFundingRequestLifecycleTest extends TestCase
         return $this->actingAs($as ?? $this->manager, 'sanctum')->postJson("/api/custody/requests/$id/resubmit");
     }
 
+    private function accountant(): AsabUser
+    {
+        if ($this->accountantActor === null) {
+            $this->accountantActor = AsabUser::create([
+                'company_id' => $this->branch->asab_company_id,
+                'name' => 'Custody Accountant',
+                'email' => 'custody-accountant@fund-req.test',
+                'password' => 'secret-password',
+                'status' => 'active',
+            ]);
+            CompanyUser::create([
+                'company_id' => $this->branch->asab_company_id,
+                'user_id' => $this->accountantActor->id,
+                'role_key' => 'accountant',
+                'status' => 'active',
+            ]);
+            AsabUserRole::create([
+                'user_id' => $this->accountantActor->id,
+                'role_key' => 'accountant',
+                'scope' => 'branch',
+                'branch_ids' => [$this->branch->id],
+            ]);
+        }
+
+        return $this->accountantActor;
+    }
+
+    private function execute(string $id)
+    {
+        return $this->executeAs($id, $this->accountant());
+    }
+
+    private function executeAs(string $id, AsabUser $actor)
+    {
+        return $this->actingAs($actor, 'sanctum')->post('/api/custody/requests/'.$id.'/execute', [
+            'transferReference' => 'TRX-'.substr($id, 0, 8),
+            'proof' => UploadedFile::fake()->create('transfer-proof.pdf', 20, 'application/pdf'),
+        ], ['Accept' => 'application/json']);
+    }
+
     private function custodyBalance(): float
     {
         return (float) $this->actingAs($this->manager, 'sanctum')->getJson('/api/branch-manager/ledger/branch-custody-balance')
@@ -139,10 +185,50 @@ class CustodyFundingRequestLifecycleTest extends TestCase
         $this->assertSame(0.0, $this->custodyBalance());
     }
 
+    public function test_owner_created_request_is_mapped_to_an_explicit_in_scope_branch_and_manager(): void
+    {
+        $response = $this->actingAs($this->owner, 'sanctum')->postJson('/api/custody/request-cashin', [
+            'branchId' => $this->branch->id,
+            'requestedAmount' => 300,
+            'purpose' => 'branch replenishment',
+            'preferredReceiptMethod' => 'bank_transfer',
+        ])->assertStatus(201);
+
+        $this->assertDatabaseHas('custody_requests', [
+            'id' => $response->json('data.requestId'),
+            'branch_id' => $this->branch->id,
+            'branch_manager_id' => $this->manager->id,
+            'created_by_brand_owner_id' => $this->owner->id,
+        ]);
+    }
+
+    public function test_owner_request_without_an_explicit_branch_is_rejected_and_not_guessed(): void
+    {
+        $this->actingAs($this->owner, 'sanctum')->postJson('/api/custody/request-cashin', [
+            'requestedAmount' => 300,
+            'purpose' => 'branch replenishment',
+            'preferredReceiptMethod' => 'bank_transfer',
+        ])->assertStatus(422)->assertJsonValidationErrors('branchId');
+
+        $this->assertSame(0, CustodyRequest::where('created_by_brand_owner_id', $this->owner->id)->count());
+    }
+
     public function test_ac59_the_increase_is_posted_once_at_receipt_confirmation_and_never_again(): void
     {
         $id = $this->raise(800);
         $this->approve($id)->assertOk();
+
+        $this->receive($id)->assertStatus(422);
+        $this->assertSame(0, $this->postedFor($id));
+        $this->execute($id)->assertOk()->assertJsonPath('data.financiallyPosted', false);
+        $this->assertDatabaseHas('custody_requests', [
+            'id' => $id,
+            'executed_by_user_id' => $this->accountant()->id,
+            'transfer_reference' => 'TRX-'.substr($id, 0, 8),
+        ]);
+        $this->assertNotNull(CustodyRequest::findOrFail($id)->execution_proof_sha256);
+        $this->assertSame(0, $this->postedFor($id), 'accountant send must not post cash');
+        $this->execute($id)->assertStatus(422);
 
         $this->receive($id)->assertOk()->assertJsonPath('data.status', 'completed');
         $this->assertSame(1, $this->postedFor($id));
@@ -152,6 +238,89 @@ class CustodyFundingRequestLifecycleTest extends TestCase
         $this->receive($id)->assertStatus(422);
         $this->assertSame(1, $this->postedFor($id));
         $this->assertSame(800.0, $this->custodyBalance());
+    }
+
+    public function test_accountant_execution_is_denied_for_company_admin_and_foreign_branch_scope(): void
+    {
+        $id = $this->raise(250);
+        $this->approve($id)->assertOk();
+
+        $companyAdmin = AsabUser::create([
+            'company_id' => $this->branch->asab_company_id,
+            'name' => 'Company Admin', 'email' => 'custody-admin@fund-req.test',
+            'password' => 'secret-password', 'status' => 'active',
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->branch->asab_company_id,
+            'user_id' => $companyAdmin->id, 'role_key' => 'company-admin', 'status' => 'active',
+        ]);
+        AsabUserRole::create([
+            'user_id' => $companyAdmin->id, 'role_key' => 'accountant', 'scope' => 'branch',
+            'branch_ids' => [$this->branch->id],
+        ]);
+        $this->executeAs($id, $companyAdmin)->assertNotFound();
+
+        $otherBrand = AsabBrand::create([
+            'company_id' => $this->branch->asab_company_id,
+            'name' => 'Other Brand', 'abbr' => 'OB', 'status' => 'active',
+        ]);
+        $otherBrandBranch = Branch::factory()->create([
+            'asab_company_id' => $this->branch->asab_company_id,
+            'asab_brand_id' => $otherBrand->id,
+        ]);
+        $otherBrandAccountant = AsabUser::create([
+            'company_id' => $this->branch->asab_company_id,
+            'name' => 'Other Brand Accountant', 'email' => 'other-brand-accountant@fund-req.test',
+            'password' => 'secret-password', 'status' => 'active',
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->branch->asab_company_id,
+            'user_id' => $otherBrandAccountant->id, 'role_key' => 'accountant', 'status' => 'active',
+        ]);
+        AsabUserRole::create([
+            'user_id' => $otherBrandAccountant->id, 'role_key' => 'accountant', 'scope' => 'brand',
+            'brand_ids' => [$otherBrand->id], 'branch_ids' => [$otherBrandBranch->id],
+        ]);
+        $this->executeAs($id, $otherBrandAccountant)->assertNotFound();
+
+        $foreignCompany = AsabCompany::create(['name' => 'Foreign Co', 'plan' => 'Professional', 'status' => 'active']);
+        $foreignBrand = AsabBrand::create(['company_id' => $foreignCompany->id, 'name' => 'Foreign Brand', 'abbr' => 'FB', 'status' => 'active']);
+        $foreignBranch = Branch::factory()->create([
+            'asab_company_id' => $foreignCompany->id,
+            'asab_brand_id' => $foreignBrand->id,
+        ]);
+        $foreignAccountant = AsabUser::create([
+            'company_id' => $foreignCompany->id,
+            'name' => 'Foreign Accountant', 'email' => 'foreign-accountant@fund-req.test',
+            'password' => 'secret-password', 'status' => 'active',
+        ]);
+        CompanyUser::create([
+            'company_id' => $foreignCompany->id,
+            'user_id' => $foreignAccountant->id, 'role_key' => 'accountant', 'status' => 'active',
+        ]);
+        AsabUserRole::create([
+            'user_id' => $foreignAccountant->id, 'role_key' => 'accountant', 'scope' => 'branch',
+            'branch_ids' => [$foreignBranch->id],
+        ]);
+        $this->executeAs($id, $foreignAccountant)->assertNotFound();
+
+        $this->assertNull(CustodyRequest::findOrFail($id)->executed_at);
+        $this->assertSame(0, $this->postedFor($id));
+    }
+
+    public function test_failed_execution_save_rolls_back_evidence_and_removes_the_stored_proof(): void
+    {
+        Storage::fake('local');
+        $id = $this->raise(250);
+        $this->approve($id)->assertOk();
+        DB::unprepared("CREATE TRIGGER fail_custody_execution BEFORE UPDATE ON custody_requests BEGIN SELECT RAISE(ABORT, 'forced execution persistence failure'); END");
+
+        $this->execute($id)->assertStatus(500);
+
+        $this->assertNull(CustodyRequest::findOrFail($id)->executed_at);
+        $this->assertNull(CustodyRequest::findOrFail($id)->execution_proof_path);
+        $this->assertSame([], Storage::disk('local')->allFiles('custody-requests/'.$id));
+        $this->assertSame(0, $this->postedFor($id));
     }
 
     public function test_ac59_a_request_that_was_never_approved_or_was_rejected_cannot_be_received(): void
@@ -249,6 +418,7 @@ class CustodyFundingRequestLifecycleTest extends TestCase
         // The new review cycle completes normally and funds the branch exactly once.
         $this->approve($id)->assertOk();
         $this->assertSame(0.0, $this->custodyBalance());
+        $this->execute($id)->assertOk();
         $this->receive($id)->assertOk();
         $this->assertSame(900.0, $this->custodyBalance());
         $this->assertSame(1, $this->postedFor($id));
@@ -277,6 +447,7 @@ class CustodyFundingRequestLifecycleTest extends TestCase
         $this->resubmit($id)->assertStatus(400);
         $this->approve($id)->assertOk();
         $this->resubmit($id)->assertStatus(400);
+        $this->execute($id)->assertOk();
         $this->receive($id)->assertOk();
         $this->resubmit($id)->assertStatus(400);
 

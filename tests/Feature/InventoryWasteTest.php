@@ -277,7 +277,89 @@ class InventoryWasteTest extends TestCase
         $this->acc()->postJson("/api/v1/accountant/inventory/branches/{$this->branchA->id}/daily-variance-allocation", $body)->assertOk();
 
         // Two identical saves → exactly one debit, not two.
-        $this->assertSame(1, EmployeeMovement::where('category', 'inventory_variance')->count());
+        $this->assertSame(1, EmployeeMovement::where('category', 'inventory_variance')->whereDoesntHave('reversal')->count());
+        $this->assertSame(0, EmployeeMovement::whereNotNull('reversal_of_movement_id')->count());
+    }
+
+    public function test_replacing_daily_variance_preserves_original_and_posts_one_compensating_reversal(): void
+    {
+        $this->inventoryOp([['itemId' => 'sku-1', 'name' => 'أرز', 'expectedQty' => 10, 'actualQty' => 8, 'unitPriceHalalas' => 1000]]);
+        $date = now()->toDateString();
+        $url = "/api/v1/accountant/inventory/branches/{$this->branchA->id}/daily-variance-allocation";
+
+        $this->acc()->postJson($url, [
+            'date' => $date,
+            'items' => [['itemId' => 'sku-1', 'allocations' => [['employeeId' => $this->emp1->id, 'qty' => 2]]]],
+        ])->assertOk();
+        $original = EmployeeMovement::where('category', 'inventory_variance')->sole();
+
+        $this->acc()->postJson($url, [
+            'date' => $date,
+            'items' => [['itemId' => 'sku-1', 'allocations' => [['employeeId' => $this->emp2->id, 'qty' => 1]]]],
+        ])->assertOk();
+        $this->acc()->postJson($url, [
+            'date' => $date,
+            'items' => [['itemId' => 'sku-1', 'allocations' => [['employeeId' => $this->emp2->id, 'qty' => 1]]]],
+        ])->assertOk();
+
+        $this->assertDatabaseHas('asab_employee_movements', ['id' => $original->id, 'movement_type' => 'debit', 'amount' => 2000]);
+        $reversal = EmployeeMovement::where('reversal_of_movement_id', $original->id)->sole();
+        $this->assertSame('credit', $reversal->movement_type);
+        $this->assertSame(2000, (int) $reversal->amount);
+        $this->assertSame((string) $original->employee_id, (string) $reversal->employee_id);
+        $this->assertSame(1, EmployeeMovement::where('category', 'inventory_variance')->whereDoesntHave('reversal')->count());
+        $this->assertSame(1, EmployeeMovement::where('category', 'inventory_variance_reversal')->count());
+        $this->assertSame(0, app(\Modules\Admin\Services\EmployeeLedgerService::class)->currentBalance($this->emp1->id));
+        $this->assertSame(-1000, app(\Modules\Admin\Services\EmployeeLedgerService::class)->currentBalance($this->emp2->id));
+    }
+
+    public function test_invalid_daily_variance_replacement_preserves_existing_ledger_rows(): void
+    {
+        $this->inventoryOp([['itemId' => 'sku-1', 'name' => 'أرز', 'expectedQty' => 10, 'actualQty' => 8, 'unitPriceHalalas' => 1000]]);
+        $date = now()->toDateString();
+        $url = "/api/v1/accountant/inventory/branches/{$this->branchA->id}/daily-variance-allocation";
+
+        $this->acc()->postJson($url, [
+            'date' => $date,
+            'items' => [['itemId' => 'sku-1', 'allocations' => [['employeeId' => $this->emp1->id, 'qty' => 2]]]],
+        ])->assertOk();
+
+        $originalMovementId = EmployeeMovement::where('category', 'inventory_variance')->sole()->id;
+        $originalPayload = Operation::where('module_key', 'inventory')->sole()->payload;
+
+        $this->acc()->postJson($url, [
+            'date' => $date,
+            'items' => [['itemId' => 'sku-1', 'allocations' => [['employeeId' => 'not-in-this-branch', 'qty' => 2]]]],
+        ])->assertStatus(422);
+
+        $this->assertSame($originalMovementId, EmployeeMovement::where('category', 'inventory_variance')->sole()->id);
+        $this->assertSame($originalPayload, Operation::where('module_key', 'inventory')->sole()->payload);
+    }
+
+    public function test_reallocation_after_employee_settlement_keeps_both_financial_events(): void
+    {
+        $this->inventoryOp([['itemId' => 'sku-1', 'name' => 'أرز', 'expectedQty' => 10, 'actualQty' => 8, 'unitPriceHalalas' => 1000]]);
+        $date = now()->toDateString();
+        $url = "/api/v1/accountant/inventory/branches/{$this->branchA->id}/daily-variance-allocation";
+        $this->acc()->postJson($url, [
+            'date' => $date,
+            'items' => [['itemId' => 'sku-1', 'allocations' => [['employeeId' => $this->emp1->id, 'qty' => 2]]]],
+        ])->assertOk();
+
+        $service = app(\Modules\Admin\Services\EmployeeLedgerService::class);
+        $settlement = $service->settleBalance($this->emp1, null, $this->accountant, 'Inventory replacement regression');
+        $settlement = $service->approveSettlement($settlement['id'], $this->accountant);
+        $this->assertSame(0, $settlement['balanceHalalas']);
+
+        $this->acc()->postJson($url, [
+            'date' => $date,
+            'items' => [['itemId' => 'sku-1', 'allocations' => [['employeeId' => $this->emp2->id, 'qty' => 1]]]],
+        ])->assertOk();
+
+        $this->assertSame(2000, app(\Modules\Admin\Services\EmployeeLedgerService::class)->currentBalance($this->emp1->id));
+        $this->assertSame(-1000, app(\Modules\Admin\Services\EmployeeLedgerService::class)->currentBalance($this->emp2->id));
+        $this->assertSame(1, EmployeeMovement::where('category', 'settlement')->count());
+        $this->assertSame(1, EmployeeMovement::where('reversal_of_movement_id', EmployeeMovement::where('category', 'inventory_variance')->oldest('created_at')->value('id'))->count());
     }
 
     public function test_daily_variance_allocation_without_op_is_404(): void

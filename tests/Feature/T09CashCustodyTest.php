@@ -16,7 +16,7 @@ use Tests\TestCase;
 
 /**
  * T09 §7 ACC-8 / §8 HEAD-4 — cash custody: derived status + KPIs, the txn
- * lifecycle (pending/approve/reject/overdraw), replenish, settle, monthly
+ * lifecycle (pending/approve/reject/overdraw), funding guard, settle, monthly
  * ledger, head access, and tenant isolation.
  */
 class T09CashCustodyTest extends TestCase
@@ -37,25 +37,28 @@ class T09CashCustodyTest extends TestCase
 
     private AsabUser $owner;
 
+    private AsabBrand $brand;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->company = AsabCompany::create(['name' => 'Custody Co', 'plan' => 'Professional', 'status' => 'active']);
-        $brand = AsabBrand::create(['company_id' => $this->company->id, 'name' => 'براند', 'sub_status' => 'active', 'status' => 'active']);
-        $this->branchA = Branch::factory()->create(['name' => 'فرع أ', 'asab_brand_id' => $brand->id, 'asab_company_id' => $this->company->id]);
-        $this->branchB = Branch::factory()->create(['name' => 'فرع ب', 'asab_brand_id' => $brand->id, 'asab_company_id' => $this->company->id]);
+        $this->brand = AsabBrand::create(['company_id' => $this->company->id, 'name' => 'براند', 'sub_status' => 'active', 'status' => 'active']);
+        $this->branchA = Branch::factory()->create(['name' => 'فرع أ', 'asab_brand_id' => $this->brand->id, 'asab_company_id' => $this->company->id]);
+        $this->branchB = Branch::factory()->create(['name' => 'فرع ب', 'asab_brand_id' => $this->brand->id, 'asab_company_id' => $this->company->id]);
 
         $this->accountant = $this->user('acc@custody.test', 'accountant', 'all');
         $this->head = $this->user('head@custody.test', 'head', 'all');
         $this->branchUser = $this->user('brm@custody.test', 'branch', 'branch', [$this->branchA->id]);
-        $this->owner = $this->user('owner@custody.test', 'company-admin', 'all');
+        $this->owner = $this->user('owner@custody.test', 'owner', 'brand', [], [$this->brand->id]);
+        $this->brand->update(['owner_user_id' => $this->owner->id]);
     }
 
-    private function user(string $email, string $role, string $scope, array $branchIds = []): AsabUser
+    private function user(string $email, string $role, string $scope, array $branchIds = [], array $brandIds = []): AsabUser
     {
         $u = AsabUser::create(['company_id' => $this->company->id, 'name' => $role, 'email' => $email, 'password' => 'secret-password', 'status' => 'active']);
-        AsabUserRole::create(['user_id' => $u->id, 'role_key' => $role, 'scope' => $scope, 'branch_ids' => $branchIds]);
+        AsabUserRole::create(['user_id' => $u->id, 'role_key' => $role, 'scope' => $scope, 'branch_ids' => $branchIds, 'brand_ids' => $brandIds]);
         CompanyUser::create([
             'company_id' => $this->company->id,
             'user_id' => $u->id,
@@ -108,7 +111,7 @@ class T09CashCustodyTest extends TestCase
         $this->assertSame('حرج', $byId[$critical->id]['statusLabelAr']);
     }
 
-    // ── ACC-8.2 addTransaction: replenish / disburse / overdraw / recompute ──────
+    // ── ACC-8.2 generic transaction writer: disburse / reject top-up / overdraw ──
 
     public function test_add_transaction_applies_and_guards_overdraw(): void
     {
@@ -127,11 +130,11 @@ class T09CashCustodyTest extends TestCase
         $this->assertSame(150000, $c->fresh()->used);
         $this->assertSame('low', $c->fresh()->status);
 
-        // Credit replenish by authorized owner raises amount.
+        // Replenishment cannot be posted through the generic transaction writer.
         $this->owner()->postJson("/api/v1/company/me/cash-custody/{$c->id}/transactions", [
             'txnType' => 'credit', 'amount' => 100000, 'source' => 'treasury',
-        ])->assertStatus(201);
-        $this->assertSame(700000, $c->fresh()->amount);
+        ])->assertStatus(422)->assertJsonPath('error.code', 'CUSTODY_FUNDING_REQUEST_REQUIRED');
+        $this->assertSame(600000, $c->fresh()->amount);
 
         // Overdraw → 422.
         $this->owner()->postJson("/api/v1/company/me/cash-custody/{$c->id}/transactions", [
@@ -180,6 +183,11 @@ class T09CashCustodyTest extends TestCase
         $this->owner()->postJson("/api/v1/company/me/cash-custody/{$c->id}/transactions/{$pendingId}/reject", ['reason' => 'خطأ'])->assertOk();
         $this->assertSame(0, $c->fresh()->used);
         $this->assertSame('خطأ', CashTransaction::find($pendingId)->reason);
+
+        // A retry must not reverse the same approved debit a second time.
+        $this->owner()->postJson("/api/v1/company/me/cash-custody/{$c->id}/transactions/{$pendingId}/reject", ['reason' => 'إعادة المحاولة'])->assertOk();
+        $this->assertSame(0, $c->fresh()->used);
+        $this->assertSame(0, CashTransaction::where('custody_id', $c->id)->where('txn_type', 'credit')->count());
     }
 
     // ── ACC-8 settle ────────────────────────────────────────────────────────────
@@ -195,16 +203,21 @@ class T09CashCustodyTest extends TestCase
         $this->assertSame(200000, $c->fresh()->used);
         $this->assertSame(1000000, $c->fresh()->amount);
 
-        // Authorized owner settles.
+        // An optional deposit cannot bypass the approved request/receipt workflow.
         $this->owner()->postJson("/api/v1/company/me/cash-custody/{$c->id}/settle", ['newDepositHalalas' => 300000])
-            ->assertOk();
+            ->assertStatus(422)->assertJsonPath('error.code', 'CUSTODY_FUNDING_REQUEST_REQUIRED');
+        $this->assertSame(200000, $c->fresh()->used);
+        $this->assertSame(1000000, $c->fresh()->amount);
+
+        $this->owner()->postJson("/api/v1/company/me/cash-custody/{$c->id}/settle", [])->assertOk();
 
         $c->refresh();
-        $this->assertSame(0, $c->used);
-        $this->assertSame(1300000, $c->amount); // 1,000,000 + 300,000 deposit
-        // A settlement debit (200,000) + a deposit credit (300,000) recorded.
-        $this->assertSame(1, CashTransaction::where('custody_id', $c->id)->where('description', 'تسوية العهدة — إغلاق المصروف')->count());
-        $this->assertSame(1, CashTransaction::where('custody_id', $c->id)->where('description', 'تسوية العهدة — إيداع جديد')->count());
+        $this->assertSame(200000, $c->used);
+        $this->assertSame(1000000, $c->amount);
+        $this->assertSame(800000, $c->amount - $c->used);
+        // Closure is non-financial; funding is not posted as a side effect.
+        $this->assertSame(0, CashTransaction::where('custody_id', $c->id)->where('description', 'تسوية العهدة — إغلاق المصروف')->count());
+        $this->assertSame(0, CashTransaction::where('custody_id', $c->id)->where('description', 'تسوية العهدة — إيداع جديد')->count());
         // Pending request drained.
         $this->assertSame(0, SettlementRequest::where('custody_id', $c->id)->where('status', 'pending')->count());
     }
@@ -225,11 +238,11 @@ class T09CashCustodyTest extends TestCase
         // Branch role cannot reach custody.
         $this->actingAs($this->branchUser, 'sanctum')->getJson('/api/v1/company/me/cash-custody')->assertStatus(403);
 
-        // Authorized owner can credit and settle.
+        // The generic path cannot replenish; settlement itself remains available.
         $this->owner()->postJson("/api/v1/company/me/cash-custody/{$c->id}/transactions", [
             'txnType' => 'credit', 'amount' => 500000, 'source' => 'treasury',
-        ])->assertStatus(201);
-        $this->assertSame(1500000, $c->fresh()->amount);
+        ])->assertStatus(422)->assertJsonPath('error.code', 'CUSTODY_FUNDING_REQUEST_REQUIRED');
+        $this->assertSame(1000000, $c->fresh()->amount);
         $this->owner()->postJson("/api/v1/company/me/cash-custody/{$c->id}/settle", [])->assertOk();
     }
 
@@ -238,8 +251,13 @@ class T09CashCustodyTest extends TestCase
     public function test_monthly_ledger_running_balance_and_type_labels(): void
     {
         $c = $this->custody($this->branchA, 500000);
-        // Approved credit (وارد) + debit (صادر) this month by owner.
-        $this->owner()->postJson("/api/v1/company/me/cash-custody/{$c->id}/transactions", ['txnType' => 'credit', 'amount' => 200000, 'source' => 'treasury'])->assertStatus(201);
+        // Existing approved credit (historical funding evidence) + a current debit.
+        CashTransaction::create([
+            'custody_id' => $c->id, 'txn_type' => 'credit', 'amount' => 200000,
+            'description' => 'historical approved funding', 'status' => 'approved', 'source' => 'treasury',
+            'txn_date' => now(), 'created_by_id' => $this->owner->id,
+        ]);
+        $c->update(['amount' => 700000]);
         $this->owner()->postJson("/api/v1/company/me/cash-custody/{$c->id}/transactions", ['txnType' => 'debit', 'amount' => 100000, 'description' => 'صرف'])->assertStatus(201);
 
         $body = $this->acc()->getJson("/api/v1/company/me/cash-custody/{$c->id}/transactions?month=".now()->format('Y-m'))
