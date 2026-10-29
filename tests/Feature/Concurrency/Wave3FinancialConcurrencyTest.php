@@ -477,7 +477,7 @@ PHP;
             'password' => 'secret',
             'status' => 'active',
         ]);
-        CompanyUser::create(['company_id' => $company->id, 'user_id' => $user->id, 'status' => 'active']);
+        CompanyUser::create(['company_id' => $company->id, 'user_id' => $user->id, 'role_key' => 'head', 'status' => 'active']);
         AsabUserRole::create(['company_id' => $company->id, 'user_id' => $user->id, 'role_name' => 'Head Accountant']);
 
         $slot = Shift::factory()->create(['branch_id' => $branch->id]);
@@ -578,7 +578,7 @@ PHP;
             'password' => 'secret',
             'status' => 'active',
         ]);
-        CompanyUser::create(['company_id' => $company->id, 'user_id' => $user->id, 'status' => 'active']);
+        CompanyUser::create(['company_id' => $company->id, 'user_id' => $user->id, 'role_key' => 'accountant', 'status' => 'active']);
 
         $employee = Employee::create([
             'asab_company_id' => $company->id,
