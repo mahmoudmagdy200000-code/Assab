@@ -12,6 +12,7 @@ use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\EmployeeMovement;
 use Modules\Admin\Models\Operation;
+use Modules\Admin\Services\OperationSequence;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
@@ -478,7 +479,7 @@ PHP;
             'status' => 'active',
         ]);
         CompanyUser::create(['company_id' => $company->id, 'user_id' => $user->id, 'role_key' => 'head', 'status' => 'active']);
-        AsabUserRole::create(['company_id' => $company->id, 'user_id' => $user->id, 'role_name' => 'Head Accountant']);
+        AsabUserRole::create(['user_id' => $user->id, 'role_key' => 'head']);
 
         $slot = Shift::factory()->create(['branch_id' => $branch->id]);
         $cashier = Cashier::factory()->create(['branch_id' => $branch->id]);
@@ -486,8 +487,11 @@ PHP;
         $shift = CashierShift::factory()->create(['cashier_id' => $cashier->id, 'shift_id' => $slot->id]);
 
         $employee = Employee::create([
-            'asab_company_id' => $company->id,
+            'company_id' => $company->id,
+            'branch_id' => $branch->id,
+            'emp_number' => 'EMP_' . Str::random(6),
             'name' => 'Shortage Concurrency Employee',
+            'role' => 'staff',
             'standing_balance_halalas' => -5000,
         ]);
         $this->createdEmployeeIds[] = $employee->id;
@@ -571,6 +575,10 @@ PHP;
     {
         $company = AsabCompany::create(['name' => 'BE15 Concurrency Co', 'plan' => 'Pro', 'status' => 'active']);
         $this->createdCompanyIds[] = $company->id;
+        $brand = AsabBrand::create(['company_id' => $company->id, 'name' => 'Brand', 'status' => 'active', 'sub_status' => 'active']);
+        $branch = Branch::factory()->create(['asab_company_id' => $company->id, 'asab_brand_id' => $brand->id]);
+        $this->createdBranchIds[] = $branch->id;
+
         $user = AsabUser::create([
             'company_id' => $company->id,
             'name' => 'Idempotency User',
@@ -581,18 +589,26 @@ PHP;
         CompanyUser::create(['company_id' => $company->id, 'user_id' => $user->id, 'role_key' => 'accountant', 'status' => 'active']);
 
         $employee = Employee::create([
-            'asab_company_id' => $company->id,
+            'company_id' => $company->id,
+            'branch_id' => $branch->id,
+            'emp_number' => 'EMP_' . Str::random(6),
             'name' => 'Allocation Concurrency Emp',
+            'role' => 'staff',
             'standing_balance_halalas' => 0,
         ]);
         $this->createdEmployeeIds[] = $employee->id;
 
         $op = Operation::create([
+            'public_id' => OperationSequence::next('WD'),
             'company_id' => $company->id,
-            'type' => 'waste',
-            'status' => 'posted',
-            'total_amount' => 1000.00,
-            'total_halalas' => 100000,
+            'branch_id' => $branch->id,
+            'module_key' => 'waste',
+            'amount' => 10000,
+            'match' => 'exact',
+            'origin' => 'mobile',
+            'status' => 'approved',
+            'operation_date' => now(),
+            'payload' => [],
         ]);
         $this->createdOperationIds[] = $op->id;
 
