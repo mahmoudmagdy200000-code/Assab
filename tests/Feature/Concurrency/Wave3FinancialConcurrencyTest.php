@@ -452,11 +452,12 @@ PHP;
         $this->assertSame('confirmed', $reversalFresh->status);
         $this->assertNotNull($reversalFresh->confirmed_at);
 
-        $custodyReversals = CashierCustodyTransaction::where('reversal_id', $reversal->id)->count();
-        $personalReversals = PersonalLedgerTransaction::where('reversal_id', $reversal->id)->count();
+        $senderCustody = CashierCustodyTransaction::where('reversal_id', $reversal->id)->where('cashier_id', $sender->id)->where('is_cash_in', true)->count();
+        $recipientCustody = CashierCustodyTransaction::where('reversal_id', $reversal->id)->where('cashier_id', $recipient->id)->where('is_cash_in', false)->count();
 
-        $this->assertSame(1, $custodyReversals, 'Exactly one cashier custody reversal transaction must be recorded.');
-        $this->assertSame(1, $personalReversals, 'Exactly one personal ledger reversal transaction must be recorded.');
+        $this->assertSame(1, $senderCustody, 'Exactly one cashier custody reversal-in transaction must be recorded for sender.');
+        $this->assertSame(1, $recipientCustody, 'Exactly one cashier custody reversal-out transaction must be recorded for recipient.');
+        $this->assertSame(2, CashierCustodyTransaction::where('reversal_id', $reversal->id)->count(), 'Exactly one pair of reversal ledger rows recorded.');
     }
 
     /**
@@ -559,7 +560,7 @@ PHP;
 
         // Assert statement projects reviewStatus as approved with exactly 1 movement (zero duplicate debits)
         $service = app(\Modules\Admin\Services\EmployeeLedgerService::class);
-        $statement = $service->statement($employee);
+        $statement = $service->statement($employee, null);
 
         $this->assertCount(1, $statement['movements']);
         $this->assertSame('approved', $statement['movements'][0]['reviewStatus']);
