@@ -130,6 +130,8 @@ class Wave3FinancialConcurrencyTest extends TestCase
                 DB::table('cashier_shift_handover_receipts')->whereIn('receiving_cashier_id', $this->createdCashierIds)->delete();
                 DB::table('cashier_shift_handovers')->whereIn('branch_id', $this->createdBranchIds)->delete();
                 DB::table('shift_report_manager_reviews')->whereIn('branch_id', $this->createdBranchIds)->delete();
+                DB::table('shift_report_revisions')->delete();
+                DB::table('shift_report_aggregates')->delete();
                 DB::table('cashier_custody_transactions')->whereIn('cashier_id', $this->createdCashierIds)->delete();
                 DB::table('cashier_shifts')->whereIn('cashier_id', $this->createdCashierIds)->delete();
                 DB::table('cashiers')->whereIn('id', $this->createdCashierIds)->delete();
@@ -365,8 +367,8 @@ PHP;
         $this->createdCashierIds[] = $recipient->id;
 
         $slot = Shift::factory()->create(['branch_id' => $branch->id]);
-        $senderShift = CashierShift::factory()->create(['cashier_id' => $sender->id, 'shift_id' => $slot->id, 'branch_id' => $branch->id]);
-        $recipientShift = CashierShift::factory()->create(['cashier_id' => $recipient->id, 'shift_id' => $slot->id, 'branch_id' => $branch->id]);
+        $senderShift = CashierShift::factory()->create(['cashier_id' => $sender->id, 'shift_id' => $slot->id]);
+        $recipientShift = CashierShift::factory()->create(['cashier_id' => $recipient->id, 'shift_id' => $slot->id]);
 
         $handover = CashierShiftHandover::create([
             'cashier_shift_id' => $senderShift->id,
@@ -468,14 +470,20 @@ PHP;
         $branch = Branch::factory()->create(['asab_company_id' => $company->id, 'asab_brand_id' => $brand->id]);
         $this->createdBranchIds[] = $branch->id;
 
-        $user = AsabUser::factory()->create(['company_id' => $company->id]);
+        $user = AsabUser::create([
+            'company_id' => $company->id,
+            'name' => 'Head Accountant User',
+            'email' => 'head_' . Str::random(8) . '@concurrency.test',
+            'password' => 'secret',
+            'status' => 'active',
+        ]);
         CompanyUser::create(['company_id' => $company->id, 'user_id' => $user->id, 'status' => 'active']);
         AsabUserRole::create(['company_id' => $company->id, 'user_id' => $user->id, 'role_name' => 'Head Accountant']);
 
         $slot = Shift::factory()->create(['branch_id' => $branch->id]);
         $cashier = Cashier::factory()->create(['branch_id' => $branch->id]);
         $this->createdCashierIds[] = $cashier->id;
-        $shift = CashierShift::factory()->create(['cashier_id' => $cashier->id, 'shift_id' => $slot->id, 'branch_id' => $branch->id]);
+        $shift = CashierShift::factory()->create(['cashier_id' => $cashier->id, 'shift_id' => $slot->id]);
 
         $employee = Employee::create([
             'asab_company_id' => $company->id,
@@ -563,7 +571,13 @@ PHP;
     {
         $company = AsabCompany::create(['name' => 'BE15 Concurrency Co', 'plan' => 'Pro', 'status' => 'active']);
         $this->createdCompanyIds[] = $company->id;
-        $user = AsabUser::factory()->create(['company_id' => $company->id]);
+        $user = AsabUser::create([
+            'company_id' => $company->id,
+            'name' => 'Idempotency User',
+            'email' => 'idem_' . Str::random(8) . '@concurrency.test',
+            'password' => 'secret',
+            'status' => 'active',
+        ]);
         CompanyUser::create(['company_id' => $company->id, 'user_id' => $user->id, 'status' => 'active']);
 
         $employee = Employee::create([
