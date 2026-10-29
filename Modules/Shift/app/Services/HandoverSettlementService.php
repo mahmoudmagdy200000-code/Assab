@@ -9,12 +9,15 @@ use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Custody\Models\PersonalLedgerTransaction;
+use App\Support\ShiftFinancialCalculator;
 use Modules\Shift\Models\BranchManagerCashTransfer;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\CashierShiftHandoverReceipt;
 use Modules\Shift\Models\CashierShiftHistory;
+use Modules\Shift\Models\ShiftDebtRepayment;
+use Modules\Shift\Models\ShiftHandoverReversal;
 use Modules\Shift\Models\ShiftHandoverSettlement;
 use Modules\Shift\Policies\HandoverSettlementActorPolicy;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
@@ -352,5 +355,407 @@ class HandoverSettlementService
         if (trim($operationId) === '' || strlen($operationId) > 100) {
             throw ValidationException::withMessages(['operation_id' => 'Operation ID is required and must not exceed 100 characters.']);
         }
+    }
+
+    /**
+     * CASH-14 / BE-13: Recipient initiates mutual two-party cash handover reversal dispute.
+     * Transitions status to pending_sender_confirmation with zero money movement.
+     *
+     * @throws ValidationException|ConflictHttpException|AccessDeniedHttpException
+     */
+    public function initiateReversal(CashierShiftHandover $handover, Model $actor, string $reason): ShiftHandoverReversal
+    {
+        if (trim($reason) === '') {
+            throw ValidationException::withMessages(['reason' => 'Reversal reason is required.']);
+        }
+
+        return DB::transaction(function () use ($handover, $actor, $reason) {
+            $handover = CashierShiftHandover::whereKey($handover->id)->lockForUpdate()->firstOrFail();
+
+            // E04: Receipt must exist and be confirmed
+            $receipt = $handover->receipt;
+            if ($receipt === null || $receipt->confirmed_amount === null) {
+                throw new ConflictHttpException('HANDOVER_RECEIPT_NOT_CONFIRMED');
+            }
+
+            // E05: Assert actor is the actual recipient from the confirmed receipt
+            $actorId = (string) $actor->id;
+            $isRecipient = false;
+            if ($actor instanceof Cashier && $receipt->receiving_cashier_id !== null && $actorId === (string) $receipt->receiving_cashier_id) {
+                $isRecipient = true;
+            } elseif ($actor instanceof BranchManager && $receipt->receiving_branch_manager_id !== null && $actorId === (string) $receipt->receiving_branch_manager_id) {
+                $isRecipient = true;
+            } elseif ($actor instanceof Cashier && $handover->handover_to_type === 'cashier' && $actorId === (string) $handover->handover_to_id) {
+                $isRecipient = true;
+            } elseif ($actor instanceof BranchManager && $handover->handover_to_type === 'branch_manager' && ($actorId === (string) $handover->handover_to_id || $actorId === (string) $handover->receivingBranchManagerId())) {
+                $isRecipient = true;
+            }
+
+            if (! $isRecipient) {
+                throw new AccessDeniedHttpException('ONLY_ACTUAL_RECIPIENT_MAY_DISPUTE_REVERSAL');
+            }
+
+            // E04: Prevent creating a new reversal after an earlier reversal is pending or confirmed
+            $existing = ShiftHandoverReversal::where('original_handover_id', $handover->id)
+                ->whereIn('status', ['pending_sender_confirmation', 'confirmed'])
+                ->lockForUpdate()
+                ->first();
+
+            if ($existing !== null) {
+                if ($existing->status === 'confirmed') {
+                    throw new ConflictHttpException('HANDOVER_ALREADY_REVERSED');
+                }
+                throw new ConflictHttpException('REVERSAL_ALREADY_PENDING');
+            }
+
+            $branchId = (string) ($handover->branch_id ?? $handover->cashierShift?->branch_id);
+            $companyId = DB::table('branches')->where('id', $branchId)->value('asab_company_id');
+
+            return ShiftHandoverReversal::create([
+                'company_id' => $companyId ?? $branchId,
+                'branch_id' => $branchId,
+                'original_handover_id' => $handover->id,
+                'original_receipt_id' => $receipt->id,
+                'reversal_reason' => $reason,
+                'initiated_by_user_id' => $actorId,
+                'status' => 'pending_sender_confirmation',
+            ]);
+        });
+    }
+
+    /**
+     * CASH-14 / BE-13: Original sender confirms two-party cash handover reversal.
+     * Atomically transitions status to confirmed and posts dual counterpart compensating ledger rows.
+     *
+     * @return array{reversal: ShiftHandoverReversal, reversed_amount_halalas: int}
+     *
+     * @throws ConflictHttpException|AccessDeniedHttpException
+     */
+    public function confirmReversal(ShiftHandoverReversal $reversal, Model $actor): array
+    {
+        return DB::transaction(function () use ($reversal, $actor) {
+            $reversal = ShiftHandoverReversal::whereKey($reversal->id)->lockForUpdate()->firstOrFail();
+
+            if ($reversal->status !== 'pending_sender_confirmation') {
+                throw new ConflictHttpException('REVERSAL_ALREADY_RESOLVED');
+            }
+
+            $handover = CashierShiftHandover::whereKey($reversal->original_handover_id)->lockForUpdate()->firstOrFail();
+
+            // E04: Check if already confirmed by another path
+            $priorConfirmed = ShiftHandoverReversal::where('original_handover_id', $handover->id)
+                ->where('status', 'confirmed')
+                ->where('id', '!=', $reversal->id)
+                ->exists();
+            if ($priorConfirmed) {
+                throw new ConflictHttpException('HANDOVER_ALREADY_REVERSED');
+            }
+
+            // Assert actor is the original sender
+            $senderId = (string) $handover->cashierShift?->cashier_id;
+            $senderType = 'cashier';
+            if ((string) $actor->id !== $senderId) {
+                throw new AccessDeniedHttpException('ONLY_SENDER_MAY_CONFIRM_REVERSAL');
+            }
+
+            // E04 & E05: Amount and recipient strictly from confirmed receipt
+            $receipt = $handover->receipt;
+            if ($receipt === null || $receipt->confirmed_amount === null) {
+                throw new ConflictHttpException('UNRESOLVED_RECEIPT_PROVENANCE');
+            }
+
+            $amountHalalas = ShiftFinancialCalculator::storedSarToHalalas($receipt->confirmed_amount);
+            $sarUnits = intdiv($amountHalalas, 100);
+            $sarFraction = abs($amountHalalas % 100);
+            $amountSar = sprintf('%d.%02d', $sarUnits, $sarFraction);
+
+            // E05: Actual recipient from confirmed receipt
+            if ($receipt->receiving_branch_manager_id !== null) {
+                $recipientType = 'branch_manager';
+                $recipientId = (string) $receipt->receiving_branch_manager_id;
+                $recipientName = $receipt->receivingBranchManager?->name ?? 'Branch Manager';
+            } elseif ($receipt->receiving_cashier_id !== null) {
+                $recipientType = 'cashier';
+                $recipientId = (string) $receipt->receiving_cashier_id;
+                $recipientName = $receipt->receivingCashier?->name ?? 'Cashier';
+            } else {
+                $recipientType = $handover->handover_to_type;
+                $recipientId = (string) $handover->handover_to_id;
+                $recipientName = $recipientType === 'cashier'
+                    ? ($handover->handoverTo?->name ?? 'Cashier')
+                    : ($handover->branchManager()?->name ?? 'Branch Manager');
+            }
+
+            $senderName = $handover->cashier()?->name ?? 'Cashier';
+
+            // 1. Sender receives returned cash (+in)
+            $this->createReversalLedgerRow(
+                $senderType,
+                $senderId,
+                $reversal->id,
+                'Reversal In',
+                $amountSar,
+                true,
+                $recipientName,
+                $handover->cashier_shift_id,
+                $handover->id
+            );
+
+            // 2. Recipient disburses reversed cash back (-out)
+            $this->createReversalLedgerRow(
+                $recipientType,
+                $recipientId,
+                $reversal->id,
+                'Reversal Out',
+                $amountSar,
+                false,
+                $senderName,
+                $receipt->receiving_cashier_shift_id ?? $receipt->receiving_branch_manager_shift_id,
+                $handover->id
+            );
+
+            $reversal->update([
+                'confirmed_by_user_id' => (string) $actor->id,
+                'confirmed_at' => now(),
+                'status' => 'confirmed',
+            ]);
+
+            return [
+                'reversal' => $reversal,
+                'reversed_amount_halalas' => $amountHalalas,
+            ];
+        });
+    }
+
+    /**
+     * CASH-14 / BE-13: Original sender rejects two-party cash handover reversal.
+     * Transitions status to rejected with zero money movement.
+     *
+     * @throws ConflictHttpException|AccessDeniedHttpException
+     */
+    public function rejectReversal(ShiftHandoverReversal $reversal, Model $actor, ?string $rejectionReason = null): ShiftHandoverReversal
+    {
+        return DB::transaction(function () use ($reversal, $actor) {
+            $reversal = ShiftHandoverReversal::whereKey($reversal->id)->lockForUpdate()->firstOrFail();
+
+            if ($reversal->status !== 'pending_sender_confirmation') {
+                throw new ConflictHttpException('REVERSAL_ALREADY_RESOLVED');
+            }
+
+            $handover = CashierShiftHandover::whereKey($reversal->original_handover_id)->lockForUpdate()->firstOrFail();
+            $senderId = (string) $handover->cashierShift?->cashier_id;
+            if ((string) $actor->id !== $senderId) {
+                throw new AccessDeniedHttpException('ONLY_SENDER_MAY_REJECT_REVERSAL');
+            }
+
+            $reversal->update([
+                'status' => 'rejected',
+            ]);
+
+            return $reversal;
+        });
+    }
+
+    /**
+     * E06: Link subsequent corrected handover to confirmed reversal.
+     */
+    public function linkCorrectedHandover(ShiftHandoverReversal $reversal, CashierShiftHandover $newHandover): ShiftHandoverReversal
+    {
+        return DB::transaction(function () use ($reversal, $newHandover) {
+            $reversal = ShiftHandoverReversal::whereKey($reversal->id)->lockForUpdate()->firstOrFail();
+            if ($reversal->status !== 'confirmed') {
+                throw new ConflictHttpException('REVERSAL_NOT_CONFIRMED');
+            }
+            $reversal->update(['corrected_handover_id' => $newHandover->id]);
+
+            return $reversal;
+        });
+    }
+
+    private function createReversalLedgerRow(
+        string $partyType,
+        string $partyId,
+        string $reversalId,
+        string $txType,
+        string $amountSar,
+        bool $isCashIn,
+        string $counterpartName,
+        ?string $shiftId,
+        string $handoverId
+    ): void {
+        if ($partyType === 'cashier') {
+            CashierCustodyTransaction::create([
+                'cashier_id' => $partyId,
+                'reversal_id' => $reversalId,
+                'transaction_type' => $txType,
+                'amount' => $amountSar,
+                'is_cash_in' => $isCashIn,
+                'counterpart_name' => $counterpartName,
+                'related_shift_id' => $shiftId,
+                'related_handover_id' => $handoverId,
+                'transaction_date' => now(),
+                'category' => 'handover_reversal',
+            ]);
+        } elseif ($partyType === 'branch_manager') {
+            PersonalLedgerTransaction::create([
+                'branch_manager_id' => $partyId,
+                'reversal_id' => $reversalId,
+                'transaction_type' => $txType,
+                'amount' => $amountSar,
+                'is_cash_in' => $isCashIn,
+                'cashier_name' => $counterpartName,
+                'related_shift_id' => $shiftId,
+                'related_handover_id' => $handoverId,
+                'transaction_date' => now(),
+                'category' => 'handover_reversal',
+            ]);
+        }
+    }
+
+    /**
+     * CASH-16 / BE-16: Cashier submits debt repayment handover to branch manager.
+     * Debt liability is not reduced until the manager physically confirms the handover.
+     *
+     * @throws ValidationException|AccessDeniedHttpException
+     */
+    public function submitDebtRepayment(Cashier $cashier, string $managerId, int $amountHalalas, ?string $notes = null): ShiftDebtRepayment
+    {
+        if ($amountHalalas <= 0 || $amountHalalas > self::MAX_MONETARY_HALALAS) {
+            throw ValidationException::withMessages(['amountHalalas' => 'Repayment amount in halalas must be positive.']);
+        }
+
+        $manager = BranchManager::findOrFail($managerId);
+        if ((string) $manager->branch_id !== (string) $cashier->branch_id) {
+            throw new AccessDeniedHttpException('BRANCH_MANAGER_BRANCH_MISMATCH');
+        }
+
+        $branchId = (string) $cashier->branch_id;
+        $companyId = DB::table('branches')->where('id', $branchId)->value('asab_company_id');
+
+        // Check current debt liability of cashier
+        $in = (float) CashierCustodyTransaction::where('cashier_id', $cashier->id)->where('is_cash_in', true)->sum('amount');
+        $out = (float) CashierCustodyTransaction::where('cashier_id', $cashier->id)->where('is_cash_in', false)->sum('amount');
+        $currentDebtSar = max(0.0, round($in - $out, 2));
+        $currentDebtHalalas = (int) round($currentDebtSar * 100);
+
+        if ($currentDebtHalalas <= 0) {
+            throw ValidationException::withMessages(['amountHalalas' => 'Cashier has no outstanding debt liability to repay.']);
+        }
+
+        if ($amountHalalas > $currentDebtHalalas) {
+            throw ValidationException::withMessages(['amountHalalas' => 'Repayment amount exceeds outstanding debt balance.']);
+        }
+
+        // Check if an identical pending repayment already exists (idempotency / prevent submission replay)
+        $existing = ShiftDebtRepayment::where('cashier_id', (string) $cashier->id)
+            ->where('manager_id', (string) $manager->id)
+            ->where('status', 'pending_manager_confirmation')
+            ->where('amount_halalas', $amountHalalas)
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
+        // Prevent pending submissions from cumulatively exceeding outstanding debt
+        $pendingAmountHalalas = (int) ShiftDebtRepayment::where('cashier_id', (string) $cashier->id)
+            ->where('status', 'pending_manager_confirmation')
+            ->sum('amount_halalas');
+
+        if (($amountHalalas + $pendingAmountHalalas) > $currentDebtHalalas) {
+            throw ValidationException::withMessages(['amountHalalas' => 'Total pending repayments exceed remaining outstanding debt balance.']);
+        }
+
+        return ShiftDebtRepayment::create([
+            'company_id' => $companyId ?? $branchId,
+            'branch_id' => $branchId,
+            'cashier_id' => (string) $cashier->id,
+            'manager_id' => (string) $manager->id,
+            'amount_halalas' => $amountHalalas,
+            'notes' => $notes,
+            'status' => 'pending_manager_confirmation',
+        ]);
+    }
+
+    /**
+     * CASH-16 / BE-16: Branch manager confirms debt repayment handover.
+     * Reduces cashier debt statement balance without reopening reports or creating phantom sales.
+     *
+     * @return array{repayment: ShiftDebtRepayment, amount_halalas: int, remaining_debt_halalas: int}
+     *
+     * @throws ConflictHttpException|AccessDeniedHttpException
+     */
+    public function confirmDebtRepayment(ShiftDebtRepayment $repayment, Model $actor): array
+    {
+        return DB::transaction(function () use ($repayment, $actor) {
+            $repayment = ShiftDebtRepayment::whereKey($repayment->id)->lockForUpdate()->firstOrFail();
+
+            if ($repayment->status !== 'pending_manager_confirmation') {
+                throw new ConflictHttpException('REPAYMENT_ALREADY_RESOLVED');
+            }
+
+            if (! ($actor instanceof BranchManager) || (string) $actor->id !== (string) $repayment->manager_id) {
+                throw new AccessDeniedHttpException('ONLY_ASSIGNED_MANAGER_MAY_CONFIRM_REPAYMENT');
+            }
+
+            if ((string) $actor->branch_id !== (string) $repayment->branch_id) {
+                throw new AccessDeniedHttpException('BRANCH_MANAGER_BRANCH_MISMATCH');
+            }
+
+            $cashier = Cashier::whereKey($repayment->cashier_id)->lockForUpdate()->firstOrFail();
+            $manager = BranchManager::findOrFail($repayment->manager_id);
+
+            // Re-verify current debt balance under lock to guarantee no overpayment
+            $in = (float) CashierCustodyTransaction::where('cashier_id', $cashier->id)->where('is_cash_in', true)->sum('amount');
+            $out = (float) CashierCustodyTransaction::where('cashier_id', $cashier->id)->where('is_cash_in', false)->sum('amount');
+            $currentDebtSar = max(0.0, round($in - $out, 2));
+            $currentDebtHalalas = (int) round($currentDebtSar * 100);
+
+            if ($currentDebtHalalas <= 0 || $repayment->amount_halalas > $currentDebtHalalas) {
+                throw new ConflictHttpException('REPAYMENT_EXCEEDS_CURRENT_DEBT');
+            }
+
+            $sarUnits = intdiv($repayment->amount_halalas, 100);
+            $sarFraction = abs($repayment->amount_halalas % 100);
+            $amountSar = sprintf('%d.%02d', $sarUnits, $sarFraction);
+
+            // 1. Cashier custody row: Debt Repayment (Cash Out, reduces debt liability)
+            CashierCustodyTransaction::create([
+                'cashier_id' => $cashier->id,
+                'debt_repayment_id' => $repayment->id,
+                'transaction_type' => 'Debt Repayment',
+                'amount' => $amountSar,
+                'is_cash_in' => false,
+                'counterpart_name' => $manager->name,
+                'transaction_date' => now(),
+                'category' => 'debt_repayment',
+            ]);
+
+            // 2. Manager personal ledger row: Debt Repayment (Cash In, receiving physical cash)
+            PersonalLedgerTransaction::create([
+                'branch_manager_id' => $manager->id,
+                'debt_repayment_id' => $repayment->id,
+                'transaction_type' => 'Debt Repayment',
+                'amount' => $amountSar,
+                'is_cash_in' => true,
+                'cashier_name' => $cashier->name,
+                'transaction_date' => now(),
+                'category' => 'debt_repayment',
+            ]);
+
+            $repayment->update([
+                'status' => 'confirmed',
+                'confirmed_at' => now(),
+                'confirmed_by_id' => (string) $actor->id,
+            ]);
+
+            $remainingDebtHalalas = max(0, $currentDebtHalalas - $repayment->amount_halalas);
+
+            return [
+                'repayment' => $repayment,
+                'amount_halalas' => $repayment->amount_halalas,
+                'remaining_debt_halalas' => $remainingDebtHalalas,
+            ];
+        });
     }
 }

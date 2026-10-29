@@ -1,0 +1,77 @@
+name: ASSAB Wave 3 MySQL 8.4 Concurrency CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'review/v35-wave3-final-backend'
+      - 'fix/v35-wave3-*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: assab-wave3-ci-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  APP_ENV: testing
+  APP_DEBUG: 'false'
+  APP_KEY: base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+  APP_URL: http://127.0.0.1
+  CACHE_STORE: array
+  MAIL_MAILER: array
+  QUEUE_CONNECTION: sync
+  SESSION_DRIVER: array
+  COMPOSER_NO_INTERACTION: '1'
+  MYSQL_TEST_HOST: 127.0.0.1
+  MYSQL_TEST_PORT: '3306'
+  MYSQL_TEST_USER: root
+  MYSQL_TEST_PASSWORD: rootpassword
+
+jobs:
+  wave3-mysql-concurrency:
+    name: Wave 3 Concurrency Proof (Oracle MySQL 8.4 / PHP 8.4)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: rootpassword
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -prootpassword"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo, pdo_mysql, mbstring, bcmath, json
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Run Wave 3 Concurrency Harness
+        run: bash scripts/ci/run_mysql_wave3_concurrency_proof.sh
+        env:
+          CI: 'true'
+          GITHUB_ACTIONS: 'true'
+
+      - name: Upload Concurrency Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wave3-mysql-concurrency-evidence
+          path: storage/test-results/wave3-mysql-concurrency.xml

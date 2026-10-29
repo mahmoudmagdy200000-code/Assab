@@ -80,10 +80,50 @@ class EmployeeLedgerService
         $asc = (clone $windowed)->orderBy('movement_date')->orderBy('id')->limit(2000)->get();
         $total = $asc->count();
 
+        // Resolve review statuses for shortage/variance rows
+        $postingIds = $asc->pluck('posting_id')->filter()->unique()->all();
+        $postings = ! empty($postingIds)
+            ? DB::table('shift_liability_postings')->whereIn('id', $postingIds)->get()->keyBy('id')
+            : collect();
+
+        $reviewIds = $postings->pluck('review_id')->filter()->unique()->all();
+        $reviews = ! empty($reviewIds)
+            ? DB::table('shift_report_manager_reviews')->whereIn('id', $reviewIds)->get()->keyBy('id')
+            : collect();
+
+        $opIds = $asc->pluck('ref_operation_id')->filter()->unique()->all();
+        $operations = ! empty($opIds)
+            ? DB::table('asab_operations')->whereIn('id', $opIds)->get()->keyBy('id')
+            : collect();
+
         $running = $opening;
         $all = [];
         foreach ($asc as $m) {
             $running += $m->movement_type === 'credit' ? (int) $m->amount : -(int) $m->amount;
+
+            $isShortage = $m->category === 'cash_variance'
+                || str_contains((string) $m->description, 'فرق كاش')
+                || ! empty($m->lineage_key)
+                || ! empty($m->posting_id);
+
+            $reviewStatus = null;
+            if ($isShortage) {
+                // STMT-01 / BE-14: Line-level review status 'under_review' vs 'approved'
+                $reviewStatus = 'under_review';
+                if (! empty($m->posting_id) && isset($postings[$m->posting_id])) {
+                    $posting = $postings[$m->posting_id];
+                    if (! empty($posting->review_id) && isset($reviews[$posting->review_id])) {
+                        $review = $reviews[$posting->review_id];
+                        $reviewStatus = ($review->status === 'approved') ? 'approved' : 'under_review';
+                    } elseif ($posting->status === 'posted') {
+                        $reviewStatus = 'approved';
+                    }
+                } elseif (! empty($m->ref_operation_id) && isset($operations[$m->ref_operation_id])) {
+                    $op = $operations[$m->ref_operation_id];
+                    $reviewStatus = in_array($op->status, ['approved', 'final-approved'], true) ? 'approved' : 'under_review';
+                }
+            }
+
             $all[] = [
                 'id' => $m->id,
                 'movementDate' => optional($m->movement_date)->toIso8601String(),
@@ -96,6 +136,8 @@ class EmployeeLedgerService
                 'amountHalalas' => (int) $m->amount,
                 'amount' => (int) $m->amount, // legacy alias
                 'runningBalanceHalalas' => $running,
+                'reviewStatus' => $reviewStatus,
+                'lineageKey' => $m->lineage_key ?? null,
             ];
         }
         $closing = $running;

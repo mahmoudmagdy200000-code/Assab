@@ -179,6 +179,63 @@ class EmployeeAllocationService
                 Employee::whereIn('id', $allEmpIds)->orderBy('id')->lockForUpdate()->get();
             }
 
+            // E02c: Once-only idempotency guard: check if active debits match requested rows identically
+            $existingCredits = EmployeeMovement::where('ref_operation_id', $op->id)
+                ->where('category', $category)
+                ->where('movement_type', 'credit')
+                ->lockForUpdate()
+                ->get();
+
+            $reversedDebitIds = [];
+            foreach ($existingCredits as $credit) {
+                if (str_starts_with((string) $credit->ref, 'REV-')) {
+                    $reversedPrefix = substr((string) $credit->ref, 4);
+                    foreach ($existingDebits as $d) {
+                        $dPrefix = substr(str_replace('-', '', (string) $d->id), 0, 28);
+                        if ($dPrefix === $reversedPrefix) {
+                            $reversedDebitIds[] = $d->id;
+                        }
+                    }
+                }
+            }
+
+            $activeDebits = $existingDebits->whereNotIn('id', $reversedDebitIds)->values();
+
+            if ($activeDebits->isNotEmpty() && $activeDebits->count() === count($rows)) {
+                $requestedMap = [];
+                foreach ($rows as $row) {
+                    $empId = (string) ($row['employee']->id ?? ($row['employeeId'] ?? ''));
+                    $requestedMap[$empId] = (int) $row['amountHalalas'];
+                }
+
+                $activeMap = [];
+                foreach ($activeDebits as $d) {
+                    $activeMap[(string) $d->employee_id] = (int) $d->amount;
+                }
+
+                ksort($requestedMap);
+                ksort($activeMap);
+
+                if ($requestedMap === $activeMap) {
+                    // Identical retry: return existing movements without creating duplicate reverse/recharge movements
+                    $existingResults = [];
+                    foreach ($activeDebits as $movement) {
+                        $emp = $movement->employee ?? Employee::find($movement->employee_id);
+                        $existingResults[] = [
+                            'id' => $movement->id,
+                            'employeeId' => $movement->employee_id,
+                            'employeeName' => $emp?->name ?? '',
+                            'amountHalalas' => (int) $movement->amount,
+                            'category' => $category,
+                            'categoryLabelAr' => $categoryLabelAr,
+                            'appliedAt' => optional($movement->created_at)->toIso8601String(),
+                        ];
+                    }
+
+                    return $existingResults;
+                }
+            }
+
             $this->reverse($op, $category);
 
             $created = [];

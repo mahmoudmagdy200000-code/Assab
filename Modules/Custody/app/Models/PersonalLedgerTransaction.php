@@ -28,6 +28,8 @@ class PersonalLedgerTransaction extends Model
         'lineage_key',
         'posting_id',
         'settlement_id',
+        'reversal_id',
+        'debt_repayment_id',
     ];
 
     protected $casts = [

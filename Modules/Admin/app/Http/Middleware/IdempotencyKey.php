@@ -89,7 +89,16 @@ class IdempotencyKey
             ? 'IDEMPOTENCY_PAYLOAD_MISMATCH'
             : 'IDEMPOTENCY_KEY_REUSED';
 
-        $key = $request->header('Idempotency-Key');
+        $headerKey = $request->header('Idempotency-Key');
+        $bodyKey = $request->input('idempotencyKey') ?? $request->input('idempotency_key');
+
+        if ($headerKey !== null && $headerKey !== '' && $bodyKey !== null && $bodyKey !== '') {
+            if ($headerKey !== $bodyKey) {
+                return $this->error(422, 'IDEMPOTENCY_KEY_MISMATCH', 'Header Idempotency-Key and body idempotencyKey do not match.', $legacyEnvelope);
+            }
+        }
+
+        $key = ($headerKey !== null && $headerKey !== '') ? $headerKey : $bodyKey;
         if ($key === null || $key === '') {
             return $requireKey === 'required'
                 ? $this->error(422, 'IDEMPOTENCY_KEY_REQUIRED', 'Idempotency-Key is required.', $legacyEnvelope)
