@@ -24,6 +24,7 @@ use Modules\Shift\Models\CashierShiftHandoverReceipt;
 use Modules\Shift\Models\Shift;
 use Modules\Shift\Models\ShiftDebtRepayment;
 use Modules\Shift\Models\ShiftHandoverReversal;
+use Modules\Shift\Models\ShiftLiabilityPosting;
 use Modules\Shift\Models\ShiftReportAggregate;
 use Modules\Shift\Models\ShiftReportManagerReview;
 use Modules\Shift\Models\ShiftReportRevision;
@@ -131,6 +132,7 @@ class Wave3FinancialConcurrencyTest extends TestCase
                 DB::table('cashier_shift_handover_receipts')->whereIn('receiving_cashier_id', $this->createdCashierIds)->delete();
                 DB::table('cashier_shift_handovers')->whereIn('branch_id', $this->createdBranchIds)->delete();
                 DB::table('shift_report_manager_reviews')->whereIn('branch_id', $this->createdBranchIds)->delete();
+                DB::table('shift_liability_postings')->whereIn('branch_id', $this->createdBranchIds)->delete();
                 DB::table('shift_report_revisions')->delete();
                 DB::table('shift_report_aggregates')->delete();
                 DB::table('cashier_custody_transactions')->whereIn('cashier_id', $this->createdCashierIds)->delete();
@@ -497,17 +499,6 @@ PHP;
         ]);
         $this->createdEmployeeIds[] = $employee->id;
 
-        $movement = EmployeeMovement::create([
-            'employee_id' => $employee->id,
-            'movement_type' => 'debit',
-            'amount' => 5000,
-            'category' => 'shortage',
-            'description' => 'عجز وردية متزامن',
-            'lineage_key' => 'shift_shortage:'.$shift->id,
-            'created_by_id' => $user->id,
-            'movement_date' => now(),
-        ]);
-
         $aggregate = ShiftReportAggregate::create([
             'source_type' => 'cashier_shift',
             'source_id' => $shift->id,
@@ -529,6 +520,38 @@ PHP;
             'status' => 'pending',
             'variance_halalas' => -5000,
             'has_shortage' => true,
+        ]);
+
+        $posting = ShiftLiabilityPosting::create([
+            'company_id' => $company->id,
+            'branch_id' => $branch->id,
+            'cashier_shift_id' => $shift->id,
+            'lineage_key' => 'shift_shortage:'.$shift->id,
+            'responsible_type' => 'employee',
+            'responsible_id' => $employee->id,
+            'delta_halalas' => 5000,
+            'target_halalas' => 5000,
+            'effective_before_halalas' => 0,
+            'operation_id' => (string) Str::uuid(),
+            'actor_type' => 'system',
+            'actor_id' => (string) Str::uuid(),
+            'ledger_table' => 'asab_employee_movements',
+            'ledger_id' => (string) Str::uuid(),
+            'review_id' => $review->id,
+            'evidence_id' => $revision->id,
+            'status' => 'posted',
+        ]);
+
+        $movement = EmployeeMovement::create([
+            'employee_id' => $employee->id,
+            'movement_type' => 'debit',
+            'amount' => 5000,
+            'category' => 'shortage',
+            'description' => 'عجز وردية متزامن',
+            'lineage_key' => $posting->lineage_key,
+            'posting_id' => $posting->id,
+            'created_by_id' => $user->id,
+            'movement_date' => now(),
         ]);
 
         $this->assertFixtureVisibleFromIndependentConnection('shift_report_manager_reviews', 'id', $review->id);
