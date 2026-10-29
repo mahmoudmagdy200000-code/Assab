@@ -23,7 +23,7 @@ use Modules\Shift\Models\CashierShiftHandoverReceipt;
 use Modules\Shift\Models\Shift;
 use Modules\Shift\Models\ShiftDebtRepayment;
 use Modules\Shift\Models\ShiftHandoverReversal;
-use Modules\Shift\Models\ShiftLiabilityPosting;
+use Modules\Shift\Models\ShiftReportAggregate;
 use Modules\Shift\Models\ShiftReportManagerReview;
 use Modules\Shift\Models\ShiftReportRevision;
 use Symfony\Component\Process\Process;
@@ -126,14 +126,15 @@ class Wave3FinancialConcurrencyTest extends TestCase
             if (! empty($this->createdBranchIds)) {
                 DB::table('shift_debt_repayments')->whereIn('branch_id', $this->createdBranchIds)->delete();
                 DB::table('shift_handover_reversals')->whereIn('branch_id', $this->createdBranchIds)->delete();
-                DB::table('cashier_custody_transactions')->whereIn('cashier_id', $this->createdCashierIds)->delete();
                 DB::table('personal_ledger_transactions')->whereIn('branch_manager_id', $this->createdManagerIds)->delete();
-                DB::table('shift_liability_postings')->whereIn('cashier_id', $this->createdCashierIds)->delete();
-                DB::table('cashier_shift_handover_receipts')->whereIn('cashier_id', $this->createdCashierIds)->delete();
-                DB::table('cashier_shift_handovers')->whereIn('cashier_id', $this->createdCashierIds)->delete();
+                DB::table('cashier_shift_handover_receipts')->whereIn('receiving_cashier_id', $this->createdCashierIds)->delete();
+                DB::table('cashier_shift_handovers')->whereIn('branch_id', $this->createdBranchIds)->delete();
+                DB::table('shift_report_manager_reviews')->whereIn('branch_id', $this->createdBranchIds)->delete();
+                DB::table('cashier_custody_transactions')->whereIn('cashier_id', $this->createdCashierIds)->delete();
                 DB::table('cashier_shifts')->whereIn('cashier_id', $this->createdCashierIds)->delete();
                 DB::table('cashiers')->whereIn('id', $this->createdCashierIds)->delete();
                 DB::table('branch_managers')->whereIn('id', $this->createdManagerIds)->delete();
+                DB::table('shifts')->whereIn('branch_id', $this->createdBranchIds)->delete();
                 DB::table('branches')->whereIn('id', $this->createdBranchIds)->delete();
             }
 
@@ -278,16 +279,15 @@ try {
     } elseif ($action === 'approve_report_review') {
         $reviewId = getenv('WAVE3_REVIEW_ID');
         $actorId = getenv('WAVE3_ACTOR_ID');
-        $review = Modules\Shift\Models\ShiftReportManagerReview::findOrFail($reviewId);
-        $actor = Modules\Admin\Models\AsabUser::findOrFail($actorId);
-        DB::transaction(function () use ($review, $actor) {
-            $locked = Modules\Shift\Models\ShiftReportManagerReview::lockForUpdate()->findOrFail($review->id);
+        DB::transaction(function () use ($reviewId, $actorId) {
+            $locked = Modules\Shift\Models\ShiftReportManagerReview::lockForUpdate()->findOrFail($reviewId);
             if ($locked->status === 'approved') {
                 throw new \RuntimeException('REPORT_REVIEW_ALREADY_APPROVED');
             }
             $locked->update([
                 'status' => 'approved',
-                'reviewed_by_user_id' => $actor->id,
+                'reviewer_type' => 'asab_user',
+                'reviewer_id' => $actorId,
                 'reviewed_at' => now(),
             ]);
         });
@@ -365,24 +365,42 @@ PHP;
         $this->createdCashierIds[] = $recipient->id;
 
         $slot = Shift::factory()->create(['branch_id' => $branch->id]);
-        $senderShift = CashierShift::factory()->create(['cashier_id' => $sender->id, 'shift_id' => $slot->id]);
-        $recipientShift = CashierShift::factory()->create(['cashier_id' => $recipient->id, 'shift_id' => $slot->id]);
+        $senderShift = CashierShift::factory()->create(['cashier_id' => $sender->id, 'shift_id' => $slot->id, 'branch_id' => $branch->id]);
+        $recipientShift = CashierShift::factory()->create(['cashier_id' => $recipient->id, 'shift_id' => $slot->id, 'branch_id' => $branch->id]);
 
         $handover = CashierShiftHandover::create([
-            'company_id' => $company->id,
+            'cashier_shift_id' => $senderShift->id,
+            'shift_id' => $senderShift->shift_id,
             'branch_id' => $branch->id,
-            'cashier_id' => $sender->id,
-            'shift_id' => $senderShift->id,
-            'amount' => 500.00,
+            'handover_type' => 'cashier',
+            'handover_to_type' => 'cashier',
             'handover_to_id' => $recipient->id,
-            'status' => 'confirmed',
+            'handover_amount' => 500.00,
+            'declared_amount' => 500.00,
+            'status' => 'approved',
+            'handover_date' => today(),
+            'handover_time' => now(),
         ]);
+
+        $aggregate = ShiftReportAggregate::create([
+            'source_type' => 'cashier_shift',
+            'source_id' => $senderShift->id,
+            'current_revision_number' => 1,
+        ]);
+        $revision = ShiftReportRevision::create([
+            'report_aggregate_id' => $aggregate->id,
+            'revision_number' => 1,
+            'created_by_type' => 'cashier',
+            'created_by_id' => $sender->id,
+        ]);
+
         $receipt = CashierShiftHandoverReceipt::create([
-            'handover_id' => $handover->id,
-            'cashier_id' => $recipient->id,
-            'shift_id' => $recipientShift->id,
+            'cashier_shift_handover_id' => $handover->id,
+            'receiving_cashier_shift_id' => $recipientShift->id,
+            'receiving_cashier_id' => $recipient->id,
+            'report_revision_id' => $revision->id,
             'received_amount' => 500.00,
-            'received_by_id' => $recipient->id,
+            'confirmed_amount' => 500.00,
             'confirmed_at' => now(),
         ]);
 
@@ -393,7 +411,7 @@ PHP;
             'original_receipt_id' => $receipt->id,
             'reversal_reason' => 'Concurrent dispute test',
             'initiated_by_user_id' => $recipient->id,
-            'status' => 'pending',
+            'status' => 'pending_sender_confirmation',
         ]);
 
         $this->assertFixtureVisibleFromIndependentConnection('shift_handover_reversals', 'id', $reversal->id);
@@ -407,7 +425,6 @@ PHP;
             'WAVE3_ACTOR_ID' => $sender->id,
         ]);
 
-        // Await worker connections
         $deadline = microtime(true) + 10;
         while (!is_file($this->barriersDir.'/worker_rev_1.conn') || !is_file($this->barriersDir.'/worker_rev_2.conn')) {
             if (microtime(true) > $deadline) {
@@ -416,7 +433,6 @@ PHP;
             usleep(5000);
         }
 
-        // Release barrier simultaneously
         file_put_contents($this->barriersDir.'/start.signal', 'release');
 
         $w1->wait();
@@ -459,7 +475,7 @@ PHP;
         $slot = Shift::factory()->create(['branch_id' => $branch->id]);
         $cashier = Cashier::factory()->create(['branch_id' => $branch->id]);
         $this->createdCashierIds[] = $cashier->id;
-        $shift = CashierShift::factory()->create(['cashier_id' => $cashier->id, 'shift_id' => $slot->id]);
+        $shift = CashierShift::factory()->create(['cashier_id' => $cashier->id, 'shift_id' => $slot->id, 'branch_id' => $branch->id]);
 
         $employee = Employee::create([
             'asab_company_id' => $company->id,
@@ -479,11 +495,27 @@ PHP;
             'created_by_user_id' => $user->id,
         ]);
 
+        $aggregate = ShiftReportAggregate::create([
+            'source_type' => 'cashier_shift',
+            'source_id' => $shift->id,
+            'current_revision_number' => 1,
+        ]);
+        $revision = ShiftReportRevision::create([
+            'report_aggregate_id' => $aggregate->id,
+            'revision_number' => 1,
+            'created_by_type' => 'cashier',
+            'created_by_id' => $cashier->id,
+        ]);
+
         $review = ShiftReportManagerReview::create([
-            'report_revision_id' => (string) Str::uuid(),
-            'reviewed_by_user_id' => $user->id,
-            'shift_id' => $shift->id,
-            'status' => 'under_review',
+            'company_id' => $company->id,
+            'branch_id' => $branch->id,
+            'cashier_shift_id' => $shift->id,
+            'report_revision_id' => $revision->id,
+            'report_revision_number' => 1,
+            'status' => 'pending',
+            'variance_halalas' => -5000,
+            'has_shortage' => true,
         ]);
 
         $this->assertFixtureVisibleFromIndependentConnection('shift_report_manager_reviews', 'id', $review->id);
@@ -604,21 +636,13 @@ PHP;
         $this->createdManagerIds[] = $manager->id;
         $this->createdCashierIds[] = $cashier->id;
 
-        // Cashier has exactly 2,000 halalas debt
-        ShiftLiabilityPosting::create([
-            'company_id' => $company->id,
-            'branch_id' => $branch->id,
+        // Cashier has exactly 20.00 SAR (2,000 halalas) custody debt
+        CashierCustodyTransaction::create([
             'cashier_id' => $cashier->id,
-            'liability_type' => 'debt',
-            'amount_halalas' => 2000,
-            'effective_before_halalas' => 0,
-            'effective_after_halalas' => 2000,
-            'status' => 'posted',
-            'operation_id' => (string) Str::uuid(),
-            'actor_type' => 'manager',
-            'actor_id' => $manager->id,
-            'ledger_table' => 'cashiers',
-            'ledger_id' => $cashier->id,
+            'transaction_type' => 'Shortage Liability',
+            'amount' => 20.00,
+            'is_cash_in' => true,
+            'transaction_date' => now()->subDay(),
         ]);
 
         // Two competing repayment requests of 1,500 halalas each (Total 3,000 > 2,000 debt)
@@ -628,7 +652,7 @@ PHP;
             'cashier_id' => $cashier->id,
             'manager_id' => $manager->id,
             'amount_halalas' => 1500,
-            'status' => 'pending',
+            'status' => 'pending_manager_confirmation',
         ]);
         $repayment2 = ShiftDebtRepayment::create([
             'company_id' => $company->id,
@@ -636,7 +660,7 @@ PHP;
             'cashier_id' => $cashier->id,
             'manager_id' => $manager->id,
             'amount_halalas' => 1500,
-            'status' => 'pending',
+            'status' => 'pending_manager_confirmation',
         ]);
 
         $this->assertFixtureVisibleFromIndependentConnection('shift_debt_repayments', 'id', $repayment1->id);
@@ -675,8 +699,9 @@ PHP;
         $this->assertSame(1, $confirmedCount, 'Exactly one concurrent debt repayment may confirm when combined amounts exceed liability.');
 
         // Assert remaining debt cannot be negative
-        $service = app(\Modules\Shift\Services\HandoverSettlementService::class);
-        $remainingDebt = $service->getCashierOutstandingDebtHalalas($cashier->id);
+        $in = (float) CashierCustodyTransaction::where('cashier_id', $cashier->id)->where('is_cash_in', true)->sum('amount');
+        $out = (float) CashierCustodyTransaction::where('cashier_id', $cashier->id)->where('is_cash_in', false)->sum('amount');
+        $remainingDebt = (int) round(max(0.0, round($in - $out, 2)) * 100);
 
         $this->assertSame(500, $remainingDebt, 'Cashier debt must be exactly 500 halalas and NEVER negative.');
         $this->assertGreaterThanOrEqual(0, $remainingDebt, 'Debt balance must never become negative under concurrent confirmations.');
