@@ -22,7 +22,6 @@ use Modules\Shift\Models\ShiftLiabilityPosting;
 use Modules\Shift\Models\ShiftReportAggregate;
 use Modules\Shift\Models\ShiftReportCorrection;
 use Modules\Shift\Models\ShiftReportCorrectionNotification;
-use Modules\Shift\Models\ShiftReportManagerReview;
 use Modules\Shift\Models\ShiftReportRevision;
 use Modules\Shift\Services\AccountantReportCorrectionService;
 use Modules\Shift\Services\ShiftCashCountService;
@@ -744,7 +743,7 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
         $day->update(['status' => 'completed']);
         [$first, $second] = $this->race(
             ['command' => 'bulk_correct_public', 'manager_id' => $manager->id,
-                'payload' => ['cashier_breakdown' => [['cashier_id' => $cashier->id, 'cashier_shift_id' => $shift->id,
+                'payload' => ['manager_workday_id' => $day->id, 'cashier_breakdown' => [['cashier_id' => $cashier->id, 'cashier_shift_id' => $shift->id,
                     'card_payments' => '25.00', 'expected_revision' => 1, 'reason' => 'Public bulk lock audit']]]],
             ['command' => 'accountant_correct', 'shift_id' => $shift->id, 'accountant_id' => $accountant->id,
                 'payload' => ['card_payments' => '35.00'], 'expected_revision' => 1]

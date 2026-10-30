@@ -441,15 +441,35 @@ class BranchManagerShiftService
         if (empty($cashierBreakdown)) {
             return;
         }
-
         $actor = $actor ?? $managerShift->branchManager ?? BranchManager::find($managerShift->branch_manager_id);
         if (! $actor) {
             throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('BRANCH_MANAGER_REQUIRED');
         }
+        $managerShift = BranchManagerShift::findOrFail($managerShift->id);
+        app(ManagerWorkdayResolver::class)->assertAuthorized($managerShift, $actor);
+        $companyId = $managerShift->branch->asab_company_id;
+        \Illuminate\Support\Facades\DB::transaction(function () use ($cashierBreakdown, $managerShift, $companyId, $actor, $operationId, $idempotencyKey, $requireDurableIdempotency) {
+            $day = app(ShiftReportReviewService::class)->lockDay($managerShift);
+            app(ManagerWorkdayResolver::class)->assertAuthorized($day, $actor, true);
+            if ((string) $day->branch->asab_company_id !== (string) $companyId) {
+                throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('MANAGER_WORKDAY_COMPANY_CHANGED');
+            }
+            app(ShiftReportReviewService::class)->assertMutableDay($day);
+            $scope = app(ShiftDailyCloseScopeService::class)->resolve($day, true);
+            $this->applyScopedCashierUpdates($cashierBreakdown, $day, $actor, $scope['cashier_shift_ids'],
+                $operationId, $idempotencyKey, $requireDurableIdempotency);
+        });
+    }
 
-        app(\Modules\BranchManagers\Services\BranchManagerService::class)
-            ->assertAssignedActiveManager($managerShift->branch_id, (string) $actor->id);
-
+    private function applyScopedCashierUpdates(
+        array $cashierBreakdown,
+        BranchManagerShift $managerShift,
+        BranchManager $actor,
+        array $memberIds,
+        ?string $operationId,
+        ?string $idempotencyKey,
+        bool $requireDurableIdempotency
+    ): void {
         // Pre-validation and row resolution
         $resolvedRows = [];
         $seenShiftIds = [];
@@ -465,20 +485,21 @@ class BranchManagerShiftService
             // Resolve cashier shift
             $shift = null;
             if (isset($row['cashier_shift_id'])) {
-                $shift = CashierShift::with('salesBreakdown')->find($row['cashier_shift_id']);
+                $shift = CashierShift::with(['salesBreakdown' => fn ($query) => $query->orderBy('aggregator_id')->lockForUpdate()])->whereIn('id', $memberIds)
+                    ->whereKey($row['cashier_shift_id'])->lockForUpdate()->first();
                 if (! $shift
-                    || $shift->shift?->branch_id !== $managerShift->branch_id
-                    || $shift->shift_date->toDateString() !== $managerShift->shift_date->toDateString()) {
+                    || (string) $shift->shift?->branch_id !== (string) $managerShift->branch_id
+                    || (isset($row['cashier_id']) && (string) $row['cashier_id'] !== (string) $shift->cashier_id)) {
                     throw \Illuminate\Validation\ValidationException::withMessages([
                         "cashier_breakdown.{$index}.cashier_shift_id" => 'Foreign or invalid cashier shift ID.',
                     ]);
                 }
             } elseif (isset($row['cashier_id'])) {
-                $matchingShifts = CashierShift::with('salesBreakdown')
+                $matchingShifts = CashierShift::with(['salesBreakdown' => fn ($query) => $query->orderBy('aggregator_id')->lockForUpdate()])
                     ->where('cashier_id', $row['cashier_id'])
-                    ->whereDate('shift_date', $managerShift->shift_date)
+                    ->whereIn('id', $memberIds)
                     ->whereHas('shift', fn ($q) => $q->where('branch_id', $managerShift->branch_id))
-                    ->get();
+                    ->orderBy('id')->lockForUpdate()->get();
 
                 if ($matchingShifts->count() === 0) {
                     throw \Illuminate\Validation\ValidationException::withMessages([
@@ -543,44 +564,62 @@ class BranchManagerShiftService
                 }
             }
 
-            // 5. Aggregators / Delivery apps
+            // 5. Compare exact amounts before deciding whether a correction is needed.
+            $existingBreakdown = $shift->salesBreakdown;
+            $currentAppHalalas = (int) $existingBreakdown->sum(fn ($b) => \App\Support\ShiftFinancialCalculator::storedSarToHalalas($b->amount));
             if (array_key_exists('aggregators', $row)) {
-                $changes['aggregators'] = $row['aggregators'];
-            } elseif (array_key_exists('delivery_app_payments', $row)) {
-                $existingBreakdown = $shift->salesBreakdown;
-                if ($existingBreakdown->count() > 1) {
+                \Illuminate\Support\Facades\Validator::make($row, [
+                    'aggregators' => 'required|array',
+                    'aggregators.*' => 'required|array:aggregator_id,amount,notes',
+                    'aggregators.*.aggregator_id' => 'required|uuid|distinct',
+                    'aggregators.*.amount' => 'required|'.\App\Support\ShiftMoneyValidation::SAR,
+                    'aggregators.*.notes' => 'nullable|string',
+                ])->validate();
+                $normalize = static function ($rows): array {
+                    $values = collect($rows)->map(fn ($b) => [
+                        'aggregator_id' => (string) $b['aggregator_id'],
+                        'amount' => \App\Support\ShiftFinancialCalculator::sarToHalalas($b['amount']),
+                        'notes' => $b['notes'] ?? null,
+                    ])->all();
+                    usort($values, fn ($a, $b) => strcmp($a['aggregator_id'], $b['aggregator_id']));
+
+                    return $values;
+                };
+                $proposed = $normalize($row['aggregators']);
+                if (array_key_exists('delivery_app_payments', $row)
+                    && array_sum(array_column($proposed, 'amount')) !== \App\Support\ShiftFinancialCalculator::sarToHalalas($row['delivery_app_payments'])) {
                     throw \Illuminate\Validation\ValidationException::withMessages([
-                        "cashier_breakdown.{$index}.delivery_app_payments" => 'Explicit aggregators breakdown is required when multiple aggregators exist.',
+                        "cashier_breakdown.{$index}.aggregators" => 'Aggregator amounts must match the delivery-app total.',
                     ]);
                 }
-                $targetAggregatorId = null;
-                if ($existingBreakdown->count() === 1) {
-                    $targetAggregatorId = $existingBreakdown->first()->aggregator_id;
-                } else {
-                    $enabledAggs = \Modules\Aggregator\Models\Aggregator::query()->active()
-                        ->whereHas('enabledBranches', fn ($q) => $q->where('branches.id', $managerShift->branch_id))
-                        ->get();
-                    if ($enabledAggs->count() === 1) {
-                        $targetAggregatorId = $enabledAggs->first()->id;
-                    } elseif ($enabledAggs->count() > 1) {
+                if ($proposed !== $normalize($existingBreakdown->toArray())) {
+                    $changes['aggregators'] = $row['aggregators'];
+                }
+            } elseif (array_key_exists('delivery_app_payments', $row)) {
+                $proposedAppHalalas = \App\Support\ShiftFinancialCalculator::sarToHalalas($row['delivery_app_payments']);
+                if ($proposedAppHalalas !== $currentAppHalalas) {
+                    if ($existingBreakdown->count() > 1) {
                         throw \Illuminate\Validation\ValidationException::withMessages([
                             "cashier_breakdown.{$index}.delivery_app_payments" => 'Explicit aggregators breakdown is required when multiple aggregators exist.',
                         ]);
                     }
-                }
-
-                if ($targetAggregatorId) {
-                    $currentAppHalalas = (int) $existingBreakdown->sum(fn ($b) => \App\Support\ShiftFinancialCalculator::storedSarToHalalas($b->amount));
-                    $proposedAppHalalas = \App\Support\ShiftFinancialCalculator::sarToHalalas($row['delivery_app_payments']);
-                    if ($proposedAppHalalas !== $currentAppHalalas) {
-                        $changes['aggregators'] = [
-                            [
-                                'aggregator_id' => $targetAggregatorId,
-                                'amount' => number_format($proposedAppHalalas / 100, 2, '.', ''),
-                                'notes' => null,
-                            ],
-                        ];
+                    $targetAggregatorId = $existingBreakdown->first()?->aggregator_id;
+                    if ($targetAggregatorId === null) {
+                        $enabled = \Modules\Aggregator\Models\Aggregator::query()->active()
+                            ->whereHas('enabledBranches', fn ($q) => $q->where('branches.id', $managerShift->branch_id))
+                            ->limit(2)->get();
+                        $targetAggregatorId = $enabled->count() === 1 ? $enabled->first()->id : null;
                     }
+                    if ($targetAggregatorId === null) {
+                        throw \Illuminate\Validation\ValidationException::withMessages([
+                            "cashier_breakdown.{$index}.delivery_app_payments" => 'An explicit enabled aggregator breakdown is required.',
+                        ]);
+                    }
+                    $changes['aggregators'] = [[
+                        'aggregator_id' => $targetAggregatorId,
+                        'amount' => number_format($proposedAppHalalas / 100, 2, '.', ''),
+                        'notes' => $existingBreakdown->first()?->notes,
+                    ]];
                 }
             }
 

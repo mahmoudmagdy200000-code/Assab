@@ -59,6 +59,16 @@ class ShiftDailyCloseScopeService
         }
 
         $cashierShiftIds = $cashierShiftQuery->orderBy('id')->pluck('id')->map(fn ($id) => (string) $id)->all();
+        if ($lock && $cashierShiftIds !== []) {
+            // Current membership reads follow source locks, matching the existing financial lock order.
+            // Only candidate source IDs are locked; unrelated consumed days/tenants are untouched.
+            $consumedNow = DB::table('shift_liability_daily_locks')
+                ->whereIn('cashier_shift_id', $cashierShiftIds)->where('branch_manager_shift_id', '!=', $day->id)
+                ->whereNull('released_at')->whereNull('superseded_at')->orderBy('id')->lockForUpdate()
+                ->pluck('cashier_shift_id')->map(fn ($id) => (string) $id)->all();
+            $cashierShiftIds = array_values(array_diff($cashierShiftIds, $consumedNow));
+        }
+
         // Keep the existing scope predicate for ordinary canceled/financial rows.
         // Explicit no-work facts are excluded only after integrity/evidence checks.
         $marked = CashierShift::withoutEagerLoads()->whereIn('id', $cashierShiftIds)->orderBy('id');
@@ -106,6 +116,7 @@ class ShiftDailyCloseScopeService
 
         // Also include unclosed approved carry-overs directed to this manager
         $carryoverQuery = CashierShiftHandover::query()
+            ->whereIn('cashier_shift_id', $cashierShiftIds)
             ->whereNotIn('cashier_shift_id', $consumedElsewhere)
             ->where('handover_to_type', 'branch_manager')
             ->where(fn ($historical) => $historical->where('handover_to_id', $day->branch_manager_id)
