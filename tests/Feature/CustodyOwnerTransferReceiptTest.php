@@ -178,7 +178,7 @@ class CustodyOwnerTransferReceiptTest extends TestCase
             ->postJson("/api/custody/requests/{$request->id}/confirm-receipt")
             ->assertStatus(422);
 
-        $request->update(['status' => 'Approved']);
+        $request->update(['status' => 'Approved', 'executed_at' => now()]);
 
         $this->actingAs($this->manager, 'sanctum')
             ->postJson("/api/custody/requests/{$request->id}/confirm-receipt")

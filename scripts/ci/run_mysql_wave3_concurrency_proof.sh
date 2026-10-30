@@ -39,6 +39,7 @@ fi
 TIMESTAMP=$(date +%s)
 RANDOM_SUFFIX=$(( RANDOM % 90000 + 10000 ))
 PROOF_DB_NAME="assab_proof_wave3_${TIMESTAMP}_${RANDOM_SUFFIX}"
+SNAPSHOT_DB_NAME="s111_phase567_test_${TIMESTAMP}_${RANDOM_SUFFIX}"
 
 echo "==> Wave 3 MySQL Concurrency Proof: Initializing database '${PROOF_DB_NAME}'"
 
@@ -47,6 +48,9 @@ cleanup() {
     echo "==> Wave 3 MySQL Concurrency: Teardown disposable schema '${PROOF_DB_NAME}'"
     MYSQL_PWD="${MYSQL_TEST_PASSWORD}" mysql -h "${MYSQL_TEST_HOST}" -P "${MYSQL_TEST_PORT}" -u "${MYSQL_TEST_USER}" \
         -e "DROP DATABASE IF EXISTS \`${PROOF_DB_NAME}\`;" || true
+    echo "==> Manager Workday MySQL Snapshot: Teardown disposable schema '${SNAPSHOT_DB_NAME}'"
+    MYSQL_PWD="${MYSQL_TEST_PASSWORD}" mysql -h "${MYSQL_TEST_HOST}" -P "${MYSQL_TEST_PORT}" -u "${MYSQL_TEST_USER}" \
+        -e "DROP DATABASE IF EXISTS \`${SNAPSHOT_DB_NAME}\`;" || true
     exit "${exit_code}"
 }
 trap cleanup EXIT INT TERM
@@ -68,3 +72,18 @@ php -d memory_limit=1G vendor/bin/phpunit tests/Feature/Concurrency/Wave3Financi
     --log-junit="storage/test-results/wave3-mysql-concurrency.xml"
 
 echo "==> Wave 3 MySQL Concurrency Proof completed successfully."
+
+echo "==> Manager Workday MySQL Snapshot: Initializing database '${SNAPSHOT_DB_NAME}'"
+MYSQL_PWD="${MYSQL_TEST_PASSWORD}" mysql -h "${MYSQL_TEST_HOST}" -P "${MYSQL_TEST_PORT}" -u "${MYSQL_TEST_USER}" \
+    -e "CREATE DATABASE \`${SNAPSHOT_DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+export DB_DATABASE="${SNAPSHOT_DB_NAME}"
+export PHASE2_MYSQL_TESTS="1"
+
+php artisan migrate --force
+
+echo "==> Running Manager Workday MySQL Snapshot Suite..."
+php -d memory_limit=1G vendor/bin/phpunit tests/Feature/ManagerWorkdayMySqlSnapshotTest.php \
+    --log-junit="storage/test-results/manager-workday-mysql-snapshot.xml"
+
+echo "==> Manager Workday MySQL Snapshot Proof completed successfully."

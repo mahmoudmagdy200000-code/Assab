@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - 'review/v35-wave3-final-backend'
-      - 'fix/v35-wave3-*'
+      - 'review/v35-wave123-shiftsec-final-backend'
+      - 'review/v35-wave123-unified-backend'
+      - 'task/v35-wave123-shiftsec-consolidated'
 
 permissions:
   contents: read
@@ -74,4 +75,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: wave3-mysql-concurrency-evidence
-          path: storage/test-results/wave3-mysql-concurrency.xml
+          path: storage/test-results/*.xml

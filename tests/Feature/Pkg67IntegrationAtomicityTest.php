@@ -19,12 +19,19 @@ class Pkg67IntegrationAtomicityTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function tearDown(): void
+    {
+        \Mockery::close();
+        parent::tearDown();
+    }
+
     public function test_failure_after_audit_write_rolls_back_status_and_history(): void
     {
+        $this->travelTo(today()->setTime(15, 0));
         $branch = Branch::factory()->create();
         $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
         $cashier = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);
-        $slot = Shift::factory()->create(['branch_id' => $branch->id]);
+        $slot = Shift::factory()->create(['branch_id' => $branch->id, 'start_time' => '08:00:00', 'end_time' => '14:00:00']);
         $shift = CashierShift::factory()->create(['cashier_id' => $cashier->id, 'shift_id' => $slot->id, 'shift_date' => today()]);
         $before = $shift->fresh()->getRawOriginal();
         $level = DB::transactionLevel(); // RefreshDatabase already holds the outer test transaction.
