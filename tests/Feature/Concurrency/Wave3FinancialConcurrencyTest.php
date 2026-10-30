@@ -846,7 +846,7 @@ PHP;
 
         $this->assertFixtureVisibleFromIndependentConnection('cashiers', 'id', $cashier->id);
 
-        // Two competing concurrent submissions of 1,500 halalas each (Total 3,000 > 2,000 debt)
+        // Two competing concurrent submissions of different amounts (1,500 + 1,200 = 2,700 > 2,000 debt)
         $w1 = $this->spawnWorker('worker_sub_1', 'submit_repayment', [
             'WAVE3_CASHIER_ID' => $cashier->id,
             'WAVE3_MANAGER_ID' => $manager->id,
@@ -855,7 +855,7 @@ PHP;
         $w2 = $this->spawnWorker('worker_sub_2', 'submit_repayment', [
             'WAVE3_CASHIER_ID' => $cashier->id,
             'WAVE3_MANAGER_ID' => $manager->id,
-            'WAVE3_AMOUNT' => '1500',
+            'WAVE3_AMOUNT' => '1200',
         ]);
 
         $deadline = microtime(true) + 10;
@@ -874,19 +874,46 @@ PHP;
         $res1 = json_decode((string) @file_get_contents($this->barriersDir.'/worker_sub_1.result'), true);
         $res2 = json_decode((string) @file_get_contents($this->barriersDir.'/worker_sub_2.result'), true);
 
+        // Assert neither process suffered an unexpected database error or deadlock
+        $deadlockFound = str_contains((string) ($res1['message'] ?? ''), 'Deadlock')
+            || str_contains((string) ($res2['message'] ?? ''), 'Deadlock');
+        $this->assertFalse($deadlockFound, 'No deadlock may occur during concurrent debt repayment submissions.');
+
         // Exactly one submission must succeed, and one must fail validation under the row lock
-        $statuses = collect([$res1['status'] ?? null, $res2['status'] ?? null]);
-        $this->assertSame(1, $statuses->filter(fn ($s) => $s === 'OK')->count(), 'Exactly one concurrent submission may succeed when sum exceeds debt.');
-        $this->assertSame(1, $statuses->filter(fn ($s) => $s === 'ERROR')->count(), 'The competing submission must fail validation.');
+        $winner = null;
+        $loser = null;
+        $winnerAmount = null;
 
-        // Total pending records in DB must be exactly 1 with 1500 halalas
+        if (($res1['status'] ?? null) === 'OK') {
+            $winner = $res1;
+            $loser = $res2;
+            $winnerAmount = 1500;
+        } elseif (($res2['status'] ?? null) === 'OK') {
+            $winner = $res2;
+            $loser = $res1;
+            $winnerAmount = 1200;
+        }
+
+        $this->assertNotNull($winner, 'Exactly one concurrent submission must succeed.');
+        $this->assertSame('ERROR', $loser['status'] ?? null, 'The competing submission must fail validation.');
+        $this->assertStringContainsString('Total pending repayments exceed remaining outstanding debt balance', $loser['message'] ?? '', 'Rejection message must indicate total pending repayments exceed remaining debt.');
+
+        // Extract res_id of the winning operation and verify actual database record
+        $acceptedId = $winner['res_id'] ?? null;
+        $this->assertNotNull($acceptedId, 'Winning operation must return a valid repayment ID.');
+
         $pendingQuery = ShiftDebtRepayment::where('cashier_id', $cashier->id)->where('status', 'pending_manager_confirmation');
-        $this->assertSame(1, $pendingQuery->count(), 'Only one pending repayment row exists.');
-        $this->assertSame(1500, (int) $pendingQuery->sum('amount_halalas'), 'Pending amount capped at 1,500 halalas.');
+        $this->assertSame(1, $pendingQuery->count(), 'Strictly one pending repayment row exists.');
 
-        // Replaying submission with the same amount (1500) returns existing without duplicate row
+        $actualRecord = ShiftDebtRepayment::findOrFail($acceptedId);
+        $this->assertSame($cashier->id, $actualRecord->cashier_id);
+        $this->assertSame('pending_manager_confirmation', $actualRecord->status);
+        $this->assertSame($winnerAmount, (int) $actualRecord->amount_halalas, 'Pending amount must exactly match the winning operation amount.');
+
+        // Replaying submission with the winner's amount returns existing without duplicate row
         $service = app(\Modules\Shift\Services\HandoverSettlementService::class);
-        $replay = $service->submitDebtRepayment($cashier, $manager->id, 1500);
+        $replay = $service->submitDebtRepayment($cashier, $manager->id, $winnerAmount);
+        $this->assertSame($acceptedId, $replay->id, 'Replaying submission with accepted amount must return the existing pending record.');
         $this->assertSame(1, ShiftDebtRepayment::where('cashier_id', $cashier->id)->where('status', 'pending_manager_confirmation')->count(), 'Replay submission must NOT create duplicate pending row.');
     }
 
@@ -1024,11 +1051,11 @@ PHP;
             'WAVE3_REPAYMENT_ID' => $repayment->id,
             'WAVE3_ACTOR_ID' => $manager->id,
         ]);
-        // Worker 2 submits a new repayment of 1,000 halalas (Lock order: Cashier)
+        // Worker 2 submits a new repayment of 500 halalas (distinct from 1,000)
         $w2 = $this->spawnWorker('worker_mix_2', 'submit_repayment', [
             'WAVE3_CASHIER_ID' => $cashier->id,
             'WAVE3_MANAGER_ID' => $manager->id,
-            'WAVE3_AMOUNT' => '1000',
+            'WAVE3_AMOUNT' => '500',
         ]);
 
         $deadline = microtime(true) + 10;
@@ -1059,12 +1086,12 @@ PHP;
         // Repayment 1 confirmed
         $this->assertSame('confirmed', ShiftDebtRepayment::find($repayment->id)->status);
 
-        // Repayment 2 created as pending
+        // Repayment 2 created as pending with amount 500
         $newRepayment = ShiftDebtRepayment::where('cashier_id', $cashier->id)
             ->where('status', 'pending_manager_confirmation')
             ->first();
         $this->assertNotNull($newRepayment);
-        $this->assertSame(1000, (int) $newRepayment->amount_halalas);
+        $this->assertSame(500, (int) $newRepayment->amount_halalas);
 
         // Debt balance is exactly 1,000 halalas (2000 initial - 1000 confirmed)
         $in = (float) CashierCustodyTransaction::where('cashier_id', $cashier->id)->where('is_cash_in', true)->sum('amount');
