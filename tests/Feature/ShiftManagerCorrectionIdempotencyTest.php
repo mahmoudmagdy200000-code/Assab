@@ -22,6 +22,8 @@ class ShiftManagerCorrectionIdempotencyTest extends TestCase
 {
     use RefreshDatabase;
 
+    private string $managerWorkdayId;
+
     private Branch $branch;
 
     private BranchManager $manager;
@@ -51,6 +53,7 @@ class ShiftManagerCorrectionIdempotencyTest extends TestCase
         ]);
         $managerShift = BranchManagerShift::where('branch_manager_id', $this->manager->id)
             ->whereDate('shift_date', today())->firstOrFail();
+        $this->managerWorkdayId = (string) $managerShift->id;
         $managerShift->update([
             'status' => 'completed', 'total_sales' => '100.00', 'cash_collected' => '60.00',
             'card_payments' => '40.00', 'handover_amount' => '60.00',
@@ -135,6 +138,7 @@ class ShiftManagerCorrectionIdempotencyTest extends TestCase
     private function payload(string $cards): array
     {
         return [
+            'manager_workday_id' => $this->managerWorkdayId,
             'cashier_breakdown' => [[
                 'cashier_id' => $this->cashier->id,
                 'cashier_shift_id' => $this->cashierShift->id,

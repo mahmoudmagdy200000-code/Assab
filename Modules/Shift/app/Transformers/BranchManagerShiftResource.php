@@ -152,10 +152,7 @@ class BranchManagerShiftResource extends JsonResource
             $status = 'Pending';
         }
 
-        // Get current time based on handover_timing
-        $currentTime = $this->handover_timing === 'yesterday'
-            ? now()->subDay()->format(self::DATETIME_FORMAT)
-            : now()->format(self::DATETIME_FORMAT);
+        $currentTime = now()->format(self::DATETIME_FORMAT);
 
         $expectedBalance = (float) ($this->total_sales ?? 0);
         $closingBalance = (float) ($this->handover_amount ?? $this->closing_balance ?? 0);

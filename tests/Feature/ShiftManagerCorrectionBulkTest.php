@@ -64,7 +64,7 @@ class ShiftManagerCorrectionBulkTest extends TestCase
             'branch_id' => $this->branch->id,
             'branch_manager_id' => $this->manager->id,
             'shift_date' => today(),
-            'status' => 'active',
+            'status' => 'in_progress',
         ]);
 
         $this->cashier1 = Cashier::factory()->create([
@@ -179,6 +179,7 @@ class ShiftManagerCorrectionBulkTest extends TestCase
             'shift_id' => $otherShift->id,
             'cashier_id' => $this->cashier1->id,
             'shift_date' => today(),
+            'status' => 'in_progress',
         ]);
 
         $this->expectException(ValidationException::class);

@@ -354,12 +354,13 @@ class ShiftFinancialService
     private function buildAggregatorsBreakdown(Collection $cashierShifts): array
     {
         $aggregatorMap = [];
-        $cashierOrder = $cashierShifts->pluck('cashier_id')->unique()->values()->all();
-        $cashierNames = $cashierShifts->keyBy('cashier_id')->map(fn ($cs) => $cs->cashier->name ?? '')->all();
+        $cashierOrder = $cashierShifts->pluck('id')->all();
+        $cashiersByShift = $cashierShifts->keyBy('id');
 
         foreach ($cashierShifts as $cashierShift) {
             $cashierId = $cashierShift->cashier_id;
-            $cashierName = $cashierShift->cashier->name ?? ($cashierNames[$cashierId] ?? '');
+            $cashierName = $cashierShift->cashier->name ?? '';
+            $cashierShiftId = (string) $cashierShift->id;
             foreach ($cashierShift->salesBreakdown as $row) {
                 $agg = $row->aggregator;
                 if (! $agg) {
@@ -377,14 +378,17 @@ class ShiftFinancialService
                     ];
                 }
                 $aggregatorMap[$id]['total'] += $amount;
-                if (! isset($aggregatorMap[$id]['cashier_breakdown'][$cashierId])) {
-                    $aggregatorMap[$id]['cashier_breakdown'][$cashierId] = [
+                if (! isset($aggregatorMap[$id]['cashier_breakdown'][$cashierShiftId])) {
+                    $aggregatorMap[$id]['cashier_breakdown'][$cashierShiftId] = [
                         'cashier_id' => $cashierId,
+                        'cashier_shift_id' => $cashierShiftId,
+                        'notes' => $row->notes,
+                        'present' => true,
                         'cashier_name' => $cashierName,
                         'amount' => 0.0,
                     ];
                 }
-                $aggregatorMap[$id]['cashier_breakdown'][$cashierId]['amount'] += $amount;
+                $aggregatorMap[$id]['cashier_breakdown'][$cashierShiftId]['amount'] += $amount;
             }
         }
 
@@ -396,8 +400,11 @@ class ShiftFinancialService
                     $breakdown[] = $row['cashier_breakdown'][$cid];
                 } else {
                     $breakdown[] = [
-                        'cashier_id' => $cid,
-                        'cashier_name' => $cashierNames[$cid] ?? '',
+                        'cashier_id' => $cashiersByShift[$cid]->cashier_id,
+                        'cashier_shift_id' => (string) $cid,
+                        'notes' => null,
+                        'present' => false,
+                        'cashier_name' => $cashiersByShift[$cid]->cashier?->name ?? '',
                         'amount' => 0.0,
                     ];
                 }

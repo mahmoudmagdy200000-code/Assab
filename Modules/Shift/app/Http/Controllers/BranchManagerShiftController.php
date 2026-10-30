@@ -18,6 +18,7 @@ use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Services\BranchManagerShiftService;
 use Modules\Shift\Services\HandoverService;
+use Modules\Shift\Services\ManagerWorkdayResolver;
 use Modules\Shift\Services\ShiftDailyCloseScopeService;
 use Modules\Shift\Services\ShiftReportRevisionService;
 use Modules\Shift\Services\ShiftTransferReceiptService;
@@ -539,9 +540,7 @@ class BranchManagerShiftController extends BaseController
             /** @var BranchManager $manager */
             $manager = Auth::user();
 
-            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->whereDate('shift_date', today())
-                ->firstOrFail();
+            $managerShift = app(ManagerWorkdayResolver::class)->resolve($request, $manager, true);
 
             if (! $managerShift->canEnd()) {
                 return $this->errorResponse('Cannot end shift. Check all cashier handoffs are approved.', 400);
@@ -550,7 +549,12 @@ class BranchManagerShiftController extends BaseController
             DB::beginTransaction();
 
             try {
+                $selectedCompany = $managerShift->branch->asab_company_id;
                 $managerShift = app(\Modules\Shift\Services\ShiftReportReviewService::class)->lockDay($managerShift);
+                app(ManagerWorkdayResolver::class)->assertAuthorized($managerShift, $manager, true);
+                if ((string) $managerShift->branch->asab_company_id !== (string) $selectedCompany) {
+                    throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('MANAGER_WORKDAY_COMPANY_CHANGED');
+                }
                 app(\Modules\Shift\Services\ShiftReportReviewService::class)->assertMutableDay($managerShift);
                 app(ShiftTransferReceiptService::class)->lockManagerCashOwner((string) $managerShift->branch_manager_id);
                 $this->shiftService->lockCashierFinancialOwners($managerShift);
@@ -580,12 +584,12 @@ class BranchManagerShiftController extends BaseController
                     ? (float) $request->handover_amount
                     : $this->shiftService->sumApprovedHandoverAmount($managerShift);
                 $closingBalance = $handoverAmount;
-                $handoverTime = $request->handover_timing === 'yesterday' ? now()->subDay() : now();
+                $handoverTime = now(); // Actual event time; business ownership is manager_workday_id.
 
                 $updateData = [
                     'status' => 'completed',
                     'actual_end_time' => now(),
-                    'handover_date' => $handoverTime->format(self::DATE_FORMAT),
+                    'handover_date' => $managerShift->shift_date->format(self::DATE_FORMAT),
                     'handover_time' => $handoverTime,
                     'handover_timing' => $request->handover_timing,
                     'handover_status' => 'pending',
@@ -629,6 +633,7 @@ class BranchManagerShiftController extends BaseController
                 DB::commit();
 
                 return $this->successResponse([
+                    ...app(ManagerWorkdayResolver::class)->metadata($managerShift),
                     'shift' => new BranchManagerShiftResource($managerShift),
                     'final_handover' => [
                         'handover_amount' => (float) ($managerShift->handover_amount ?? $closingBalance),
@@ -673,18 +678,13 @@ class BranchManagerShiftController extends BaseController
             /** @var BranchManager $manager */
             $manager = Auth::user();
 
-            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->when(
-                    $request->has('shift_id'),
-                    fn ($q) => $q->where('id', $request->shift_id),
-                    fn ($q) => $q->whereDate('shift_date', today())
-                )
-                ->firstOrFail();
+            $managerShift = app(ManagerWorkdayResolver::class)->resolve($request, $manager);
 
             $dailyClose = $this->shiftService->prepareDailyCloseSummary($managerShift);
 
             return $this->successResponse([
                 'shift' => new BranchManagerShiftResource($managerShift),
+                ...app(ManagerWorkdayResolver::class)->metadata($managerShift),
                 'cashier_breakdown' => $dailyClose['cashier_breakdown'],
                 'aggregators' => $dailyClose['aggregators'] ?? [],
                 'totals' => $dailyClose['totals'],
@@ -692,8 +692,8 @@ class BranchManagerShiftController extends BaseController
                 'manager_summary' => $dailyClose['manager_summary'] ?? null,
                 'shift_info' => $dailyClose['shift_info'] ?? null,
             ], 'Final daily close summary retrieved successfully');
-        } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 500);
+        } catch (\Throwable $e) {
+            return HandoverErrorResponse::from($e, 'manager daily close selection');
         }
     }
 
@@ -729,9 +729,7 @@ class BranchManagerShiftController extends BaseController
             /** @var BranchManager $manager */
             $manager = Auth::user();
 
-            $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
-                ->whereDate('shift_date', today())
-                ->firstOrFail();
+            $managerShift = app(ManagerWorkdayResolver::class)->resolve($request, $manager, true);
 
             if ($managerShift->status !== 'completed') {
                 return $this->errorResponse('Shift must be completed to update daily close', 400);
@@ -740,7 +738,12 @@ class BranchManagerShiftController extends BaseController
             DB::beginTransaction();
 
             try {
+                $selectedCompany = $managerShift->branch->asab_company_id;
                 $managerShift = app(\Modules\Shift\Services\ShiftReportReviewService::class)->lockDay($managerShift);
+                app(ManagerWorkdayResolver::class)->assertAuthorized($managerShift, $manager, true);
+                if ((string) $managerShift->branch->asab_company_id !== (string) $selectedCompany) {
+                    throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('MANAGER_WORKDAY_COMPANY_CHANGED');
+                }
                 app(\Modules\Shift\Services\ShiftReportReviewService::class)->assertMutableDay($managerShift);
                 app(ShiftTransferReceiptService::class)->lockManagerCashOwner((string) $managerShift->branch_manager_id);
                 $this->shiftService->lockCashierFinancialOwners($managerShift);
@@ -810,6 +813,7 @@ class BranchManagerShiftController extends BaseController
                 DB::commit();
 
                 return $this->successResponse([
+                    ...app(ManagerWorkdayResolver::class)->metadata($managerShift),
                     'shift' => new BranchManagerShiftResource($managerShift),
                     'cashier_breakdown' => $cashierBreakdownResponse,
                     'daily_totals' => [
@@ -1332,11 +1336,14 @@ class BranchManagerShiftController extends BaseController
             return HandoverErrorResponse::from($error, 'resubmit shift report');
         }
     }
+
     public function correctReturnedReport(Request $request, string $cashierShiftId): JsonResponse
     {
         try {
             $manager = $request->user();
-            if (! $manager instanceof BranchManager) throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('ONLY_REPORT_OWNER_OR_ASSIGNED_BRANCH_MANAGER');
+            if (! $manager instanceof BranchManager) {
+                throw new \Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException('ONLY_REPORT_OWNER_OR_ASSIGNED_BRANCH_MANAGER');
+            }
             $data = $request->validate(['expected_revision' => 'required|integer|min:1',
                 'changes' => 'required|array', 'reason' => 'required|string|max:1000',
                 'liability_shares' => 'nullable|array', 'liability_shares.*.type' => 'required|string',
@@ -1345,11 +1352,11 @@ class BranchManagerShiftController extends BaseController
                 CashierShift::findOrFail($cashierShiftId), $manager, $data['changes'], (int) $data['expected_revision'],
                 $data['reason'], $request->header('Idempotency-Key'), $data['liability_shares'] ?? null, returnedOnly: true);
             $allocation = \Modules\Shift\Models\ShiftLiabilityAllocation::where('cashier_shift_id', $cashierShiftId)->whereNull('superseded_at')->first();
+
             return response()->json(['success' => true, 'data' => ['revision_id' => $revision->id,
                 'revision_number' => $revision->revision_number, 'allocation_version' => $allocation?->version]]);
         } catch (\Throwable $error) {
             return HandoverErrorResponse::from($error, 'correct returned report');
         }
     }
-
 }
