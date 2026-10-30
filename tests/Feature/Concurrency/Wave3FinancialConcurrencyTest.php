@@ -11,6 +11,7 @@ use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\EmployeeMovement;
+use Modules\Admin\Models\EmployeeSettlementRequest;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\OperationSequence;
 use Modules\Branch\Models\Branch;
@@ -40,9 +41,12 @@ use Tests\TestCase;
  *
  * Concurrency Test Matrix:
  * - Case 1 (BE-13): Concurrent Handover Reversal Dispute & Confirmation races under lockForUpdate.
- * - Case 2 (BE-14): Concurrent Head Accountant Report Approval transitioning line-level reviewStatus.
- * - Case 3 (BE-15): Concurrent Financial Command Idempotency Replay (Identical vs Changed Payload).
- * - Case 4 (BE-16): Concurrent Cashier Debt Repayment Confirmation preventing overpayment and negative debt.
+ * - Case 2 (BE-14): Database-Level Atomic State Transition Proof (ShiftReportManagerReview status and statement reviewStatus projection).
+ * - Case 3a (BE-15): Service-Level Exactly-Once Allocation Deduplication.
+ * - Case 3b (BE-15): Concurrent HTTP Idempotency-Key Middleware Proof (Replay & 409 Conflict).
+ * - Case 4a (BE-16): Concurrent Cashier Debt Repayment Submission Race (Cashier row lock & pending cap).
+ * - Case 4b (BE-16): Concurrent Cashier Debt Repayment Confirmation preventing overpayment and negative debt.
+ * - Case 4c (BE-16): Concurrent Mixed Submit & Confirm Deadlock-Free Proof (Lock order: 1. Cashier -> 2. Repayment).
  *
  * Multi-Connection Isolation:
  * - Does NOT use RefreshDatabase (which wraps execution in an uncommitted parent transaction).
@@ -149,6 +153,7 @@ class Wave3FinancialConcurrencyTest extends TestCase
             }
 
             if (! empty($this->createdEmployeeIds)) {
+                DB::table('asab_employee_settlement_requests')->whereIn('employee_id', $this->createdEmployeeIds)->delete();
                 DB::table('asab_employee_movements')->whereIn('employee_id', $this->createdEmployeeIds)->delete();
                 DB::table('asab_employees')->whereIn('id', $this->createdEmployeeIds)->delete();
             }
@@ -310,6 +315,39 @@ try {
             ['employee' => $emp, 'amountHalalas' => $amount],
         ], $actor);
         file_put_contents($barrierDir . '/' . $workerId . '.result', json_encode(['status' => 'OK', 'res' => $res, 'conn' => $connId]));
+    } elseif ($action === 'http_idempotency_post') {
+        $actorId = getenv('WAVE3_ACTOR_ID');
+        $empId = getenv('WAVE3_EMP_ID');
+        $key = getenv('WAVE3_IDEM_KEY');
+        $amount = (int) getenv('WAVE3_AMOUNT');
+        $actor = Modules\Admin\Models\AsabUser::findOrFail($actorId);
+        \Laravel\Sanctum\Sanctum::actingAs($actor);
+        $req = \Illuminate\Http\Request::create(
+            "/api/v1/company/me/employees/{$empId}/settle-balance",
+            'POST',
+            ['idempotencyKey' => $key, 'amountHalalas' => $amount, 'reason' => 'Concurrent test'],
+            [], [],
+            [
+                'HTTP_ACCEPT' => 'application/json',
+                'HTTP_IDEMPOTENCY_KEY' => $key,
+            ]
+        );
+        $kernel = $app->make(\Illuminate\Contracts\Http\Kernel::class);
+        $response = $kernel->handle($req);
+        file_put_contents($barrierDir . '/' . $workerId . '.result', json_encode([
+            'status' => 'OK',
+            'http_status' => $response->getStatusCode(),
+            'body' => json_decode($response->getContent(), true),
+            'conn' => $connId,
+        ]));
+    } elseif ($action === 'submit_repayment') {
+        $cashierId = getenv('WAVE3_CASHIER_ID');
+        $managerId = getenv('WAVE3_MANAGER_ID');
+        $amount = (int) getenv('WAVE3_AMOUNT');
+        $cashier = Modules\Cashier\Models\Cashier::findOrFail($cashierId);
+        $service = app(Modules\Shift\Services\HandoverSettlementService::class);
+        $res = $service->submitDebtRepayment($cashier, $managerId, $amount);
+        file_put_contents($barrierDir . '/' . $workerId . '.result', json_encode(['status' => 'OK', 'res_id' => $res->id, 'conn' => $connId]));
     } elseif ($action === 'confirm_repayment') {
         $repaymentId = getenv('WAVE3_REPAYMENT_ID');
         $actorId = getenv('WAVE3_ACTOR_ID');
@@ -463,10 +501,15 @@ PHP;
     }
 
     /**
-     * CASE 2: BE-14 Concurrent Head Accountant Report Approval.
-     * Proves atomic transition of shortage reviewStatus without duplicate debits under multi-connection.
+     * CASE 2: BE-14 (STMT-01) Database-Level Atomic Transition Proof.
+     * Proves atomic database state transition of ShiftReportManagerReview under lockForUpdate()
+     * and statement reviewStatus projection ('under_review' -> 'approved') with stable movement ID,
+     * preserved tenant context, and zero duplicate debits under concurrent review approval attempts.
+     *
+     * Note: This is an explicit Database-Level State Transition Proof for statement reviewStatus;
+     * it does not test or claim HTTP API route authorization for Head Accountant.
      */
-    public function test_case2_concurrent_shortage_approval_transitions_atomically(): void
+    public function test_case2_concurrent_shift_report_review_atomic_db_transition_and_statement_projection(): void
     {
         $company = AsabCompany::create(['name' => 'BE14 Concurrency Co', 'plan' => 'Pro', 'status' => 'active']);
         $this->createdCompanyIds[] = $company->id;
@@ -592,12 +635,13 @@ PHP;
     }
 
     /**
-     * CASE 3: BE-15 Concurrent Idempotency Replay (Identical vs Changed Payload).
-     * Proves command deduplication and once-only posting under simultaneous parallel requests.
+     * CASE 3a: BE-15 Service-Level Exactly-Once Allocation Deduplication.
+     * Proves command deduplication and once-only posting under simultaneous parallel requests
+     * directly at the EmployeeAllocationService level without duplicate debit movements.
      */
-    public function test_case3_concurrent_idempotency_key_replay_and_conflict(): void
+    public function test_case3a_concurrent_service_level_allocation_deduplication(): void
     {
-        $company = AsabCompany::create(['name' => 'BE15 Concurrency Co', 'plan' => 'Pro', 'status' => 'active']);
+        $company = AsabCompany::create(['name' => 'BE15 Service Concurrency Co', 'plan' => 'Pro', 'status' => 'active']);
         $this->createdCompanyIds[] = $company->id;
         $brand = AsabBrand::create(['company_id' => $company->id, 'name' => 'Brand', 'status' => 'active', 'sub_status' => 'active']);
         $branch = Branch::factory()->create(['asab_company_id' => $company->id, 'asab_brand_id' => $brand->id]);
@@ -674,10 +718,183 @@ PHP;
     }
 
     /**
-     * CASE 4: BE-16 Concurrent Debt Repayment Submission & Confirmation.
+     * CASE 3b: BE-15 Concurrent HTTP Idempotency-Key Middleware Proof.
+     * Proves that two simultaneous HTTP requests presenting the same Idempotency-Key
+     * create strictly one settlement request record, and any request with changed payload
+     * is safely rejected with HTTP 409 Conflict.
+     */
+    public function test_case3b_concurrent_http_idempotency_key_replay_and_conflict(): void
+    {
+        $company = AsabCompany::create(['name' => 'BE15 HTTP Concurrency Co', 'plan' => 'Pro', 'status' => 'active']);
+        $this->createdCompanyIds[] = $company->id;
+        $brand = AsabBrand::create(['company_id' => $company->id, 'name' => 'Brand', 'status' => 'active', 'sub_status' => 'active']);
+        $branch = Branch::factory()->create(['asab_company_id' => $company->id, 'asab_brand_id' => $brand->id]);
+        $this->createdBranchIds[] = $branch->id;
+
+        $user = AsabUser::create([
+            'company_id' => $company->id,
+            'name' => 'HTTP Idempotency User',
+            'email' => 'idem_http_' . Str::random(8) . '@concurrency.test',
+            'password' => 'secret',
+            'status' => 'active',
+        ]);
+        AsabUserRole::create([
+            'user_id' => $user->id,
+            'role_key' => 'accountant',
+            'scope' => 'all',
+        ]);
+        CompanyUser::create([
+            'company_id' => $company->id,
+            'user_id' => $user->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
+
+        $employee = Employee::create([
+            'company_id' => $company->id,
+            'branch_id' => $branch->id,
+            'emp_number' => 'EMP_' . Str::random(6),
+            'name' => 'HTTP Settle Emp',
+            'role' => 'staff',
+            'standing_balance_halalas' => 0,
+        ]);
+        $this->createdEmployeeIds[] = $employee->id;
+
+        // Provide starting debit balance
+        EmployeeMovement::create([
+            'employee_id' => $employee->id,
+            'movement_type' => 'debit',
+            'amount' => 5000,
+            'category' => 'cash_variance',
+            'description' => 'Initial debit',
+            'movement_date' => now(),
+        ]);
+
+        $this->assertFixtureVisibleFromIndependentConnection('asab_employees', 'id', $employee->id);
+
+        $key = (string) Str::uuid();
+
+        $w1 = $this->spawnWorker('worker_http_idem_1', 'http_idempotency_post', [
+            'WAVE3_ACTOR_ID' => $user->id,
+            'WAVE3_EMP_ID' => $employee->id,
+            'WAVE3_IDEM_KEY' => $key,
+            'WAVE3_AMOUNT' => '1000',
+        ]);
+        $w2 = $this->spawnWorker('worker_http_idem_2', 'http_idempotency_post', [
+            'WAVE3_ACTOR_ID' => $user->id,
+            'WAVE3_EMP_ID' => $employee->id,
+            'WAVE3_IDEM_KEY' => $key,
+            'WAVE3_AMOUNT' => '1000',
+        ]);
+
+        $deadline = microtime(true) + 10;
+        while (!is_file($this->barriersDir.'/worker_http_idem_1.conn') || !is_file($this->barriersDir.'/worker_http_idem_2.conn')) {
+            if (microtime(true) > $deadline) {
+                $this->fail('Worker processes failed to connect within deadline');
+            }
+            usleep(5000);
+        }
+
+        file_put_contents($this->barriersDir.'/start.signal', 'release');
+
+        $w1->wait();
+        $w2->wait();
+
+        // Exactly one settlement request record created in the database for this idempotency key
+        $settlementCount = EmployeeSettlementRequest::where('idempotency_key', $key)->count();
+        $this->assertSame(1, $settlementCount, 'Concurrent HTTP requests with same Idempotency-Key must produce strictly 1 settlement record.');
+
+        // Replay with CHANGED payload must be rejected with HTTP 409 Conflict
+        \Laravel\Sanctum\Sanctum::actingAs($user);
+        $resChanged = $this->withHeader('Idempotency-Key', $key)
+            ->postJson("/api/v1/company/me/employees/{$employee->id}/settle-balance", [
+                'idempotencyKey' => $key,
+                'amountHalalas' => 2000,
+                'reason' => 'Changed payload',
+            ]);
+        $this->assertSame(409, $resChanged->status(), 'Replaying key with changed payload must return 409 Conflict.');
+        $this->assertSame(1, EmployeeSettlementRequest::where('idempotency_key', $key)->count());
+    }
+
+    /**
+     * CASE 4a: BE-16 Concurrent Debt Repayment Submission Race.
+     * Proves Cashier row-level lock serialization under concurrent submissions:
+     * two parallel requests whose sum exceeds debt allow strictly one pending repayment,
+     * and submission replay returns the existing record without duplicate pending rows.
+     */
+    public function test_case4a_concurrent_debt_repayment_submission_race_preventing_over_pending_and_duplicates(): void
+    {
+        $company = AsabCompany::create(['name' => 'BE16 Sub Concurrency Co', 'plan' => 'Pro', 'status' => 'active']);
+        $this->createdCompanyIds[] = $company->id;
+        $brand = AsabBrand::create(['company_id' => $company->id, 'name' => 'Brand', 'status' => 'active', 'sub_status' => 'active']);
+        $branch = Branch::factory()->create(['asab_company_id' => $company->id, 'asab_brand_id' => $brand->id]);
+        $this->createdBranchIds[] = $branch->id;
+
+        $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
+        $cashier = Cashier::factory()->create(['branch_id' => $branch->id]);
+        $this->createdManagerIds[] = $manager->id;
+        $this->createdCashierIds[] = $cashier->id;
+
+        // Cashier has exactly 20.00 SAR (2,000 halalas) custody debt
+        CashierCustodyTransaction::create([
+            'cashier_id' => $cashier->id,
+            'transaction_type' => 'Shortage Liability',
+            'amount' => 20.00,
+            'is_cash_in' => true,
+            'transaction_date' => now()->subDay(),
+        ]);
+
+        $this->assertFixtureVisibleFromIndependentConnection('cashiers', 'id', $cashier->id);
+
+        // Two competing concurrent submissions of 1,500 halalas each (Total 3,000 > 2,000 debt)
+        $w1 = $this->spawnWorker('worker_sub_1', 'submit_repayment', [
+            'WAVE3_CASHIER_ID' => $cashier->id,
+            'WAVE3_MANAGER_ID' => $manager->id,
+            'WAVE3_AMOUNT' => '1500',
+        ]);
+        $w2 = $this->spawnWorker('worker_sub_2', 'submit_repayment', [
+            'WAVE3_CASHIER_ID' => $cashier->id,
+            'WAVE3_MANAGER_ID' => $manager->id,
+            'WAVE3_AMOUNT' => '1500',
+        ]);
+
+        $deadline = microtime(true) + 10;
+        while (!is_file($this->barriersDir.'/worker_sub_1.conn') || !is_file($this->barriersDir.'/worker_sub_2.conn')) {
+            if (microtime(true) > $deadline) {
+                $this->fail('Worker processes failed to connect within deadline');
+            }
+            usleep(5000);
+        }
+
+        file_put_contents($this->barriersDir.'/start.signal', 'release');
+
+        $w1->wait();
+        $w2->wait();
+
+        $res1 = json_decode((string) @file_get_contents($this->barriersDir.'/worker_sub_1.result'), true);
+        $res2 = json_decode((string) @file_get_contents($this->barriersDir.'/worker_sub_2.result'), true);
+
+        // Exactly one submission must succeed, and one must fail validation under the row lock
+        $statuses = collect([$res1['status'] ?? null, $res2['status'] ?? null]);
+        $this->assertSame(1, $statuses->filter(fn ($s) => $s === 'OK')->count(), 'Exactly one concurrent submission may succeed when sum exceeds debt.');
+        $this->assertSame(1, $statuses->filter(fn ($s) => $s === 'ERROR')->count(), 'The competing submission must fail validation.');
+
+        // Total pending records in DB must be exactly 1 with 1500 halalas
+        $pendingQuery = ShiftDebtRepayment::where('cashier_id', $cashier->id)->where('status', 'pending_manager_confirmation');
+        $this->assertSame(1, $pendingQuery->count(), 'Only one pending repayment row exists.');
+        $this->assertSame(1500, (int) $pendingQuery->sum('amount_halalas'), 'Pending amount capped at 1,500 halalas.');
+
+        // Replaying submission with the same amount (1500) returns existing without duplicate row
+        $service = app(\Modules\Shift\Services\HandoverSettlementService::class);
+        $replay = $service->submitDebtRepayment($cashier, $manager->id, 1500);
+        $this->assertSame(1, ShiftDebtRepayment::where('cashier_id', $cashier->id)->where('status', 'pending_manager_confirmation')->count(), 'Replay submission must NOT create duplicate pending row.');
+    }
+
+    /**
+     * CASE 4b: BE-16 Concurrent Debt Repayment Confirmation.
      * Proves outstanding debt cap and once-only confirmation preventing negative debt balance.
      */
-    public function test_case4_concurrent_debt_repayment_submission_and_confirmation(): void
+    public function test_case4b_concurrent_debt_repayment_confirmation_preventing_overpayment(): void
     {
         $company = AsabCompany::create(['name' => 'BE16 Concurrency Co', 'plan' => 'Pro', 'status' => 'active']);
         $this->createdCompanyIds[] = $company->id;
@@ -759,5 +976,100 @@ PHP;
 
         $this->assertSame(500, $remainingDebt, 'Cashier debt must be exactly 500 halalas and NEVER negative.');
         $this->assertGreaterThanOrEqual(0, $remainingDebt, 'Debt balance must never become negative under concurrent confirmations.');
+    }
+
+    /**
+     * CASE 4c: BE-16 Concurrent Mixed Submit & Confirm Flow (Deadlock-Free Proof).
+     * Proves unified lock hierarchy (1. Cashier -> 2. ShiftDebtRepayment) guarantees
+     * that a concurrent repayment submission and confirmation on the same cashier
+     * serialize without database deadlock (SQLSTATE 1213 / 40001).
+     */
+    public function test_case4c_concurrent_mixed_submit_and_confirm_deadlock_free(): void
+    {
+        $company = AsabCompany::create(['name' => 'BE16 Mixed Concurrency Co', 'plan' => 'Pro', 'status' => 'active']);
+        $this->createdCompanyIds[] = $company->id;
+        $brand = AsabBrand::create(['company_id' => $company->id, 'name' => 'Brand', 'status' => 'active', 'sub_status' => 'active']);
+        $branch = Branch::factory()->create(['asab_company_id' => $company->id, 'asab_brand_id' => $brand->id]);
+        $this->createdBranchIds[] = $branch->id;
+
+        $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
+        $cashier = Cashier::factory()->create(['branch_id' => $branch->id]);
+        $this->createdManagerIds[] = $manager->id;
+        $this->createdCashierIds[] = $cashier->id;
+
+        // Cashier has exactly 20.00 SAR (2,000 halalas) custody debt
+        CashierCustodyTransaction::create([
+            'cashier_id' => $cashier->id,
+            'transaction_type' => 'Shortage Liability',
+            'amount' => 20.00,
+            'is_cash_in' => true,
+            'transaction_date' => now()->subDay(),
+        ]);
+
+        // Existing pending repayment of 1,000 halalas
+        $repayment = ShiftDebtRepayment::create([
+            'company_id' => $company->id,
+            'branch_id' => $branch->id,
+            'cashier_id' => $cashier->id,
+            'manager_id' => $manager->id,
+            'amount_halalas' => 1000,
+            'status' => 'pending_manager_confirmation',
+        ]);
+
+        $this->assertFixtureVisibleFromIndependentConnection('shift_debt_repayments', 'id', $repayment->id);
+        $this->assertFixtureVisibleFromIndependentConnection('cashiers', 'id', $cashier->id);
+
+        // Worker 1 confirms existing repayment (Lock order: Cashier -> Repayment)
+        $w1 = $this->spawnWorker('worker_mix_1', 'confirm_repayment', [
+            'WAVE3_REPAYMENT_ID' => $repayment->id,
+            'WAVE3_ACTOR_ID' => $manager->id,
+        ]);
+        // Worker 2 submits a new repayment of 1,000 halalas (Lock order: Cashier)
+        $w2 = $this->spawnWorker('worker_mix_2', 'submit_repayment', [
+            'WAVE3_CASHIER_ID' => $cashier->id,
+            'WAVE3_MANAGER_ID' => $manager->id,
+            'WAVE3_AMOUNT' => '1000',
+        ]);
+
+        $deadline = microtime(true) + 10;
+        while (!is_file($this->barriersDir.'/worker_mix_1.conn') || !is_file($this->barriersDir.'/worker_mix_2.conn')) {
+            if (microtime(true) > $deadline) {
+                $this->fail('Worker processes failed to connect within deadline');
+            }
+            usleep(5000);
+        }
+
+        file_put_contents($this->barriersDir.'/start.signal', 'release');
+
+        $w1->wait();
+        $w2->wait();
+
+        $res1 = json_decode((string) @file_get_contents($this->barriersDir.'/worker_mix_1.result'), true);
+        $res2 = json_decode((string) @file_get_contents($this->barriersDir.'/worker_mix_2.result'), true);
+
+        // Assert neither process suffered a deadlock
+        $deadlockFound = str_contains((string) ($res1['message'] ?? ''), 'Deadlock')
+            || str_contains((string) ($res2['message'] ?? ''), 'Deadlock');
+        $this->assertFalse($deadlockFound, 'No deadlock may occur during concurrent submit and confirm operations.');
+
+        // Both operations must successfully complete due to canonical lock ordering
+        $this->assertSame('OK', $res1['status'] ?? null, 'Confirm operation must succeed.');
+        $this->assertSame('OK', $res2['status'] ?? null, 'Submit operation must succeed.');
+
+        // Repayment 1 confirmed
+        $this->assertSame('confirmed', ShiftDebtRepayment::find($repayment->id)->status);
+
+        // Repayment 2 created as pending
+        $newRepayment = ShiftDebtRepayment::where('cashier_id', $cashier->id)
+            ->where('status', 'pending_manager_confirmation')
+            ->first();
+        $this->assertNotNull($newRepayment);
+        $this->assertSame(1000, (int) $newRepayment->amount_halalas);
+
+        // Debt balance is exactly 1,000 halalas (2000 initial - 1000 confirmed)
+        $in = (float) CashierCustodyTransaction::where('cashier_id', $cashier->id)->where('is_cash_in', true)->sum('amount');
+        $out = (float) CashierCustodyTransaction::where('cashier_id', $cashier->id)->where('is_cash_in', false)->sum('amount');
+        $remainingDebt = (int) round(max(0.0, round($in - $out, 2)) * 100);
+        $this->assertSame(1000, $remainingDebt, 'Cashier debt is exactly 1000 halalas after confirmation.');
     }
 }

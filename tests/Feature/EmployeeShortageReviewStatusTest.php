@@ -255,7 +255,7 @@ class EmployeeShortageReviewStatusTest extends TestCase
         $this->assertEquals(1, $before['movementCount']);
         $this->assertEquals(-5000, $before['balanceHalalas']);
 
-        // Head Accountant approves report review
+        // Database-level state transition: report review approved
         $review->update([
             'status' => 'approved',
             'reviewer_type' => 'head_accountant',
@@ -269,7 +269,7 @@ class EmployeeShortageReviewStatusTest extends TestCase
         $row = $after['movements'][0];
         $this->assertEquals($movement->id, $row['id'], 'Stable movement ID must be preserved');
         $this->assertEquals(5000, $row['amountHalalas']);
-        $this->assertEquals('approved', $row['reviewStatus'], 'Review status must transition to approved on Head Accountant approval');
+        $this->assertEquals('approved', $row['reviewStatus'], 'Review status must transition to approved on report review state transition');
         $this->assertEquals(-5000, $after['balanceHalalas'], 'Standing balance must not change on badge transition');
     }
 

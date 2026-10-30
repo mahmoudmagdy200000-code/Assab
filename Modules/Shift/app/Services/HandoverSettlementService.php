@@ -624,57 +624,63 @@ class HandoverSettlementService
             throw ValidationException::withMessages(['amountHalalas' => 'Repayment amount in halalas must be positive.']);
         }
 
-        $manager = BranchManager::findOrFail($managerId);
-        if ((string) $manager->branch_id !== (string) $cashier->branch_id) {
-            throw new AccessDeniedHttpException('BRANCH_MANAGER_BRANCH_MISMATCH');
-        }
+        return DB::transaction(function () use ($cashier, $managerId, $amountHalalas, $notes) {
+            // Lock Cashier row to serialize concurrent repayment submissions for this cashier
+            $cashier = Cashier::whereKey($cashier->id)->lockForUpdate()->firstOrFail();
 
-        $branchId = (string) $cashier->branch_id;
-        $companyId = DB::table('branches')->where('id', $branchId)->value('asab_company_id');
+            $manager = BranchManager::findOrFail($managerId);
+            if ((string) $manager->branch_id !== (string) $cashier->branch_id) {
+                throw new AccessDeniedHttpException('BRANCH_MANAGER_BRANCH_MISMATCH');
+            }
 
-        // Check current debt liability of cashier
-        $in = (float) CashierCustodyTransaction::where('cashier_id', $cashier->id)->where('is_cash_in', true)->sum('amount');
-        $out = (float) CashierCustodyTransaction::where('cashier_id', $cashier->id)->where('is_cash_in', false)->sum('amount');
-        $currentDebtSar = max(0.0, round($in - $out, 2));
-        $currentDebtHalalas = (int) round($currentDebtSar * 100);
+            $branchId = (string) $cashier->branch_id;
+            $companyId = DB::table('branches')->where('id', $branchId)->value('asab_company_id');
 
-        if ($currentDebtHalalas <= 0) {
-            throw ValidationException::withMessages(['amountHalalas' => 'Cashier has no outstanding debt liability to repay.']);
-        }
+            // Re-read current debt liability of cashier under row lock
+            $in = (float) CashierCustodyTransaction::where('cashier_id', $cashier->id)->where('is_cash_in', true)->sum('amount');
+            $out = (float) CashierCustodyTransaction::where('cashier_id', $cashier->id)->where('is_cash_in', false)->sum('amount');
+            $currentDebtSar = max(0.0, round($in - $out, 2));
+            $currentDebtHalalas = (int) round($currentDebtSar * 100);
 
-        if ($amountHalalas > $currentDebtHalalas) {
-            throw ValidationException::withMessages(['amountHalalas' => 'Repayment amount exceeds outstanding debt balance.']);
-        }
+            if ($currentDebtHalalas <= 0) {
+                throw ValidationException::withMessages(['amountHalalas' => 'Cashier has no outstanding debt liability to repay.']);
+            }
 
-        // Check if an identical pending repayment already exists (idempotency / prevent submission replay)
-        $existing = ShiftDebtRepayment::where('cashier_id', (string) $cashier->id)
-            ->where('manager_id', (string) $manager->id)
-            ->where('status', 'pending_manager_confirmation')
-            ->where('amount_halalas', $amountHalalas)
-            ->first();
+            if ($amountHalalas > $currentDebtHalalas) {
+                throw ValidationException::withMessages(['amountHalalas' => 'Repayment amount exceeds outstanding debt balance.']);
+            }
 
-        if ($existing) {
-            return $existing;
-        }
+            // Check if an identical pending repayment already exists (idempotency / prevent submission replay)
+            // Note: Since Cashier row is exclusively locked, pending submissions for this cashier are serialized
+            $existing = ShiftDebtRepayment::where('cashier_id', (string) $cashier->id)
+                ->where('manager_id', (string) $manager->id)
+                ->where('status', 'pending_manager_confirmation')
+                ->where('amount_halalas', $amountHalalas)
+                ->first();
 
-        // Prevent pending submissions from cumulatively exceeding outstanding debt
-        $pendingAmountHalalas = (int) ShiftDebtRepayment::where('cashier_id', (string) $cashier->id)
-            ->where('status', 'pending_manager_confirmation')
-            ->sum('amount_halalas');
+            if ($existing) {
+                return $existing;
+            }
 
-        if (($amountHalalas + $pendingAmountHalalas) > $currentDebtHalalas) {
-            throw ValidationException::withMessages(['amountHalalas' => 'Total pending repayments exceed remaining outstanding debt balance.']);
-        }
+            // Prevent pending submissions from cumulatively exceeding outstanding debt
+            $pendingAmountHalalas = (int) ShiftDebtRepayment::where('cashier_id', (string) $cashier->id)
+                ->where('status', 'pending_manager_confirmation')
+                ->sum('amount_halalas');
 
-        return ShiftDebtRepayment::create([
-            'company_id' => $companyId ?? $branchId,
-            'branch_id' => $branchId,
-            'cashier_id' => (string) $cashier->id,
-            'manager_id' => (string) $manager->id,
-            'amount_halalas' => $amountHalalas,
-            'notes' => $notes,
-            'status' => 'pending_manager_confirmation',
-        ]);
+            if (($amountHalalas + $pendingAmountHalalas) > $currentDebtHalalas) {
+                throw ValidationException::withMessages(['amountHalalas' => 'Total pending repayments exceed remaining outstanding debt balance.']);
+            }
+
+            return ShiftDebtRepayment::create([
+                'company_id' => $companyId ?? $branchId,
+                'branch_id' => $branchId,
+                'cashier_id' => (string) $cashier->id,
+                'manager_id' => (string) $manager->id,
+                'amount_halalas' => $amountHalalas,
+                'notes' => $notes,
+                'status' => 'pending_manager_confirmation',
+            ]);
+        });
     }
 
     /**
@@ -688,6 +694,9 @@ class HandoverSettlementService
     public function confirmDebtRepayment(ShiftDebtRepayment $repayment, Model $actor): array
     {
         return DB::transaction(function () use ($repayment, $actor) {
+            // Canonical Lock Hierarchy: 1. Cashier -> 2. ShiftDebtRepayment
+            // Prevents cross-flow deadlock when concurrent submitDebtRepayment and confirmDebtRepayment race
+            $cashier = Cashier::whereKey($repayment->cashier_id)->lockForUpdate()->firstOrFail();
             $repayment = ShiftDebtRepayment::whereKey($repayment->id)->lockForUpdate()->firstOrFail();
 
             if ($repayment->status !== 'pending_manager_confirmation') {
@@ -702,7 +711,6 @@ class HandoverSettlementService
                 throw new AccessDeniedHttpException('BRANCH_MANAGER_BRANCH_MISMATCH');
             }
 
-            $cashier = Cashier::whereKey($repayment->cashier_id)->lockForUpdate()->firstOrFail();
             $manager = BranchManager::findOrFail($repayment->manager_id);
 
             // Re-verify current debt balance under lock to guarantee no overpayment
