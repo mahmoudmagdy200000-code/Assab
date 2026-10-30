@@ -40,20 +40,26 @@ TIMESTAMP=$(date +%s)
 RANDOM_SUFFIX=$(( RANDOM % 90000 + 10000 ))
 PROOF_DB_NAME="assab_proof_wave3_${TIMESTAMP}_${RANDOM_SUFFIX}"
 SNAPSHOT_DB_NAME="s111_phase567_test_${TIMESTAMP}_${RANDOM_SUFFIX}"
+ELM_DB_NAME="assab_proof_elm_${TIMESTAMP}_${RANDOM_SUFFIX}"
+BE09_DB_NAME="assab_proof_be09_${TIMESTAMP}_${RANDOM_SUFFIX}"
+ASSETS_DB_NAME="assab_proof_assets_${TIMESTAMP}_${RANDOM_SUFFIX}"
 
-echo "==> Wave 3 MySQL Concurrency Proof: Initializing database '${PROOF_DB_NAME}'"
+mkdir -p storage/test-results
 
 cleanup() {
     local exit_code=$?
-    echo "==> Wave 3 MySQL Concurrency: Teardown disposable schema '${PROOF_DB_NAME}'"
-    MYSQL_PWD="${MYSQL_TEST_PASSWORD}" mysql -h "${MYSQL_TEST_HOST}" -P "${MYSQL_TEST_PORT}" -u "${MYSQL_TEST_USER}" \
-        -e "DROP DATABASE IF EXISTS \`${PROOF_DB_NAME}\`;" || true
-    echo "==> Manager Workday MySQL Snapshot: Teardown disposable schema '${SNAPSHOT_DB_NAME}'"
-    MYSQL_PWD="${MYSQL_TEST_PASSWORD}" mysql -h "${MYSQL_TEST_HOST}" -P "${MYSQL_TEST_PORT}" -u "${MYSQL_TEST_USER}" \
-        -e "DROP DATABASE IF EXISTS \`${SNAPSHOT_DB_NAME}\`;" || true
+    for db in "${PROOF_DB_NAME:-}" "${SNAPSHOT_DB_NAME:-}" "${ELM_DB_NAME:-}" "${BE09_DB_NAME:-}" "${ASSETS_DB_NAME:-}"; do
+        if [[ -n "${db}" ]]; then
+            echo "==> Teardown disposable schema '${db}'"
+            MYSQL_PWD="${MYSQL_TEST_PASSWORD}" mysql -h "${MYSQL_TEST_HOST}" -P "${MYSQL_TEST_PORT}" -u "${MYSQL_TEST_USER}" \
+                -e "DROP DATABASE IF EXISTS \`${db}\`;" || true
+        fi
+    done
     exit "${exit_code}"
 }
 trap cleanup EXIT INT TERM
+
+echo "==> Wave 3 MySQL Concurrency Proof: Initializing database '${PROOF_DB_NAME}'"
 
 MYSQL_PWD="${MYSQL_TEST_PASSWORD}" mysql -h "${MYSQL_TEST_HOST}" -P "${MYSQL_TEST_PORT}" -u "${MYSQL_TEST_USER}" \
     -e "CREATE DATABASE \`${PROOF_DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
@@ -82,8 +88,63 @@ export PHASE2_MYSQL_TESTS="1"
 
 php artisan migrate --force
 
-echo "==> Running Manager Workday MySQL Snapshot Suite..."
+echo "==> Manager Workday MySQL Snapshot Suite..."
 php -d memory_limit=1G vendor/bin/phpunit tests/Feature/ManagerWorkdayMySqlSnapshotTest.php \
     --log-junit="storage/test-results/manager-workday-mysql-snapshot.xml"
 
 echo "==> Manager Workday MySQL Snapshot Proof completed successfully."
+
+# ==============================================================================
+# ELM-1 & ELM-2 Cross-Module Concurrency Proof (6 Tests)
+# ==============================================================================
+echo "==> ELM Concurrency Proof: Initializing database '${ELM_DB_NAME}'"
+MYSQL_PWD="${MYSQL_TEST_PASSWORD}" mysql -h "${MYSQL_TEST_HOST}" -P "${MYSQL_TEST_PORT}" -u "${MYSQL_TEST_USER}" \
+    -e "CREATE DATABASE \`${ELM_DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+export DB_DATABASE="${ELM_DB_NAME}"
+unset PHASE2_MYSQL_TESTS || true
+php artisan config:clear || true
+php artisan cache:clear || true
+php artisan migrate --force
+
+echo "==> Running ELM Concurrency Proof Suite (6 Tests)..."
+php -d memory_limit=1G vendor/bin/phpunit tests/Feature/Concurrency/CrossModuleEmployeeLedgerConcurrencyTest.php \
+    --log-junit="storage/test-results/elm-mysql-concurrency.xml"
+
+echo "==> ELM Concurrency Proof Suite completed successfully."
+
+# ==============================================================================
+# BE-09 Multi-Process Concurrency Proof (4 Tests)
+# ==============================================================================
+echo "==> BE-09 Concurrency Proof: Initializing database '${BE09_DB_NAME}'"
+MYSQL_PWD="${MYSQL_TEST_PASSWORD}" mysql -h "${MYSQL_TEST_HOST}" -P "${MYSQL_TEST_PORT}" -u "${MYSQL_TEST_USER}" \
+    -e "CREATE DATABASE \`${BE09_DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+export DB_DATABASE="${BE09_DB_NAME}"
+php artisan config:clear || true
+php artisan cache:clear || true
+php artisan migrate --force
+
+echo "==> Running BE-09 Concurrency Proof Suite (4 Tests)..."
+php -d memory_limit=1G vendor/bin/phpunit tests/Feature/Concurrency/EmployeeSettlementConcurrencyTest.php \
+    --log-junit="storage/test-results/be09-mysql-concurrency.xml"
+
+echo "==> BE-09 Concurrency Proof Suite completed successfully."
+
+# ==============================================================================
+# Branch Fixed Assets Persistence & Column Length Proof (6 Tests)
+# ==============================================================================
+echo "==> Branch Fixed Assets Persistence Proof: Initializing database '${ASSETS_DB_NAME}'"
+MYSQL_PWD="${MYSQL_TEST_PASSWORD}" mysql -h "${MYSQL_TEST_HOST}" -P "${MYSQL_TEST_PORT}" -u "${MYSQL_TEST_USER}" \
+    -e "CREATE DATABASE \`${ASSETS_DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+export DB_DATABASE="${ASSETS_DB_NAME}"
+php artisan config:clear || true
+php artisan cache:clear || true
+php artisan migrate --force
+
+echo "==> Running Branch Fixed Assets Persistence Suite (Driver Error / Column Length Proof)..."
+php -d memory_limit=1G vendor/bin/phpunit tests/Feature/BranchFixedAssetsUploadPersistenceTest.php \
+    --log-junit="storage/test-results/branch-fixed-assets-mysql.xml"
+
+echo "==> Branch Fixed Assets Persistence Proof completed successfully."
