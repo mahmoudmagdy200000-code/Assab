@@ -76,9 +76,14 @@ class CashierCustodyService
      */
     public function recordCashCollected(CashierShiftHandover $handover, Cashier $sendingCashier): CashierCustodyTransaction
     {
-        $existing = CashierCustodyTransaction::where('related_handover_id', $handover->id)
-            ->where('cashier_id', $sendingCashier->id)
+        $existing = CashierCustodyTransaction::where('cashier_id', $sendingCashier->id)
             ->where('transaction_type', 'Total Sales')
+            ->where(function ($query) use ($handover) {
+                $query->where('related_handover_id', $handover->id)
+                    ->orWhere(function ($q) use ($handover) {
+                        $q->where('related_shift_id', $handover->cashier_shift_id);
+                    });
+            })
             ->first();
 
         if ($existing) {
@@ -87,6 +92,15 @@ class CashierCustodyService
 
         $handover->loadMissing(['cashierShift']);
         $shift = $handover->cashierShift;
+
+        if ($handover->status === 'rejected') {
+            throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('HANDOVER_REJECTED');
+        }
+
+        if ($shift && (string) $shift->cashier_id !== (string) $sendingCashier->id) {
+            throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('CASHIER_MISMATCH');
+        }
+
         $cashAmount = (float) ($shift?->cash_collected ?? 0.0);
 
         $toName = $this->resolveRecipientName($handover);
