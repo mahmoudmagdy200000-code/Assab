@@ -38,7 +38,7 @@ class CashierManagementController extends BaseController
                 return $this->errorResponse('Branch manager is not assigned to any branch', 400);
             }
 
-            $query = Cashier::with(['branch', 'creator', 'shifts.shift'])
+            $query = Cashier::with(['branch', 'creator'])
                 ->where('branch_id', $branchId);
 
             // Search by cashier name
@@ -85,20 +85,7 @@ class CashierManagementController extends BaseController
                     ->whereDate('shift_date', today())
                     ->count();
 
-                // Working shifts: distinct Shift templates assigned to this cashier (same format as show())
-                $workingShifts = $cashier->shifts
-                    ->pluck('shift')
-                    ->filter()
-                    ->unique('id')
-                    ->values()
-                    ->map(fn ($shift) => [
-                        'id' => $shift->id,
-                        'name' => $shift->name,
-                        'start_time' => $shift->start_time?->format('H:i'),
-                        'end_time' => $shift->end_time?->format('H:i'),
-                    ])
-                    ->values()
-                    ->all();
+                $workingShifts = app(\Modules\Shift\Services\CashierScheduleView::class)->forCashier($cashier);
 
                 return [
                     'id' => $cashier->id,
@@ -177,7 +164,7 @@ class CashierManagementController extends BaseController
             'email' => 'required|email|unique:cashiers,email',
             'store_branch_id' => 'required|exists:branches,id',
             'shift_ids' => 'required|array|min:1',
-            'shift_ids.*' => 'exists:shifts,id',
+            'shift_ids.*' => 'uuid|distinct|exists:shifts,id',
         ]);
 
         if ($validator->fails()) {
@@ -268,20 +255,7 @@ class CashierManagementController extends BaseController
                 ->where('branch_id', $branchId)
                 ->findOrFail($cashier);
 
-            // Get shifts for this cashier
-            $shifts = Shift::whereHas('cashierShifts', function ($q) use ($cashier) {
-                $q->where('cashier_id', $cashier);
-            })
-                ->where('branch_id', $branchId)
-                ->get()
-                ->map(function ($shift) {
-                    return [
-                        'id' => $shift->id,
-                        'name' => $shift->name,
-                        'start_time' => $shift->start_time?->format('H:i'),
-                        'end_time' => $shift->end_time?->format('H:i'),
-                    ];
-                });
+            $shifts = app(\Modules\Shift\Services\CashierScheduleView::class)->forCashier($cashierModel);
 
             // Get pending, in-progress, and completed shifts
             $pendingShifts = $this->getCashierShiftsByStatus($cashier, ShiftStatus::NOT_STARTED);
@@ -329,7 +303,7 @@ class CashierManagementController extends BaseController
             'store_branch_id' => 'sometimes|exists:branches,id',
             'status' => 'sometimes|in:active,deactivated',
             'shift_ids' => 'sometimes|array|min:1',
-            'shift_ids.*' => 'exists:shifts,id',
+            'shift_ids.*' => 'uuid|distinct|exists:shifts,id',
         ]);
 
         if ($validator->fails()) {
@@ -341,39 +315,42 @@ class CashierManagementController extends BaseController
             $cashierModel = Cashier::where('branch_id', $manager->branch_id)
                 ->findOrFail($cashier);
 
-            // Update cashier information
-            $updateData = [];
-            if ($request->has('name')) {
-                $updateData['name'] = $request->name;
+            if ($request->has('store_branch_id') && (string) $request->store_branch_id !== (string) $manager->branch_id) {
+                return $this->errorResponse('Cashier must remain in your assigned branch', 403);
             }
-            if ($request->has('email')) {
-                $updateData['email'] = $request->email;
-            }
-            if ($request->has('store_branch_id')) {
-                $updateData['branch_id'] = $request->store_branch_id;
-            }
-            if ($request->has('status')) {
-                $updateData['status'] = $request->status;
-            }
-
-            if (! empty($updateData)) {
-                $cashierModel->update($updateData);
-            }
-
-            // Update shifts if provided
             if ($request->has('shift_ids')) {
-                // Check if shifts are already occupied
-                $occupiedShifts = $this->checkOccupiedShifts($request->shift_ids, $cashierModel->branch_id, $cashier);
-                if (! empty($occupiedShifts)) {
-                    return $this->errorResponse(
-                        'Some shifts are already occupied by other cashiers: '.implode(', ', $occupiedShifts),
-                        400
-                    );
+                $occupied = $this->checkOccupiedShifts($request->shift_ids, $cashierModel->branch_id, $cashier);
+                if ($occupied !== []) {
+                    return $this->errorResponse('Some shifts are already occupied by other cashiers: '.implode(', ', $occupied), 400);
+                }
+            }
+            \Illuminate\Support\Facades\DB::transaction(function () use ($request, $cashierModel, $cashier) {
+                // Update cashier information
+                $updateData = [];
+                if ($request->has('name')) {
+                    $updateData['name'] = $request->name;
+                }
+                if ($request->has('email')) {
+                    $updateData['email'] = $request->email;
+                }
+                if ($request->has('store_branch_id')) {
+                    $updateData['branch_id'] = $request->store_branch_id;
+                }
+                if ($request->has('status')) {
+                    $updateData['status'] = $request->status;
                 }
 
-                $cashierService = app(\Modules\Cashier\Services\CashierService::class);
-                $cashierService->updateCashierShifts($cashier, $request->shift_ids);
-            }
+                if (! empty($updateData)) {
+                    $cashierModel->update($updateData);
+                }
+
+                // Update shifts if provided
+                if ($request->has('shift_ids')) {
+                    $cashierService = app(\Modules\Cashier\Services\CashierService::class);
+                    $cashierService->updateCashierShifts($cashier, $request->shift_ids);
+                }
+
+            });
 
             $cashierModel->refresh();
             $cashierModel->load(['branch', 'creator']);
@@ -389,6 +366,8 @@ class CashierManagementController extends BaseController
                     'store_branch_name' => $cashierModel->branch->name ?? 'N/A',
                 ],
             ], 'Cashier updated successfully');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return $this->errorResponse($e->validator->errors()->first(), 422);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return $this->errorResponse('Cashier not found in your branch', 404);
         } catch (\Exception $e) {
@@ -689,8 +668,8 @@ class CashierManagementController extends BaseController
                 ->orderBy('shift_date')
                 ->limit($limit);
         } elseif ($status === ShiftStatus::IN_PROGRESS) {
-            // For in-progress shifts: today only
-            $query->whereDate('shift_date', today())
+            // Include unfinished prior-day shifts across midnight; never future dates.
+            $query->whereDate('shift_date', '<=', today())
                 ->orderBy('actual_start_time')
                 ->limit($limit);
         } else {

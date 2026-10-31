@@ -258,64 +258,62 @@ class CashierService
         string $shiftDate,
         bool $forFullWeek = false
     ): array {
-        Cashier::findOrFail($cashierId);
-        $assignedShifts = [];
-        $refDate = Carbon::parse($shiftDate);
+        return DB::transaction(function () use ($cashierId, $shiftIds, $shiftDate, $forFullWeek) {
+            $cashier = Cashier::query()->whereKey($cashierId)->lockForUpdate()->firstOrFail();
+            $shiftIds = array_values(array_unique($shiftIds));
+            $this->validateAndLockAssignmentSelection($cashier, $shiftIds);
+            $refDate = Carbon::parse($shiftDate);
+            $dates = $forFullWeek
+                ? array_values(array_filter(\Modules\Shift\Helpers\ShiftHelper::workWeekDatesExcludingHolidays($refDate),
+                    fn (Carbon $date) => $date->greaterThanOrEqualTo($refDate->copy()->startOfDay())))
+                : [$refDate];
+            // Serialize competing roster writers on the selected template rows.
+            if (CashierShift::query()->whereIn('shift_id', $shiftIds)
+                ->where('cashier_id', '!=', $cashierId)->where('status', '!=', ShiftStatus::COMPLETED)
+                ->whereDate('shift_date', '>=', $refDate->toDateString())->exists()) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'shift_ids' => 'A selected shift is already assigned to another cashier.',
+                ]);
+            }
+            $assignedBy = auth('branch_manager')->id() ?? auth()->id();
+            $assignedShifts = [];
+            $created = [];
+            foreach ($dates as $date) {
+                foreach ($shiftIds as $id) {
+                    // Existing assignments (including completed/canceled ones) are immutable here.
+                    $row = CashierShift::query()->where('cashier_id', $cashierId)->where('shift_id', $id)
+                        ->whereDate('shift_date', $date->toDateString())->firstOrCreate([], [
+                            'cashier_id' => $cashierId, 'shift_id' => $id, 'shift_date' => $date->toDateString(),
+                            'status' => ShiftStatus::NOT_STARTED->value, 'opening_balance' => 0, 'assigned_by' => $assignedBy,
+                        ]);
+                    $assignedShifts[] = $row;
+                    if ($row->wasRecentlyCreated) {
+                        $created[] = $row;
+                    }
+                }
+            }
+            $this->setNextCashierIdsForCreatedShifts($created);
 
-        $assignedBy = auth('branch_manager')->id() ?? auth()->id();
+            return ['cashier_id' => $cashierId, 'shifts_assigned' => count($assignedShifts), 'shifts' => $assignedShifts];
+        });
+    }
 
-        if ($forFullWeek) {
-            // The work week from `shift.week`, holidays excluded — the SAME rule
-            // `shifts:renew-week` applies. This used to be 7 consecutive days,
-            // so a cashier got Friday/Saturday shifts on creation that the
-            // weekly renewal then never reproduced (2026-08-10).
-            $dates = array_values(array_filter(
-                \Modules\Shift\Helpers\ShiftHelper::workWeekDatesExcludingHolidays($refDate),
-                fn (Carbon $d) => $d->greaterThanOrEqualTo($refDate->copy()->startOfDay()),
-            ));
-        } else {
-            $dates = [$refDate];
-        }
-
-        $branchId = Cashier::whereKey($cashierId)->value('branch_id');
-
+    private function validateAndLockAssignmentSelection(Cashier $cashier, array $shiftIds): void
+    {
         $manager = auth('branch_manager')->user() ?? auth()->user();
-        if ($manager && isset($manager->branch_id) && $branchId !== null && $manager->branch_id !== $branchId) {
+        if ($manager && isset($manager->branch_id) && $manager->branch_id !== $cashier->branch_id) {
             throw new \Illuminate\Auth\Access\AuthorizationException('Cannot assign shifts to a cashier of another branch');
         }
-
-        foreach ($dates as $date) {
-            $d = $date->format('Y-m-d');
-            foreach ($shiftIds as $shiftId) {
-                $template = Shift::findOrFail($shiftId);
-
-                // Zero-trust: the shift template must belong to the cashier's own
-                // branch. Nothing checked this, so an id from another branch
-                // would have put that branch's window on this cashier's roster.
-                if ($branchId !== null && $template->branch_id !== $branchId) {
-                    throw new \InvalidArgumentException('Shift template does not belong to this cashier\'s branch');
-                }
-
-                $cashierShift = CashierShift::create([
-                    'cashier_id' => $cashierId,
-                    'shift_id' => $shiftId,
-                    'shift_date' => $d,
-                    'status' => ShiftStatus::NOT_STARTED->value,
-                    'opening_balance' => 0,
-                    'assigned_by' => $assignedBy,
+        // Validate the complete selection before creating even the first row.
+        $templates = Shift::query()->whereIn('id', $shiftIds)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+        foreach ($shiftIds as $id) {
+            $template = $templates->get($id);
+            if (! $template || $template->branch_id !== $cashier->branch_id || ! $template->is_active) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'shift_ids' => 'Select active shift templates from the cashier branch only.',
                 ]);
-
-                $assignedShifts[] = $cashierShift;
             }
         }
-
-        $this->setNextCashierIdsForCreatedShifts($assignedShifts);
-
-        return [
-            'cashier_id' => $cashierId,
-            'shifts_assigned' => count($assignedShifts),
-            'shifts' => $assignedShifts,
-        ];
     }
 
     /**
@@ -343,16 +341,23 @@ class CashierService
     {
         DB::beginTransaction();
         try {
-            Cashier::findOrFail($cashierId);
+            $cashier = Cashier::query()->whereKey($cashierId)->lockForUpdate()->firstOrFail();
             $start = Carbon::today();
             $end = $start->copy()->addDays(6);
 
-            CashierShift::where('cashier_id', $cashierId)
+            $this->validateAndLockAssignmentSelection($cashier, $shiftIds);
+
+            $pending = CashierShift::where('cashier_id', $cashierId)
                 ->where('status', ShiftStatus::NOT_STARTED)
                 ->whereDate('shift_date', '>=', $start)
                 ->whereDate('shift_date', '<=', $end)
                 ->whereNotIn('shift_id', $shiftIds)
-                ->delete();
+                ->orderBy('id')->lockForUpdate()->get();
+
+            foreach ($pending as $row) {
+                $this->assertAssignmentHasNoActivity($row);
+                $row->delete();
+            }
 
             $result = $this->assignShiftsToCashier(
                 cashierId: $cashierId,
@@ -367,6 +372,49 @@ class CashierService
         } catch (\Exception $e) {
             DB::rollBack();
             throw $e;
+        }
+    }
+
+    /** Roster edits must never erase cash/report/reassignment evidence. */
+    private function assertAssignmentHasNoActivity(CashierShift $shift): void
+    {
+        foreach (['actual_start_time', 'actual_end_time', 'operational_chain_id', 'operational_ended_at',
+            'handed_over_at', 'pos_receipt', 'original_cashier_id', 'reassigned_at', 'reassigned_by',
+            'reassignment_reason', 'review_status', 'reviewed_at', 'review_reason', 'handover_notes'] as $field) {
+            if ($shift->getRawOriginal($field) !== null) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['shift_ids' => 'A shift with activity cannot be removed from the roster.']);
+            }
+        }
+        foreach (['opening_balance', 'closing_balance', 'expected_balance', 'variance', 'total_sales', 'net_sales', 'vat_amount', 'cash_collected', 'card_payments'] as $field) {
+            $value = $shift->getRawOriginal($field);
+            if ($value !== null && ! preg_match('/\A[+-]?0+(?:\.0+)?\z/', (string) $value)) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['shift_ids' => 'A shift with financial evidence cannot be removed.']);
+            }
+        }
+        if (DB::table('shift_report_aggregates')->where('source_type', 'cashier_shift')->where('source_id', $shift->id)->exists()
+            || DB::table('asab_operations')->where('module_key', 'shifts')->where('source_id', $shift->id)->exists()
+            || DB::table('cashier_shift_handovers as incoming')
+                ->join('cashier_shifts as source', 'source.id', '=', 'incoming.cashier_shift_id')
+                ->join('shifts as slot', 'slot.id', '=', 'source.shift_id')
+                ->where('incoming.handover_to_type', 'cashier')->where('incoming.handover_to_id', $shift->cashier_id)
+                ->where('slot.branch_id', $shift->shift()->value('branch_id'))
+                ->whereDate('source.shift_date', $shift->shift_date)->exists()) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['shift_ids' => 'A shift with report evidence cannot be removed.']);
+        }
+        foreach ([
+            ['shift_sales_breakdown', 'cashier_shift_id'], ['shift_handover_status', 'cashier_shift_id'],
+            ['cashier_shift_handovers', 'cashier_shift_id'], ['branch_manager_cash_transfers', 'destination_cashier_shift_id'],
+            ['cashier_shift_handover_receipts', 'receiving_cashier_shift_id'], ['shift_transfer_attempts', 'receiving_cashier_shift_id'],
+            ['shift_report_cash_counts', 'cashier_shift_id'], ['shift_variance_details', 'cashier_shift_id'],
+            ['shift_transfer_rejection_evidence', 'receiving_cashier_shift_id'],
+            ['shift_variance_alerts', 'cashier_shift_id'], ['shift_liability_postings', 'cashier_shift_id'],
+            ['cashier_shift_history', 'cashier_shift_id'], ['shift_liability_allocations', 'cashier_shift_id'],
+            ['shift_liability_daily_locks', 'cashier_shift_id'], ['cashier_custody_transactions', 'related_shift_id'],
+            ['personal_ledger_transactions', 'related_shift_id'], ['asab_shifts', 'legacy_shift_id'],
+        ] as [$table, $column]) {
+            if (DB::table($table)->where($column, $shift->id)->exists()) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['shift_ids' => 'A shift with financial evidence cannot be removed.']);
+            }
         }
     }
 
