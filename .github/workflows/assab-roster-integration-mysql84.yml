@@ -1,0 +1,83 @@
+name: ASSAB Roster Integration MySQL 8.4 Gate
+
+on:
+  push:
+    branches: ['fix/v35-wave3-roster-integration-20261101']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: assab-roster-integration-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  roster-and-no-work-mysql84:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: assab-ci-disposable-only
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -passab-ci-disposable-only"
+          --health-interval=5s --health-timeout=5s --health-retries=30
+    env:
+      APP_ENV: testing
+      APP_DEBUG: 'false'
+      APP_KEY: base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      APP_URL: http://127.0.0.1
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      MAIL_MAILER: array
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      DB_USERNAME: root
+      DB_PASSWORD: assab-ci-disposable-only
+      DB_DATABASE: pkg7_test_roster_${{ github.run_id }}
+      PKG7_MYSQL_TESTS: '1'
+      FEATURE_SHIFT_DID_NOT_WORK: 'true'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql, bcmath, curl, dom, fileinfo, gd, intl, mbstring, tokenizer, xml, zip
+          coverage: none
+          tools: composer:v2
+      - name: Install locked dependencies without setup scripts
+        run: composer install --no-scripts --no-interaction --prefer-dist --no-progress
+      - name: Validate isolated connection, migrate and execute regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$APP_ENV" == testing && "$DB_CONNECTION" == mysql && "$DB_HOST" == 127.0.0.1 && "$DB_PORT" == 3306 ]]
+          [[ "$DB_DATABASE" =~ ^pkg7_test_roster_[0-9]+$ ]]
+          export MYSQL_PWD="$DB_PASSWORD"
+          version=$(mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -Nse 'SELECT VERSION()')
+          [[ "$version" == 8.4.* ]]
+          echo "Verified disposable Oracle MySQL $version, database $DB_DATABASE, commit $GITHUB_SHA"
+          cleanup() {
+            mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -e "DROP DATABASE IF EXISTS \`$DB_DATABASE\`;"
+          }
+          trap cleanup EXIT
+          mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -e "CREATE DATABASE \`$DB_DATABASE\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+          php -r 'require "vendor/autoload.php"; $app=require "bootstrap/app.php"; $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap(); $db=Illuminate\Support\Facades\DB::connection(); if (app()->environment()!=="testing" || $db->getDriverName()!=="mysql" || $db->getConfig("host")!=="127.0.0.1" || !preg_match("/^pkg7_test_roster_[0-9]+$/D",$db->getDatabaseName())) { throw new LogicException("Refusing non-disposable application connection"); }'
+          mkdir -p storage/test-results
+          php artisan migrate --force
+          php vendor/bin/phpunit tests/Feature/ShiftNotWorkedMySqlConcurrencyTest.php --log-junit storage/test-results/roster-no-work-mysql84.xml
+          php vendor/bin/phpunit tests/Feature/CashierRosterRepairTest.php --log-junit storage/test-results/roster-assignment-mysql84.xml
+          php -r 'foreach (["roster-no-work-mysql84"=>3,"roster-assignment-mysql84"=>14] as $name=>$expected) { $xml=simplexml_load_file("storage/test-results/$name.xml"); $suite=$xml->testsuite; if ((int)$suite["tests"]!==$expected || (int)$suite["failures"]!==0 || (int)$suite["errors"]!==0 || (int)$suite["skipped"]!==0) { throw new RuntimeException("Incomplete or failing $name gate"); } }'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: roster-integration-mysql84-${{ github.sha }}
+          path: storage/test-results/roster-*-mysql84.xml
+          if-no-files-found: warn
