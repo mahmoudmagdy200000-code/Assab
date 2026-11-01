@@ -47,8 +47,12 @@ class ShiftNotWorkedMySqlConcurrencyTest extends TestCase
         $branch = Branch::factory()->create();
         $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
         $cashier = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);
-        $slot = Shift::factory()->create(['branch_id' => $branch->id]);
-        $shift = CashierShift::factory()->create(['cashier_id' => $cashier->id, 'shift_id' => $slot->id, 'shift_date' => today()]);
+        $slot = Shift::factory()->create(['branch_id' => $branch->id, 'start_time' => '08:00:00', 'end_time' => '14:00:00']);
+        // No-work is legal only after the scheduled period ends. Workers use
+        // independent clocks, so yesterday is deterministic without freezing a
+        // parent-only clock or weakening the production eligibility guard.
+        $shift = CashierShift::factory()->create(['cashier_id' => $cashier->id, 'shift_id' => $slot->id, 'shift_date' => today()->subDay()]);
+        $this->assertTrue(app(\Modules\Shift\Services\ShiftNotWorkedGuard::class)->canMark($shift, $manager), 'The concurrency fixture must be eligible before either worker starts.');
         $replacement = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);
         $barrier = tempnam(sys_get_temp_dir(), 'pkg7_');
         unlink($barrier);
@@ -73,7 +77,7 @@ class ShiftNotWorkedMySqlConcurrencyTest extends TestCase
                 $this->assertSame(0, $worker->getExitCode(), $worker->getErrorOutput());
                 $results[] = json_decode($worker->getOutput(), true, flags: JSON_THROW_ON_ERROR);
             }
-            $this->assertSame(1, count(array_filter($results, fn ($result) => $result['ok'])));
+            $this->assertSame(1, count(array_filter($results, fn ($result) => $result['ok'])), json_encode($results, JSON_THROW_ON_ERROR));
             $shift = $shift->fresh();
             $this->assertContains($shift->status->value, ['canceled', 'in_progress', 'reassigned']);
             $this->assertSame($shift->status->value === 'canceled' ? 1 : 0, $shift->notWorkedHistory()->count());
