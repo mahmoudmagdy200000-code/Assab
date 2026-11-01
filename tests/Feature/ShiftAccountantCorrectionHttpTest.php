@@ -8,6 +8,7 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Shift as AdminShift;
 use Modules\Branch\Models\Branch;
@@ -92,6 +93,12 @@ class ShiftAccountantCorrectionHttpTest extends TestCase
             'user_id' => $this->accountant->id,
             'role_key' => 'accountant',
             'scope' => 'all',
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
         ]);
 
         $this->cashierShift = CashierShift::factory()->create([
@@ -278,6 +285,12 @@ class ShiftAccountantCorrectionHttpTest extends TestCase
             'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $foreignAccountant->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $foreignCompany->id,
+            'user_id' => $foreignAccountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
 
         $key = (string) Str::uuid();
         $payload = [

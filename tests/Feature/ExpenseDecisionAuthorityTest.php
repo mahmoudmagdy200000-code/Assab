@@ -17,6 +17,7 @@ use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabNotification;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\ExpenseBridgeService;
 use Modules\Admin\Services\ExpenseFeedbackBridgeService;
@@ -75,6 +76,12 @@ class ExpenseDecisionAuthorityTest extends TestCase
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $u->id, 'role_key' => $role, 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $u->id,
+            'role_key' => $role,
+            'status' => 'active',
+        ]);
 
         return $u;
     }

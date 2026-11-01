@@ -493,8 +493,11 @@ Route::prefix('v1')->group(function () {
                 // «تحميل PDF» on the statement (?format=pdf|xlsx|csv).
                 Route::get('employees/{id}/statement/export', [CompanyExportController::class, 'employeeStatement']);
                 Route::post('employees/{id}/movements', [EmployeeController::class, 'addMovement']);
-                // ACC-7.3 «تسوية الرصيد».
-                Route::post('employees/{id}/settle-balance', [EmployeeController::class, 'settleBalance']);
+                // ACC-7.3 / STMT-02 / BE-09 «تسوية الرصيد».
+                Route::post('employees/{id}/settle-balance', [EmployeeController::class, 'settleBalance'])->middleware('asab.idempotency');
+                Route::post('employee-settlements', [EmployeeController::class, 'settleBalance'])->middleware('asab.idempotency');
+                Route::post('employee-settlements/{id}/approve', [EmployeeController::class, 'approveSettlement']);
+                Route::post('employee-settlements/{id}/reject', [EmployeeController::class, 'rejectSettlement']);
 
                 // Cash custody (§6.3.11) — filters: brandId, branchId, status.
                 Route::get('cash-custody/export', [CompanyExportController::class, 'cashCustody']);
@@ -820,8 +823,10 @@ Route::prefix('v1')->group(function () {
                     // ACC-2.3 review modal — what the accountant read off the document.
                     Route::patch('expense-invoices/{invoiceId}/invoices/{invoiceIndex}', [AccountantCompanyController::class, 'reviewInvoice']);
                     Route::post('expense-invoices/{invoiceId}/convert-to-asset-draft', [AccountantController::class, 'convertToAsset']);
+                    Route::get('asset-drafts', [AssetController::class, 'drafts']);
                     Route::post('asset-drafts/{draftId}/confirm', [AssetController::class, 'confirmDraft']);
                     Route::post('asset-drafts/{draftId}/discard', [AssetController::class, 'discardDraft']);
+                    Route::delete('asset-drafts/{draftId}', [AssetController::class, 'discardDraft']);
 
                     Route::get('inventory/export', [CompanyExportController::class, 'inventoryExport']);
                     Route::get('inventory/branches', [InventoryController::class, 'index']);
@@ -872,8 +877,6 @@ Route::prefix('v1')->group(function () {
                     Route::get('employees', [EmployeeController::class, 'index']);
                     Route::get('employees/{id}/movements', [EmployeeController::class, 'statement']);
                     Route::get('employees/{id}/statement/export', [CompanyExportController::class, 'employeeStatement']);
-                    // ACC-7.3 «تسوية الرصيد».
-                    Route::post('employees/{id}/settle-balance', [EmployeeController::class, 'settleBalance']);
                 });
 
                 /*
@@ -892,9 +895,16 @@ Route::prefix('v1')->group(function () {
                     Route::post('operations/{id}/request-clarification', [OperationController::class, 'requestClarification']);
                 });
 
-                // Cash custody (§5.3 ACC-8 + §5.2 HEAD-4) — the head OWNS تعزيز العهدة,
-                // so this block admits both accountant and head on the company surface.
-                Route::middleware(['asab.role:accountant,head', 'asab.idempotency'])->group(function () {
+                // ACC-7.3 / STMT-02 / BE-09 «تسوية الرصيد»
+                Route::middleware(['asab.role:accountant,head,head_accountant', 'asab.idempotency'])->group(function () {
+                    Route::post('employees/{id}/settle-balance', [EmployeeController::class, 'settleBalance']);
+                    Route::post('employee-settlements', [EmployeeController::class, 'settleBalance']);
+                    Route::post('employee-settlements/{id}/approve', [EmployeeController::class, 'approveSettlement']);
+                    Route::post('employee-settlements/{id}/reject', [EmployeeController::class, 'rejectSettlement']);
+                });
+
+                // Cash custody (§5.3 ACC-8 + §5.2 HEAD-4 / FUND-04 / FUND-06)
+                Route::middleware(['asab.role:accountant,head,company-admin,brand-owner,brand-manager,owner', 'asab.idempotency'])->group(function () {
                     Route::get('cash-custody/export', [CompanyExportController::class, 'cashCustody']);
                     Route::get('cash-custody', [CashCustodyController::class, 'index']);
                     Route::get('cash-custody/{id}/transactions', [AccountantCompanyController::class, 'cashTransactions']);

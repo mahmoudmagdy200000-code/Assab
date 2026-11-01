@@ -7,6 +7,7 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Branch\Models\Branch;
 use Modules\Inventory\Models\DailyInventorySchedule;
@@ -53,6 +54,12 @@ class AccountantDailyInventoryListTest extends TestCase
         AsabUserRole::create([
             'user_id' => $this->accountant->id, 'role_key' => 'accountant', 'scope' => 'brand',
             'brand_ids' => [$this->brand->id], 'module_keys' => ['inventory'],
+        ]);
+        CompanyUser::create([
+            'company_id' => $company->id,
+            'user_id' => $this->accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
         ]);
 
         // The two uploaded sheets: 2 menu items + 3 raw materials = 5 rows.

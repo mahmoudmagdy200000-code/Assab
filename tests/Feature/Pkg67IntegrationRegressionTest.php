@@ -190,10 +190,11 @@ class Pkg67IntegrationRegressionTest extends TestCase
     /** A separate branch with no submitted day: the PKG-6 fixture branch correctly refuses no-work on a submitted day. */
     private function freshScope(): array
     {
+        $this->travelTo(today()->setTime(15, 0));
         $branch = \Modules\Branch\Models\Branch::factory()->create();
         $manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
         $cashier = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $manager->id]);
-        $template = \Modules\Shift\Models\Shift::factory()->create(['branch_id' => $branch->id]);
+        $template = \Modules\Shift\Models\Shift::factory()->create(['branch_id' => $branch->id, 'start_time' => '08:00:00', 'end_time' => '14:00:00']);
         $shift = CashierShift::factory()->create(['cashier_id' => $cashier->id, 'shift_id' => $template->id, 'shift_date' => today()]);
 
         return [$branch, $manager, $cashier, $shift, $template];

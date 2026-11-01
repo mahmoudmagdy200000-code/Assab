@@ -6,6 +6,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Branch\Models\Branch;
 use Modules\Cashier\Models\Cashier;
 use Modules\Notification\Contracts\FcmClientInterface;
@@ -209,6 +210,12 @@ class LoginDeviceRegistrationTest extends TestCase
             'name' => 'محاسب',
             'email' => 'accountant@login.test',
             'password' => 'dashboard-secret',
+            'status' => 'active',
+        ]);
+        CompanyUser::create([
+            'company_id' => $company->id,
+            'user_id' => $user->id,
+            'role_key' => 'accountant',
             'status' => 'active',
         ]);
 

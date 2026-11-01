@@ -67,19 +67,83 @@ class EmployeeAllocationService
 
     /**
      * Reverse any existing debits of `$category` posted for `$op` — the
-     * idempotency primitive. Deletes rather than posting compensating credits:
-     * these are correction retries, not accounting reversals.
+     * idempotency primitive (AUD-01).
+     *
+     * Posts compensating credit entries opposite each debit movement to maintain
+     * a complete audit trail without deleting records.
      */
     public function reverse(Operation $op, string $category): int
     {
-        return EmployeeMovement::where('ref_operation_id', $op->id)
-            ->where('category', $category)
-            ->delete();
+        return DB::transaction(function () use ($op, $category) {
+            // 1. Lock the parent operation first to serialize allocation/reversal operations and prevent stale snapshot
+            if ($op->exists) {
+                Operation::whereKey($op->id)->lockForUpdate()->first();
+            }
+
+            $existingDebits = EmployeeMovement::where('ref_operation_id', $op->id)
+                ->where('category', $category)
+                ->where('movement_type', 'debit')
+                ->lockForUpdate()
+                ->get();
+
+            if ($existingDebits->isEmpty()) {
+                return 0;
+            }
+
+            // Lock all affected employees in deterministic ascending order to prevent deadlocks
+            $empIds = $existingDebits->pluck('employee_id')->filter()->unique()->sort()->values();
+            if ($empIds->isNotEmpty()) {
+                Employee::whereIn('id', $empIds)->orderBy('id')->lockForUpdate()->get();
+            }
+
+            $existingCredits = EmployeeMovement::where('ref_operation_id', $op->id)
+                ->where('category', $category)
+                ->where('movement_type', 'credit')
+                ->lockForUpdate()
+                ->get();
+
+            $reversedRefs = $existingCredits->pluck('ref')->filter()->all();
+
+            $count = 0;
+            foreach ($existingDebits as $debit) {
+                $reversalRef = 'REV-'.substr(str_replace('-', '', (string) $debit->id), 0, 28);
+                if (in_array($reversalRef, $reversedRefs, true)) {
+                    continue;
+                }
+
+                EmployeeMovement::create([
+                    'employee_id' => $debit->employee_id,
+                    'movement_date' => now(),
+                    'description' => 'عكس — '.$debit->description,
+                    'movement_type' => 'credit',
+                    'category' => $category,
+                    'amount' => $debit->amount,
+                    'ref_operation_id' => $op->id,
+                    'created_by_id' => auth()->id() ?? $debit->created_by_id,
+                    'ref' => $reversalRef,
+                ]);
+
+                $reversedRefs[] = $reversalRef;
+                $count++;
+            }
+
+            return $count;
+        });
     }
 
     public function hasPosted(Operation $op, string $category): bool
     {
-        return EmployeeMovement::where('ref_operation_id', $op->id)->where('category', $category)->exists();
+        $debits = (int) EmployeeMovement::where('ref_operation_id', $op->id)
+            ->where('category', $category)
+            ->where('movement_type', 'debit')
+            ->sum('amount');
+
+        $credits = (int) EmployeeMovement::where('ref_operation_id', $op->id)
+            ->where('category', $category)
+            ->where('movement_type', 'credit')
+            ->sum('amount');
+
+        return ($debits - $credits) > 0;
     }
 
     /**
@@ -93,6 +157,85 @@ class EmployeeAllocationService
     public function post(Operation $op, string $category, string $categoryLabelAr, array $rows, AsabUser $actor, string|\DateTimeInterface|null $date = null): array
     {
         return DB::transaction(function () use ($op, $category, $categoryLabelAr, $rows, $actor, $date) {
+            // 1. Establish Operation row lock first as the very first query to serialize concurrent allocation/reversal operations for this operation
+            if ($op->exists) {
+                Operation::whereKey($op->id)->lockForUpdate()->first();
+            }
+
+            // 2. Perform locking read for existing debits (forces Current Read under REPEATABLE READ, preventing stale snapshot)
+            $existingDebits = EmployeeMovement::where('ref_operation_id', $op->id)
+                ->where('category', $category)
+                ->where('movement_type', 'debit')
+                ->lockForUpdate()
+                ->get();
+
+            // 3. Lock all affected employees (both prior debits and new allocation targets)
+            // in deterministic ascending order to prevent deadlocks across concurrent writes.
+            $existingEmpIds = $existingDebits->pluck('employee_id');
+            $newEmpIds = collect($rows)->map(fn ($r) => $r['employee']->id ?? ($r['employeeId'] ?? null));
+
+            $allEmpIds = $existingEmpIds->concat($newEmpIds)->filter()->unique()->sort()->values();
+            if ($allEmpIds->isNotEmpty()) {
+                Employee::whereIn('id', $allEmpIds)->orderBy('id')->lockForUpdate()->get();
+            }
+
+            // E02c: Once-only idempotency guard: check if active debits match requested rows identically
+            $existingCredits = EmployeeMovement::where('ref_operation_id', $op->id)
+                ->where('category', $category)
+                ->where('movement_type', 'credit')
+                ->lockForUpdate()
+                ->get();
+
+            $reversedDebitIds = [];
+            foreach ($existingCredits as $credit) {
+                if (str_starts_with((string) $credit->ref, 'REV-')) {
+                    $reversedPrefix = substr((string) $credit->ref, 4);
+                    foreach ($existingDebits as $d) {
+                        $dPrefix = substr(str_replace('-', '', (string) $d->id), 0, 28);
+                        if ($dPrefix === $reversedPrefix) {
+                            $reversedDebitIds[] = $d->id;
+                        }
+                    }
+                }
+            }
+
+            $activeDebits = $existingDebits->whereNotIn('id', $reversedDebitIds)->values();
+
+            if ($activeDebits->isNotEmpty() && $activeDebits->count() === count($rows)) {
+                $requestedMap = [];
+                foreach ($rows as $row) {
+                    $empId = (string) ($row['employee']->id ?? ($row['employeeId'] ?? ''));
+                    $requestedMap[$empId] = (int) $row['amountHalalas'];
+                }
+
+                $activeMap = [];
+                foreach ($activeDebits as $d) {
+                    $activeMap[(string) $d->employee_id] = (int) $d->amount;
+                }
+
+                ksort($requestedMap);
+                ksort($activeMap);
+
+                if ($requestedMap === $activeMap) {
+                    // Identical retry: return existing movements without creating duplicate reverse/recharge movements
+                    $existingResults = [];
+                    foreach ($activeDebits as $movement) {
+                        $emp = $movement->employee ?? Employee::find($movement->employee_id);
+                        $existingResults[] = [
+                            'id' => $movement->id,
+                            'employeeId' => $movement->employee_id,
+                            'employeeName' => $emp?->name ?? '',
+                            'amountHalalas' => (int) $movement->amount,
+                            'category' => $category,
+                            'categoryLabelAr' => $categoryLabelAr,
+                            'appliedAt' => optional($movement->created_at)->toIso8601String(),
+                        ];
+                    }
+
+                    return $existingResults;
+                }
+            }
+
             $this->reverse($op, $category);
 
             $created = [];

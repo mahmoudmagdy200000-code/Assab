@@ -200,20 +200,43 @@ class ShiftAssignmentAcceptanceGateTest extends TestCase
         $this->assertFalse($actions['can_start']);
         $this->assertFalse($actions['can_accept_assignment']);
 
+        $before = $this->snapshot();
+
+        // FR-08 business rule: Cashier cannot start a future-dated shift
         $this->actingAs($this->incoming, 'sanctum')
             ->postJson("/api/v1/cashier/shifts/{$future->id}/start")
             ->assertStatus(400)->assertJsonPath('success', false);
         $this->assertSame(ShiftStatus::NOT_STARTED, $future->fresh()->status);
         $this->assertNull($future->fresh()->actual_start_time);
+        $this->assertSame($before, $this->snapshot());
 
+        // FR-08 business rule: Manager ALSO cannot start a future-dated shift (HTTP 400)
         $this->actingAs($this->manager, 'sanctum')
             ->postJson("/api/branch-manager/shifts/start-by-manager/{$future->id}")
-            ->assertOk()->assertJsonPath('success', true);
+            ->assertStatus(400)->assertJsonPath('success', false);
 
-        $this->assertSame(ShiftStatus::IN_PROGRESS, $future->fresh()->status);
-        $this->assertNotNull($future->fresh()->actual_start_time);
+        $this->assertSame(ShiftStatus::NOT_STARTED, $future->fresh()->status);
+        $this->assertNull($future->fresh()->actual_start_time);
+        $this->assertSame($before, $this->snapshot());
         $this->assertSame(0, DB::table('cashier_shift_handover_receipts')->count());
         $this->assertSame(0, DB::table('cashier_custody_transactions')->count());
         $this->assertSame(0, DB::table('personal_ledger_transactions')->count());
+    }
+
+    public function test_manager_can_start_today_scheduled_shift(): void
+    {
+        $todayShift = CashierShift::create([
+            'cashier_id' => $this->incoming->id,
+            'shift_id' => $this->source->shift_id,
+            'shift_date' => today()->toDateString(),
+            'status' => ShiftStatus::NOT_STARTED,
+        ]);
+
+        $this->actingAs($this->manager, 'sanctum')
+            ->postJson("/api/branch-manager/shifts/start-by-manager/{$todayShift->id}")
+            ->assertOk()->assertJsonPath('success', true);
+
+        $this->assertSame(ShiftStatus::IN_PROGRESS, $todayShift->fresh()->status);
+        $this->assertNotNull($todayShift->fresh()->actual_start_time);
     }
 }

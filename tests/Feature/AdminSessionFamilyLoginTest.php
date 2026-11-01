@@ -51,6 +51,13 @@ class AdminSessionFamilyLoginTest extends TestCase
             'status' => 'active',
             'company_id' => $this->company->id,
         ]);
+
+        \Modules\Admin\Models\CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->adminUser->id,
+            'role_key' => 'company-admin',
+            'status' => 'active',
+        ]);
     }
 
     protected function tearDown(): void

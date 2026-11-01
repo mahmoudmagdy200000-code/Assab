@@ -6,6 +6,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
@@ -44,6 +45,12 @@ class EmployeeTitleGrantsNoPermissionTest extends TestCase
         ]);
         AsabUserRole::create([
             'user_id' => $this->manager->id, 'role_key' => 'branch', 'scope' => 'branch', 'branch_ids' => [$this->branch->id],
+        ]);
+        CompanyUser::create([
+            'company_id' => $company->id,
+            'user_id' => $this->manager->id,
+            'role_key' => 'branch',
+            'status' => 'active',
         ]);
     }
 

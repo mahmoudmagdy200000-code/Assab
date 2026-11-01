@@ -66,6 +66,7 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\EmployeeMovement;
 use Modules\Admin\Models\Operation;
@@ -179,6 +180,12 @@ class ShiftDailySalesLegacyProtectionTest extends TestCase
             'user_id' => $this->accountant->id,
             'role_key' => 'accountant',
             'scope' => 'all',
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
         ]);
 
         $this->employee = Employee::create([

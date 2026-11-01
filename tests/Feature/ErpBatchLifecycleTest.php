@@ -8,6 +8,7 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\ErpBatch;
 use Modules\Admin\Models\Operation;
 use Modules\Branch\Models\Branch;
@@ -46,6 +47,12 @@ class ErpBatchLifecycleTest extends TestCase
     {
         $u = AsabUser::create(['company_id' => $companyId, 'name' => $role, 'email' => $email, 'password' => 'secret-password', 'status' => 'active']);
         AsabUserRole::create(['user_id' => $u->id, 'role_key' => $role, 'scope' => 'all', 'branch_ids' => []]);
+        CompanyUser::create([
+            'company_id' => $companyId,
+            'user_id' => $u->id,
+            'role_key' => $role,
+            'status' => 'active',
+        ]);
 
         return $u;
     }

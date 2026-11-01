@@ -11,6 +11,7 @@ use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\Asset;
 use Modules\Admin\Models\AssetDraft;
 use Modules\Admin\Models\CashCustody;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Models\Operation;
@@ -58,12 +59,18 @@ class AccountantBrandScopeTest extends TestCase
         AsabUserRole::create([
             'user_id' => $this->accountant->id, 'role_key' => 'accountant', 'scope' => 'brand', 'brand_ids' => [$this->brandA->id],
         ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id, 'user_id' => $this->accountant->id, 'role_key' => 'accountant', 'status' => 'active',
+        ]);
 
         $this->head = AsabUser::create([
             'company_id' => $this->company->id, 'name' => 'رئيس الحسابات', 'email' => 'head@asab.test',
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $this->head->id, 'role_key' => 'head', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id, 'user_id' => $this->head->id, 'role_key' => 'head', 'status' => 'active',
+        ]);
     }
 
     private function asAccountant()
@@ -198,15 +205,18 @@ class AccountantBrandScopeTest extends TestCase
         $this->assertSame([$custodyA->id], collect($index->json('data'))->pluck('id')->all());
 
         $payload = ['txnType' => 'debit', 'amount' => 500, 'description' => 'مشتريات'];
+        // Out-of-brand scope: returns 404 Not Found (tenant/brand isolation)
         $this->asAccountant()->postJson("/api/v1/accountant/cash-custody/{$custodyB->id}/transactions", $payload)->assertStatus(404);
         $this->assertSame(0, $custodyB->fresh()->used);
 
-        $this->asAccountant()->postJson("/api/v1/accountant/cash-custody/{$custodyA->id}/transactions", $payload)->assertStatus(201);
-        $this->assertSame(500, $custodyA->fresh()->used);
+        // In-scope: accountant is prohibited (403 Forbidden under FUND-04/06)
+        $this->asAccountant()->postJson("/api/v1/accountant/cash-custody/{$custodyA->id}/transactions", $payload)->assertStatus(403);
+        $this->assertSame(0, $custodyA->fresh()->used);
 
-        // company/me settle variant
+        // company/me settle variant: 404 for out-of-scope brand, 403 for accountant on in-scope brand
         $this->asAccountant()->postJson("/api/v1/company/me/cash-custody/{$custodyB->id}/settle", [])->assertStatus(404);
-        $this->asAccountant()->postJson("/api/v1/company/me/cash-custody/{$custodyA->id}/settle", [])->assertStatus(200);
+        $this->asAccountant()->postJson("/api/v1/company/me/cash-custody/{$custodyA->id}/settle", [])->assertStatus(403);
+        $this->assertSame(0, $custodyA->fresh()->used);
     }
 
     // ---- Employees ----

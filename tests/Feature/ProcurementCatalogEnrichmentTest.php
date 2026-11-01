@@ -8,6 +8,7 @@ use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\SupplierRequest;
 use Tests\TestCase;
@@ -37,6 +38,12 @@ class ProcurementCatalogEnrichmentTest extends TestCase
             'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $this->manager->id, 'role_key' => 'procurement', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->manager->id,
+            'role_key' => 'procurement',
+            'status' => 'active',
+        ]);
     }
 
     private function as()

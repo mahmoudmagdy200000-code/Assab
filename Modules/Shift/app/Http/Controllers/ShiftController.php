@@ -397,7 +397,7 @@ class ShiftController extends BaseController
                 return $this->errorResponse('Unauthorized', 403);
             }
 
-            $cashier = Cashier::where('id', (int) $id)
+            $cashier = Cashier::whereKey($id)
                 ->where('branch_id', $manager->branch_id)
                 ->first(['id', 'branch_id']);
 

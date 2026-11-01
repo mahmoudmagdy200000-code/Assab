@@ -8,6 +8,7 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\BrandShiftConfig;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Shift;
@@ -50,9 +51,21 @@ class ShiftsTest extends TestCase
 
         $this->accountant = AsabUser::create(['company_id' => $this->company->id, 'name' => 'محاسب', 'email' => 'acc@shift.test', 'password' => 'secret-password', 'status' => 'active']);
         AsabUserRole::create(['user_id' => $this->accountant->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
 
         $this->manager = AsabUser::create(['company_id' => $this->company->id, 'name' => 'مدير فرع', 'email' => 'brm@shift.test', 'password' => 'secret-password', 'status' => 'active']);
         AsabUserRole::create(['user_id' => $this->manager->id, 'role_key' => 'branch', 'scope' => 'branch', 'branch_ids' => [$this->branchA->id]]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->manager->id,
+            'role_key' => 'branch',
+            'status' => 'active',
+        ]);
 
         $this->cashier = Employee::create(['company_id' => $this->company->id, 'branch_id' => $this->branchA->id, 'emp_number' => '1001', 'name' => 'محمد الكاشير', 'phone' => '0551234567', 'role' => 'كاشير', 'status' => 'active']);
     }
@@ -156,6 +169,12 @@ class ShiftsTest extends TestCase
         AsabUserRole::create([
             'user_id' => $scoped->id, 'role_key' => 'accountant',
             'scope' => 'brand', 'brand_ids' => [$this->brand->id],
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $scoped->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
         ]);
 
         // The list returns only the accountant's own brand, not the placeholder

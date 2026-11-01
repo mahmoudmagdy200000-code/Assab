@@ -62,6 +62,7 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Branch\Models\Branch;
 use Tests\TestCase;
@@ -125,6 +126,12 @@ class EmployeePaginationAndSearchHttpTest extends TestCase
             'role_key' => 'accountant',
             'scope' => 'all',
             'branch_ids' => [],
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->companyA->id,
+            'user_id' => $this->accountantA->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
         ]);
 
         // Seed 120 synthetic employees in Branch A

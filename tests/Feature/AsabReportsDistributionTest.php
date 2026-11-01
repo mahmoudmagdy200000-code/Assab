@@ -14,6 +14,7 @@ use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\ReportDefinition;
@@ -71,8 +72,15 @@ class AsabReportsDistributionTest extends TestCase
 
     private function user(string $email, string $role, ?string $companyId = null): AsabUser
     {
-        $u = AsabUser::create(['company_id' => $companyId ?? $this->company->id, 'name' => $role, 'email' => $email, 'password' => 'secret-password', 'status' => 'active']);
+        $targetCompanyId = $companyId ?? $this->company->id;
+        $u = AsabUser::create(['company_id' => $targetCompanyId, 'name' => $role, 'email' => $email, 'password' => 'secret-password', 'status' => 'active']);
         AsabUserRole::create(['user_id' => $u->id, 'role_key' => $role, 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $targetCompanyId,
+            'user_id' => $u->id,
+            'role_key' => $role,
+            'status' => 'active',
+        ]);
 
         return $u;
     }

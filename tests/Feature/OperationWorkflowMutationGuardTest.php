@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 use Modules\Admin\Events\OperationApproved;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\OperationService;
 use Modules\Admin\Services\RealtimeBroadcaster;
@@ -16,7 +17,28 @@ use Tests\TestCase;
 
 class OperationWorkflowMutationGuardTest extends TestCase
 {
-    use OperationWorkflowFixture, Pkg6ReviewFixture, RefreshDatabase;
+    use OperationWorkflowFixture, RefreshDatabase;
+    use Pkg6ReviewFixture {
+        Pkg6ReviewFixture::setUp as pkg6SetUp;
+    }
+
+    protected function setUp(): void
+    {
+        $this->pkg6SetUp();
+
+        CompanyUser::create([
+            'company_id' => $this->accountant->company_id,
+            'user_id' => $this->accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->head->company_id,
+            'user_id' => $this->head->id,
+            'role_key' => 'head',
+            'status' => 'active',
+        ]);
+    }
 
     private function nativeShiftOperation(): Operation
     {
@@ -119,6 +141,12 @@ class OperationWorkflowMutationGuardTest extends TestCase
             'name' => 'Uploader', 'email' => Str::uuid().'@test.invalid', 'password' => 'synthetic-only', 'status' => 'active']);
         \Modules\Admin\Models\AsabUserRole::create(['user_id' => $uploader->id, 'role_key' => 'branch',
             'scope' => 'branch', 'branch_ids' => [$this->day->branch_id]]);
+        CompanyUser::create([
+            'company_id' => $this->head->company_id,
+            'user_id' => $uploader->id,
+            'role_key' => 'branch',
+            'status' => 'active',
+        ]);
         foreach (['/api/v1/branch/upload/shift-close', '/api/v1/company/me/branch/upload'] as $url) {
             $response = $this->actingAs($uploader, 'sanctum')->postJson($url, [
                 'reportType' => 'shift-close', 'shiftId' => $native->payload['shiftId'],
@@ -153,6 +181,12 @@ class OperationWorkflowMutationGuardTest extends TestCase
             'name' => 'Limited head', 'email' => Str::uuid().'@test.invalid', 'password' => 'test', 'status' => 'active']);
         \Modules\Admin\Models\AsabUserRole::create(['user_id' => $restricted->id, 'role_key' => 'head',
             'scope' => 'branch', 'branch_ids' => [$this->day->branch_id]]);
+        CompanyUser::create([
+            'company_id' => $this->head->company_id,
+            'user_id' => $restricted->id,
+            'role_key' => 'head',
+            'status' => 'active',
+        ]);
         $before = $this->state();
         foreach (['bulk-approve', 'bulk-final-approve', 'bulk-return'] as $route) {
             $this->actingAs($restricted, 'sanctum')->postJson('/api/v1/operations/'.$route,

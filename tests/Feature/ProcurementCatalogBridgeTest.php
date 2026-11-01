@@ -7,6 +7,7 @@ use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\SupplierItem as AsabSupplierItem;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
@@ -44,6 +45,12 @@ class ProcurementCatalogBridgeTest extends TestCase
             'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $this->manager->id, 'role_key' => 'procurement', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->manager->id,
+            'role_key' => 'procurement',
+            'status' => 'active',
+        ]);
         $this->branch = Branch::factory()->create(['asab_company_id' => $this->company->id]);
     }
 

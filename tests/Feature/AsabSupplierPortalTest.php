@@ -8,6 +8,7 @@ use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\SupplierItem;
 use Modules\Branch\Models\Branch;
@@ -62,14 +63,21 @@ class AsabSupplierPortalTest extends TestCase
 
     private function makeSupplierUser(string $email, ?string $companyId = null): AsabUser
     {
+        $targetCompanyId = $companyId ?? $this->company->id;
         $user = AsabUser::create([
-            'company_id' => $companyId ?? $this->company->id,
+            'company_id' => $targetCompanyId,
             'name' => 'مورد',
             'email' => $email,
             'password' => 'secret-password',
             'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $user->id, 'role_key' => 'supplier', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $targetCompanyId,
+            'user_id' => $user->id,
+            'role_key' => 'supplier',
+            'status' => 'active',
+        ]);
 
         return $user;
     }
@@ -336,6 +344,12 @@ class AsabSupplierPortalTest extends TestCase
     {
         $accountant = AsabUser::create(['company_id' => $this->company->id, 'name' => 'محاسب', 'email' => 'acc@sup.test', 'password' => 'secret-password', 'status' => 'active']);
         AsabUserRole::create(['user_id' => $accountant->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
 
         $this->as($accountant)->getJson('/api/v1/asab/supplier/overview')->assertStatus(403);
         $this->as($accountant)->getJson('/api/v1/asab/supplier/items')->assertStatus(403);

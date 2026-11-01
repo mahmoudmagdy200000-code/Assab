@@ -133,36 +133,142 @@ class InventoryReconciliationService
             throw new AsabException('NOT_FOUND', 'No inventory submission for that date', 'لا يوجد جرد لهذا التاريخ', 404);
         }
 
-        $totalValue = DB::transaction(function () use ($op, $companyId, $branchId, $date, $itemsAllocations, $userId) {
+        $companyIds = array_values(array_unique(array_map('strval', (array) $companyId)));
+        $totalValue = DB::transaction(function () use ($op, $companyIds, $branchId, $date, $itemsAllocations, $userId) {
+            // Serialize replacements for this inventory operation before reading
+            // its current allocation or touching employee-ledger rows.
+            $op = Operation::whereKey($op->id)
+                ->whereIn('company_id', $companyIds)
+                ->where('branch_id', $branchId)
+                ->where('module_key', 'inventory')
+                ->whereDate('operation_date', $date)
+                ->lockForUpdate()
+                ->first();
+            if (! $op) {
+                throw new AsabException('NOT_FOUND', 'No inventory submission for that date', 'لا يوجد جرد لهذا التاريخ', 404);
+            }
+
             $payload = $op->payload ?? [];
             $rawItems = is_array($payload['items'] ?? null) ? $payload['items'] : [];
             $prices = $this->unitPrices($rawItems);
             $stored = $payload['varianceAllocations'][$date] ?? [];
             $total = 0;
 
-            // Idempotency (T07.5): re-allocating the same op+date used to *add*
-            // a second set of debits while overwriting the payload record, so
-            // repeat saves silently multiplied the charge. Reverse this op+date's
-            // prior debits before re-inserting; the allocation is now replaceable.
-            EmployeeMovement::where('ref_operation_id', $op->id)
+            // Resolve every new allocation before deleting/replacing any posted
+            // movement. Keep the employee row locks in stable ID order so this
+            // writer serializes with other employee-ledger writers.
+            $resolvedAllocations = [];
+            $priorMovements = EmployeeMovement::where('ref_operation_id', $op->id)
                 ->where('category', self::CATEGORY)
                 ->whereDate('movement_date', $date)
-                ->delete();
+                ->whereNull('reversal_of_movement_id')
+                ->whereDoesntHave('reversal')
+                ->orderBy('id')
+                ->get();
+            $employeeIds = EmployeeMovement::where('ref_operation_id', $op->id)
+                ->where('category', self::CATEGORY)
+                ->whereDate('movement_date', $date)
+                ->distinct()->pluck('employee_id')->map(fn ($id) => (string) $id)->all();
 
             foreach ($itemsAllocations as $ia) {
                 $itemId = (string) $ia['itemId'];
                 $unitPrice = (int) ($prices[$itemId] ?? 0);
                 $rows = [];
                 foreach (($ia['allocations'] ?? []) as $a) {
-                    $emp = Employee::whereIn('company_id', (array) $companyId)->where('branch_id', $branchId)
-                        ->where(fn ($q) => $q->where('id', $a['employeeId'])->orWhere('emp_number', $a['employeeId']))->first();
+                    $needle = (string) $a['employeeId'];
+                    $emp = Employee::whereIn('company_id', $companyIds)
+                        ->where('branch_id', $branchId)
+                        ->where(fn ($q) => $q->where('id', $needle)->orWhere('emp_number', $needle))
+                        ->first();
                     if (! $emp) {
                         throw new AsabException('VALIDATION_ERROR', 'Employee not found in branch', 'الموظف غير موجود في الفرع', 422, [
-                            'employeeId' => ['unknown employee '.$a['employeeId']],
+                            'employeeId' => ['unknown employee '.$needle],
                         ]);
                     }
+
+                    $employeeIds[] = (string) $emp->id;
                     $qty = (float) $a['qty'];
                     $value = (int) round($qty * $unitPrice);
+                    $rows[] = ['employee' => $emp, 'itemId' => $itemId, 'qty' => $qty, 'valueHalalas' => $value];
+                }
+                $resolvedAllocations[] = ['itemId' => $itemId, 'rows' => $rows];
+            }
+
+            $employeeIds = collect($employeeIds)->filter()->unique()->sort()->values()->all();
+            $lockedEmployees = Employee::withTrashed()
+                ->whereIn('id', $employeeIds)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy(fn (Employee $employee) => (string) $employee->id);
+
+            if ($lockedEmployees->count() !== count($employeeIds)) {
+                throw new \RuntimeException('Cannot replace inventory allocation: an existing ledger employee is missing.');
+            }
+
+            foreach ($resolvedAllocations as $allocation) {
+                foreach ($allocation['rows'] as $row) {
+                    $lockedEmployee = $lockedEmployees->get((string) $row['employee']->id);
+                    if (! $lockedEmployee || $lockedEmployee->trashed()
+                        || ! in_array((string) $lockedEmployee->company_id, $companyIds, true)
+                        || (string) $lockedEmployee->branch_id !== $branchId) {
+                        throw new AsabException('VALIDATION_ERROR', 'Employee not found in branch', 'الموظف غير موجود في الفرع', 422, [
+                            'employeeId' => ['employee is no longer assigned to this branch'],
+                        ]);
+                    }
+                }
+            }
+
+            // Repeating the same allocation is a true no-op. A changed allocation
+            // reverses each active debit, preserving the original ledger evidence.
+            $desired = [];
+            foreach ($resolvedAllocations as $allocation) {
+                foreach ($allocation['rows'] as $row) {
+                    $desired[] = [
+                        'item' => (string) $allocation['itemId'],
+                        'employee' => (string) $row['employee']->id,
+                        'amount' => (int) $row['valueHalalas'],
+                    ];
+                }
+            }
+            $current = $priorMovements->map(fn (EmployeeMovement $movement) => [
+                'item' => explode('— ', (string) $movement->description, 2)[1] ?? '',
+                'employee' => (string) $movement->employee_id,
+                'amount' => (int) $movement->amount,
+            ])->all();
+            $sortRows = static function (array &$rows): void {
+                usort($rows, static fn ($a, $b) => [$a['item'], $a['employee'], $a['amount']] <=> [$b['item'], $b['employee'], $b['amount']]);
+            };
+            $sortRows($desired);
+            $sortRows($current);
+            $sameAllocation = $desired === $current;
+
+            if (! $sameAllocation) {
+                foreach ($priorMovements as $original) {
+                    EmployeeMovement::create([
+                        'employee_id' => $original->employee_id,
+                        'movement_date' => $original->movement_date,
+                        'description' => 'عكس تخصيص فرق جرد — '.$original->id,
+                        'movement_type' => $original->movement_type === 'debit' ? 'credit' : 'debit',
+                        'category' => self::CATEGORY.'_reversal',
+                        'amount' => $original->amount,
+                        'ref_operation_id' => $op->id,
+                        'created_by_id' => $userId,
+                        'reversal_of_movement_id' => $original->id,
+                    ]);
+                }
+            }
+
+            if (! $sameAllocation) {
+                $stored = [];
+            }
+            foreach ($sameAllocation ? [] : $resolvedAllocations as $allocation) {
+                $itemId = $allocation['itemId'];
+                $rows = [];
+                foreach ($allocation['rows'] as $row) {
+                    $emp = $row['employee'];
+                    $qty = $row['qty'];
+                    $value = $row['valueHalalas'];
                     $total += $value;
                     $rows[] = ['employeeId' => $emp->id, 'qty' => $qty, 'valueHalalas' => $value];
 

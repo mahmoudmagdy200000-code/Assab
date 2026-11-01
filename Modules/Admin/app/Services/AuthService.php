@@ -12,6 +12,7 @@ use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Models\AdminSession;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Notifications\PasswordResetLinkNotification;
 
 class AuthService
@@ -98,6 +99,8 @@ class AuthService
             throw new AsabException('USER_INACTIVE', 'User account is not active', 'الحساب غير مُفعّل', 403);
         }
 
+        $this->assertActiveCompanyMembership($user);
+
         if ($user->twoFactorEnabled()) {
             if ($code === null || $code === '') {
                 $token = Str::random(48);
@@ -139,6 +142,10 @@ class AuthService
         if (! $user) {
             throw new AsabException('TWO_FACTOR_TOKEN_INVALID', 'Two-factor session invalid', 'جلسة المصادقة الثنائية غير صالحة', 401);
         }
+        if ($user->status !== 'active') {
+            throw new AsabException('USER_INACTIVE', 'User account is not active', 'الحساب غير مُفعّل', 403);
+        }
+        $this->assertActiveCompanyMembership($user);
         if ($code === null || ! $this->twoFactor->verify($user, $code)) {
             throw new AsabException('TWO_FACTOR_INVALID_CODE', 'Invalid verification code', 'رمز التحقق غير صحيح', 422);
         }
@@ -176,12 +183,7 @@ class AuthService
             throw new AsabException('USER_INACTIVE', 'User account is not active', 'الحساب غير مُفعّل', 403);
         }
 
-        if ($preliminaryUser->company_id !== null) {
-            $company = AsabCompany::where('id', $preliminaryUser->company_id)->first();
-            if (! $company || $company->status === 'suspended') {
-                throw new AsabException('USER_INACTIVE', 'Company is not active', 'الشركة غير نشطة', 403);
-            }
-        }
+        $this->assertActiveCompanyMembership($preliminaryUser);
 
         if ($preliminaryUser->twoFactorEnabled()) {
             if ($code === null || $code === '') {
@@ -214,12 +216,7 @@ class AuthService
                 if ($user->status !== 'active') {
                     throw new AsabException('USER_INACTIVE', 'User account is not active', 'الحساب غير مُفعّل', 403);
                 }
-                if ($user->company_id !== null) {
-                    $company = AsabCompany::where('id', $user->company_id)->first();
-                    if (! $company || $company->status === 'suspended') {
-                        throw new AsabException('USER_INACTIVE', 'Company is not active', 'الشركة غير نشطة', 403);
-                    }
-                }
+                $this->assertActiveCompanyMembership($user);
                 if (! $this->twoFactor->verify($user, $code)) {
                     throw new AsabException('TWO_FACTOR_INVALID_CODE', 'Invalid verification code', 'رمز التحقق غير صحيح', 422);
                 }
@@ -239,12 +236,7 @@ class AuthService
             if ($user->status !== 'active') {
                 throw new AsabException('USER_INACTIVE', 'User account is not active', 'الحساب غير مُفعّل', 403);
             }
-            if ($user->company_id !== null) {
-                $company = AsabCompany::where('id', $user->company_id)->first();
-                if (! $company || $company->status === 'suspended') {
-                    throw new AsabException('USER_INACTIVE', 'Company is not active', 'الشركة غير نشطة', 403);
-                }
-            }
+            $this->assertActiveCompanyMembership($user);
 
             // P1 Audit Fix: Re-evaluate 2FA requirement under the user lock
             if ($user->twoFactorEnabled()) {
@@ -341,12 +333,7 @@ class AuthService
                 throw new AsabException('USER_INACTIVE', 'User account is not active', 'الحساب غير مُفعّل', 403);
             }
 
-            if ($user->company_id !== null) {
-                $company = AsabCompany::where('id', $user->company_id)->first();
-                if (! $company || $company->status === 'suspended') {
-                    throw new AsabException('USER_INACTIVE', 'Company is not active', 'الشركة غير نشطة', 403);
-                }
-            }
+            $this->assertActiveCompanyMembership($user);
 
             if ($expectedVersion !== null) {
                 $currentVersion = $this->computeCredentialVersion($user);
@@ -479,13 +466,7 @@ class AuthService
                     throw new AsabException('USER_INACTIVE', 'User account is not active', 'الحساب غير مُفعّل', 403);
                 }
 
-                // Ordinary company read preserves the current R1 suspension limits.
-                if ($user->company_id !== null) {
-                    $company = AsabCompany::where('id', $user->company_id)->first();
-                    if (! $company || $company->status === 'suspended') {
-                        throw new AsabException('USER_INACTIVE', 'Company is not active', 'الشركة غير نشطة', 403);
-                    }
-                }
+                $this->assertActiveCompanyMembership($user);
 
                 $token = $user->tokens()->where('id', $candidateToken->id)->lockForUpdate()->first();
                 if (! $token || (int) $token->id !== (int) $candidateToken->id
@@ -530,12 +511,7 @@ class AuthService
                 throw new AsabException('USER_INACTIVE', 'User account is not active', 'الحساب غير مُفعّل', 403);
             }
 
-            if ($user->company_id !== null) {
-                $company = AsabCompany::where('id', $user->company_id)->first();
-                if (! $company || $company->status === 'suspended') {
-                    throw new AsabException('USER_INACTIVE', 'Company is not active', 'الشركة غير نشطة', 403);
-                }
-            }
+            $this->assertActiveCompanyMembership($user);
 
             // Lock 2: Session
             $session = AdminSession::where('id', $candidateToken->session_id)
@@ -634,6 +610,31 @@ class AuthService
                 'user' => $this->userPayload($user),
             ];
         });
+    }
+
+    /**
+     * Verify that a company-scoped user holds an active company membership (Rule MEM-01).
+     * Platform Admins (company_id === null) bypass this check.
+     * Fail-closed: missing membership or non-active status throws 403 MEMBERSHIP_INACTIVE.
+     */
+    private function assertActiveCompanyMembership(AsabUser $user): void
+    {
+        if ($user->company_id === null) {
+            return;
+        }
+
+        $company = AsabCompany::where('id', $user->company_id)->first();
+        if (! $company || $company->status === 'suspended') {
+            throw new AsabException('USER_INACTIVE', 'Company is not active', 'الشركة غير نشطة', 403);
+        }
+
+        $membership = CompanyUser::where('company_id', $user->company_id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (! $membership || $membership->status !== 'active') {
+            throw new AsabException('MEMBERSHIP_INACTIVE', 'User membership in company is not active', 'عضوية المستخدم في الشركة غير نشطة', 403);
+        }
     }
 
     /**

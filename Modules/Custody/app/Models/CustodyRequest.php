@@ -36,6 +36,12 @@ class CustodyRequest extends Model
         'viewed_at',
         'received_at',
         'received_by',
+        'executed_by_user_id',
+        'executed_at',
+        'transfer_reference',
+        'execution_proof_path',
+        'execution_proof_original_name',
+        'execution_proof_sha256',
     ];
 
     protected $casts = [
@@ -44,6 +50,7 @@ class CustodyRequest extends Model
         'rejected_at' => 'datetime',
         'viewed_at' => 'datetime',
         'received_at' => 'datetime',
+        'executed_at' => 'datetime',
         'handover_date' => 'datetime',
         'transfer_date' => 'datetime',
     ];

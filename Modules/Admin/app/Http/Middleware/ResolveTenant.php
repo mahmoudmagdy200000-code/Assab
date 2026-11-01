@@ -24,6 +24,7 @@ class ResolveTenant
     private const RECOGNIZED_ROLES = [
         'admin',
         'company-admin',
+        'owner',
         'head',
         'accountant',
         'branch',

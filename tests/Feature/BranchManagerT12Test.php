@@ -11,6 +11,7 @@ use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\BranchInventoryList;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Models\Operation;
@@ -63,6 +64,12 @@ class BranchManagerT12Test extends TestCase
         AsabUserRole::create([
             'user_id' => $this->manager->id, 'role_key' => 'branch', 'scope' => 'branch',
             'branch_ids' => [$this->branch->id],
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->manager->id,
+            'role_key' => 'branch',
+            'status' => 'active',
         ]);
     }
 
@@ -237,6 +244,12 @@ class BranchManagerT12Test extends TestCase
             'email' => 'proc@t12.test', 'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $procurement->id, 'role_key' => 'procurement', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $procurement->id,
+            'role_key' => 'procurement',
+            'status' => 'active',
+        ]);
 
         $req = SupplierRequest::create([
             'company_id' => $this->company->id, 'branch_id' => $this->branch->id, 'name' => 'مورد للاعتماد',

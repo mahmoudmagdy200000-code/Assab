@@ -507,8 +507,8 @@ final class StagingHarnessProvisioner
                 'restaurant_ids' => [$restaurant->id], 'branch_ids' => [$branch->id], 'module_keys' => [],
             ],
             'branch' => [
-                'scope' => 'branch', 'brand_ids' => [$brand->id],
-                'restaurant_ids' => [$restaurant->id], 'branch_ids' => [$branch->id], 'module_keys' => [],
+                'scope' => 'branch', 'brand_ids' => [],
+                'restaurant_ids' => [], 'branch_ids' => [$branch->id], 'module_keys' => [],
             ],
             default => throw new RuntimeException("Unsupported fixture role '{$roleKey}'."),
         };

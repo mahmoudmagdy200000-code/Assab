@@ -10,6 +10,7 @@ use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\SupplierItem;
 use Modules\Admin\Services\OperationSequence;
@@ -60,6 +61,12 @@ class PurchasesAccountantTest extends TestCase
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $this->accountant->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
 
         $this->supplier = AsabSupplier::create([
             'company_id' => $this->company->id, 'name' => 'مورد الخضار', 'category' => 'خضروات',

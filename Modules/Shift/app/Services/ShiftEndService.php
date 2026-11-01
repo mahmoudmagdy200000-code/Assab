@@ -96,7 +96,17 @@ class ShiftEndService
             // This report declaration is not a transfer receipt, but it is part of
             // the report's financial effects and therefore shares the transaction.
             // Under BR-17 / S1-11, delta-only is recorded on re-ending / correction to avoid double-counting.
-            $targetCashCollected = round((float) ($shift->cash_collected ?? '0.00'), 2);
+            // Under v3.5 (S1-07), cash from sales cannot exceed derived cash sales (gross − cards − apps).
+            // Any excess reported in cash_collected is a channelDifference (data-entry issue) and must
+            // never increase custody with unearned Cash-IN without due cash.
+            $grossH = ShiftFinancialCalculator::storedSarToHalalas($shift->total_sales);
+            $cardsH = ShiftFinancialCalculator::storedSarToHalalas($shift->card_payments);
+            $appsH = (int) ShiftSalesBreakdown::where('cashier_shift_id', $shift->id)
+                ->get()
+                ->sum(fn ($b) => ShiftFinancialCalculator::storedSarToHalalas($b->amount));
+            $derivedCashSales = round(max(0, $grossH - $cardsH - $appsH) / 100, 2);
+            $reportedCashCollected = round((float) ($shift->cash_collected ?? '0.00'), 2);
+            $targetCashCollected = max(0.0, min($reportedCashCollected, $derivedCashSales));
             if (Cashier::whereKey($shift->cashier_id)->exists()) {
                 $existingPosted = (float) (CashierCustodyTransaction::query()
                     ->where('related_shift_id', $shift->id)

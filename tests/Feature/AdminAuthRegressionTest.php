@@ -48,6 +48,13 @@ class AdminAuthRegressionTest extends TestCase
             'status' => 'active',
             'company_id' => $this->company->id,
         ]);
+
+        \Modules\Admin\Models\CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->adminUser->id,
+            'role_key' => 'company-admin',
+            'status' => 'active',
+        ]);
     }
 
     public function test_admin_login_success_returns_spec_envelope_with_tokens_and_user(): void

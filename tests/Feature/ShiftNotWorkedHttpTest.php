@@ -29,10 +29,11 @@ class ShiftNotWorkedHttpTest extends TestCase
             throw new \LogicException('PKG-7 functional tests require disposable SQLite :memory:.');
         }
         parent::setUp();
+        $this->travelTo(today()->setTime(15, 0));
         $branch = Branch::factory()->create();
         $this->manager = BranchManager::factory()->create(['branch_id' => $branch->id]);
         $this->cashier = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $this->manager->id]);
-        $slot = Shift::factory()->create(['branch_id' => $branch->id]);
+        $slot = Shift::factory()->create(['branch_id' => $branch->id, 'start_time' => '08:00:00', 'end_time' => '14:00:00']);
         $this->shift = CashierShift::factory()->create(['cashier_id' => $this->cashier->id, 'shift_id' => $slot->id, 'shift_date' => today()]);
     }
 
@@ -175,14 +176,68 @@ class ShiftNotWorkedHttpTest extends TestCase
         $this->assertSame(0, $this->shift->notWorkedHistory()->count());
     }
 
-    public function test_future_dated_untouched_assignment_keeps_current_no_cutoff_behavior(): void
+    public function test_future_dated_assignment_is_rejected_explicitly(): void
     {
         DB::table('cashier_shifts')->where('id', $this->shift->id)->update(['shift_date' => today()->addDays(30)->toDateString()]);
         $this->actingAs($this->manager, 'sanctum')->withHeader('Idempotency-Key', (string) Str::uuid())
-            ->postJson($this->url(), ['reason' => 'Scheduled closure'])->assertOk();
+            ->postJson($this->url(), ['reason' => 'Scheduled closure'])->assertConflict()
+            ->assertJsonPath('code', 'SHIFT_NOT_WORKED_FUTURE_ASSIGNMENT');
         $this->assertTrue($this->shift->fresh()->shift_date->isFuture());
         $this->assertNull($this->shift->fresh()->actual_start_time);
         $this->assertSame(0, DB::table('shift_report_revisions')->count());
+    }
+
+    public function test_assignment_cannot_be_marked_before_its_scheduled_period_ends(): void
+    {
+        $this->travelTo(now()->startOfDay()->setTime(12, 0));
+        $this->shift->update(['shift_date' => today(), 'status' => ShiftStatus::NOT_STARTED]);
+        $this->shift->shift()->update(['start_time' => '13:00:00', 'end_time' => '14:00:00']);
+
+        $this->actingAs($this->manager, 'sanctum')->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson($this->url(), ['reason' => 'Closed'])->assertConflict()
+            ->assertJsonPath('code', 'SHIFT_NOT_WORKED_PERIOD_OPEN');
+        $this->assertSame(ShiftStatus::NOT_STARTED, $this->shift->fresh()->status);
+        $this->assertSame(0, $this->shift->notWorkedHistory()->count());
+    }
+
+    public function test_overnight_assignment_stays_open_until_the_next_morning(): void
+    {
+        $workDate = today();
+        $this->shift->update(['shift_date' => $workDate->copy()->subDay(), 'status' => ShiftStatus::NOT_STARTED]);
+        $this->shift->shift()->update(['start_time' => '22:00:00', 'end_time' => '06:00:00']);
+
+        $this->travelTo($workDate->copy()->setTime(2, 0));
+        $this->actingAs($this->manager, 'sanctum')->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson($this->url(), ['reason' => 'Night shift still open'])->assertConflict()
+            ->assertJsonPath('code', 'SHIFT_NOT_WORKED_PERIOD_OPEN');
+        $this->assertSame(ShiftStatus::NOT_STARTED, $this->shift->fresh()->status);
+        $this->assertSame(0, $this->shift->notWorkedHistory()->count());
+
+        $this->travelTo($workDate->copy()->setTime(6, 1));
+        $this->actingAs($this->manager, 'sanctum')->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson($this->url(), ['reason' => 'Night shift ended'])->assertOk();
+
+        $this->assertSame(ShiftStatus::CANCELED, $this->shift->fresh()->status);
+        $this->assertSame(1, $this->shift->notWorkedHistory()->count());
+        $this->assertSame(0, DB::table('cashier_custody_transactions')->where('related_shift_id', $this->shift->id)->count());
+        $this->assertSame(0, DB::table('personal_ledger_transactions')->where('related_shift_id', $this->shift->id)->count());
+    }
+
+    public function test_no_work_is_scoped_to_one_cashier_assignment_when_replacement_is_active(): void
+    {
+        $replacement = Cashier::factory()->create(['branch_id' => $this->cashier->branch_id, 'created_by' => $this->manager->id]);
+        $replacementShift = CashierShift::factory()->create([
+            'cashier_id' => $replacement->id, 'shift_id' => $this->shift->shift_id,
+            'shift_date' => $this->shift->shift_date, 'status' => ShiftStatus::NOT_STARTED,
+        ]);
+
+        $this->actingAs($this->manager, 'sanctum')->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson($this->url(), ['reason' => 'Assigned cashier absent'])->assertOk();
+
+        $this->assertSame(ShiftStatus::CANCELED, $this->shift->fresh()->status);
+        $this->assertSame(ShiftStatus::NOT_STARTED, $replacementShift->fresh()->status);
+        $this->assertSame(1, $this->shift->notWorkedHistory()->count());
+        $this->assertSame(0, $replacementShift->notWorkedHistory()->count());
     }
 
     public function test_acceptance_system_label_does_not_allow_a_different_actor(): void

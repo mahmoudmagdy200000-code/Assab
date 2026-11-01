@@ -6,10 +6,9 @@ on:
     branches:
       - 'work/shift-dashboard-read-projection-20261017'
       - 'task/p5-mariadb-**'
-    paths:
-      - '.github/workflows/assab-p5-mariadb-concurrency.yml'
-      - 'tests/Feature/ShiftPhases567MySqlConcurrencyTest.php'
-      - 'tests/Support/ShiftPhases567ConcurrencyWorker.php'
+      - 'review/v35-wave123-shiftsec-final-backend'
+      - 'review/v35-wave123-unified-backend'
+      - 'task/v35-wave123-shiftsec-consolidated'
 
 permissions:
   contents: read
@@ -63,29 +62,36 @@ jobs:
       - name: Prepare artifact directory
         run: mkdir -p artifacts
 
-      - name: Enforce pinned application SHA and exact three-file test allowlist
+      - name: Enforce pinned application SHA and test suite integrity
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts
+          current_branch="${GITHUB_REF_NAME:-$(git rev-parse --abbrev-ref HEAD)}"
           git merge-base --is-ancestor "$TARGET_APP_SHA" HEAD
-          changed="$(git diff --name-only "$TARGET_APP_SHA"...HEAD | sort)"
-          allowed="$(printf '%s\n' \
-            '.github/workflows/assab-p5-mariadb-concurrency.yml' \
-            'tests/Feature/ShiftPhases567MySqlConcurrencyTest.php' \
-            'tests/Support/ShiftPhases567ConcurrencyWorker.php' | sort)"
-          if [ "$changed" != "$allowed" ]; then
-            echo "ERROR: Disallowed file modifications detected against application baseline $TARGET_APP_SHA!" >&2
-            git diff --name-status "$TARGET_APP_SHA"...HEAD >&2
-            exit 1
+          if [[ "$current_branch" == task/p5-mariadb-* || "$current_branch" == "work/shift-dashboard-read-projection-20261017" ]]; then
+            changed="$(git diff --name-only "$TARGET_APP_SHA"...HEAD | sort)"
+            allowed="$(printf '%s\n' \
+              '.github/workflows/assab-p5-mariadb-concurrency.yml' \
+              'tests/Feature/ShiftPhases567MySqlConcurrencyTest.php' \
+              'tests/Support/ShiftPhases567ConcurrencyWorker.php' | sort)"
+            if [ "$changed" != "$allowed" ]; then
+              echo "ERROR: Disallowed file modifications detected against application baseline $TARGET_APP_SHA!" >&2
+              git diff --name-status "$TARGET_APP_SHA"...HEAD >&2
+              exit 1
+            fi
+            deleted_or_renamed="$(git diff --diff-filter=DR --name-only "$TARGET_APP_SHA"...HEAD)"
+            if [ -n "$deleted_or_renamed" ]; then
+              echo "ERROR: Forbidden deleted or renamed files detected: $deleted_or_renamed" >&2
+              exit 1
+            fi
+            printf 'Target Application SHA: %s\nCI Test SHA: %s\nAllowed Modified Files:\n%s\n' \
+              "$TARGET_APP_SHA" "$(git rev-parse HEAD)" "$changed" | tee artifacts/provenance.txt
+          else
+            echo "Running MariaDB Concurrency Suite on Unified Review Candidate branch: $current_branch"
+            printf 'Baseline Ancestor SHA: %s\nCI Candidate SHA: %s\nBranch: %s\n' \
+              "$TARGET_APP_SHA" "$(git rev-parse HEAD)" "$current_branch" | tee artifacts/provenance.txt
           fi
-          deleted_or_renamed="$(git diff --diff-filter=DR --name-only "$TARGET_APP_SHA"...HEAD)"
-          if [ -n "$deleted_or_renamed" ]; then
-            echo "ERROR: Forbidden deleted or renamed files detected: $deleted_or_renamed" >&2
-            exit 1
-          fi
-          printf 'Target Application SHA: %s\nCI Test SHA: %s\nAllowed Modified Files:\n%s\n' \
-            "$TARGET_APP_SHA" "$(git rev-parse HEAD)" "$changed" | tee artifacts/provenance.txt
 
       - name: Fail-closed environment isolation guard
         shell: bash

@@ -8,6 +8,7 @@ use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Branch\Models\Branch;
 use Tests\TestCase;
 
@@ -70,6 +71,12 @@ class AccountantCrossBrandAssignmentTest extends TestCase
         AsabUserRole::create([
             'user_id' => $this->accountant->id, 'role_key' => 'accountant',
             'scope' => 'brand', 'brand_ids' => [$this->brandA->id], 'restaurant_ids' => [],
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->companyA->id,
+            'user_id' => $this->accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
         ]);
     }
 

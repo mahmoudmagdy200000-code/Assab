@@ -7,6 +7,7 @@ use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\SupplierItem;
 use Modules\Branch\Models\Branch;
 use Modules\Purchase\Models\BranchItem;
@@ -87,6 +88,14 @@ class SupplierPortalCatalogBridgeTest extends TestCase
             'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $user->id, 'role_key' => 'supplier', 'scope' => 'all']);
+        if ($companyId) {
+            CompanyUser::create([
+                'company_id' => $companyId,
+                'user_id' => $user->id,
+                'role_key' => 'supplier',
+                'status' => 'active',
+            ]);
+        }
 
         return $user;
     }

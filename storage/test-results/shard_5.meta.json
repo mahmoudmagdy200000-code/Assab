@@ -1,0 +1,14 @@
+{
+    "shard": 5,
+    "exit_code": 0,
+    "duration": 383.14,
+    "command": "php -d memory_limit=1G vendor\/bin\/phpunit --log-junit \"D:\\claude\\ASSAB ERP GITHUB BACKEND ANTIGRAVITY\\worktree_be_wave1_integration\/storage\/test-results\/shard_5.xml\" \"tests\/Feature\/AccountantDashboardTest.php\" \"tests\/Feature\/AdminSessionPersistenceTest.php\" \"tests\/Feature\/AsabIdentityMapTest.php\" \"tests\/Feature\/BranchManagerLoginIdentifierAliasTest.php\" \"tests\/Feature\/BrandOwnerCredentialSyncTest.php\" \"tests\/Feature\/CashierExpenseCategoryWriteTest.php\" \"tests\/Feature\/CompanyPortalGapsTest.php\" \"tests\/Feature\/DashboardMobileShiftCloseGuardTest.php\" \"tests\/Feature\/ExpenseBridgeTest.php\" \"tests\/Feature\/ExpenseReportsHistoricalOwnershipTest.php\" \"tests\/Feature\/FixedAssetsUploadReceiveBridgeTest.php\" \"tests\/Feature\/InternalTransferStockVisibilityTest.php\" \"tests\/Feature\/Meeting20260809FixesTest.php\" \"tests\/Feature\/OperationBrandFilterTest.php\" \"tests\/Feature\/Pkg67IntegrationRegressionTest.php\" \"tests\/Feature\/PlatformProcurementCatalogTest.php\" \"tests\/Feature\/PurchaseOrderBridgeTest.php\" \"tests\/Feature\/ShiftAccountantCorrectionApprovalTest.php\" \"tests\/Feature\/ShiftCloseChainTest.php\" \"tests\/Feature\/ShiftHandoverSettlementBalancesTest.php\" \"tests\/Feature\/ShiftLiabilityPostingSchemaTest.php\" \"tests\/Feature\/ShiftNotWorkedReleaseGuardTest.php\" \"tests\/Feature\/ShiftPhases8910MySqlConcurrencyTest.php\" \"tests\/Feature\/ShiftReportInFlightReopenTest.php\" \"tests\/Feature\/ShiftReturnFinalizationGuardTest.php\" \"tests\/Feature\/SupplierBrandScopeTest.php\" \"tests\/Feature\/WasteDamageBranchCatalogProductsTest.php\"",
+    "files_declared": 27,
+    "files_executed": 27,
+    "tests": 190,
+    "assertions": 842,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 10,
+    "timestamp": "2026-10-27T16:00:47+00:00"
+}

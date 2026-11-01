@@ -118,9 +118,13 @@ class OnboardController extends AsabController
                     'phone' => $data['phone'] ?? null, 'status' => 'active',
                     'default_page' => $this->defaultPageFor($inv->role_key),
                 ], $preservePassword ? [] : ['password' => $data['password']]));
+                $isBranch = $inv->role_key === 'branch' || (bool) $inv->branch_id;
                 AsabUserRole::updateOrCreate(['user_id' => $user->id, 'role_key' => $inv->role_key], [
-                    'scope' => $inv->branch_id ? 'branch' : ($inv->brand_id ? 'brand' : 'all'),
-                    'brand_ids' => $inv->brand_id ? [$inv->brand_id] : [], 'restaurant_ids' => [], 'branch_ids' => $inv->branch_id ? [$inv->branch_id] : [], 'module_keys' => [],
+                    'scope' => $isBranch ? 'branch' : ($inv->brand_id ? 'brand' : 'all'),
+                    'brand_ids' => $isBranch ? [] : ($inv->brand_id ? [$inv->brand_id] : []),
+                    'restaurant_ids' => [],
+                    'branch_ids' => $inv->branch_id ? [$inv->branch_id] : [],
+                    'module_keys' => [],
                 ]);
                 CompanyUser::updateOrCreate(['company_id' => $inv->company_id, 'user_id' => $user->id], [
                     'role_key' => $inv->role_key, 'brand_id' => $inv->brand_id, 'branch_id' => $inv->branch_id,

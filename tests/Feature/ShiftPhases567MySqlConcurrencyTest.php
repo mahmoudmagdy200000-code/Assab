@@ -922,6 +922,13 @@ class ShiftPhases567MySqlConcurrencyTest extends TestCase
             'status' => 'active',
             'is_active' => true,
         ]);
+        \Modules\Admin\Models\CompanyUser::create([
+            'company_id' => $company->id,
+            'user_id' => $accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+            'is_active' => true,
+        ]);
         AsabUserRole::create([
             'user_id' => $accountant->id,
             'role_key' => 'accountant',

@@ -9,6 +9,7 @@ use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\Asset;
 use Modules\Admin\Models\AssetDraft;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\OperationSequence;
 use Modules\Branch\Models\Branch;
@@ -44,6 +45,12 @@ class FixedAssetsRegisterTest extends TestCase
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $this->accountant->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
     }
 
     private function acc()
@@ -171,8 +178,8 @@ class FixedAssetsRegisterTest extends TestCase
         $draft = $this->convert($op, ['invoiceIndex' => 1, 'usefulLifeMonths' => 48])->assertStatus(201)->json();
 
         $this->assertSame(4800000, $draft['amountHalalas']);
-        $this->assertSame(1200000, $draft['annualDepreciationHalalas']);
-        $this->assertSame(100000, $draft['monthlyDepreciationHalalas']);
+        $this->assertArrayNotHasKey('annualDepreciationHalalas', $draft);
+        $this->assertArrayNotHasKey('monthlyDepreciationHalalas', $draft);
         $this->assertSame(48, $draft['usefulLifeMonths']);
     }
 
@@ -258,21 +265,30 @@ class FixedAssetsRegisterTest extends TestCase
         $this->acc()->getJson('/api/v1/company/me/assets?search=سالم')->assertOk()->assertJsonCount(1, 'data');
     }
 
-    public function test_asset_create_enforces_the_useful_life_enum_and_returns_depreciation(): void
+    public function test_asset_create_enforces_the_useful_life_enum_and_removes_depreciation(): void
     {
         $this->acc()->postJson('/api/v1/company/me/assets', [
             'name' => 'فرن', 'category' => 'kitchen', 'branchId' => $this->branchA->id,
             'cost' => 120000, 'usefulLifeMonths' => 13,
         ])->assertStatus(422);
 
-        $this->acc()->postJson('/api/v1/company/me/assets', [
+        // usefulLifeMonths is nullable / optional
+        $resWithoutLife = $this->acc()->postJson('/api/v1/company/me/assets', [
+            'name' => 'فرن بدون عمر', 'category' => 'kitchen', 'branchId' => $this->branchA->id,
+            'cost' => 120000,
+        ])->assertStatus(201);
+        $this->assertSame(60, $resWithoutLife->json('usefulLifeMonths'));
+        $this->assertArrayNotHasKey('annualDepreciationHalalas', $resWithoutLife->json());
+        $this->assertArrayNotHasKey('monthlyDepreciationHalalas', $resWithoutLife->json());
+
+        $resWithLife = $this->acc()->postJson('/api/v1/company/me/assets', [
             'name' => 'فرن', 'category' => 'kitchen', 'branchId' => $this->branchA->id,
             'cost' => 120000, 'usefulLifeMonths' => 24, 'serial' => 'SN-9', 'purchaseDate' => '2026-01-05',
         ])->assertStatus(201)
-            ->assertJsonPath('serial', 'SN-9')
-            ->assertJsonPath('annualDepreciationHalalas', 60000)
-            ->assertJsonPath('monthlyDepreciationHalalas', 5000)
-            ->assertJsonPath('publicId', 'FA-0001');
+            ->assertJsonPath('serial', 'SN-9');
+        $this->assertSame(24, $resWithLife->json('usefulLifeMonths'));
+        $this->assertArrayNotHasKey('annualDepreciationHalalas', $resWithLife->json());
+        $this->assertArrayNotHasKey('monthlyDepreciationHalalas', $resWithLife->json());
     }
 
     public function test_the_asset_status_enum_is_enforced_and_maintenance_round_trips(): void
@@ -320,6 +336,12 @@ class FixedAssetsRegisterTest extends TestCase
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $otherAcc->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $other->id,
+            'user_id' => $otherAcc->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
 
         $this->actingAs($otherAcc, 'sanctum')->postJson('/api/v1/company/me/assets', [
             'name' => 'أصل', 'category' => 'other', 'branchId' => $otherBranch->id,

@@ -9,6 +9,7 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
@@ -86,6 +87,12 @@ class ShiftPhases567IntegrationTest extends TestCase
             'user_id' => $this->accountant->id,
             'role_key' => 'accountant',
             'scope' => 'all',
+        ]);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
         ]);
 
         $this->cashierA = Cashier::factory()->create(['branch_id' => $this->branch->id, 'created_by' => $this->manager->id]);

@@ -7,6 +7,7 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Tests\TestCase;
 
 /**
@@ -37,6 +38,12 @@ class BrandCompanyImmutabilityTest extends TestCase
             'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $admin->id, 'role_key' => 'admin', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $companyA->id,
+            'user_id' => $admin->id,
+            'role_key' => 'admin',
+            'status' => 'active',
+        ]);
 
         // Attempt to re-parent the brand to company B via the update endpoint.
         $this->actingAs($admin, 'sanctum')

@@ -7,12 +7,14 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Models\Plan;
 use Modules\Admin\Notifications\SubscriptionReminderNotification;
 use Modules\Admin\Notifications\UserPasswordResetNotification;
 use Modules\Admin\Services\AuditService;
@@ -82,6 +84,13 @@ class CompanyController extends AsabController
             $billingCycle = $data['billingCycle'] ?? 'monthly';
 
             [$company, $adminUser] = DB::transaction(function () use ($data, $provisioning, $adminEmail, $billingCycle) {
+                $catalogPlan = Plan::where('code', strtolower($data['plan']))->first();
+                if (! $catalogPlan) {
+                    throw ValidationException::withMessages([
+                        'plan' => ["Plan '{$data['plan']}' does not exist in catalog."],
+                    ]);
+                }
+
                 $company = AsabCompany::create([
                     'name' => $data['name'],
                     'logo' => $data['logo'] ?? null,
@@ -103,9 +112,8 @@ class CompanyController extends AsabController
                     ? $provisioning->createAdminUser($company, $adminEmail, $data['contactName'] ?? null, $data['contactPhone'] ?? null)
                     : null;
 
-                if ($billingCycle === 'annual') {
-                    $provisioning->createAnnualInvoice($company, $data['plan']);
-                }
+                // Provision authoritative subscription (SUB-01 / BE-11: no invoices created)
+                $provisioning->provisionSubscription($company, $data['plan'], $billingCycle);
 
                 return [$company, $adminUser];
             });

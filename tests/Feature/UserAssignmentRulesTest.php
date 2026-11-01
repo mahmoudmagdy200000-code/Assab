@@ -403,6 +403,7 @@ class UserAssignmentRulesTest extends TestCase
             'sub_status' => 'active', 'status' => 'active', 'plan' => 'ذهبي', 'modules' => ['sales'],
         ]);
         $coAdmin = $this->makeAsabUser('company-admin', 'co-admin@rules.test', [], $this->company->id);
+        CompanyUser::create(['company_id' => $this->company->id, 'user_id' => $coAdmin->id, 'role_key' => 'company-admin', 'status' => 'active']);
         $member = $this->makeAsabUser('accountant', 'member@rules.test', [
             'scope' => 'brand', 'brand_ids' => [$this->brand->id],
             'restaurant_ids' => [$this->restaurant->id], // stale, must be cleared on sync
@@ -428,6 +429,7 @@ class UserAssignmentRulesTest extends TestCase
     public function test_company_accountant_invite_requires_brand(): void
     {
         $coAdmin = $this->makeAsabUser('company-admin', 'co-admin2@rules.test', [], $this->company->id);
+        CompanyUser::create(['company_id' => $this->company->id, 'user_id' => $coAdmin->id, 'role_key' => 'company-admin', 'status' => 'active']);
 
         $res = $this->actingAs($coAdmin, 'sanctum')
             ->postJson('/api/v1/company/me/users', [

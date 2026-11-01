@@ -9,6 +9,7 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\EmployeeMovement;
 use Modules\Admin\Models\Operation;
@@ -52,8 +53,20 @@ class ShiftCloseChainTest extends TestCase
 
         $this->accountant = AsabUser::create(['company_id' => $this->company->id, 'name' => 'محاسب', 'email' => 'acc@chain.test', 'password' => 'secret-password', 'status' => 'active']);
         AsabUserRole::create(['user_id' => $this->accountant->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->accountant->id,
+            'role_key' => 'accountant',
+            'status' => 'active',
+        ]);
         $this->head = AsabUser::create(['company_id' => $this->company->id, 'name' => 'رئيس', 'email' => 'head@chain.test', 'password' => 'secret-password', 'status' => 'active']);
         AsabUserRole::create(['user_id' => $this->head->id, 'role_key' => 'head', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->head->id,
+            'role_key' => 'head',
+            'status' => 'active',
+        ]);
 
         $this->cashier = Employee::create(['company_id' => $this->company->id, 'branch_id' => $this->branch->id, 'emp_number' => '1001', 'name' => 'محمد', 'role' => 'كاشير', 'status' => 'active']);
         $this->supervisor = Employee::create(['company_id' => $this->company->id, 'branch_id' => $this->branch->id, 'emp_number' => '1002', 'name' => 'خالد', 'role' => 'مشرف', 'status' => 'active']);

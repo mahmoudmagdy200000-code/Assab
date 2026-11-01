@@ -14,6 +14,7 @@ use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\Shift as AdminShift;
@@ -425,6 +426,12 @@ class ShiftHeadFinalShortageHandoverTest extends TestCase
             $user = AsabUser::create(['company_id' => $company->id, 'name' => 'F1 '.$role,
                 'email' => Str::uuid().'@example.invalid', 'password' => 'synthetic-test-only', 'status' => 'active']);
             AsabUserRole::create(['user_id' => $user->id, 'role_key' => $role, 'scope' => 'all']);
+            CompanyUser::create([
+                'company_id' => $company->id,
+                'user_id' => $user->id,
+                'role_key' => $role,
+                'status' => 'active',
+            ]);
             $users[$role] = $user;
         }
         if ($mirror) {

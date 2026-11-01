@@ -10,6 +10,7 @@ use Illuminate\Support\Str;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Operation;
 use Modules\Branch\Models\Branch;
 use Modules\Shift\Services\ShiftReportRevisionService;
@@ -35,6 +36,12 @@ trait OperationWorkflowFixture
         $actor = AsabUser::create(['company_id' => $this->head->company_id, 'name' => 'Synthetic uploader',
             'email' => Str::uuid().'@test.invalid', 'password' => 'synthetic-only', 'status' => 'active']);
         AsabUserRole::create(['user_id' => $actor->id, 'role_key' => 'branch', 'scope' => 'branch', 'branch_ids' => [$this->day->branch_id]]);
+        CompanyUser::create([
+            'company_id' => $this->head->company_id,
+            'user_id' => $actor->id,
+            'role_key' => 'branch',
+            'status' => 'active',
+        ]);
         $url = $surface === 'platform' ? '/api/v1/branch/upload/sales' : '/api/v1/company/me/branch/upload';
         $body = $surface === 'platform' ? ['totalSales' => 10000] : ['reportType' => 'sales', 'salesHalalas' => 10000];
         $response = $this->actingAs($actor, 'sanctum')->withHeader('Idempotency-Key', (string) Str::uuid())
@@ -51,7 +58,22 @@ trait OperationWorkflowFixture
 
 class OperationWorkflowClassificationHttpTest extends TestCase
 {
-    use RefreshDatabase, Pkg6ReviewFixture, OperationWorkflowFixture;
+    use RefreshDatabase, OperationWorkflowFixture;
+    use Pkg6ReviewFixture {
+        Pkg6ReviewFixture::setUp as pkg6SetUp;
+    }
+
+    protected function setUp(): void
+    {
+        $this->pkg6SetUp();
+
+        CompanyUser::create([
+            'company_id' => $this->head->company_id,
+            'user_id' => $this->head->id,
+            'role_key' => 'head',
+            'status' => 'active',
+        ]);
+    }
 
     public function test_sal_with_null_review_is_classified_from_scoped_real_source_in_list_and_detail(): void
     {

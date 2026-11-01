@@ -87,22 +87,7 @@ class OrgController extends AsabController
     public function storeBrand(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $companyId = $request->user()->company_id;
-            $data = $request->validate([
-                'name' => 'required|string|max:200', 'abbr' => 'required|string|max:4', 'color' => 'required|string|max:16',
-                'owner' => 'sometimes|string|max:200', 'ownerEmail' => 'sometimes|email',
-            ]);
-            if (AsabBrand::where('company_id', $companyId)->where('name', $data['name'])->exists()) {
-                throw new AsabException('BRAND_NAME_EXISTS', 'Brand name exists', 'اسم العلامة مستخدم', 409);
-            }
-            $this->limits->assertCanAdd($companyId, 'brands');
-
-            $brand = AsabBrand::create([
-                'company_id' => $companyId, 'name' => $data['name'], 'abbr' => $data['abbr'], 'color' => $data['color'],
-                'owner' => $data['owner'] ?? null, 'owner_email' => $data['ownerEmail'] ?? null, 'status' => 'active',
-            ]);
-
-            return $this->created(['id' => $brand->id, 'name' => $brand->name, 'abbr' => $brand->abbr, 'color' => $brand->color]);
+            throw new AsabException('FORBIDDEN', 'Only Platform Admin is allowed to create brands', 'إنشاء العلامات التجارية مقتصر على مدير المنصة فقط', 403);
         });
     }
 
@@ -133,14 +118,7 @@ class OrgController extends AsabController
     public function storeRestaurant(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $companyId = $request->user()->company_id;
-            $data = $request->validate(['brandId' => 'required|string', 'name' => 'required|string|max:200', 'city' => 'required|string|max:80']);
-            AsabBrand::where('company_id', $companyId)->findOrFail($data['brandId']);
-            $this->limits->assertCanAdd($companyId, 'restaurants');
-
-            $r = AsabRestaurant::create(['company_id' => $companyId, 'brand_id' => $data['brandId'], 'name' => $data['name'], 'city' => $data['city'], 'status' => 'active']);
-
-            return $this->created(['id' => $r->id, 'name' => $r->name, 'brandId' => $r->brand_id, 'city' => $r->city]);
+            throw new AsabException('FORBIDDEN', 'Only Platform Admin is allowed to create restaurants', 'إنشاء المطاعم مقتصر على مدير المنصة فقط', 403);
         });
     }
 

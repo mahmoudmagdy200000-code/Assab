@@ -8,6 +8,7 @@ use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\SupplierItem;
 use Tests\TestCase;
 
@@ -48,6 +49,12 @@ class SupplierCatalogUploadTest extends TestCase
             'email' => 'sup@catalog.test', 'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $this->user->id, 'role_key' => 'supplier', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->user->id,
+            'role_key' => 'supplier',
+            'status' => 'active',
+        ]);
         $this->supplier = AsabSupplier::create([
             'company_id' => $this->company->id, 'name' => 'شركة الدواجن الوطنية',
             'contact_email' => 'sup@catalog.test', 'user_id' => $this->user->id, 'status' => 'active',
@@ -158,6 +165,12 @@ class SupplierCatalogUploadTest extends TestCase
             'email' => 'ca@catalog.test', 'password' => 'secret-password', 'status' => 'active',
         ]);
         AsabUserRole::create(['user_id' => $admin->id, 'role_key' => 'company-admin', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $admin->id,
+            'role_key' => 'company-admin',
+            'status' => 'active',
+        ]);
 
         $this->actingAs($admin, 'sanctum')
             ->patchJson("/api/v1/company/me/suppliers/{$this->supplier->id}", ['name' => 'شركة الدواجن الوطنية المحدثة'])

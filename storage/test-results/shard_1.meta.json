@@ -1,0 +1,14 @@
+{
+    "shard": 1,
+    "exit_code": 0,
+    "duration": 187.97,
+    "command": "php -d memory_limit=1G vendor/bin/phpunit --log-junit storage/test-results/shard_1.xml tests/Feature/AdminAccountantReportTest.php ...",
+    "files_declared": 27,
+    "files_executed": 27,
+    "tests": 186,
+    "assertions": 1183,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "timestamp": "2026-10-27T12:47:56+00:00"
+}
