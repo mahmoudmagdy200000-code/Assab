@@ -2,61 +2,6 @@
 
 namespace Tests\Feature;
 
-(static function () {
-    $projectRoot = str_replace('\\', '/', realpath(__DIR__ . '/../..') ?: dirname(__DIR__, 2));
-    $vendorAutoload = $projectRoot . '/vendor/autoload.php';
-    if (! file_exists($vendorAutoload)) {
-        return;
-    }
-    $loader = require $vendorAutoload;
-    if (! ($loader instanceof \Composer\Autoload\ClassLoader)) {
-        return;
-    }
-
-    $ref = new \ReflectionClass($loader);
-    $propClassMap = $ref->getProperty('classMap');
-    $propClassMap->setAccessible(true);
-    $classMap = $propClassMap->getValue($loader);
-    $sample = $classMap['App\\ApiResponse'] ?? reset($classMap);
-    if ($sample) {
-        $sampleNormalized = str_replace(['\\', '/'], '/', $sample);
-        if (preg_match('#^(.*?)/(Modules|app|database|tests)/#i', $sampleNormalized, $m)) {
-            $rawVendorBase = $m[1];
-            $canonicalVendorBase = realpath($rawVendorBase) ? str_replace('\\', '/', realpath($rawVendorBase)) : $rawVendorBase;
-            if (strcasecmp($canonicalVendorBase, $projectRoot) !== 0) {
-                $newClassMap = [];
-                foreach ($classMap as $class => $path) {
-                    $norm = str_replace(['\\', '/'], '/', $path);
-                    if (str_starts_with($norm, $rawVendorBase . '/')) {
-                        $newClassMap[$class] = $projectRoot . substr($norm, strlen($rawVendorBase));
-                    } else {
-                        $newClassMap[$class] = $path;
-                    }
-                }
-                $propClassMap->setValue($loader, $newClassMap);
-
-                $propPrefixDirs = $ref->getProperty('prefixDirsPsr4');
-                $propPrefixDirs->setAccessible(true);
-                $prefixDirs = $propPrefixDirs->getValue($loader);
-                $newPrefixDirs = [];
-                foreach ($prefixDirs as $prefix => $dirs) {
-                    $newDirs = [];
-                    foreach ($dirs as $dir) {
-                        $norm = str_replace(['\\', '/'], '/', $dir);
-                        if (str_starts_with($norm, $rawVendorBase . '/')) {
-                            $newDirs[] = $projectRoot . substr($norm, strlen($rawVendorBase));
-                        } else {
-                            $newDirs[] = $dir;
-                        }
-                    }
-                    $newPrefixDirs[$prefix] = $newDirs;
-                }
-                $propPrefixDirs->setValue($loader, $newPrefixDirs);
-            }
-        }
-    }
-})();
-
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
@@ -71,9 +16,11 @@ use Tests\TestCase;
  *
  * Verifies with >100 synthetic employees:
  * 1. Pagination across multiple branches (>100 in target branch, page capping at 100, page 2 navigation).
- * 2. Name search via 'q' parameter searches employee names and NEVER searches employee numbers.
- * 3. Exact employee number search via 'empNumber' parameter.
- * 4. Strict tenant and branch isolation across multiple branches and companies.
+ * 2. Strict page size capping at max 100 items when client requests pageSize=500 (PR8-04).
+ * 3. Name search via 'q' parameter searches employee names and NEVER searches employee numbers.
+ * 4. Exact employee number search via 'empNumber' parameter.
+ * 5. Strict tenant and branch isolation across multiple branches and companies.
+ * 6. Branch authorization: accountant scoped strictly to Branch A cannot read Branch B employees (PR8-04).
  */
 class EmployeePaginationAndSearchHttpTest extends TestCase
 {
@@ -208,6 +155,25 @@ class EmployeePaginationAndSearchHttpTest extends TestCase
         $this->assertCount(120, array_unique(array_merge($idsPage1, $idsPage2)), 'Combined pages cover all 120 Branch A employees');
     }
 
+    /**
+     * PR8-04: Requesting pageSize=500 is strictly capped at max 100 items.
+     * Verifies meta.pageSize=100, meta.total=120, and meta.totalPages=2.
+     */
+    public function test_cor_05_03_page_size_capping_at_100_when_requesting_500(): void
+    {
+        $res = $this->actingAs($this->accountantA, 'sanctum')
+            ->getJson("/api/v1/company/me/employees?branchId={$this->branchA->id}&pageSize=500")
+            ->assertOk();
+
+        $body = $res->json();
+        $this->assertLessThanOrEqual(100, count($body['data']), 'Data count does not exceed 100 items');
+        $this->assertCount(100, $body['data'], 'Page returns strictly capped max 100 items even when requesting pageSize=500');
+        $this->assertSame(1, $body['meta']['page']);
+        $this->assertSame(100, $body['meta']['pageSize'], 'meta.pageSize reflects the capped max 100');
+        $this->assertSame(120, $body['meta']['total'], 'meta.total correctly reflects total count of 120 items');
+        $this->assertSame(2, $body['meta']['totalPages'], 'meta.totalPages correctly computes 2 pages for 120 items at pageSize 100');
+    }
+
     public function test_cor_05_03_name_search_q_searches_only_names_not_emp_number(): void
     {
         // 1. Search for 'Ahmed' in Branch A -> exactly 60 employees
@@ -256,6 +222,61 @@ class EmployeePaginationAndSearchHttpTest extends TestCase
             $this->assertSame($this->branchB->id, $emp['branchId']);
             $this->assertSame('Branch B Secondary', $emp['branchName']);
             $this->assertStringStartsWith('EMP-B', $emp['empNumber']);
+        }
+    }
+
+    /**
+     * PR8-04: Branch Authorization — Accountant scoped strictly to Branch A
+     * attempting to read employees of Branch B using Branch B's valid ID.
+     * The zero-trust scopeToAssignedBranches filter ensures no data and no counts leak.
+     */
+    public function test_cor_05_03_branch_authorization_scoped_accountant_cannot_read_unauthorized_branch(): void
+    {
+        $scopedAccountantA = AsabUser::create([
+            'company_id' => $this->companyA->id,
+            'name' => 'Branch A Scoped Accountant',
+            'email' => 'scoped.accountant@synthetic.test',
+            'password' => 'secret-synthetic-hash',
+            'status' => 'active',
+        ]);
+        AsabUserRole::create([
+            'user_id' => $scopedAccountantA->id,
+            'role_key' => 'accountant',
+            'scope' => 'branch',
+            'branch_ids' => [$this->branchA->id],
+        ]);
+
+        // 1. Attempt to query unauthorized Branch B (which has 30 employees) with valid branchId
+        $resUnauthorized = $this->actingAs($scopedAccountantA, 'sanctum')
+            ->getJson("/api/v1/company/me/employees?branchId={$this->branchB->id}&pageSize=100")
+            ->assertOk();
+
+        $bodyUnauth = $resUnauthorized->json();
+        $this->assertSame(0, $bodyUnauth['meta']['total'], 'Total count for unauthorized branch is strictly 0 (no count leak)');
+        $this->assertEmpty($bodyUnauth['data'], 'No employee data from unauthorized branch is returned');
+
+        // 2. Query authorized Branch A: succeeds with Branch A's employees
+        $resAuthorized = $this->actingAs($scopedAccountantA, 'sanctum')
+            ->getJson("/api/v1/company/me/employees?branchId={$this->branchA->id}&pageSize=100")
+            ->assertOk();
+
+        $bodyAuth = $resAuthorized->json();
+        $this->assertSame(120, $bodyAuth['meta']['total'], 'Authorized branch count reflects full roster');
+        $this->assertCount(100, $bodyAuth['data'], 'Page 1 returns capped 100 items');
+        foreach ($bodyAuth['data'] as $emp) {
+            $this->assertSame($this->branchA->id, $emp['branchId']);
+        }
+
+        // 3. Query without branchId parameter: automatically constrained to Branch A
+        $resUnfiltered = $this->actingAs($scopedAccountantA, 'sanctum')
+            ->getJson('/api/v1/company/me/employees?pageSize=100')
+            ->assertOk();
+
+        $bodyUnfiltered = $resUnfiltered->json();
+        $this->assertSame(120, $bodyUnfiltered['meta']['total'], 'Unfiltered query resolves only to assigned branch');
+        foreach ($bodyUnfiltered['data'] as $emp) {
+            $this->assertSame($this->branchA->id, $emp['branchId']);
+            $this->assertStringStartsWith('EMP-A', $emp['empNumber']);
         }
     }
 
