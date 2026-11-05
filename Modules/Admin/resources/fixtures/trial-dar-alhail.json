@@ -1,0 +1,56 @@
+{
+  "namespace": "dar-alhail-trial",
+  "company": {
+    "name": "شركة دار الهيل للمطاعم",
+    "contact_name": "فيصل الشهري",
+    "contact_email": "faisal.alshehri@daralhail.test",
+    "city": "الرياض"
+  },
+  "brand": {
+    "name": "دار الهيل",
+    "abbr": "HAIL"
+  },
+  "restaurant": {
+    "name": "مطعم دار الهيل",
+    "city": "الرياض"
+  },
+  "branch": {
+    "name": "فرع الملقا – الرياض",
+    "city": "الرياض",
+    "location": "الملقا، الرياض"
+  },
+  "shift_template": {
+    "name": "الوردية الرئيسية",
+    "start_time": "08:00:00",
+    "end_time": "23:59:00"
+  },
+  "accounts": {
+    "company_admin": {
+      "name": "فيصل الشهري",
+      "email": "faisal.alshehri@daralhail.test",
+      "phone": null
+    },
+    "branch_manager": {
+      "name": "ماجد القحطاني",
+      "email": "majed.alqahtani@daralhail.test",
+      "phone": "+966500000101"
+    },
+    "accountant": {
+      "name": "نورة الزهراني",
+      "email": "noura.alzahrani@daralhail.test",
+      "phone": null
+    },
+    "head_accountant": {
+      "name": "خالد الغامدي",
+      "email": "khalid.alghamdi@daralhail.test",
+      "phone": null
+    }
+  },
+  "cashier": {
+    "name": "يوسف الدوسري",
+    "email": "yousef.aldosari@daralhail.test",
+    "phone": "+966500000102"
+  },
+  "seed_unstarted_shift": true,
+  "shift_date": "2026-11-06"
+}

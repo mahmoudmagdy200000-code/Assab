@@ -12,10 +12,13 @@ use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\PermissionMatrixEntry;
+use Modules\Admin\Services\MobileCashierMirrorService;
 use Modules\Admin\Services\Provisioning\BranchManagerProvisioner;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
+use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift;
 use RuntimeException;
 
@@ -30,10 +33,13 @@ final class StagingHarnessProvisioner
 
     private const REQUIRED_ROLES = ['company-admin', 'branch', 'accountant', 'head'];
 
-    public function __construct(private readonly BranchManagerProvisioner $branchManagers) {}
+    public function __construct(
+        private readonly BranchManagerProvisioner $branchManagers,
+        private readonly MobileCashierMirrorService $cashierMirror,
+    ) {}
 
     /** @return array<string, mixed> */
-    public function plan(string $namespace): array
+    public function plan(string $namespace, ?array $profile = null): array
     {
         $this->assertNamespace($namespace);
 
@@ -41,43 +47,110 @@ final class StagingHarnessProvisioner
         $brandId = $this->fixtureId($namespace, 'brand');
         $restaurantId = $this->fixtureId($namespace, 'restaurant');
         $branchId = $this->fixtureId($namespace, 'branch');
+        $branchManagerId = $this->fixtureId($namespace, 'branch-manager');
+        $shiftTemplateId = $this->fixtureId($namespace, 'shift-template');
 
-        $accounts = [
-            'company_admin' => ['label' => 'Company Admin', 'roleKeys' => ['company-admin'], 'membershipRole' => 'company-admin'],
-            'branch_manager' => ['label' => 'Branch Manager', 'roleKeys' => ['branch'], 'membershipRole' => 'branch'],
-            'accountant' => ['label' => 'Accountant', 'roleKeys' => ['accountant'], 'membershipRole' => 'accountant'],
-            'head_accountant' => ['label' => 'Head Accountant', 'roleKeys' => ['head'], 'membershipRole' => 'head'],
-            'multi_role_finance' => ['label' => 'Multi-role Finance', 'roleKeys' => ['accountant', 'head'], 'membershipRole' => 'accountant'],
-            'restricted' => ['label' => 'Restricted User', 'roleKeys' => [], 'membershipRole' => 'restricted'],
+        if ($profile === null) {
+            $accounts = [
+                'company_admin' => ['label' => 'Company Admin', 'roleKeys' => ['company-admin'], 'membershipRole' => 'company-admin'],
+                'branch_manager' => ['label' => 'Branch Manager', 'roleKeys' => ['branch'], 'membershipRole' => 'branch'],
+                'accountant' => ['label' => 'Accountant', 'roleKeys' => ['accountant'], 'membershipRole' => 'accountant'],
+                'head_accountant' => ['label' => 'Head Accountant', 'roleKeys' => ['head'], 'membershipRole' => 'head'],
+                'multi_role_finance' => ['label' => 'Multi-role Finance', 'roleKeys' => ['accountant', 'head'], 'membershipRole' => 'accountant'],
+                'restricted' => ['label' => 'Restricted User', 'roleKeys' => [], 'membershipRole' => 'restricted'],
+            ];
+
+            foreach ($accounts as $key => &$account) {
+                $account['id'] = $this->fixtureId($namespace, 'user:'.$key);
+                $account['email'] = $namespace.'.'.str_replace('_', '-', $key).'@fixture.invalid';
+                $account['authSurface'] = '/api/v1/auth/login';
+            }
+            unset($account);
+
+            $cashier = [
+                'id' => $this->fixtureId($namespace, 'cashier'),
+                'label' => 'Cashier',
+                'email' => $namespace.'.cashier@fixture.invalid',
+                'roleKeys' => ['cashier-legacy-guard'],
+                'authSurface' => '/api/v1/cashier/auth/login',
+            ];
+
+            $stableDefinition = [
+                'schemaVersion' => self::SCHEMA_VERSION,
+                'namespace' => $namespace,
+                'marker' => $namespace.'@fixture.invalid',
+                'companyId' => $companyId,
+                'brandId' => $brandId,
+                'restaurantId' => $restaurantId,
+                'branchId' => $branchId,
+                'branchManagerId' => $branchManagerId,
+                'shiftTemplateId' => $shiftTemplateId,
+                'accounts' => $accounts,
+                'cashier' => $cashier,
+            ];
+
+            return $stableDefinition + [
+                'definitionSha256' => hash('sha256', json_encode($stableDefinition, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES)),
+                'safety' => [
+                    'fixtureOnlyUpsert' => true,
+                    'financialTransactionsCreated' => false,
+                    'broadScopeAllGranted' => false,
+                    'automaticCleanup' => false,
+                    'plaintextCredentialIncluded' => false,
+                ],
+            ];
+        }
+
+        $roleMapping = [
+            'company_admin' => ['roleKeys' => ['company-admin'], 'membershipRole' => 'company-admin'],
+            'branch_manager' => ['roleKeys' => ['branch'], 'membershipRole' => 'branch'],
+            'accountant' => ['roleKeys' => ['accountant'], 'membershipRole' => 'accountant'],
+            'head_accountant' => ['roleKeys' => ['head'], 'membershipRole' => 'head'],
         ];
 
-        foreach ($accounts as $key => &$account) {
-            $account['id'] = $this->fixtureId($namespace, 'user:'.$key);
-            $account['email'] = $namespace.'.'.str_replace('_', '-', $key).'@fixture.invalid';
-            $account['authSurface'] = '/api/v1/auth/login';
+        $accounts = [];
+        foreach ($profile['accounts'] ?? [] as $key => $accountDef) {
+            if (! isset($roleMapping[$key])) {
+                continue;
+            }
+            $accounts[$key] = [
+                'id' => $this->fixtureId($namespace, 'user:'.$key),
+                'label' => $accountDef['name'] ?? $key,
+                'name' => $accountDef['name'] ?? $key,
+                'email' => $accountDef['email'],
+                'phone' => $accountDef['phone'] ?? null,
+                'roleKeys' => $roleMapping[$key]['roleKeys'],
+                'membershipRole' => $roleMapping[$key]['membershipRole'],
+                'authSurface' => '/api/v1/auth/login',
+            ];
         }
-        unset($account);
 
+        $cashierDef = $profile['cashier'] ?? [];
         $cashier = [
             'id' => $this->fixtureId($namespace, 'cashier'),
-            'label' => 'Cashier',
-            'email' => $namespace.'.cashier@fixture.invalid',
+            'label' => $cashierDef['name'] ?? 'Cashier',
+            'name' => $cashierDef['name'] ?? 'Cashier',
+            'email' => $cashierDef['email'] ?? ($namespace.'.cashier@fixture.invalid'),
+            'phone' => $cashierDef['phone'] ?? null,
             'roleKeys' => ['cashier-legacy-guard'],
             'authSurface' => '/api/v1/cashier/auth/login',
         ];
 
+        $marker = $profile['company']['contact_email'] ?? ($namespace.'@fixture.invalid');
+
         $stableDefinition = [
             'schemaVersion' => self::SCHEMA_VERSION,
             'namespace' => $namespace,
-            'marker' => $namespace.'@fixture.invalid',
+            'marker' => $marker,
             'companyId' => $companyId,
             'brandId' => $brandId,
             'restaurantId' => $restaurantId,
             'branchId' => $branchId,
-            'branchManagerId' => $this->fixtureId($namespace, 'branch-manager'),
-            'shiftTemplateId' => $this->fixtureId($namespace, 'shift-template'),
+            'branchManagerId' => $branchManagerId,
+            'shiftTemplateId' => $shiftTemplateId,
             'accounts' => $accounts,
             'cashier' => $cashier,
+            'profile' => $profile,
         ];
 
         return $stableDefinition + [
@@ -95,13 +168,13 @@ final class StagingHarnessProvisioner
     /**
      * @return array<string, mixed> secret-free fixture manifest
      */
-    public function provision(string $namespace, string $password): array
+    public function provision(string $namespace, string $password, ?array $profile = null): array
     {
-        if (strlen($password) < 16) {
-            throw new RuntimeException('The runtime fixture password must contain at least 16 characters.');
+        if (strlen($password) < 12) {
+            throw new RuntimeException('The runtime fixture password must contain at least 12 characters.');
         }
 
-        $plan = $this->plan($namespace);
+        $plan = $this->plan($namespace, $profile);
         $lockName = null;
         if (DB::connection()->getDriverName() === 'mysql') {
             $lockName = 'assab-harness-'.substr($plan['definitionSha256'], 0, 40);
@@ -114,6 +187,7 @@ final class StagingHarnessProvisioner
         try {
             return DB::transaction(function () use ($plan, $password): array {
                 $this->assertRoleDefinitionsExist();
+                $this->assertNoCollisions($plan);
 
                 $company = $this->upsertCompany($plan);
                 $brand = $this->upsertBrand($plan, $company);
@@ -142,7 +216,16 @@ final class StagingHarnessProvisioner
                 $branch->forceFill(['asab_manager_user_id' => $branchUser->id, 'manager' => $branchUser->name])->save();
 
                 $cashier = $this->upsertCashier($plan['cashier'], $branch, $manager, $password);
+                if (isset($plan['profile'])) {
+                    $this->cashierMirror->mirror($cashier);
+                }
+
                 $shift = $this->upsertShiftTemplate($plan, $branch);
+
+                $unstartedShift = null;
+                if (! empty($plan['profile']['seed_unstarted_shift'])) {
+                    $unstartedShift = $this->upsertUnstartedCashierShift($plan, $cashier, $shift);
+                }
 
                 $missingPermissionRows = collect(self::REQUIRED_ROLES)
                     ->filter(fn (string $role): bool => ! PermissionMatrixEntry::query()
@@ -151,12 +234,13 @@ final class StagingHarnessProvisioner
 
                 return $plan + [
                     'observedAt' => now()->toIso8601String(),
-                    'legacyDependencies' => [
+                    'legacyDependencies' => array_filter([
                         'branchManagerId' => $manager->id,
                         'branchManagerRosterEmployeeId' => $rosterEmployee->id,
                         'cashierId' => $cashier->id,
                         'shiftTemplateId' => $shift->id,
-                    ],
+                        'unstartedCashierShiftId' => $unstartedShift?->id,
+                    ]),
                     'permissionPolicy' => [
                         'createdRows' => 0,
                         'source' => 'existing platform/company permission matrix only',
@@ -167,6 +251,50 @@ final class StagingHarnessProvisioner
         } finally {
             if ($lockName !== null) {
                 DB::selectOne('SELECT RELEASE_LOCK(?) AS released', [$lockName]);
+            }
+        }
+    }
+
+    private function assertNoCollisions(array $plan): void
+    {
+        foreach ($plan['accounts'] as $account) {
+            $byEmail = AsabUser::withTrashed()->where('email', $account['email'])->first();
+            if ($byEmail !== null && $byEmail->id !== $account['id']) {
+                throw new RuntimeException("Fixture user email collision: refusing to modify non-fixture user {$account['email']}.");
+            }
+            if (! empty($account['phone'])) {
+                $byPhone = AsabUser::withTrashed()->where('phone', $account['phone'])->first();
+                if ($byPhone !== null && $byPhone->id !== $account['id']) {
+                    throw new RuntimeException("Fixture user phone collision: refusing to modify non-fixture user phone {$account['phone']}.");
+                }
+            }
+        }
+
+        if (isset($plan['accounts']['branch_manager'])) {
+            $bmDef = $plan['accounts']['branch_manager'];
+            $byEmail = BranchManager::withTrashed()->where('email', $bmDef['email'])->first();
+            if ($byEmail !== null && $byEmail->id !== $plan['branchManagerId']) {
+                throw new RuntimeException("Fixture branch manager email collision: refusing to modify non-fixture branch manager {$bmDef['email']}.");
+            }
+            if (! empty($bmDef['phone'])) {
+                $byPhone = BranchManager::withTrashed()->where('phone', $bmDef['phone'])->first();
+                if ($byPhone !== null && $byPhone->id !== $plan['branchManagerId']) {
+                    throw new RuntimeException("Fixture branch manager phone collision: refusing to modify non-fixture branch manager phone {$bmDef['phone']}.");
+                }
+            }
+        }
+
+        if (isset($plan['cashier'])) {
+            $cashierDef = $plan['cashier'];
+            $byEmail = Cashier::withTrashed()->where('email', $cashierDef['email'])->first();
+            if ($byEmail !== null && $byEmail->id !== $cashierDef['id']) {
+                throw new RuntimeException("Fixture cashier email collision: refusing to modify non-fixture cashier {$cashierDef['email']}.");
+            }
+            if (! empty($cashierDef['phone'])) {
+                $byPhone = Cashier::withTrashed()->where('phone', $cashierDef['phone'])->first();
+                if ($byPhone !== null && $byPhone->id !== $cashierDef['id']) {
+                    throw new RuntimeException("Fixture cashier phone collision: refusing to modify non-fixture cashier phone {$cashierDef['phone']}.");
+                }
             }
         }
     }
@@ -189,17 +317,13 @@ final class StagingHarnessProvisioner
             throw new RuntimeException('Refusing to modify a non-fixture branch manager.');
         }
         if ($manager === null) {
-            // The production provisioner owns validation, identity-map and
-            // roster writes, but generates its legacy UUID internally. Reserve
-            // the deterministic fixture identity before invoking it so the
-            // manifest remains stable across clean environments and reruns.
-            $manager = new BranchManager();
+            $manager = new BranchManager;
             $manager->id = $plan['branchManagerId'];
         }
         if ($manager->trashed()) {
             $manager->restore();
         }
-        $manager->forceFill([
+        $managerData = [
             'name' => $user->name,
             'email' => $user->email,
             'password' => $password,
@@ -207,7 +331,12 @@ final class StagingHarnessProvisioner
             'status' => 'active',
             'is_active' => true,
             'is_first_login' => true,
-        ])->save();
+        ];
+        if (! empty($user->phone)) {
+            $managerData['phone'] = $user->phone;
+            $managerData['phone_verified_at'] = now();
+        }
+        $manager->forceFill($managerData)->save();
 
         return $manager;
     }
@@ -215,6 +344,10 @@ final class StagingHarnessProvisioner
     /** @param array<string, mixed> $plan */
     private function upsertCompany(array $plan): AsabCompany
     {
+        $companyName = $plan['profile']['company']['name'] ?? ('[ASSAB HARNESS] '.$plan['namespace']);
+        $contactName = $plan['profile']['company']['contact_name'] ?? 'ASSAB Harness Operator';
+        $city = $plan['profile']['company']['city'] ?? 'Riyadh';
+
         $byId = AsabCompany::withTrashed()->whereKey($plan['companyId'])->lockForUpdate()->first();
         $markers = AsabCompany::withTrashed()->where('contact_email', $plan['marker'])->lockForUpdate()->get();
         if ($markers->count() > 1 || ($byId !== null && $markers->isNotEmpty() && ! $markers->first()->is($byId))) {
@@ -226,19 +359,23 @@ final class StagingHarnessProvisioner
             throw new RuntimeException('Fixture company identifier collides with a non-fixture record.');
         }
 
+        if ($company !== null && $company->name !== $companyName) {
+            throw new RuntimeException('Fixture company name differs from profile; refusing to modify under different values.');
+        }
+
         if ($company === null) {
-            $company = new AsabCompany();
+            $company = new AsabCompany;
             $company->id = $plan['companyId'];
         }
         if ($company->trashed()) {
             $company->restore();
         }
         $company->forceFill([
-            'name' => '[ASSAB HARNESS] '.$plan['namespace'],
-            'contact_name' => 'ASSAB Harness Operator',
+            'name' => $companyName,
+            'contact_name' => $contactName,
             'contact_email' => $plan['marker'],
             'admin_email' => $plan['accounts']['company_admin']['email'],
-            'city' => 'Riyadh',
+            'city' => $city,
             'plan' => 'Basic',
             'status' => 'active',
             'max_branches' => 1,
@@ -253,12 +390,15 @@ final class StagingHarnessProvisioner
     /** @param array<string, mixed> $plan */
     private function upsertBrand(array $plan, AsabCompany $company): AsabBrand
     {
+        $brandName = $plan['profile']['brand']['name'] ?? ('[HARNESS] '.$plan['namespace']);
+        $brandAbbr = $plan['profile']['brand']['abbr'] ?? 'HARN';
+
         $brand = AsabBrand::withoutGlobalScopes()->withTrashed()->whereKey($plan['brandId'])->lockForUpdate()->first();
-        if ($brand !== null && ($brand->company_id !== $company->id || $brand->name !== '[HARNESS] '.$plan['namespace'])) {
+        if ($brand !== null && ($brand->company_id !== $company->id || $brand->name !== $brandName)) {
             throw new RuntimeException('Fixture brand identifier collides with a non-fixture record.');
         }
         if ($brand === null) {
-            $brand = new AsabBrand();
+            $brand = new AsabBrand;
             $brand->id = $plan['brandId'];
         }
         if ($brand->trashed()) {
@@ -266,8 +406,8 @@ final class StagingHarnessProvisioner
         }
         $brand->forceFill([
             'company_id' => $company->id,
-            'name' => '[HARNESS] '.$plan['namespace'],
-            'abbr' => 'HARN',
+            'name' => $brandName,
+            'abbr' => $brandAbbr,
             'sub_status' => 'active',
             'status' => 'active',
             'modules' => ['shifts'],
@@ -279,13 +419,16 @@ final class StagingHarnessProvisioner
     /** @param array<string, mixed> $plan */
     private function upsertRestaurant(array $plan, AsabCompany $company, AsabBrand $brand): AsabRestaurant
     {
+        $restaurantName = $plan['profile']['restaurant']['name'] ?? '[HARNESS] Restaurant';
+        $city = $plan['profile']['restaurant']['city'] ?? 'Riyadh';
+
         $restaurant = AsabRestaurant::withoutGlobalScopes()->withTrashed()->whereKey($plan['restaurantId'])->lockForUpdate()->first();
         if ($restaurant !== null && ($restaurant->company_id !== $company->id || $restaurant->brand_id !== $brand->id
-            || $restaurant->name !== '[HARNESS] Restaurant')) {
+            || $restaurant->name !== $restaurantName)) {
             throw new RuntimeException('Fixture restaurant identifier collides with a non-fixture record.');
         }
         if ($restaurant === null) {
-            $restaurant = new AsabRestaurant();
+            $restaurant = new AsabRestaurant;
             $restaurant->id = $plan['restaurantId'];
         }
         if ($restaurant->trashed()) {
@@ -294,8 +437,8 @@ final class StagingHarnessProvisioner
         $restaurant->forceFill([
             'company_id' => $company->id,
             'brand_id' => $brand->id,
-            'name' => '[HARNESS] Restaurant',
-            'city' => 'Riyadh',
+            'name' => $restaurantName,
+            'city' => $city,
             'accountant_count' => 2,
             'status' => 'active',
         ])->save();
@@ -306,19 +449,23 @@ final class StagingHarnessProvisioner
     /** @param array<string, mixed> $plan */
     private function upsertBranch(array $plan, AsabCompany $company, AsabBrand $brand, AsabRestaurant $restaurant): Branch
     {
+        $branchName = $plan['profile']['branch']['name'] ?? '[HARNESS] Branch';
+        $branchLocation = $plan['profile']['branch']['location'] ?? 'Synthetic fixture only';
+        $city = $plan['profile']['branch']['city'] ?? 'Riyadh';
+
         $branch = Branch::query()->whereKey($plan['branchId'])->lockForUpdate()->first();
         if ($branch !== null && ($branch->asab_company_id !== $company->id || $branch->asab_brand_id !== $brand->id
-            || $branch->asab_restaurant_id !== $restaurant->id || $branch->name !== '[HARNESS] Branch')) {
+            || $branch->asab_restaurant_id !== $restaurant->id || $branch->name !== $branchName)) {
             throw new RuntimeException('Fixture branch identifier collides with a non-fixture record.');
         }
         if ($branch === null) {
-            $branch = new Branch();
+            $branch = new Branch;
             $branch->id = $plan['branchId'];
         }
         $branch->forceFill([
-            'name' => '[HARNESS] Branch',
-            'location' => 'Synthetic fixture only',
-            'city' => 'Riyadh',
+            'name' => $branchName,
+            'location' => $branchLocation,
+            'city' => $city,
             'status' => 'active',
             'is_active' => true,
             'asab_company_id' => $company->id,
@@ -344,20 +491,25 @@ final class StagingHarnessProvisioner
         }
 
         if ($user === null) {
-            $user = new AsabUser();
+            $user = new AsabUser;
             $user->id = $definition['id'];
         }
         if ($user->trashed()) {
             $user->restore();
         }
-        $user->forceFill([
+        $userName = $definition['name'] ?? ('[HARNESS] '.$definition['label']);
+        $userData = [
             'company_id' => $company->id,
-            'name' => '[HARNESS] '.$definition['label'],
+            'name' => $userName,
             'email' => $definition['email'],
             'password' => $password,
             'status' => 'active',
             'default_page' => $this->defaultPage($definition['membershipRole']),
-        ])->save();
+        ];
+        if (! empty($definition['phone'])) {
+            $userData['phone'] = $definition['phone'];
+        }
+        $user->forceFill($userData)->save();
         $user->tokens()->delete();
 
         return $user;
@@ -377,7 +529,7 @@ final class StagingHarnessProvisioner
         $membership = CompanyUser::withoutGlobalScopes()
             ->where('company_id', $company->id)->where('user_id', $user->id)->lockForUpdate()->first();
         if ($membership === null) {
-            $membership = new CompanyUser();
+            $membership = new CompanyUser;
             $membership->id = $this->fixtureId($company->contact_email, 'membership:'.$user->id);
         }
         $membership->forceFill([
@@ -409,7 +561,7 @@ final class StagingHarnessProvisioner
             }
             $assignment = $matches->first();
             if ($assignment === null) {
-                $assignment = new AsabUserRole();
+                $assignment = new AsabUserRole;
                 $assignment->id = $this->fixtureId($company->contact_email, 'role:'.$user->id.':'.$roleKey);
             }
             $scope = $this->scopeFor($roleKey, $brand, $restaurant, $branch);
@@ -431,17 +583,15 @@ final class StagingHarnessProvisioner
             throw new RuntimeException('Refusing to modify a non-fixture cashier.');
         }
         if ($cashier === null) {
-            $cashier = new Cashier();
+            $cashier = new Cashier;
             $cashier->id = $definition['id'];
         }
         if ($cashier->trashed()) {
             $cashier->restore();
         }
-        // CashierService intentionally generates and mails an unknown one-time
-        // password. This fixture-only path must instead use the operator-supplied
-        // runtime secret, so it writes only the owned cashier identity directly.
-        $cashier->forceFill([
-            'name' => '[HARNESS] Cashier',
+        $cashierName = $definition['name'] ?? '[HARNESS] Cashier';
+        $cashierData = [
+            'name' => $cashierName,
             'email' => $definition['email'],
             'password' => $password,
             'branch_id' => $branch->id,
@@ -449,7 +599,11 @@ final class StagingHarnessProvisioner
             'status' => 'active',
             'activated_at' => $cashier->activated_at ?? now(),
             'deactivated_at' => null,
-        ])->save();
+        ];
+        if (! empty($definition['phone'])) {
+            $cashierData['phone'] = $definition['phone'];
+        }
+        $cashier->forceFill($cashierData)->save();
         $cashier->tokens()->delete();
 
         return $cashier;
@@ -458,31 +612,86 @@ final class StagingHarnessProvisioner
     /** @param array<string, mixed> $plan */
     private function upsertShiftTemplate(array $plan, Branch $branch): Shift
     {
+        $shiftName = $plan['profile']['shift_template']['name'] ?? '[HARNESS] 08:00-16:00';
+        $startTime = $plan['profile']['shift_template']['start_time'] ?? '08:00:00';
+        $endTime = $plan['profile']['shift_template']['end_time'] ?? '16:00:00';
+
         $byId = Shift::query()->whereKey($plan['shiftTemplateId'])->lockForUpdate()->first();
         $timeConflict = Shift::query()->where('branch_id', $branch->id)
-            ->where('start_time', '08:00:00')->where('end_time', '16:00:00')->lockForUpdate()->first();
+            ->where('start_time', $startTime)->where('end_time', $endTime)->lockForUpdate()->first();
         if ($byId !== null && $timeConflict !== null && ! $byId->is($timeConflict)) {
             throw new RuntimeException('Fixture shift schedule collides with an existing row; refusing to modify it.');
         }
         $shift = $byId ?? $timeConflict;
         if ($shift !== null && ($shift->id !== $plan['shiftTemplateId'] || $shift->branch_id !== $branch->id
-            || $shift->name !== '[HARNESS] 08:00-16:00')) {
+            || $shift->name !== $shiftName)) {
             throw new RuntimeException('Refusing to modify a non-fixture shift schedule.');
         }
         if ($shift === null) {
-            $shift = new Shift();
+            $shift = new Shift;
             $shift->id = $plan['shiftTemplateId'];
         }
         $shift->forceFill([
-            'name' => '[HARNESS] 08:00-16:00',
-            'start_time' => '08:00:00',
-            'end_time' => '16:00:00',
+            'name' => $shiftName,
+            'start_time' => $startTime,
+            'end_time' => $endTime,
             'branch_id' => $branch->id,
             'is_active' => true,
             'opening_float' => '0.00',
         ])->save();
 
         return $shift;
+    }
+
+    /** @param array<string, mixed> $plan */
+    private function upsertUnstartedCashierShift(array $plan, Cashier $cashier, Shift $shift): CashierShift
+    {
+        $shiftDate = $plan['profile']['shift_date'] ?? now()->toDateString();
+        $shiftId = $this->fixtureId($plan['namespace'], 'cashier-shift:'.$shiftDate);
+
+        $existing = CashierShift::query()->whereKey($shiftId)->lockForUpdate()->first();
+        $conflict = CashierShift::query()
+            ->where('cashier_id', $cashier->id)
+            ->where('shift_id', $shift->id)
+            ->whereDate('shift_date', $shiftDate)
+            ->lockForUpdate()
+            ->first();
+
+        if ($existing !== null && $conflict !== null && ! $existing->is($conflict)) {
+            throw new RuntimeException('Fixture cashier shift collides with an existing shift record.');
+        }
+
+        $cashierShift = $existing ?? $conflict;
+        if ($cashierShift !== null && ($cashierShift->id !== $shiftId || $cashierShift->cashier_id !== $cashier->id)) {
+            throw new RuntimeException('Refusing to modify a non-fixture cashier shift.');
+        }
+
+        if ($cashierShift === null) {
+            $cashierShift = new CashierShift;
+            $cashierShift->id = $shiftId;
+        }
+
+        if ($cashierShift->exists && $cashierShift->status !== ShiftStatus::NOT_STARTED && $cashierShift->status !== 'not_started') {
+            return $cashierShift;
+        }
+
+        $cashierShift->forceFill([
+            'cashier_id' => $cashier->id,
+            'shift_id' => $shift->id,
+            'shift_date' => $shiftDate,
+            'status' => 'not_started',
+            'opening_balance' => '0.00',
+            'closing_balance' => '0.00',
+            'expected_balance' => '0.00',
+            'variance' => '0.00',
+            'total_sales' => '0.00',
+            'net_sales' => '0.00',
+            'vat_amount' => '0.00',
+            'cash_collected' => '0.00',
+            'card_payments' => '0.00',
+        ])->save();
+
+        return $cashierShift;
     }
 
     private function assertRoleDefinitionsExist(): void

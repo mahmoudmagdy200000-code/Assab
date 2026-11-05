@@ -13,6 +13,7 @@ final class ProvisionStagingHarnessCommand extends Command
 {
     protected $signature = 'asab:harness:provision-staging
         {--namespace= : Deterministic lowercase fixture namespace}
+        {--profile= : Path to optional fixture profile JSON}
         {--apply : Apply fixture-only writes; omitted means read-only plan}
         {--ack= : Exact operator acknowledgement phrase}
         {--password-env= : Environment variable containing the runtime password}
@@ -30,7 +31,30 @@ final class ProvisionStagingHarnessCommand extends Command
             $driver = $connection->getDriverName();
             $database = (string) $connection->getDatabaseName();
             $allowed = (array) config('admin.harness.allowed_databases', []);
-            $namespace = (string) ($this->option('namespace') ?: config('admin.harness.default_namespace'));
+
+            $profile = null;
+            $profileOption = $this->option('profile');
+            if (is_string($profileOption) && $profileOption !== '') {
+                $profilePath = $profileOption;
+                if (! file_exists($profilePath)) {
+                    $candidate = base_path($profileOption);
+                    if (file_exists($candidate)) {
+                        $profilePath = $candidate;
+                    } else {
+                        throw new \RuntimeException("Profile file not found at: {$profileOption}");
+                    }
+                }
+                $raw = file_get_contents($profilePath);
+                if ($raw === false) {
+                    throw new \RuntimeException("Could not read profile file: {$profileOption}");
+                }
+                $profile = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+                if (! is_array($profile)) {
+                    throw new \RuntimeException('Profile file must contain a valid JSON object.');
+                }
+            }
+
+            $namespace = (string) ($this->option('namespace') ?: ($profile['namespace'] ?? config('admin.harness.default_namespace')));
 
             $guard->assertTarget($environment, $driver, $database, $allowed);
             $server = DB::selectOne('SELECT VERSION() AS version, DATABASE() AS `database`');
@@ -41,7 +65,7 @@ final class ProvisionStagingHarnessCommand extends Command
             }
             $serverVersion = (string) ($server->version ?? '');
             $guard->assertServerVersion($serverVersion);
-            $plan = $provisioner->plan($namespace);
+            $plan = $provisioner->plan($namespace, $profile);
 
             if (! $this->option('apply')) {
                 $this->emit($plan + [
@@ -74,7 +98,7 @@ final class ProvisionStagingHarnessCommand extends Command
             }
 
             $path = 'assab-harness/'.$namespace.'/manifest.json';
-            $appliedManifest = $provisioner->provision($namespace, $password) + [
+            $appliedManifest = $provisioner->provision($namespace, $password, $profile) + [
                 'mode' => 'APPLIED_FIXTURE_ONLY',
                 'target' => ['environment' => $environment, 'driver' => $driver, 'database' => $database],
                 'credentialSource' => ['environmentVariable' => $passwordEnv, 'valueIncluded' => false],
