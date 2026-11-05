@@ -4,9 +4,11 @@ namespace Modules\BranchManagers\Services;
 
 use App\Exceptions\FirstLoginRequiredException;
 use App\Services\FirstLoginPolicy;
+use App\Services\MobileAuthDiagnosticLogger;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Hash;
 use Modules\BranchManagers\Events\PasswordChangedEvent;
+use Modules\BranchManagers\Exceptions\BranchManagerAuthException;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BranchManagers\Models\BranchManagerOtp;
 use Modules\Notification\Services\OtpDeliveryService;
@@ -85,17 +87,40 @@ class AuthService
      */
     public function login(string $identifier, string $password)
     {
-        // Check if identifier is email or phone
-        $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
+        $isEmail = (bool) filter_var($identifier, FILTER_VALIDATE_EMAIL);
 
-        $manager = BranchManager::where($field, $identifier)->first();
+        if ($isEmail) {
+            $matches = BranchManager::where('email', $identifier)->get();
+        } else {
+            // 1. Try exact phone first
+            $matches = BranchManager::where('phone', $identifier)->get();
 
-        if (! $manager || ! Hash::check($password, $manager->password)) {
-            throw new \Exception('Invalid credentials');
+            // 2. If no exact match and not email, try normalized candidates
+            if ($matches->isEmpty()) {
+                $candidates = MobileAuthDiagnosticLogger::buildPhoneCandidates($identifier);
+                if (! empty($candidates)) {
+                    $matches = BranchManager::whereIn('phone', $candidates)->get();
+                }
+            }
+        }
+
+        // 3. Ambiguity fail-closed
+        if ($matches->count() > 1) {
+            throw new BranchManagerAuthException('Invalid credentials', 'no_user');
+        }
+
+        $manager = $matches->first();
+
+        if (! $manager) {
+            throw new BranchManagerAuthException('Invalid credentials', 'no_user');
+        }
+
+        if (! Hash::check($password, $manager->password)) {
+            throw new BranchManagerAuthException('Invalid credentials', 'bad_password');
         }
 
         if (! $manager->isActive()) {
-            throw new \Exception('Account is inactive');
+            throw new BranchManagerAuthException('Account is inactive', 'inactive');
         }
 
         // A correct password here activates the account too, rather than

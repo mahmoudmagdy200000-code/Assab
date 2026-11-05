@@ -24,4 +24,10 @@ class LoginRequest extends FormRequest
             ...self::deviceTokenLoginRules(),
         ];
     }
+
+    protected function failedValidation(\Illuminate\Contracts\Validation\Validator $validator)
+    {
+        \App\Services\MobileAuthDiagnosticLogger::logAuthFailed('branch_manager', 'validation', $this);
+        parent::failedValidation($validator);
+    }
 }

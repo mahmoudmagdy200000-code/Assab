@@ -3,6 +3,7 @@
 namespace Modules\Cashier\Http\Controllers\Auth;
 
 use App\Http\Controllers\BaseController;
+use App\Services\MobileAuthDiagnosticLogger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -25,14 +26,40 @@ class LoginController extends BaseController
         $password = $request->password;
         $rememberMe = $request->boolean('remember_me');
 
-        $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
-        $cashier = Cashier::where($field, $identifier)->first();
+        $isEmail = (bool) filter_var($identifier, FILTER_VALIDATE_EMAIL);
+        if ($isEmail) {
+            $matches = Cashier::where('email', $identifier)->get();
+        } else {
+            // 1. Try exact phone first
+            $matches = Cashier::where('phone', $identifier)->get();
+
+            // 2. If no exact match and not email, try normalized candidates
+            if ($matches->isEmpty()) {
+                $candidates = MobileAuthDiagnosticLogger::buildPhoneCandidates($identifier);
+                if (! empty($candidates)) {
+                    $matches = Cashier::whereIn('phone', $candidates)->get();
+                }
+            }
+        }
+
+        // 3. Ambiguity fail-closed
+        if ($matches->count() > 1) {
+            MobileAuthDiagnosticLogger::logAuthFailed('cashier', 'no_user', $request);
+
+            return $this->errorResponse('Invalid credentials or inactive account.', 401);
+        }
+
+        $cashier = $matches->first();
 
         if (! $cashier) {
+            MobileAuthDiagnosticLogger::logAuthFailed('cashier', 'no_user', $request);
+
             return $this->errorResponse('Invalid credentials or inactive account.', 401);
         }
 
         if ($cashier->isPending()) {
+            MobileAuthDiagnosticLogger::logAuthFailed('cashier', 'first_login', $request);
+
             return $this->errorResponse(
                 'Please activate your account using the default password provided by your branch manager.',
                 403
@@ -40,6 +67,8 @@ class LoginController extends BaseController
         }
 
         if (! $cashier->isActive()) {
+            MobileAuthDiagnosticLogger::logAuthFailed('cashier', 'inactive', $request);
+
             return $this->errorResponse(
                 'Your account is not active. Please contact your manager.',
                 403
@@ -47,8 +76,12 @@ class LoginController extends BaseController
         }
 
         if (! Hash::check($password, $cashier->password)) {
+            MobileAuthDiagnosticLogger::logAuthFailed('cashier', 'bad_password', $request);
+
             return $this->errorResponse('Invalid credentials or inactive account.', 401);
         }
+
+        MobileAuthDiagnosticLogger::logAuthSucceeded('cashier', $request);
 
         $expiresAt = $rememberMe ? now()->addDays(30) : null;
         $token = $expiresAt

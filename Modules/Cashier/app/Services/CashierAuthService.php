@@ -4,6 +4,7 @@ namespace Modules\Cashier\Services;
 
 use App\Services\FirstLoginActivationResolver;
 use App\Services\FirstLoginPolicy;
+use App\Services\MobileAuthDiagnosticLogger;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Contracts\Hashing\Hasher;
@@ -100,8 +101,23 @@ class CashierAuthService
 
     private function findByIdentifier(string $identifier): ?Cashier
     {
-        $field = filter_var($identifier, FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
+        $isEmail = (bool) filter_var($identifier, FILTER_VALIDATE_EMAIL);
+        if ($isEmail) {
+            $matches = Cashier::where('email', $identifier)->get();
+        } else {
+            $matches = Cashier::where('phone', $identifier)->get();
+            if ($matches->isEmpty()) {
+                $candidates = MobileAuthDiagnosticLogger::buildPhoneCandidates($identifier);
+                if (! empty($candidates)) {
+                    $matches = Cashier::whereIn('phone', $candidates)->get();
+                }
+            }
+        }
 
-        return Cashier::where($field, $identifier)->first();
+        if ($matches->count() !== 1) {
+            return null;
+        }
+
+        return $matches->first();
     }
 }

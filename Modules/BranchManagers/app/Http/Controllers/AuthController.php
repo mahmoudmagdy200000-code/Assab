@@ -3,11 +3,14 @@
 namespace Modules\BranchManagers\Http\Controllers;
 
 use App\ApiResponse as ApiResponseTrait;
+use App\Exceptions\FirstLoginRequiredException;
 use App\Services\FirstLoginActivationResolver;
+use App\Services\MobileAuthDiagnosticLogger;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Modules\BranchManagers\Exceptions\BranchManagerAuthException;
 use Modules\BranchManagers\Http\Requests\FirstLoginRequest;
 use Modules\BranchManagers\Http\Requests\ForgotPasswordRequest;
 use Modules\BranchManagers\Http\Requests\LoginRequest;
@@ -106,6 +109,8 @@ class AuthController extends Controller
             // Never fails the login.
             $this->registerLoginDevice($request, $manager);
 
+            MobileAuthDiagnosticLogger::logAuthSucceeded('branch_manager', $request);
+
             return $this->successResponse(
                 'Login successful',
                 [
@@ -120,7 +125,17 @@ class AuthController extends Controller
                     'token' => $result['token'],
                 ]
             );
+        } catch (FirstLoginRequiredException $e) {
+            MobileAuthDiagnosticLogger::logAuthFailed('branch_manager', 'first_login', $request);
+
+            return $this->handleException($e, 403);
+        } catch (BranchManagerAuthException $e) {
+            MobileAuthDiagnosticLogger::logAuthFailed('branch_manager', $e->reason, $request);
+
+            return $this->errorResponse($e->getMessage(), 401);
         } catch (\Exception $e) {
+            MobileAuthDiagnosticLogger::logAuthFailed('branch_manager', 'no_user', $request);
+
             return $this->handleException($e, 401);
         }
     }
