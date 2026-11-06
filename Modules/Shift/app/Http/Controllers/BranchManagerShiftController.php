@@ -543,7 +543,7 @@ class BranchManagerShiftController extends BaseController
             $managerShift = app(ManagerWorkdayResolver::class)->resolve($request, $manager, true);
 
             if (! $managerShift->canEnd()) {
-                return $this->errorResponse('Cannot end shift. Check all cashier handoffs are approved.', 400);
+                return $this->errorResponse('Cannot end shift. Check all cashier handoffs are approved or documented.', 400);
             }
 
             DB::beginTransaction();
@@ -563,7 +563,7 @@ class BranchManagerShiftController extends BaseController
                 if (! $managerShift->canEnd()) {
                     DB::rollBack();
 
-                    return $this->errorResponse('Cannot end shift. Check all cashier handoffs are approved.', 400);
+                    return $this->errorResponse('Cannot end shift. Check all cashier handoffs are approved or documented.', 400);
                 }
 
                 if ($request->has('cashier_breakdown') && is_array($request->cashier_breakdown)) {

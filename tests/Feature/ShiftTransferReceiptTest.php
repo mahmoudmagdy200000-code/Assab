@@ -702,6 +702,7 @@ class ShiftTransferReceiptTest extends TestCase
     public function test_manager_can_end_checks_only_handovers_addressed_to_that_manager(): void
     {
         [$branch, $manager, , , , $handover] = $this->managerHandoverFixture('10.00');
+        $handover->update(['handover_amount' => '0.00']);
         $workday = BranchManagerShift::where('branch_manager_id', $manager->id)->sole();
         $workday->update(['status' => 'in_progress']);
         $this->assertFalse($workday->fresh()->canEnd());
@@ -709,6 +710,41 @@ class ShiftTransferReceiptTest extends TestCase
         $legacyOther = BranchManager::factory()->create(['branch_id' => $branch->id, 'status' => 'inactive', 'is_active' => false]);
         $handover->update(['handover_to_id' => $legacyOther->id]);
         $this->assertTrue($workday->fresh()->canEnd());
+    }
+
+    public function test_manager_can_end_allows_documented_pending_handover_day_03(): void
+    {
+        [$branch, $manager, , , , $handover] = $this->managerHandoverFixture('10.00');
+        $workday = BranchManagerShift::where('branch_manager_id', $manager->id)->sole();
+        $workday->update(['status' => 'in_progress']);
+        $this->assertTrue($workday->fresh()->canEnd());
+    }
+
+    public function test_manager_can_end_blocks_undocumented_pending_handover_ac_35(): void
+    {
+        [$branch, $manager, , , , $handover] = $this->managerHandoverFixture('10.00');
+        $handover->update(['handover_amount' => '0.00']);
+        $workday = BranchManagerShift::where('branch_manager_id', $manager->id)->sole();
+        $workday->update(['status' => 'in_progress']);
+        $this->assertFalse($workday->fresh()->canEnd());
+    }
+
+    public function test_manager_can_end_blocks_rejected_final_handover(): void
+    {
+        [$branch, $manager, , , , $handover] = $this->managerHandoverFixture('10.00');
+        $handover->update(['status' => 'rejected_final']);
+        $workday = BranchManagerShift::where('branch_manager_id', $manager->id)->sole();
+        $workday->update(['status' => 'in_progress']);
+        $this->assertFalse($workday->fresh()->canEnd());
+    }
+
+    public function test_manager_can_end_blocks_unsettled_rejected_handover(): void
+    {
+        [$branch, $manager, , , , $handover] = $this->managerHandoverFixture('10.00');
+        $handover->update(['status' => 'rejected', 'superseded_at' => null, 'cancelled_at' => null]);
+        $workday = BranchManagerShift::where('branch_manager_id', $manager->id)->sole();
+        $workday->update(['status' => 'in_progress']);
+        $this->assertFalse($workday->fresh()->canEnd());
     }
 
     public function test_manager_recipient_selection_rejects_zero_and_multiple_active_assignments(): void
