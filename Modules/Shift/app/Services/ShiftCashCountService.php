@@ -489,7 +489,7 @@ class ShiftCashCountService
         ]);
     }
 
-    /** The count of the shift's CURRENT report revision, or null when that revision has none. */
+    /** The count of the shift's CURRENT report revision, or null when that revision has none or fresh count is required. */
     public function currentFor(string $cashierShiftId): ?ShiftReportCashCount
     {
         $aggregate = DB::table('shift_report_aggregates')
@@ -498,6 +498,10 @@ class ShiftCashCountService
             ->when(DB::transactionLevel() > 0, fn ($query) => $query->lockForUpdate())
             ->first();
         if (! $aggregate) {
+            return null;
+        }
+
+        if (! empty($aggregate->fresh_count_required)) {
             return null;
         }
 

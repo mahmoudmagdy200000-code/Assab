@@ -802,6 +802,46 @@ class ShiftTransferReceiptTest extends TestCase
         $this->assertFalse($workday->fresh()->canEnd());
     }
 
+    public function test_manager_can_end_blocks_when_fresh_count_required_is_set(): void
+    {
+        [$branch, $manager, , $sourceShift, , $handover] = $this->managerHandoverFixture('10.00');
+        $workday = BranchManagerShift::where('branch_manager_id', $manager->id)->sole();
+        $workday->update(['status' => 'in_progress']);
+
+        // Fresh count required flag set on aggregate invalidates count evidence
+        DB::table('shift_report_aggregates')
+            ->where('source_type', 'cashier_shift')
+            ->where('source_id', $sourceShift->id)
+            ->update(['fresh_count_required' => 1]);
+
+        $this->assertNull(app(\Modules\Shift\Services\ShiftCashCountService::class)->currentFor((string) $sourceShift->id));
+        $this->assertFalse($workday->fresh()->canEnd());
+    }
+
+    public function test_pending_handover_with_negative_variance_distinguishes_manager_can_end_from_daily_report_guard(): void
+    {
+        [$branch, $manager, $sender, $sourceShift, , $handover, $revision] = $this->managerHandoverFixture('9.00');
+        $workday = BranchManagerShift::where('branch_manager_id', $manager->id)->sole();
+        $workday->update(['status' => 'in_progress']);
+
+        // Update count to reflect a shortage (expected 1000 halalas, counted 900 halalas -> variance -100 halalas)
+        DB::table('shift_report_cash_counts')
+            ->where('report_revision_id', $revision->id)
+            ->update([
+                'expected_halalas' => 1000,
+                'counted_halalas' => 900,
+                'variance_halalas' => -100,
+            ]);
+
+        // Gate 1: Manager shift end (canEnd()) passes because the pending handover is safely documented
+        $this->assertTrue($workday->fresh()->canEnd());
+
+        // Gate 2: Daily liability guard refuses daily report submission when shortage liability is unallocated
+        $guard = app(\Modules\Shift\Liability\DailyLiabilityGuard::class);
+        $this->expectException(\Symfony\Component\HttpKernel\Exception\ConflictHttpException::class);
+        DB::transaction(fn () => $guard->assertReady($workday->id, $manager));
+    }
+
     public function test_manager_end_shift_endpoint_rejects_undocumented_pending_handover(): void
     {
         [$branch, $manager, , $sourceShift, , $handover] = $this->managerHandoverFixture('10.00');
