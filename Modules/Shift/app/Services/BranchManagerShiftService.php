@@ -360,10 +360,20 @@ class BranchManagerShiftService
      * Transform handover to response format (reusable - maintains exact response format)
      * تحويل الـ handover لصيغة الـ response مع الحفاظ على نفس التنسيق
      */
-    public function transformHandover(CashierShiftHandover $handover): array
+    public function transformHandover(CashierShiftHandover $handover, ?BranchManagerShift $managerShift = null): array
     {
         $cashierShift = $handover->cashierShift;
         $shift = $cashierShift->shift;
+
+        $isDocumentedPending = false;
+        if ($handover->isPending()) {
+            if (! $managerShift && $handover->handover_to_type === 'branch_manager' && ! empty($handover->handover_to_id)) {
+                $managerShift = BranchManagerShift::where('branch_manager_id', $handover->handover_to_id)
+                    ->whereDate('shift_date', $cashierShift?->shift_date ?? today())
+                    ->first();
+            }
+            $isDocumentedPending = $managerShift ? $managerShift->isDocumentedPendingHandover($handover) : false;
+        }
 
         // Variance details - computed once
         $varianceDetails = null;
@@ -422,7 +432,7 @@ class BranchManagerShiftService
             'can_reject' => $handover->canReject(),
             'variance_details' => $varianceDetails,
             'accounting_name' => 'accounting_name',
-
+            'is_documented_pending' => $isDocumentedPending,
         ];
     }
 

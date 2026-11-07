@@ -260,10 +260,16 @@ class BranchManagerShift extends Model
 
     /**
      * DAY-03 / AC-34 / AC-35: Determine if a pending cashier handover is safely documented.
+     * Requires current, valid physical count evidence for sender shift via ShiftCashCountService::currentFor.
+     * Stale evidence, completed shift status without count record, or receipt state mismatch strictly fail.
      */
     public function isDocumentedPendingHandover(CashierShiftHandover $handover): bool
     {
         if (! $handover->isPending()) {
+            return false;
+        }
+
+        if ($handover->cancelled_at !== null || $handover->superseded_at !== null) {
             return false;
         }
 
@@ -277,15 +283,21 @@ class BranchManagerShift extends Model
             return false;
         }
 
-        // Count evidence must exist for sender shift (AC-34 / AC-35 / DAY-03)
-        $hasCount = \Illuminate\Support\Facades\DB::table('shift_report_cash_counts')
-            ->where('cashier_shift_id', $senderShift->id)
-            ->exists()
-            || $senderShift->closing_balance !== null
-            || $senderShift->actual_end_time !== null
-            || in_array($senderShift->status, [\Modules\Shift\Enums\ShiftStatus::COMPLETED, 'completed']);
+        // Sender shift must be completed or reassigned (AC-34 / AC-35 / DAY-03)
+        $validSenderStatus = in_array($senderShift->status, [
+            \Modules\Shift\Enums\ShiftStatus::COMPLETED,
+            \Modules\Shift\Enums\ShiftStatus::REASSIGNED,
+            'completed',
+            'reassigned',
+        ], true);
+        if (! $validSenderStatus) {
+            return false;
+        }
 
-        if (! $hasCount) {
+        // Count evidence must exist for sender shift's CURRENT report revision (AC-34 / AC-35 / DAY-03).
+        // Completed status alone cannot prove valid cash count; legacy closing_balance or actual_end_time are never a fallback.
+        $count = app(\Modules\Shift\Services\ShiftCashCountService::class)->currentFor((string) $senderShift->id);
+        if ($count === null) {
             return false;
         }
 
@@ -296,6 +308,11 @@ class BranchManagerShift extends Model
 
         $branchId = $this->branch_id ?? $senderShift->shift?->branch_id;
         if (! $branchId) {
+            return false;
+        }
+
+        // Receipt state mismatch: a pending handover cannot have an issued receipt
+        if (\Modules\Shift\Models\CashierShiftHandoverReceipt::where('cashier_shift_handover_id', $handover->id)->exists()) {
             return false;
         }
 

@@ -747,6 +747,85 @@ class ShiftTransferReceiptTest extends TestCase
         $this->assertFalse($workday->fresh()->canEnd());
     }
 
+    public function test_manager_can_end_blocks_completed_shift_without_cash_count_record(): void
+    {
+        [$branch, $manager, , $sourceShift, , $handover] = $this->managerHandoverFixture('10.00');
+        \Illuminate\Support\Facades\DB::table('shift_report_cash_counts')
+            ->where('cashier_shift_id', $sourceShift->id)
+            ->delete();
+
+        $workday = BranchManagerShift::where('branch_manager_id', $manager->id)->sole();
+        $workday->update(['status' => 'in_progress']);
+        $this->assertFalse($workday->fresh()->canEnd());
+    }
+
+    public function test_manager_can_end_blocks_stale_count_evidence(): void
+    {
+        [$branch, $manager, $sender, $sourceShift, , $handover, $revision] = $this->managerHandoverFixture('10.00');
+        // Record a new cashier revision (expected revision is 1) without an accompanying count record, making count evidence stale/unavailable
+        app(ShiftReportRevisionService::class)->recordCashierRevision($sourceShift, 'cashier', $sender->id, 1);
+
+        $workday = BranchManagerShift::where('branch_manager_id', $manager->id)->sole();
+        $workday->update(['status' => 'in_progress']);
+        $this->assertFalse($workday->fresh()->canEnd());
+    }
+
+    public function test_manager_can_end_blocks_cancelled_or_superseded_handover(): void
+    {
+        [$branch, $manager, , , , $handover] = $this->managerHandoverFixture('10.00');
+        $workday = BranchManagerShift::where('branch_manager_id', $manager->id)->sole();
+        $workday->update(['status' => 'in_progress']);
+
+        $handover->update(['cancelled_at' => now()]);
+        $this->assertFalse($workday->isDocumentedPendingHandover($handover));
+
+        $handover->update(['cancelled_at' => null, 'superseded_at' => now()]);
+        $this->assertFalse($workday->isDocumentedPendingHandover($handover));
+    }
+
+    public function test_manager_can_end_blocks_receipt_state_mismatch(): void
+    {
+        [$branch, $manager, , $sourceShift, $destination, $handover, $revision] = $this->managerHandoverFixture('10.00');
+        $workday = BranchManagerShift::where('branch_manager_id', $manager->id)->sole();
+        $workday->update(['status' => 'in_progress']);
+
+        // A pending handover should not already have an issued receipt in cashier_shift_handover_receipts
+        CashierShiftHandoverReceipt::create([
+            'cashier_shift_handover_id' => $handover->id,
+            'receiving_cashier_shift_id' => $destination->id,
+            'report_revision_id' => $revision->id,
+            'confirmed_amount' => '10.00',
+            'receipt_number' => 'RCT-TEST-001',
+            'confirmed_at' => now(),
+        ]);
+
+        $this->assertFalse($workday->fresh()->canEnd());
+    }
+
+    public function test_manager_end_shift_endpoint_rejects_undocumented_pending_handover(): void
+    {
+        [$branch, $manager, , $sourceShift, , $handover] = $this->managerHandoverFixture('10.00');
+        $workday = BranchManagerShift::where('branch_manager_id', $manager->id)->sole();
+        $workday->update(['status' => 'in_progress']);
+
+        // Remove count record so handover becomes undocumented
+        \Illuminate\Support\Facades\DB::table('shift_report_cash_counts')
+            ->where('cashier_shift_id', $sourceShift->id)
+            ->delete();
+
+        $response = $this->actingAs($manager, 'sanctum')->postJson('/api/v1/branch-manager/workday/end', [
+            'manager_workday_id' => $workday->id,
+            'handover_timing' => 'yesterday',
+            'total_sales' => '10.00',
+            'cash_collected' => '10.00',
+            'card_payments' => '0.00',
+            'aggregator_payments' => '0.00',
+        ]);
+
+        $response->assertStatus(400);
+        $this->assertStringContainsString('Cannot end shift', $response->json('message') ?? '');
+    }
+
     public function test_manager_recipient_selection_rejects_zero_and_multiple_active_assignments(): void
     {
         $branch = Branch::factory()->create();
