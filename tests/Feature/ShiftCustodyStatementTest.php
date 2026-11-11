@@ -18,6 +18,7 @@ use Modules\Cashier\Models\Cashier;
 use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Custody\Models\PersonalLedgerTransaction;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Models\BranchManagerCashTransfer;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
@@ -545,6 +546,117 @@ class ShiftCustodyStatementTest extends TestCase
 
         // Combined actual sales in system remains 3000 + 4200 = 7200, not doubled
         $this->assertSame(1, CashierCustodyTransaction::where('transaction_type', 'Total Sales')->count());
+    }
+
+    // ── Manager to Cashier Handover: Shift IDs symmetry on both ends ─────────
+
+    public function test_manager_to_cashier_handover_shift_ids_match_on_both_statements(): void
+    {
+        // 1. Manager has active workday shift
+        $mgrWorkday = BranchManagerShift::create([
+            'branch_manager_id' => $this->manager->id,
+            'branch_id' => $this->branchA->id,
+            'shift_date' => today()->toDateString(),
+            'status' => 'in_progress',
+            'cash_collected' => '5000.00',
+        ]);
+
+        // 2. Cashier has an active shift
+        $cashierShift = CashierShift::factory()->create([
+            'cashier_id' => $this->cashier1->id,
+            'shift_id' => $this->shiftTemplate->id,
+            'shift_date' => today(),
+            'status' => ShiftStatus::IN_PROGRESS,
+        ]);
+
+        // 3. Manager creates cash transfer request to Cashier (BranchManagerCashTransfer)
+        $managerTransfer = BranchManagerCashTransfer::create([
+            'branch_manager_shift_id' => $mgrWorkday->id,
+            'destination_cashier_id' => $this->cashier1->id,
+            'destination_cashier_shift_id' => $cashierShift->id,
+            'created_by_id' => $this->manager->id,
+            'requested_amount' => '5000.00',
+            'status' => 'confirmed',
+        ]);
+
+        // 4. Receipt confirms transfer
+        $aggregate = ShiftReportAggregate::firstOrCreate(
+            ['source_type' => 'cashier_shift', 'source_id' => $cashierShift->id],
+            ['current_revision_number' => 1]
+        );
+
+        $revision = ShiftReportRevision::firstOrCreate(
+            ['report_aggregate_id' => $aggregate->id, 'revision_number' => 1],
+            ['created_by_type' => 'branch_manager', 'created_by_id' => $this->manager->id]
+        );
+
+        $receipt = CashierShiftHandoverReceipt::create([
+            'branch_manager_cash_transfer_id' => $managerTransfer->id,
+            'cashier_shift_handover_id' => null,
+            'receiving_cashier_shift_id' => $cashierShift->id,
+            'receiving_cashier_id' => $this->cashier1->id,
+            'receiving_branch_manager_shift_id' => null,
+            'receiving_branch_manager_id' => null,
+            'report_revision_id' => $revision->id,
+            'confirmed_amount' => '5000.00',
+            'confirmed_at' => now(),
+        ]);
+
+        // 5. Manager personal ledger: Handover to Cashier (Handover Sent)
+        PersonalLedgerTransaction::create([
+            'branch_manager_id' => $this->manager->id,
+            'related_shift_id' => $mgrWorkday->id,
+            'transaction_type' => 'Handover to Cashier',
+            'amount' => '5000.00',
+            'is_cash_in' => false,
+            'receipt_id' => $receipt->id,
+            'cashier_name' => $this->cashier1->name,
+            'transaction_date' => now(),
+            'event_at' => now(),
+        ]);
+
+        // 6. Cashier custody: Handover Received (related_shift_id is null per ShiftTransferReceiptService::526)
+        CashierCustodyTransaction::create([
+            'cashier_id' => $this->cashier1->id,
+            'related_shift_id' => null,
+            'transaction_type' => 'Handover Received',
+            'amount' => '5000.00',
+            'is_cash_in' => true,
+            'receipt_id' => $receipt->id,
+            'counterpart_name' => $this->manager->name,
+            'transaction_date' => now(),
+            'event_at' => now(),
+        ]);
+
+        // Assert Manager statement: source is manager shift, receiving is cashier shift
+        $resMgr = $this->actingAsAccountant()
+            ->getJson("/api/v1/company/me/employees/{$this->empManager->id}/shift-custody-statement")
+            ->assertOk()
+            ->json();
+
+        $mgrEntry = collect($resMgr['entries'])->firstWhere('receipt_id', (string) $receipt->id);
+        $this->assertNotNull($mgrEntry);
+        $this->assertSame('handover_sent', $mgrEntry['classification']);
+        $this->assertSame(500000, $mgrEntry['cash_out']);
+        $this->assertSame($mgrWorkday->id, $mgrEntry['source_shift_id'], 'Manager statement source_shift_id must be sending manager shift.');
+        $this->assertSame($cashierShift->id, $mgrEntry['receiving_shift_id'], 'Manager statement receiving_shift_id must be receiving cashier shift.');
+
+        // Assert Cashier statement: source is manager shift, receiving is cashier shift
+        $resCashier = $this->actingAsAccountant()
+            ->getJson("/api/v1/company/me/employees/{$this->empCashier1->id}/shift-custody-statement")
+            ->assertOk()
+            ->json();
+
+        $cashierEntry = collect($resCashier['entries'])->firstWhere('receipt_id', (string) $receipt->id);
+        $this->assertNotNull($cashierEntry);
+        $this->assertSame('handover_received', $cashierEntry['classification']);
+        $this->assertSame(500000, $cashierEntry['cash_in']);
+        $this->assertSame($mgrWorkday->id, $cashierEntry['source_shift_id'], 'Cashier statement source_shift_id must match sending manager shift from transfer.');
+        $this->assertSame($cashierShift->id, $cashierEntry['receiving_shift_id'], 'Cashier statement receiving_shift_id must match receiving cashier shift from receipt.');
+
+        // Exact match of both shift identifiers across both statements
+        $this->assertSame($mgrEntry['source_shift_id'], $cashierEntry['source_shift_id'], 'Source shift IDs must strictly match on both ends.');
+        $this->assertSame($mgrEntry['receiving_shift_id'], $cashierEntry['receiving_shift_id'], 'Receiving shift IDs must strictly match on both ends.');
     }
 
     // ── MT-15: Pending Handover Request Behavior ─────────────────────────────

@@ -96,7 +96,7 @@ class ShiftCustodyStatementService
             $cashierTxns = CashierCustodyTransaction::query()
                 ->where('cashier_id', $cashierId)
                 ->whereNotIn('transaction_type', ['Variance', 'Shortage'])
-                ->with(['receipt.handover.cashierShift.shift', 'receipt.managerTransfer'])
+                ->with(['receipt.handover.cashierShift.shift', 'receipt.managerTransfer.sourceWorkday', 'receipt.managerTransfer.destinationCashierShift'])
                 ->get();
 
             foreach ($cashierTxns as $tx) {
@@ -108,7 +108,7 @@ class ShiftCustodyStatementService
             $managerTxns = PersonalLedgerTransaction::query()
                 ->where('branch_manager_id', $managerId)
                 ->whereNotIn('transaction_type', ['Variance from Cashier', 'Manager Variance', 'Variance'])
-                ->with(['receipt.handover.cashierShift.shift', 'receipt.managerTransfer'])
+                ->with(['receipt.handover.cashierShift.shift', 'receipt.managerTransfer.sourceWorkday', 'receipt.managerTransfer.destinationCashierShift'])
                 ->get();
 
             foreach ($managerTxns as $tx) {
@@ -370,15 +370,31 @@ class ShiftCustodyStatementService
         }
 
         // Shifts resolution
-        // Source shift is related_shift_id
-        $sourceShiftId = $tx->related_shift_id ? (string) $tx->related_shift_id : null;
+        // Source shift is sender's shift:
+        // 1. If from managerTransfer, sender is manager: managerTransfer->branch_manager_shift_id
+        // 2. If from handover, sender is cashier: handover->cashier_shift_id
+        // 3. Otherwise related_shift_id
+        $sourceShiftId = null;
+        if ($tx->receipt?->managerTransfer?->branch_manager_shift_id) {
+            $sourceShiftId = (string) $tx->receipt->managerTransfer->branch_manager_shift_id;
+        } elseif ($tx->receipt?->handover?->cashier_shift_id) {
+            $sourceShiftId = (string) $tx->receipt->handover->cashier_shift_id;
+        } elseif ($tx->related_shift_id) {
+            $sourceShiftId = (string) $tx->related_shift_id;
+        }
 
-        // Receiving shift comes from receipt
+        // Receiving shift is recipient's shift:
+        // 1. From receipt receiving_cashier_shift_id or receiving_branch_manager_shift_id
+        // 2. From managerTransfer destination_cashier_shift_id
         $receivingShiftId = null;
         if ($tx->receipt) {
             $receivingShiftId = $tx->receipt->receiving_cashier_shift_id
                 ? (string) $tx->receipt->receiving_cashier_shift_id
-                : ($tx->receipt->receiving_branch_manager_shift_id ? (string) $tx->receipt->receiving_branch_manager_shift_id : null);
+                : ($tx->receipt->receiving_branch_manager_shift_id
+                    ? (string) $tx->receipt->receiving_branch_manager_shift_id
+                    : ($tx->receipt->managerTransfer?->destination_cashier_shift_id
+                        ? (string) $tx->receipt->managerTransfer->destination_cashier_shift_id
+                        : null));
         }
 
         // Counterparty
@@ -403,6 +419,9 @@ class ShiftCustodyStatementService
                 if ($receipt->handover?->cashierShift?->cashier_id) {
                     $counterpartyType = 'cashier';
                     $counterpartyId = (string) $receipt->handover->cashierShift->cashier_id;
+                } elseif ($receipt->managerTransfer?->sourceWorkday?->branch_manager_id) {
+                    $counterpartyType = 'branch_manager';
+                    $counterpartyId = (string) $receipt->managerTransfer->sourceWorkday->branch_manager_id;
                 } elseif ($receipt->sender_id) {
                     $counterpartyType = $receipt->sender_type ?? 'cashier';
                     $counterpartyId = (string) $receipt->sender_id;
@@ -513,20 +532,40 @@ class ShiftCustodyStatementService
         }
 
         // Shifts resolution
+        // Source shift is sender's shift, receiving shift is recipient's shift
         $sourceShiftId = null;
-        if ($tx->receipt?->handover?->cashier_shift_id) {
-            $sourceShiftId = (string) $tx->receipt->handover->cashier_shift_id;
-        } elseif ($tx->receipt?->receiving_cashier_shift_id) {
-            $sourceShiftId = (string) $tx->receipt->receiving_cashier_shift_id;
-        } elseif ($tx->related_shift_id && CashierShift::where('id', $tx->related_shift_id)->exists()) {
-            $sourceShiftId = (string) $tx->related_shift_id;
-        }
-
         $receivingShiftId = null;
-        if ($tx->receipt?->receiving_branch_manager_shift_id) {
-            $receivingShiftId = (string) $tx->receipt->receiving_branch_manager_shift_id;
-        } elseif ($tx->related_shift_id && BranchManagerShift::where('id', $tx->related_shift_id)->exists()) {
-            $receivingShiftId = (string) $tx->related_shift_id;
+
+        if ($classification === 'handover_sent' || $tx->transaction_type === 'Handover to Cashier' || $tx->transaction_type === 'Handover to Brand Owner') {
+            // Manager is SENDER (source = manager shift, receiving = cashier shift)
+            if ($tx->receipt?->managerTransfer?->branch_manager_shift_id) {
+                $sourceShiftId = (string) $tx->receipt->managerTransfer->branch_manager_shift_id;
+            } elseif ($tx->related_shift_id) {
+                $sourceShiftId = (string) $tx->related_shift_id;
+            }
+
+            if ($tx->receipt?->receiving_cashier_shift_id) {
+                $receivingShiftId = (string) $tx->receipt->receiving_cashier_shift_id;
+            } elseif ($tx->receipt?->managerTransfer?->destination_cashier_shift_id) {
+                $receivingShiftId = (string) $tx->receipt->managerTransfer->destination_cashier_shift_id;
+            }
+        } elseif ($classification === 'handover_received' || ($tx->transaction_type === 'Total Sales' && $tx->receipt_id)) {
+            // Cashier is SENDER (source = cashier shift, receiving = manager shift)
+            if ($tx->receipt?->handover?->cashier_shift_id) {
+                $sourceShiftId = (string) $tx->receipt->handover->cashier_shift_id;
+            } elseif ($tx->related_shift_id && CashierShift::where('id', $tx->related_shift_id)->exists()) {
+                $sourceShiftId = (string) $tx->related_shift_id;
+            }
+
+            if ($tx->receipt?->receiving_branch_manager_shift_id) {
+                $receivingShiftId = (string) $tx->receipt->receiving_branch_manager_shift_id;
+            } elseif ($tx->related_shift_id && BranchManagerShift::where('id', $tx->related_shift_id)->exists()) {
+                $receivingShiftId = (string) $tx->related_shift_id;
+            }
+        } else {
+            if ($tx->related_shift_id) {
+                $sourceShiftId = (string) $tx->related_shift_id;
+            }
         }
 
         // Counterparty
