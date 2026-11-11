@@ -57,8 +57,10 @@ Route::prefix('branch-manager/cashiers')
 
         // Shift Management
         Route::get('/available-for-shift', [CashierManagementController::class, 'availableForShift']);
+        Route::get('/dated-roster', [CashierManagementController::class, 'datedRoster']);
         Route::post('/assign-shifts', [CashierManagementController::class, 'assignShifts']);
         Route::put('/update-shifts', [CashierManagementController::class, 'updateShifts']);
+        Route::post('/swap-shifts', [CashierManagementController::class, 'swapShifts']);
 
         // Resend Activation
         Route::post('/resend-activation', [CashierManagementController::class, 'resendActivation']);

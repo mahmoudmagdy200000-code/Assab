@@ -112,6 +112,50 @@ class CashierManagementController extends BaseController
     }
 
     /**
+     * Atomically swap cashier shift assignments.
+     */
+    public function swapShifts(Request $request): JsonResponse
+    {
+        $request->validate([
+            'cashier_a_id' => 'required|exists:cashiers,id',
+            'shift_a_id' => 'required|exists:shifts,id',
+            'cashier_b_id' => 'required|exists:cashiers,id',
+            'shift_b_id' => 'required|exists:shifts,id',
+            'shift_date' => 'required|date',
+            'for_full_week' => 'nullable|boolean',
+        ]);
+
+        $result = $this->cashierService->swapCashierShifts(
+            cashierAId: $request->cashier_a_id,
+            shiftAId: $request->shift_a_id,
+            cashierBId: $request->cashier_b_id,
+            shiftBId: $request->shift_b_id,
+            shiftDate: $request->shift_date,
+            forFullWeek: (bool) $request->input('for_full_week', false)
+        );
+
+        return $this->successResponse($result, 'Cashier shifts swapped successfully');
+    }
+
+    /**
+     * Get branch shift templates along with assigned cashiers for an explicit date range.
+     */
+    public function datedRoster(Request $request): JsonResponse
+    {
+        $request->validate([
+            'start_date' => 'required|date',
+            'end_date' => 'required|date|after_or_equal:start_date',
+        ]);
+
+        $result = $this->cashierService->getDatedBranchRoster(
+            startDate: $request->start_date,
+            endDate: $request->end_date
+        );
+
+        return $this->successResponse($result, 'Dated branch roster retrieved successfully');
+    }
+
+    /**
      * Resend activation link
      */
     public function resendActivation(Request $request): JsonResponse

@@ -334,6 +334,160 @@ class CashierService
     }
 
     /**
+     * Atomically swap shift template assignments between two cashiers in the same branch.
+     * Preserves existing CashierShift IDs and throws ValidationException if either shift
+     * has started or contains financial/report evidence.
+     */
+    public function swapCashierShifts(
+        string $cashierAId,
+        string $shiftAId,
+        string $cashierBId,
+        string $shiftBId,
+        string $shiftDate,
+        bool $forFullWeek = false
+    ): array {
+        return DB::transaction(function () use ($cashierAId, $shiftAId, $cashierBId, $shiftBId, $shiftDate, $forFullWeek) {
+            $manager = auth('branch_manager')->user() ?? auth()->user();
+            $cashierA = Cashier::query()->whereKey($cashierAId)->lockForUpdate()->firstOrFail();
+            $cashierB = Cashier::query()->whereKey($cashierBId)->lockForUpdate()->firstOrFail();
+
+            if ($cashierA->branch_id !== $cashierB->branch_id) {
+                throw new \Illuminate\Auth\Access\AuthorizationException('Cashiers must belong to the same branch to swap shifts.');
+            }
+            if ($manager && isset($manager->branch_id) && $manager->branch_id !== $cashierA->branch_id) {
+                throw new \Illuminate\Auth\Access\AuthorizationException('Cannot swap shifts for cashiers of another branch.');
+            }
+
+            $templates = Shift::query()->whereIn('id', [$shiftAId, $shiftBId])->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            foreach ([$shiftAId, $shiftBId] as $id) {
+                $t = $templates->get($id);
+                if (! $t || $t->branch_id !== $cashierA->branch_id || ! $t->is_active) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'shift_ids' => 'Select active shift templates from the cashier branch only.',
+                    ]);
+                }
+            }
+
+            $refDate = Carbon::parse($shiftDate);
+            $dates = $forFullWeek
+                ? array_values(array_filter(\Modules\Shift\Helpers\ShiftHelper::workWeekDatesExcludingHolidays($refDate),
+                    fn (Carbon $date) => $date->greaterThanOrEqualTo($refDate->copy()->startOfDay())))
+                : [$refDate];
+
+            $swappedA = [];
+            $swappedB = [];
+
+            foreach ($dates as $date) {
+                $dateStr = $date->toDateString();
+                $rowA = CashierShift::query()->where('cashier_id', $cashierAId)
+                    ->where('shift_id', $shiftAId)
+                    ->whereDate('shift_date', $dateStr)
+                    ->lockForUpdate()
+                    ->first();
+
+                $rowB = CashierShift::query()->where('cashier_id', $cashierBId)
+                    ->where('shift_id', $shiftBId)
+                    ->whereDate('shift_date', $dateStr)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $rowA || ! $rowB) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'swap' => "Both cashiers must have assignments on {$dateStr} to swap.",
+                    ]);
+                }
+
+                if ($rowA->status !== ShiftStatus::NOT_STARTED || $rowB->status !== ShiftStatus::NOT_STARTED) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'swap' => 'A shift that has already started cannot be swapped.',
+                    ]);
+                }
+
+                $this->assertAssignmentHasNoActivity($rowA);
+                $this->assertAssignmentHasNoActivity($rowB);
+
+                // Preserve existing CashierShift IDs while swapping shift_id atomically
+                $rowA->update(['shift_id' => $shiftBId]);
+                $rowB->update(['shift_id' => $shiftAId]);
+
+                $this->setNextCashierIdsForCreatedShifts([$rowA, $rowB]);
+
+                if (method_exists($rowA, 'recordHistory')) {
+                    $rowA->recordHistory('swapped', null, ['swapped_with' => $cashierBId, 'previous_shift_id' => $shiftAId, 'new_shift_id' => $shiftBId]);
+                }
+                if (method_exists($rowB, 'recordHistory')) {
+                    $rowB->recordHistory('swapped', null, ['swapped_with' => $cashierAId, 'previous_shift_id' => $shiftBId, 'new_shift_id' => $shiftAId]);
+                }
+
+                $swappedA[] = $rowA;
+                $swappedB[] = $rowB;
+            }
+
+            return [
+                'swapped' => true,
+                'dates_count' => count($dates),
+                'cashier_a_shifts' => $swappedA,
+                'cashier_b_shifts' => $swappedB,
+            ];
+        });
+    }
+
+    /**
+     * Get branch shift templates along with assigned cashiers for an explicit date range.
+     */
+    public function getDatedBranchRoster(string $startDate, string $endDate, ?string $branchId = null): array
+    {
+        $manager = auth('branch_manager')->user() ?? auth()->user();
+        $targetBranchId = $branchId ?? ($manager ? $manager->branch_id : null);
+
+        if (! $targetBranchId) {
+            throw new \Illuminate\Auth\Access\AuthorizationException('Branch context is required.');
+        }
+
+        $templates = Shift::query()
+            ->where('branch_id', $targetBranchId)
+            ->where('is_active', true)
+            ->orderBy('start_time')
+            ->get(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+
+        $shifts = CashierShift::query()
+            ->whereIn('shift_id', $templates->pluck('id'))
+            ->whereDate('shift_date', '>=', $startDate)
+            ->whereDate('shift_date', '<=', $endDate)
+            ->with(['cashier:id,name,phone,branch_id'])
+            ->get();
+
+        $rosterByDateAndShift = [];
+        foreach ($shifts as $cs) {
+            $key = $cs->shift_date->toDateString().'_'.$cs->shift_id;
+            $hasActivity = false;
+            try {
+                $this->assertAssignmentHasNoActivity($cs);
+            } catch (\Throwable) {
+                $hasActivity = true;
+            }
+
+            $rosterByDateAndShift[$key] = [
+                'cashier_shift_id' => $cs->id,
+                'cashier_id' => $cs->cashier_id,
+                'cashier_name' => $cs->cashier?->name,
+                'status' => $cs->status->value ?? $cs->status,
+                'shift_date' => $cs->shift_date->toDateString(),
+                'shift_id' => $cs->shift_id,
+                'can_swap' => ($cs->status === ShiftStatus::NOT_STARTED && ! $hasActivity),
+            ];
+        }
+
+        return [
+            'branch_id' => $targetBranchId,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'templates' => $templates,
+            'roster' => $rosterByDateAndShift,
+        ];
+    }
+
+    /**
      * Update cashier shifts: remove pending shifts not in new list (target work week),
      * then assign for full work week. Uses next work week when current week has already ended.
      */
