@@ -73,6 +73,24 @@ class ShiftLiabilityRealSchemaTest extends TestCase
         $this->report(-2000, 'r1');
     }
 
+    public function test_shortage_candidates_are_scoped_to_shift_owner_or_branch_manager(): void
+    {
+        $otherBranch = Branch::factory()->create(['asab_company_id' => $this->branch->asab_company_id]);
+        $otherManager = BranchManager::factory()->create(['branch_id' => $otherBranch->id]);
+        $url = '/api/v1/branch-manager/shifts/'.$this->shift->id.'/shortage-allocation-candidates';
+
+        $this->getJson($url)->assertUnauthorized();
+        $this->actingAs($this->colleague, 'sanctum')->getJson($url)->assertNotFound();
+        $this->actingAs($otherManager, 'sanctum')->getJson($url)->assertNotFound();
+
+        foreach ([$this->cashier, $this->manager] as $actor) {
+            $response = $this->actingAs($actor, 'sanctum')->getJson($url)->assertOk();
+            $response->assertJsonFragment(['id' => $this->cashier->id, 'type' => 'cashier']);
+            $response->assertJsonFragment(['id' => $this->manager->id, 'type' => 'branch_manager']);
+            $response->assertJsonMissing(['id' => $otherManager->id]);
+        }
+    }
+
     private function report(int $variance, string $revision): void
     {
         $companyId = $this->branch->asab_company_id;

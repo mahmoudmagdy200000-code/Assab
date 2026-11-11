@@ -211,6 +211,9 @@ Route::prefix('branch-manager')
                 Route::post('end', [ShiftEndController::class, 'endShiftOnly'])
                     ->name('shifts.end')
                     ->middleware('asab.idempotency:optional,transaction,legacy');
+                Route::get('shortage-allocation-candidates', [ShiftEndController::class, 'shortageAllocationCandidates'])
+                    ->name('shifts.shortage-allocation-candidates')
+                    ->middleware('throttle:60,1');
                 Route::post('cash-reconciliation/preview', [ShiftEndController::class, 'previewCashReconciliation'])
                     ->name('shifts.cash-reconciliation.preview')
                     ->middleware('throttle:60,1');
