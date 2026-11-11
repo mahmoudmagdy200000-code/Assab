@@ -178,7 +178,7 @@ class BranchManagerShiftController extends BaseController
             $progress = $this->shiftService->calculateShiftProgress($managerShift);
             $handoversSummary = $managerShift->getHandoverSummary();
             $handoversToManager = $this->shiftService->getShiftHandovers($managerShift, 'to_manager', true);
-            $handoffsToManager = $handoversToManager->map(fn ($h) => $this->shiftService->transformHandover($h));
+            $handoffsToManager = $handoversToManager->map(fn ($h) => $this->shiftService->transformHandover($h, $managerShift));
 
             return $this->successResponse([
                 'shift' => new BranchManagerShiftResource($managerShift),
@@ -228,8 +228,8 @@ class BranchManagerShiftController extends BaseController
             // a 5-minute cached list makes a just-submitted handover look lost.
             $handoversToManager = $this->shiftService->getShiftHandovers($managerShift, 'to_manager', true);
             $cashierToCashier = $this->shiftService->getShiftHandovers($managerShift, 'between_cashiers', true);
-            $handoffsToManager = $handoversToManager->map(fn ($h) => $this->shiftService->transformHandover($h));
-            $cashierToCashierXfrm = $cashierToCashier->map(fn ($h) => $this->shiftService->transformHandover($h));
+            $handoffsToManager = $handoversToManager->map(fn ($h) => $this->shiftService->transformHandover($h, $managerShift));
+            $cashierToCashierXfrm = $cashierToCashier->map(fn ($h) => $this->shiftService->transformHandover($h, $managerShift));
             $summary = $managerShift->getHandoverSummary();
 
             return $this->successResponse([
@@ -543,7 +543,7 @@ class BranchManagerShiftController extends BaseController
             $managerShift = app(ManagerWorkdayResolver::class)->resolve($request, $manager, true);
 
             if (! $managerShift->canEnd()) {
-                return $this->errorResponse('Cannot end shift. Check all cashier handoffs are approved.', 400);
+                return $this->errorResponse('Cannot end shift. Check all cashier handoffs are approved or documented.', 400);
             }
 
             DB::beginTransaction();
@@ -563,7 +563,7 @@ class BranchManagerShiftController extends BaseController
                 if (! $managerShift->canEnd()) {
                     DB::rollBack();
 
-                    return $this->errorResponse('Cannot end shift. Check all cashier handoffs are approved.', 400);
+                    return $this->errorResponse('Cannot end shift. Check all cashier handoffs are approved or documented.', 400);
                 }
 
                 if ($request->has('cashier_breakdown') && is_array($request->cashier_breakdown)) {

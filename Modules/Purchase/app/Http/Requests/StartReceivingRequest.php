@@ -15,6 +15,17 @@ class StartReceivingRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        if ($this->has('invoice_data') && is_array($this->input('invoice_data'))) {
+            $invoiceData = $this->input('invoice_data');
+            if (isset($invoiceData['vat_rate']) && ! isset($invoiceData['tax_rate'])) {
+                $invoiceData['tax_rate'] = $invoiceData['vat_rate'];
+                $this->merge(['invoice_data' => $invoiceData]);
+            }
+        }
+    }
+
     /**
      * Get the validation rules that apply to the request.
      *
@@ -48,6 +59,12 @@ class StartReceivingRequest extends FormRequest
             'invoice_data.payment_terms' => ['nullable', 'string', 'max:100'],
             'invoice_data.photo' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png', 'max:10240'],
             'invoice_data.notes' => ['nullable', 'string', 'max:1000'],
+            'invoice_data.tax_rate' => ['required_with:invoice_data', 'numeric', 'in:0,15,0.0,15.0,0.00,15.00'],
+            'invoice_data.vat_rate' => ['nullable', 'numeric', 'in:0,15,0.0,15.0,0.00,15.00'],
+            'invoice_data.amount_before_tax' => ['nullable', 'numeric', 'min:0'],
+            'invoice_data.tax_amount' => ['nullable', 'numeric', 'min:0'],
+            'invoice_data.vat_amount' => ['nullable', 'numeric', 'min:0'],
+            'invoice_data.total_amount' => ['nullable', 'numeric', 'min:0'],
 
             // Delivery note data (optional if document_type is delivery_note)
             'delivery_note_data' => ['nullable', 'array'],
@@ -122,6 +139,8 @@ class StartReceivingRequest extends FormRequest
             'invoice_data.photo.image' => 'Invoice photo must be an image file.',
             'invoice_data.photo.mimes' => 'Invoice photo must be a jpg, jpeg, or png file.',
             'invoice_data.photo.max' => 'Invoice photo must not exceed 10MB.',
+            'invoice_data.tax_rate.required_with' => 'Invoice tax rate is required.',
+            'invoice_data.tax_rate.in' => 'Invoice tax rate must be 0% or 15%.',
 
             // Delivery note
             'delivery_note_data.file.mimes' => 'Delivery note file must be a PDF or image.',

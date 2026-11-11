@@ -217,24 +217,120 @@ class BranchManagerShift extends Model
             return false;
         }
 
-        // A handover addressed to this manager must be resolved first.
-        // Cashiers who ended their shift without a handover (endShiftOnly) create no record here,
-        // so they do not block the manager from ending the workday.
-        $pendingHandovers = $this->cashierHandovers()
-            ->where('status', 'pending')
-            ->count();
-
-        if ($pendingHandovers > 0) {
-            return false;
-        }
-
-        // A handover addressed to this manager must not be in a rejected state
-        // (rejected_final means manager permanently rejected and it was not resolved).
+        // A handover addressed to this manager must not be in a permanently rejected state
         $rejectedFinalHandovers = $this->cashierHandovers()
             ->where('status', 'rejected_final')
             ->count();
 
-        return $rejectedFinalHandovers === 0;
+        if ($rejectedFinalHandovers > 0) {
+            return false;
+        }
+
+        // Open/unsettled rejected handovers must be resolved (CASH-11/12)
+        $unsettledRejected = $this->cashierHandovers()
+            ->where('status', 'rejected')
+            ->whereNull('superseded_at')
+            ->whereNull('cancelled_at')
+            ->count();
+
+        if ($unsettledRejected > 0) {
+            return false;
+        }
+
+        // Under DAY-03 / AC-34 / AC-35:
+        // Cashier handovers addressed to this manager that are pending do not block closure
+        // if and only if they are fully documented:
+        // - Declared pending amount > 0
+        // - Sender cashier exists and retains liability
+        // - Sender shift has completed count / report evidence
+        // - Location and recipient documented
+        // Any undocumented pending handover strictly blocks closure under AC-35.
+        $pendingHandovers = $this->cashierHandovers()
+            ->where('status', 'pending')
+            ->get();
+
+        foreach ($pendingHandovers as $handover) {
+            if (! $this->isDocumentedPendingHandover($handover)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * DAY-03 / AC-34 / AC-35: Determine if a pending cashier handover is safely documented.
+     * Requires current, valid physical count evidence for sender shift via ShiftCashCountService::currentFor.
+     * Stale evidence, completed shift status without count record, or receipt state mismatch strictly fail.
+     */
+    public function isDocumentedPendingHandover(CashierShiftHandover $handover): bool
+    {
+        if (! $handover->isPending()) {
+            return false;
+        }
+
+        if ($handover->cancelled_at !== null || $handover->superseded_at !== null) {
+            return false;
+        }
+
+        $amount = (float) $handover->handover_amount;
+        if ($amount <= 0) {
+            return false;
+        }
+
+        $senderShift = $handover->cashierShift;
+        if (! $senderShift || empty($senderShift->cashier_id)) {
+            return false;
+        }
+
+        // Sender shift must be completed or reassigned (AC-34 / AC-35 / DAY-03)
+        $validSenderStatus = in_array($senderShift->status, [
+            \Modules\Shift\Enums\ShiftStatus::COMPLETED,
+            \Modules\Shift\Enums\ShiftStatus::REASSIGNED,
+            'completed',
+            'reassigned',
+        ], true);
+        if (! $validSenderStatus) {
+            return false;
+        }
+
+        // Count evidence must exist for sender shift's CURRENT report revision (AC-34 / AC-35 / DAY-03).
+        // Completed status alone cannot prove valid cash count; legacy closing_balance or actual_end_time are never a fallback.
+        $count = app(\Modules\Shift\Services\ShiftCashCountService::class)->currentFor((string) $senderShift->id);
+        if ($count === null) {
+            return false;
+        }
+
+        // Recipient and location must be documented
+        if (empty($handover->handover_to_type) || empty($handover->handover_to_id)) {
+            return false;
+        }
+
+        $branchId = $this->branch_id ?? $senderShift->shift?->branch_id;
+        if (! $branchId) {
+            return false;
+        }
+
+        // Receipt state mismatch: a pending handover cannot have an issued receipt
+        if (\Modules\Shift\Models\CashierShiftHandoverReceipt::where('cashier_shift_handover_id', $handover->id)->exists()) {
+            return false;
+        }
+
+        // If transfer attempts exist, verify no retained unconfirmed returns
+        if (! empty($handover->current_transfer_attempt_id)) {
+            $attempt = \Illuminate\Support\Facades\DB::table('shift_transfer_attempts')->where('id', $handover->current_transfer_attempt_id)->first();
+            if ($attempt) {
+                $attemptService = app(\Modules\Shift\Services\ShiftTransferAttemptService::class);
+                if ($attemptService->retained($attempt) > 0) {
+                    return false;
+                }
+                if (\Illuminate\Support\Facades\DB::table('shift_transfer_returns')->where('transfer_attempt_id', $attempt->id)->whereNull('sender_confirmed_at')->exists()) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     public function getProgressPercentage(): float

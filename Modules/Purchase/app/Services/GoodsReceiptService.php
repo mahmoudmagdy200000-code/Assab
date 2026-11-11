@@ -486,11 +486,24 @@ class GoodsReceiptService
      */
     public function createInvoice(GoodsReceipt $receipt, array $data): PurchaseInvoice
     {
-        // Calculate amounts from receipt (amount_before_tax and tax_rate are calculated automatically)
-        $amountBeforeTax = $receipt->received_amount;
-        $taxRate = 15.00; // Default tax rate
-        $taxAmount = $this->calculationService->calculateVAT($amountBeforeTax, $taxRate);
-        $totalAmount = $amountBeforeTax + $taxAmount;
+        // Calculate amounts from receipt or provided data
+        $amountBeforeTax = isset($data['amount_before_tax']) ? (float) $data['amount_before_tax'] : (float) $receipt->received_amount;
+
+        if (! array_key_exists('tax_rate', $data) && ! array_key_exists('vat_rate', $data)) {
+            throw new \InvalidArgumentException('Invoice tax rate is required and cannot be defaulted.');
+        }
+
+        $rawRate = $data['tax_rate'] ?? $data['vat_rate'];
+        if ($rawRate === null || $rawRate === '') {
+            throw new \InvalidArgumentException('Invoice tax rate is required and cannot be defaulted.');
+        }
+        $taxRate = (float) $rawRate;
+        if (! in_array($taxRate, [0.0, 15.0], true)) {
+            throw new \InvalidArgumentException('Invoice tax rate must be 0% or 15%.');
+        }
+
+        $taxAmount = isset($data['tax_amount']) ? (float) $data['tax_amount'] : $this->calculationService->calculateVAT($amountBeforeTax, $taxRate);
+        $totalAmount = isset($data['total_amount']) ? (float) $data['total_amount'] : ($amountBeforeTax + $taxAmount);
 
         $invoice = PurchaseInvoice::create([
             'goods_receipt_id' => $receipt->id,
@@ -824,6 +837,27 @@ class GoodsReceiptService
             'delivery_details' => $deliveryDetails,
             'goods_inspection' => $inspectionItems,
         ];
+
+        // PUR-05 / BM-16: return actual invoice financial values when an invoice already exists.
+        // When none exists, do not fabricate.
+        $existingInvoice = $receipt?->invoice ?? $order->invoices()->latest()->first();
+        if ($existingInvoice) {
+            $taxRate = $existingInvoice->tax_rate !== null ? (float) $existingInvoice->tax_rate : null;
+            $response['invoice'] = [
+                'invoice_number' => $existingInvoice->invoice_number,
+                'invoice_date' => $existingInvoice->invoice_date?->format('Y-m-d'),
+                'amount_before_tax' => (float) $existingInvoice->amount_before_tax,
+                'tax_rate' => $taxRate,
+                'tax_amount' => (float) $existingInvoice->tax_amount,
+                'total_amount' => (float) $existingInvoice->total_amount,
+            ];
+            $response['financial_summary'] = [
+                'amount_before_tax' => (float) $existingInvoice->amount_before_tax,
+                'vat_rate' => $taxRate,
+                'vat_amount' => (float) $existingInvoice->tax_amount,
+                'total_amount' => (float) $existingInvoice->total_amount,
+            ];
+        }
 
         // Add unit_price and order_number from request if supplier_name and order_number are in request
         if (
