@@ -310,6 +310,65 @@ class ShiftsTest extends TestCase
         $this->assertCount(1, $rows);
     }
 
+    /**
+     * MT-20: Optional status, cashier role, and multi-page pagination scope.
+     * Table rows and meta.total counter must share the exact same filtered scope.
+     */
+    public function test_history_filters_status_role_and_scopes_pagination_total(): void
+    {
+        // Branch A: 2 cashier closed, 2 cashier pending_review, 1 manager closed
+        Shift::create(['company_id' => $this->company->id, 'branch_id' => $this->branchA->id, 'role' => 'cashier', 'cashier_name' => 'C1', 'started_at' => now(), 'ended_at' => now(), 'status' => 'closed']);
+        Shift::create(['company_id' => $this->company->id, 'branch_id' => $this->branchA->id, 'role' => 'cashier', 'cashier_name' => 'C2', 'started_at' => now(), 'ended_at' => now(), 'status' => 'closed']);
+        Shift::create(['company_id' => $this->company->id, 'branch_id' => $this->branchA->id, 'role' => 'cashier', 'cashier_name' => 'C3', 'started_at' => now(), 'ended_at' => now(), 'status' => 'pending_review']);
+        Shift::create(['company_id' => $this->company->id, 'branch_id' => $this->branchA->id, 'role' => 'cashier', 'cashier_name' => 'C4', 'started_at' => now(), 'ended_at' => now(), 'status' => 'pending_review']);
+        Shift::create(['company_id' => $this->company->id, 'branch_id' => $this->branchA->id, 'role' => 'branch_manager', 'supervisor_name' => 'M1', 'started_at' => now(), 'ended_at' => now(), 'status' => 'closed']);
+
+        // Branch B: 1 cashier closed
+        Shift::create(['company_id' => $this->company->id, 'branch_id' => $this->branchB->id, 'role' => 'cashier', 'cashier_name' => 'C5', 'started_at' => now(), 'ended_at' => now(), 'status' => 'closed']);
+
+        // 1. Unfiltered request (backward compatible): all 6 shifts
+        $resAll = $this->acc()->getJson('/api/v1/accountant/shifts/history')->assertOk()->json();
+        $this->assertSame(6, $resAll['meta']['total']);
+
+        // 2. Filter status=pending_review: only 2 shifts
+        $resPending = $this->acc()->getJson('/api/v1/accountant/shifts/history?status=pending_review')->assertOk()->json();
+        $this->assertSame(2, $resPending['meta']['total']);
+        $this->assertCount(2, $resPending['data']);
+
+        // 3. Filter status=closed: 4 shifts
+        $resClosed = $this->acc()->getJson('/api/v1/accountant/shifts/history?status=closed')->assertOk()->json();
+        $this->assertSame(4, $resClosed['meta']['total']);
+        $this->assertCount(4, $resClosed['data']);
+
+        // 4. Filter role=cashier: 5 shifts
+        $resCashier = $this->acc()->getJson('/api/v1/accountant/shifts/history?role=cashier')->assertOk()->json();
+        $this->assertSame(5, $resCashier['meta']['total']);
+        $this->assertCount(5, $resCashier['data']);
+
+        // 5. Combined: branchA + role=cashier + status=closed -> exactly 2 shifts
+        $resScoped = $this->acc()->getJson('/api/v1/accountant/shifts/history?branchId='.$this->branchA->id.'&role=cashier&status=closed')->assertOk()->json();
+        $this->assertSame(2, $resScoped['meta']['total']);
+        $this->assertCount(2, $resScoped['data']);
+
+        // 6. Pagination across scoped results (pageSize=1)
+        // Page 1: returns 1 row, total is 2, totalPages is 2
+        $resP1 = $this->acc()->getJson('/api/v1/accountant/shifts/history?branchId='.$this->branchA->id.'&role=cashier&status=closed&pageSize=1&page=1')->assertOk()->json();
+        $this->assertSame(2, $resP1['meta']['total']);
+        $this->assertSame(2, $resP1['meta']['totalPages']);
+        $this->assertSame(1, $resP1['meta']['page']);
+        $this->assertCount(1, $resP1['data']);
+
+        // Page 2: returns 1 row, total is 2, totalPages is 2
+        $resP2 = $this->acc()->getJson('/api/v1/accountant/shifts/history?branchId='.$this->branchA->id.'&role=cashier&status=closed&pageSize=1&page=2')->assertOk()->json();
+        $this->assertSame(2, $resP2['meta']['total']);
+        $this->assertSame(2, $resP2['meta']['totalPages']);
+        $this->assertSame(2, $resP2['meta']['page']);
+        $this->assertCount(1, $resP2['data']);
+
+        // Distinct shift IDs across page 1 and page 2
+        $this->assertNotEquals($resP1['data'][0]['id'], $resP2['data'][0]['id']);
+    }
+
     public function test_export_streams_and_is_branch_scoped(): void
     {
         Shift::create(['company_id' => $this->company->id, 'branch_id' => $this->branchA->id, 'supervisor_name' => 'a', 'started_at' => now(), 'ended_at' => now(), 'status' => 'closed']);
