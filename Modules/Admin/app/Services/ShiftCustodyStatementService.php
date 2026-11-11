@@ -3,6 +3,7 @@
 namespace Modules\Admin\Services;
 
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Schema;
 use Modules\Admin\Models\AsabIdentityMap;
 use Modules\Admin\Models\Employee;
 use Modules\Branch\Models\Branch;
@@ -221,14 +222,26 @@ class ShiftCustodyStatementService
             $cashierId = (string) $employee->legacy_cashier_id;
         }
 
-        // Validate cashier belongs to branch if present
+        // Validate cashier belongs to branch and company if present
         if ($cashierId) {
-            $cashierExists = Cashier::withTrashed()
-                ->where('id', $cashierId)
-                ->when($employee->branch_id, fn ($q) => $q->where('branch_id', $employee->branch_id))
-                ->exists();
-            if (! $cashierExists) {
+            $cashier = Cashier::withTrashed()->where('id', $cashierId)->first();
+            if (! $cashier) {
                 $cashierId = null;
+            } elseif ($employee->branch_id && (string) $cashier->branch_id !== (string) $employee->branch_id) {
+                $cashierId = null;
+            } elseif ($employee->company_id && $cashier->branch_id) {
+                $branchBelongsToCompany = Branch::withoutGlobalScopes()
+                    ->where('id', $cashier->branch_id)
+                    ->where(function ($q) use ($employee) {
+                        $q->where('asab_company_id', $employee->company_id);
+                        if (Schema::hasColumn('branches', 'company_id')) {
+                            $q->orWhere('company_id', $employee->company_id);
+                        }
+                    })
+                    ->exists();
+                if (! $branchBelongsToCompany) {
+                    $cashierId = null;
+                }
             }
         }
 
@@ -245,10 +258,27 @@ class ShiftCustodyStatementService
                 ->value('legacy_id');
         }
 
-        if (! $managerId && $employee->role === 'branch_manager' && $employee->branch_id) {
-            $managerId = BranchManager::withTrashed()
-                ->where('branch_id', $employee->branch_id)
-                ->value('id');
+        // Validate manager belongs to employee branch and company
+        if ($managerId) {
+            $manager = BranchManager::withTrashed()->where('id', $managerId)->first();
+            if (! $manager) {
+                $managerId = null;
+            } elseif ($employee->branch_id && (string) $manager->branch_id !== (string) $employee->branch_id) {
+                $managerId = null;
+            } elseif ($employee->company_id && $manager->branch_id) {
+                $branchBelongsToCompany = Branch::withoutGlobalScopes()
+                    ->where('id', $manager->branch_id)
+                    ->where(function ($q) use ($employee) {
+                        $q->where('asab_company_id', $employee->company_id);
+                        if (Schema::hasColumn('branches', 'company_id')) {
+                            $q->orWhere('company_id', $employee->company_id);
+                        }
+                    })
+                    ->exists();
+                if (! $branchBelongsToCompany) {
+                    $managerId = null;
+                }
+            }
         }
 
         if (! $cashierId && ! $managerId) {
@@ -486,7 +516,9 @@ class ShiftCustodyStatementService
         $sourceShiftId = null;
         if ($tx->receipt?->handover?->cashier_shift_id) {
             $sourceShiftId = (string) $tx->receipt->handover->cashier_shift_id;
-        } elseif ($tx->related_shift_id) {
+        } elseif ($tx->receipt?->receiving_cashier_shift_id) {
+            $sourceShiftId = (string) $tx->receipt->receiving_cashier_shift_id;
+        } elseif ($tx->related_shift_id && CashierShift::where('id', $tx->related_shift_id)->exists()) {
             $sourceShiftId = (string) $tx->related_shift_id;
         }
 
@@ -508,14 +540,8 @@ class ShiftCustodyStatementService
                 $counterpartyId = (string) $tx->receipt->handover->cashierShift->cashier_id;
             } elseif ($tx->receipt?->receiving_cashier_id) {
                 $counterpartyId = (string) $tx->receipt->receiving_cashier_id;
-            }
-            if (! $counterpartyId) {
-                $cId = Cashier::where('name', $tx->cashier_name)
-                    ->when($employee->branch_id, fn ($q) => $q->where('branch_id', $employee->branch_id))
-                    ->value('id');
-                if ($cId) {
-                    $counterpartyId = (string) $cId;
-                }
+            } elseif ($tx->receipt?->confirmed_by_id) {
+                $counterpartyId = (string) $tx->receipt->confirmed_by_id;
             }
         } elseif ($tx->brand_owner_name) {
             $counterpartyType = 'brand_owner';

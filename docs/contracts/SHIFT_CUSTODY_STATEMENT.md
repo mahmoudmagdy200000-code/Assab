@@ -1,11 +1,11 @@
 # Shift Custody Statement API Contract (P2 / G2)
 
-**Version:** 1.0.0  
-**Date:** 2026-11-11  
-**Status:** Canonical Approved Read-Only Specification  
-**Authority:** Mahmoud — Final Acceptance Authority  
-**Author:** Antigravity (Principal Engineer)  
-**Consumer:** Dashboard (`CompanyDashboard.tsx` employee accounts tab «عهدة الشيفتات / Shift Custody»)  
+**Version:** 1.0.0
+**Date:** 2026-11-11
+**Status:** Canonical Approved Read-Only Specification
+**Authority:** Mahmoud — Final Acceptance Authority
+**Author:** Antigravity (Principal Engineer)
+**Consumer:** Dashboard (`CompanyDashboard.tsx` employee accounts tab «عهدة الشيفتات / Shift Custody»)
 **Provider:** Backend `Modules/Admin` (`GET /company/me/employees/{id}/shift-custody-statement`)
 
 ---

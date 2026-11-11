@@ -448,8 +448,40 @@ class ShiftCustodyStatementTest extends TestCase
             'event_at' => Carbon::now()->subHour(),
         ]);
 
-        // Handover receipt of 7200 to manager
-        $receipt = $this->createReceipt($shiftB, $this->cashier2, '7200.00');
+        // Handover receipt of 7200 from cashier to manager
+        $handover = CashierShiftHandover::create([
+            'cashier_shift_id' => $shiftB->id,
+            'handover_to_id' => $this->manager->id,
+            'handover_to_type' => 'branch_manager',
+            'handover_amount' => '7200.00',
+            'variance_amount' => '0.00',
+            'handover_date' => today()->toDateString(),
+            'handover_time' => now(),
+            'status' => 'approved',
+        ]);
+
+        $aggregate = ShiftReportAggregate::firstOrCreate(
+            ['source_type' => 'cashier_shift', 'source_id' => $shiftB->id],
+            ['current_revision_number' => 1]
+        );
+
+        $revision = ShiftReportRevision::firstOrCreate(
+            ['report_aggregate_id' => $aggregate->id, 'revision_number' => 1],
+            ['created_by_type' => 'cashier', 'created_by_id' => $this->cashier2->id]
+        );
+
+        $receipt = CashierShiftHandoverReceipt::create([
+            'cashier_shift_handover_id' => $handover->id,
+            'receiving_cashier_shift_id' => null,
+            'receiving_cashier_id' => null,
+            'receiving_branch_manager_shift_id' => $mgrWorkday->id,
+            'receiving_branch_manager_id' => $this->manager->id,
+            'report_revision_id' => $revision->id,
+            'confirmed_amount' => '7200.00',
+            'confirmed_by_id' => null,
+            'confirmed_by_branch_manager_id' => $this->manager->id,
+            'confirmed_at' => now(),
+        ]);
 
         // Cashier 2 custody: cash out 7200
         CashierCustodyTransaction::create([
@@ -485,6 +517,15 @@ class ShiftCustodyStatementTest extends TestCase
 
         $this->assertSame(0, $resB['balances']['closing_balance']);
 
+        $sentEntry = collect($resB['entries'])->firstWhere('classification', 'handover_sent');
+        $this->assertNotNull($sentEntry);
+        $this->assertSame(720000, $sentEntry['cash_out']);
+        $this->assertSame(0, $sentEntry['running_balance']);
+        $this->assertSame($shiftB->id, $sentEntry['source_shift_id'], 'Cashier handover_sent source_shift_id must match sender cashier shift.');
+        $this->assertSame($mgrWorkday->id, $sentEntry['receiving_shift_id'], 'Cashier handover_sent receiving_shift_id must match receiving manager shift.');
+        $this->assertSame('branch_manager', $sentEntry['counterparty']['type']);
+        $this->assertSame($this->manager->id, $sentEntry['counterparty']['id']);
+
         // 2. Check Manager statement: balance is 7200.00 (720,000 halala)
         $resMgr = $this->actingAsAccountant()
             ->getJson("/api/v1/company/me/employees/{$this->empManager->id}/shift-custody-statement")
@@ -497,6 +538,8 @@ class ShiftCustodyStatementTest extends TestCase
         $this->assertNotNull($mgrEntry, 'Manager transaction with receipt_id must be classified as handover_received, not sales.');
         $this->assertSame(720000, $mgrEntry['cash_in']);
         $this->assertSame($receipt->id, $mgrEntry['receipt_id']);
+        $this->assertSame($shiftB->id, $mgrEntry['source_shift_id'], 'Manager handover_received source_shift_id must match sender cashier shift.');
+        $this->assertSame($mgrWorkday->id, $mgrEntry['receiving_shift_id'], 'Manager handover_received receiving_shift_id must match receiving manager shift.');
         $this->assertSame('cashier', $mgrEntry['counterparty']['type']);
         $this->assertSame($this->cashier2->id, $mgrEntry['counterparty']['id']);
 
@@ -526,7 +569,7 @@ class ShiftCustodyStatementTest extends TestCase
             'event_at' => Carbon::now()->subMinutes(20),
         ]);
 
-        // Pending handover request of 400.00 to Cashier 2
+        // 1. Pending handover request of 400.00 to Cashier 2
         $handover = CashierShiftHandover::create([
             'cashier_shift_id' => $shift->id,
             'handover_to_id' => $this->cashier2->id,
@@ -538,7 +581,6 @@ class ShiftCustodyStatementTest extends TestCase
             'status' => 'pending',
         ]);
 
-        // 1. Pending check: balance remains 1000.00 (100,000 halala), pending has 40000
         $res = $this->actingAsAccountant()
             ->getJson("/api/v1/company/me/employees/{$this->empCashier1->id}/shift-custody-statement")
             ->assertOk()
@@ -550,7 +592,7 @@ class ShiftCustodyStatementTest extends TestCase
         $this->assertSame('pending', $res['pending'][0]['status']);
         $this->assertSame('handover_sent', $res['pending'][0]['request_type']);
 
-        // Also check receiver pending (inbound)
+        // Check receiver pending (inbound)
         $resRec = $this->actingAsAccountant()
             ->getJson("/api/v1/company/me/employees/{$this->empCashier2->id}/shift-custody-statement")
             ->assertOk()
@@ -561,8 +603,40 @@ class ShiftCustodyStatementTest extends TestCase
         $this->assertSame(40000, $resRec['pending'][0]['amount']);
         $this->assertSame('handover_received', $resRec['pending'][0]['request_type']);
 
-        // 2. Reject handover: no cash deducted
-        $handover->update(['status' => 'rejected']);
+        // 2. Return for correction: balance unaffected and outside pending
+        $handover->update(['status' => 'returned']);
+        $resAfterReturn = $this->actingAsAccountant()
+            ->getJson("/api/v1/company/me/employees/{$this->empCashier1->id}/shift-custody-statement")
+            ->assertOk()
+            ->json();
+
+        $this->assertSame(100000, $resAfterReturn['balances']['closing_balance']);
+        $this->assertEmpty($resAfterReturn['pending']);
+
+        // 3. Correction submitted: superseded request created
+        $correctedHandover = CashierShiftHandover::create([
+            'cashier_shift_id' => $shift->id,
+            'handover_to_id' => $this->cashier2->id,
+            'handover_to_type' => 'cashier',
+            'handover_amount' => '450.00',
+            'variance_amount' => '0.00',
+            'handover_date' => today()->toDateString(),
+            'handover_time' => now(),
+            'status' => 'pending',
+            'supersedes_id' => $handover->id,
+        ]);
+
+        $resAfterCorrection = $this->actingAsAccountant()
+            ->getJson("/api/v1/company/me/employees/{$this->empCashier1->id}/shift-custody-statement")
+            ->assertOk()
+            ->json();
+
+        $this->assertSame(100000, $resAfterCorrection['balances']['closing_balance']);
+        $this->assertCount(1, $resAfterCorrection['pending']);
+        $this->assertSame(45000, $resAfterCorrection['pending'][0]['amount']);
+
+        // 4. Reject handover: no cash deducted
+        $correctedHandover->update(['status' => 'rejected']);
         $resAfterReject = $this->actingAsAccountant()
             ->getJson("/api/v1/company/me/employees/{$this->empCashier1->id}/shift-custody-statement")
             ->assertOk()
@@ -571,14 +645,24 @@ class ShiftCustodyStatementTest extends TestCase
         $this->assertSame(100000, $resAfterReject['balances']['closing_balance']);
         $this->assertEmpty($resAfterReject['pending']);
 
-        // 3. Confirm new handover: reflected exactly once
-        $receipt = $this->createReceipt($shift, $this->cashier2, '400.00', $handover->id);
+        // 5. Confirm new handover: reflected exactly once
+        $confirmedHandover = CashierShiftHandover::create([
+            'cashier_shift_id' => $shift->id,
+            'handover_to_id' => $this->cashier2->id,
+            'handover_to_type' => 'cashier',
+            'handover_amount' => '450.00',
+            'variance_amount' => '0.00',
+            'handover_date' => today()->toDateString(),
+            'handover_time' => now(),
+            'status' => 'approved',
+        ]);
+        $receipt = $this->createReceipt($shift, $this->cashier2, '450.00', $confirmedHandover->id);
 
         CashierCustodyTransaction::create([
             'cashier_id' => $this->cashier1->id,
             'related_shift_id' => $shift->id,
             'transaction_type' => 'Handover Sent',
-            'amount' => '400.00',
+            'amount' => '450.00',
             'is_cash_in' => false,
             'receipt_id' => $receipt->id,
             'counterpart_name' => $this->cashier2->name,
@@ -591,8 +675,9 @@ class ShiftCustodyStatementTest extends TestCase
             ->assertOk()
             ->json();
 
-        // 100000 - 40000 = 60000 halala
-        $this->assertSame(60000, $resAfterConfirm['balances']['closing_balance']);
+        // 100000 - 45000 = 55000 halala
+        $this->assertSame(55000, $resAfterConfirm['balances']['closing_balance']);
+        $this->assertEmpty($resAfterConfirm['pending']);
     }
 
     // ── MT-17: Period Filtering, Opening Balance & Stable Pagination ─────────
@@ -606,7 +691,7 @@ class ShiftCustodyStatementTest extends TestCase
             'status' => ShiftStatus::IN_PROGRESS,
         ]);
 
-        // Day 1 (before requested period): 100.00
+        // Day 1 (before requested period): 100.00 (10000 halala)
         CashierCustodyTransaction::create([
             'cashier_id' => $this->cashier1->id,
             'related_shift_id' => $shift->id,
@@ -617,18 +702,28 @@ class ShiftCustodyStatementTest extends TestCase
             'event_at' => Carbon::parse('2026-11-01 09:00:00'),
         ]);
 
-        // Day 2 (inside period): 200.00
-        CashierCustodyTransaction::create([
+        // Day 2 (inside period): TWO transactions at the EXACT SAME TIMESTAMP ('2026-11-02 10:00:00')
+        $txSameTime1 = CashierCustodyTransaction::create([
             'cashier_id' => $this->cashier1->id,
             'related_shift_id' => $shift->id,
             'transaction_type' => 'Total Sales',
-            'amount' => '200.00',
+            'amount' => '150.00',
             'is_cash_in' => true,
             'transaction_date' => Carbon::parse('2026-11-02 10:00:00'),
             'event_at' => Carbon::parse('2026-11-02 10:00:00'),
         ]);
 
-        // Day 3 (inside period): 300.00
+        $txSameTime2 = CashierCustodyTransaction::create([
+            'cashier_id' => $this->cashier1->id,
+            'related_shift_id' => $shift->id,
+            'transaction_type' => 'Cash In',
+            'amount' => '50.00',
+            'is_cash_in' => true,
+            'transaction_date' => Carbon::parse('2026-11-02 10:00:00'),
+            'event_at' => Carbon::parse('2026-11-02 10:00:00'),
+        ]);
+
+        // Day 3 (inside period): Normal transaction 300.00
         CashierCustodyTransaction::create([
             'cashier_id' => $this->cashier1->id,
             'related_shift_id' => $shift->id,
@@ -639,37 +734,68 @@ class ShiftCustodyStatementTest extends TestCase
             'event_at' => Carbon::parse('2026-11-03 11:00:00'),
         ]);
 
+        // Day 3: A LATE-POSTED RECEIPT!
+        // Its business_date is Day 1 (2026-11-01), but it was posted to custody on Day 3 (2026-11-03 15:00:00)
+        $pastShift = CashierShift::factory()->create([
+            'cashier_id' => $this->cashier1->id,
+            'shift_id' => $this->shiftTemplate->id,
+            'shift_date' => '2026-11-01',
+            'status' => ShiftStatus::COMPLETED,
+        ]);
+        $lateReceipt = $this->createReceipt($pastShift, $this->cashier1, '80.00');
+
+        CashierCustodyTransaction::create([
+            'cashier_id' => $this->cashier1->id,
+            'related_shift_id' => $pastShift->id,
+            'transaction_type' => 'Handover Received',
+            'amount' => '80.00',
+            'is_cash_in' => true,
+            'receipt_id' => $lateReceipt->id,
+            'transaction_date' => Carbon::parse('2026-11-03 15:00:00'),
+            'event_at' => Carbon::parse('2026-11-03 15:00:00'),
+        ]);
+
         // Query period: 2026-11-02 to 2026-11-04
         $url = "/api/v1/company/me/employees/{$this->empCashier1->id}/shift-custody-statement?from=2026-11-02&to=2026-11-04";
 
         $fullRes = $this->actingAsAccountant()->getJson($url)->assertOk()->json();
 
-        // Opening balance includes Day 1 (100.00 = 10000 halala)
+        // Opening balance includes Day 1 opening cash (10000 halala), does NOT include late receipt posted on 11-03
         $this->assertSame(10000, $fullRes['balances']['opening_balance']);
-        // Closing balance includes Day 1 + Day 2 + Day 3 (10000 + 20000 + 30000 = 60000 halala)
-        $this->assertSame(60000, $fullRes['balances']['closing_balance']);
-        $this->assertCount(2, $fullRes['entries']);
+        // Closing balance includes all 4 in-period entries: 10000 + 15000 + 5000 + 30000 + 8000 = 68000 halala
+        $this->assertSame(68000, $fullRes['balances']['closing_balance']);
+        $this->assertCount(4, $fullRes['entries']);
 
-        // Check running balances in full list
-        $this->assertSame(30000, $fullRes['entries'][0]['running_balance']); // 10000 + 20000
-        $this->assertSame(60000, $fullRes['entries'][1]['running_balance']); // 30000 + 30000
+        // Check deterministic ordering for same-timestamp items (sorted by source_type, then source_id)
+        $sameTimeEntries = collect($fullRes['entries'])->filter(fn ($e) => $e['event_at'] === Carbon::parse('2026-11-02 10:00:00')->toIso8601String())->values();
+        $this->assertCount(2, $sameTimeEntries);
+        $expectedOrder = [(string) $txSameTime1->id, (string) $txSameTime2->id];
+        sort($expectedOrder);
+        $this->assertSame((string) $expectedOrder[0], (string) $sameTimeEntries[0]['source_id']);
+        $this->assertSame((string) $expectedOrder[1], (string) $sameTimeEntries[1]['source_id']);
 
-        // Test Pagination: Page 1 with pageSize=1
-        $page1 = $this->actingAsAccountant()->getJson("{$url}&page=1&pageSize=1")->assertOk()->json();
+        // Check late-posted receipt entry in entries[]
+        $lateEntry = collect($fullRes['entries'])->firstWhere('receipt_id', $lateReceipt->id);
+        $this->assertNotNull($lateEntry);
+        $this->assertSame('2026-11-01', $lateEntry['business_date'], 'Late receipt must display authentic business_date.');
+        $this->assertSame(Carbon::parse('2026-11-03 15:00:00')->toIso8601String(), $lateEntry['event_at'], 'Late receipt must display event_at posting time.');
+        $this->assertSame(68000, $lateEntry['running_balance'], 'Running balance must incorporate late receipt at its event_at point.');
+
+        // Test Pagination across multiple pages: pageSize=2
+        $page1 = $this->actingAsAccountant()->getJson("{$url}&page=1&pageSize=2")->assertOk()->json();
         $this->assertSame(1, $page1['pagination']['page']);
-        $this->assertSame(2, $page1['pagination']['total']);
+        $this->assertSame(4, $page1['pagination']['total']);
         $this->assertSame(2, $page1['pagination']['totalPages']);
-        $this->assertCount(1, $page1['entries']);
-        $this->assertSame(30000, $page1['entries'][0]['running_balance']);
-        $this->assertSame(60000, $page1['balances']['closing_balance']);
+        $this->assertCount(2, $page1['entries']);
+        $this->assertSame(68000, $page1['balances']['closing_balance']);
 
-        // Test Pagination: Page 2 with pageSize=1
-        $page2 = $this->actingAsAccountant()->getJson("{$url}&page=2&pageSize=1")->assertOk()->json();
+        $page2 = $this->actingAsAccountant()->getJson("{$url}&page=2&pageSize=2")->assertOk()->json();
         $this->assertSame(2, $page2['pagination']['page']);
-        $this->assertCount(1, $page2['entries']);
-        // Running balance continues from previous page (60000), NOT reset to 30000
+        $this->assertCount(2, $page2['entries']);
+        // Running balance continues seamlessly
         $this->assertSame(60000, $page2['entries'][0]['running_balance']);
-        $this->assertSame(60000, $page2['balances']['closing_balance']);
+        $this->assertSame(68000, $page2['entries'][1]['running_balance']);
+        $this->assertSame(68000, $page2['balances']['closing_balance']);
     }
 
     // ── MT-18: Variance & Shortage Excluded, Payroll Ledger Isolated ─────────
@@ -968,5 +1094,101 @@ class ShiftCustodyStatementTest extends TestCase
 
         // 3. Shift status remains COMPLETED, not reopened
         $this->assertSame(ShiftStatus::COMPLETED, $shift->fresh()->status);
+    }
+
+    // ── Strict Identity Mapping & Boundary Checks ─────────────────────────────
+
+    public function test_strict_identity_mapping_requires_documented_link_and_scope(): void
+    {
+        // 1. Employee with role 'branch_manager' but NO AsabIdentityMap entry
+        $unlinkedMgr = Employee::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'emp_number' => '3001',
+            'name' => 'Manager Without Map',
+            'role' => 'branch_manager',
+            'status' => 'active',
+        ]);
+
+        $res1 = $this->actingAsAccountant()
+            ->getJson("/api/v1/company/me/employees/{$unlinkedMgr->id}/shift-custody-statement")
+            ->assertOk()
+            ->json();
+
+        // Must be unlinked and not guess the manager from the branch!
+        $this->assertSame('unlinked', $res1['identity_link_state']);
+        $this->assertFalse($res1['balances']['is_available']);
+        $this->assertNull($res1['balances']['opening_balance']);
+        $this->assertNull($res1['balances']['closing_balance']);
+
+        // 2. Employee mapped to a manager in a DIFFERENT branch/company
+        $diffCompany = AsabCompany::create([
+            'company_code' => 'DIFF99',
+            'name' => 'شركة أخرى',
+            'status' => 'active',
+        ]);
+        $diffBranch = Branch::factory()->create([
+            'asab_company_id' => $diffCompany->id,
+        ]);
+        $diffMgr = BranchManager::factory()->create([
+            'branch_id' => $diffBranch->id,
+        ]);
+
+        $mappedWrongBranchEmp = Employee::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branchA->id,
+            'emp_number' => '3002',
+            'name' => 'Cross Branch Mapped',
+            'role' => 'branch_manager',
+            'status' => 'active',
+        ]);
+
+        AsabIdentityMap::create([
+            'company_id' => $this->company->id,
+            'entity_type' => AsabIdentityMap::ENTITY_BRANCH_MANAGER,
+            'dashboard_type' => 'asab_employee',
+            'dashboard_id' => $mappedWrongBranchEmp->id,
+            'legacy_type' => 'branch_manager',
+            'legacy_id' => $diffMgr->id,
+            'match_method' => 'manual',
+        ]);
+
+        $res2 = $this->actingAsAccountant()
+            ->getJson("/api/v1/company/me/employees/{$mappedWrongBranchEmp->id}/shift-custody-statement")
+            ->assertOk()
+            ->json();
+
+        // Must reject cross-branch/cross-company link and return unlinked!
+        $this->assertSame('unlinked', $res2['identity_link_state']);
+        $this->assertFalse($res2['balances']['is_available']);
+
+        // 3. Manager personal ledger row with cashier name but no receipt_id / handover
+        $empMgrLinked = $this->empManager;
+        $mgrWorkday = BranchManagerShift::firstOrCreate(
+            ['branch_manager_id' => $this->manager->id],
+            ['branch_id' => $this->branchA->id, 'shift_date' => today()->toDateString(), 'status' => 'in_progress', 'cash_collected' => '100.00']
+        );
+
+        PersonalLedgerTransaction::create([
+            'branch_manager_id' => $this->manager->id,
+            'related_shift_id' => $mgrWorkday->id,
+            'transaction_type' => 'Total Sales',
+            'amount' => '100.00',
+            'is_cash_in' => true,
+            'cashier_name' => 'Unlinked Cashier Name Only',
+            'transaction_date' => now(),
+            'event_at' => now(),
+        ]);
+
+        $res3 = $this->actingAsAccountant()
+            ->getJson("/api/v1/company/me/employees/{$empMgrLinked->id}/shift-custody-statement")
+            ->assertOk()
+            ->json();
+
+        $entry = collect($res3['entries'])->firstWhere('cash_in', 10000);
+        $this->assertNotNull($entry);
+        $this->assertSame('cashier', $entry['counterparty']['type']);
+        $this->assertNull($entry['counterparty']['id'], 'Counterparty ID must NOT be guessed from cashier name.');
+        $this->assertSame('Unlinked Cashier Name Only', $entry['counterparty']['name']);
     }
 }
