@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Validator;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Liability\ResponsibleActorResolver;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Services\CountedReassignmentGuard;
 use Modules\Shift\Services\HandoverService;
@@ -191,6 +192,22 @@ class ShiftEndController extends Controller
         } catch (\Throwable $e) {
             return HandoverErrorResponse::from($e, 'end shift only');
         }
+    }
+
+    public function shortageAllocationCandidates(Request $request, string $shift, ResponsibleActorResolver $actors): JsonResponse
+    {
+        $user = $request->user();
+        abort_unless($user instanceof Cashier || $user instanceof BranchManager, 403);
+
+        $shiftModel = $this->getShiftForUser($shift, $user);
+        $branch = $shiftModel?->shift?->branch()->first(['id', 'asab_company_id']);
+        abort_unless($branch && $branch->asab_company_id && (string) $user->branch_id === (string) $branch->id, 404);
+
+        $companyId = (string) $branch->asab_company_id;
+        $branchId = (string) $branch->id;
+        $actors->identity($user, $companyId, $branchId);
+
+        return response()->json(['success' => true, 'data' => $actors->candidates($companyId, $branchId)]);
     }
 
     /**
