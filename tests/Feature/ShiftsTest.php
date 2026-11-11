@@ -367,6 +367,17 @@ class ShiftsTest extends TestCase
 
         // Distinct shift IDs across page 1 and page 2
         $this->assertNotEquals($resP1['data'][0]['id'], $resP2['data'][0]['id']);
+
+        // 7. Filter status=final-approved: same as closed (4 shifts total, 2 in branchA)
+        $resFinalApproved = $this->acc()->getJson('/api/v1/accountant/shifts/history?branchId='.$this->branchA->id.'&role=cashier&status=final-approved')->assertOk()->json();
+        $this->assertSame(2, $resFinalApproved['meta']['total']);
+        $this->assertCount(2, $resFinalApproved['data']);
+
+        // 8. Filter status=rejected (zero result case): returns empty data and meta.total = 0
+        $resRejected = $this->acc()->getJson('/api/v1/accountant/shifts/history?branchId='.$this->branchA->id.'&role=cashier&status=rejected')->assertOk()->json();
+        $this->assertSame(0, $resRejected['meta']['total']);
+        $this->assertCount(0, $resRejected['data']);
+        $this->assertSame(1, $resRejected['meta']['totalPages']);
     }
 
     public function test_export_streams_and_is_branch_scoped(): void

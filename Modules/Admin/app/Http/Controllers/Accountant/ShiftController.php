@@ -56,8 +56,11 @@ class ShiftController extends AsabController
             if ($status && $status !== 'all') {
                 if ($status === 'pending_review' || $status === 'pending') {
                     $q = $this->scopeToAssignedBranches(Shift::whereIn('status', ['pending_review', 'pending']));
-                } elseif ($status === 'closed' || $status === 'approved') {
+                } elseif ($status === 'closed' || $status === 'approved' || $status === 'final-approved' || $status === 'final_approved') {
                     $q = $this->scopeToAssignedBranches(Shift::whereIn('status', ['closed', 'approved']));
+                } elseif ($status === 'rejected') {
+                    // Shift reports in history reach closed or pending_review; rejected filter yields empty dataset
+                    $q = $this->scopeToAssignedBranches(Shift::where('status', 'rejected'));
                 } else {
                     $q = $this->scopeToAssignedBranches(Shift::where('status', $status));
                 }
