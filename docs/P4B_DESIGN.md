@@ -1,10 +1,10 @@
 # ASSAB ERP — P4b Design Document: Durable Recurring Roster Assignment by Effective Date
 
-**Task:** Shift Meeting Remediation — Gate G5 (P4b / MT-23 / F03)  
-**Author:** Antigravity (Principal Engineer)  
-**Date:** 2026-11-12  
-**Target Authority:** Mahmoud — Final Acceptance Authority  
-**Independent Reviewer:** ChatGPT Work  
+**Task:** Shift Meeting Remediation — Gate G5 (P4b / MT-23 / F03)
+**Author:** Antigravity (Principal Engineer)
+**Date:** 2026-11-12
+**Target Authority:** Mahmoud — Final Acceptance Authority
+**Independent Reviewer:** ChatGPT Work
 **Status:** `IMPLEMENTED (LOCAL) — MIGRATION NOT EXECUTED — SCHEDULER NOT VERIFIED`
 
 ---
