@@ -479,4 +479,86 @@ class ShiftRecurringRosterRenewalTest extends TestCase
             Carbon::setTestNow();
         }
     }
+
+    /**
+     * MT-23: Overlapping recurring roster assignment clamps effective_to to the day before
+     * an existing future assignment, and renewal command deterministically respects boundaries.
+     */
+    public function test_mt23_overlapping_roster_assignment_clamps_to_prior_to_future_and_renews_both_dates_without_duplicates(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-11 10:00:00'));
+
+        try {
+            // 1. Pre-existing future assignment starting 2026-11-20 for Cashier A
+            $futureAssignment = BranchShiftRosterAssignment::create([
+                'branch_id' => $this->branch->id,
+                'shift_id' => $this->template1->id,
+                'cashier_id' => $this->cashierA->id,
+                'effective_from' => '2026-11-20',
+                'effective_to' => null,
+            ]);
+
+            // 2. Branch manager saves new assignment for Cashier B starting 2026-11-01 with open-ended effective_to
+            $payload = [
+                'assignments' => [
+                    [
+                        'shift_id' => $this->template1->id,
+                        'cashier_id' => $this->cashierB->id,
+                        'effective_from' => '2026-11-01',
+                    ],
+                ],
+            ];
+
+            $response = $this->actingAs($this->manager, 'sanctum')
+                ->postJson('/api/v1/branch-manager/cashiers/roster-assignments', $payload);
+
+            $response->assertOk();
+
+            // 3. Verify in database: Cashier B record effective_to is clamped to 2026-11-19
+            $bAssignment = BranchShiftRosterAssignment::where('branch_id', $this->branch->id)
+                ->where('shift_id', $this->template1->id)
+                ->where('cashier_id', $this->cashierB->id)
+                ->whereDate('effective_from', '2026-11-01')
+                ->first();
+
+            $this->assertNotNull($bAssignment);
+            $this->assertEquals('2026-11-19', $bAssignment->effective_to->format('Y-m-d'));
+
+            // Future assignment is preserved intact
+            $this->assertDatabaseHas('branch_shift_roster_assignments', [
+                'id' => $futureAssignment->id,
+                'cashier_id' => $this->cashierA->id,
+                'effective_from' => '2026-11-20 00:00:00',
+                'effective_to' => null,
+            ]);
+
+            // 4. Test deterministic resolution and renewal on both sides of the boundary:
+            // First week renewal (2026-11-15 to 2026-11-19) -> Cashier B
+            $this->artisan('shifts:renew-week')->assertSuccessful();
+
+            $shiftBeforeBoundary = CashierShift::where('shift_id', $this->template1->id)
+                ->whereDate('shift_date', '2026-11-19')
+                ->first();
+            $this->assertNotNull($shiftBeforeBoundary);
+            $this->assertEquals($this->cashierB->id, $shiftBeforeBoundary->cashier_id);
+
+            // Second week renewal (advance time so next week is 2026-11-22 to 2026-11-26, after boundary) -> Cashier A
+            Carbon::setTestNow(Carbon::parse('2026-11-18 10:00:00'));
+            $this->artisan('shifts:renew-week')->assertSuccessful();
+
+            $shiftAfterBoundary = CashierShift::where('shift_id', $this->template1->id)
+                ->whereDate('shift_date', '2026-11-22')
+                ->first();
+            $this->assertNotNull($shiftAfterBoundary);
+            $this->assertEquals($this->cashierA->id, $shiftAfterBoundary->cashier_id);
+
+            // 5. Test strict idempotency: re-running renewal command creates 0 duplicate shifts
+            $totalCountBefore = CashierShift::where('shift_id', $this->template1->id)->count();
+            $this->artisan('shifts:renew-week')->assertSuccessful();
+            $totalCountAfter = CashierShift::where('shift_id', $this->template1->id)->count();
+            $this->assertEquals($totalCountBefore, $totalCountAfter, 'Renewal command must be strictly idempotent with zero duplicates');
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
 }

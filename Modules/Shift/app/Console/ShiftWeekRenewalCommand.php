@@ -66,7 +66,9 @@ class ShiftWeekRenewalCommand extends Command
             $rosterAssignmentsByShift = [];
             if ($hasRosterAssignments) {
                 $rosterAssignmentsByShift = \Modules\Shift\Models\BranchShiftRosterAssignment::activeForDate($date)
+                    ->orderBy('effective_from', 'desc')
                     ->get()
+                    ->unique('shift_id')
                     ->keyBy('shift_id');
             }
 

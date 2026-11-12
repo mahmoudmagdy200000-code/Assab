@@ -531,9 +531,25 @@ class CashierService
                     ->lockForUpdate()
                     ->firstOrFail();
 
-                // Close any existing active roster assignment for the same template if newer
+                // Detect future assignments to clamp effective_to boundary
+                $future = \Modules\Shift\Models\BranchShiftRosterAssignment::where('branch_id', $targetBranchId)
+                    ->where('shift_id', $shiftId)
+                    ->whereDate('effective_from', '>', $effectiveFrom)
+                    ->orderBy('effective_from', 'asc')
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($future) {
+                    $futureBoundary = Carbon::parse($future->effective_from)->subDay()->toDateString();
+                    if ($effectiveTo === null || Carbon::parse($effectiveTo)->gt(Carbon::parse($futureBoundary))) {
+                        $effectiveTo = $futureBoundary;
+                    }
+                }
+
+                // Close or update any existing active roster assignment for the same template
                 $existing = \Modules\Shift\Models\BranchShiftRosterAssignment::where('branch_id', $targetBranchId)
                     ->where('shift_id', $shiftId)
+                    ->whereDate('effective_from', '<=', $effectiveFrom)
                     ->where(function ($q) use ($effectiveFrom) {
                         $q->whereNull('effective_to')
                             ->orWhereDate('effective_to', '>=', $effectiveFrom);
