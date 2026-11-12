@@ -57,6 +57,11 @@ class ShiftWeekRenewalCommand extends Command
             $shiftsToProcess = $activeShifts->whereIn('id', $patternShiftIds);
         }
 
+        // Shift template IDs that have entered the recurring roster system (R3)
+        $rosteredTemplateIds = $hasRosterAssignments
+            ? \Modules\Shift\Models\BranchShiftRosterAssignment::query()->distinct()->pluck('shift_id')->all()
+            : [];
+
         $created = 0;
 
         foreach ($nextDates as $date) {
@@ -80,8 +85,8 @@ class ShiftWeekRenewalCommand extends Command
                     $cashierId = $rosterAssignmentsByShift[$shift->id]->cashier_id;
                 }
 
-                // Priority 2: Fallback to current week pattern if no roster assignment for this template
-                if (! $cashierId && ! empty($pattern)) {
+                // Priority 2: Fallback to current week pattern ONLY for legacy templates that have never entered the recurring roster system (R3)
+                if (! $cashierId && ! empty($pattern) && ! in_array($shift->id, $rosteredTemplateIds, true)) {
                     foreach ($pattern as $patCashierId => $shiftIds) {
                         if (in_array($shift->id, $shiftIds, true)) {
                             $cashierId = $patCashierId;
@@ -91,6 +96,22 @@ class ShiftWeekRenewalCommand extends Command
                 }
 
                 if (! $cashierId) {
+                    continue;
+                }
+
+                // Priority 3 / Safety: Verify cashier is active, not soft-deleted, and belongs to template branch (R4)
+                $isEligibleCashier = \Modules\Cashier\Models\Cashier::query()
+                    ->whereKey($cashierId)
+                    ->where('branch_id', $shift->branch_id)
+                    ->where('status', 'active')
+                    ->exists();
+
+                if (! $isEligibleCashier) {
+                    Log::info('Shift week renewal: skipping ineligible cashier', [
+                        'cashier_id' => $cashierId,
+                        'shift_id' => $shift->id,
+                        'date' => $dateStr,
+                    ]);
                     continue;
                 }
 

@@ -267,10 +267,15 @@ class CashierService
                 ? array_values(array_filter(\Modules\Shift\Helpers\ShiftHelper::workWeekDatesExcludingHolidays($refDate),
                     fn (Carbon $date) => $date->greaterThanOrEqualTo($refDate->copy()->startOfDay())))
                 : [$refDate];
-            // Serialize competing roster writers on the selected template rows.
+            $targetDateStrings = array_map(fn (Carbon $date) => $date->toDateString(), $dates);
+            // Serialize competing roster writers on the selected template rows for the targeted dates.
             if (CashierShift::query()->whereIn('shift_id', $shiftIds)
                 ->where('cashier_id', '!=', $cashierId)->where('status', '!=', ShiftStatus::COMPLETED)
-                ->whereDate('shift_date', '>=', $refDate->toDateString())->exists()) {
+                ->where(function ($q) use ($targetDateStrings) {
+                    foreach ($targetDateStrings as $tDate) {
+                        $q->orWhereDate('shift_date', $tDate);
+                    }
+                })->exists()) {
                 throw \Illuminate\Validation\ValidationException::withMessages([
                     'shift_ids' => 'A selected shift is already assigned to another cashier.',
                 ]);
@@ -483,7 +488,7 @@ class CashierService
             'start_date' => $startDate,
             'end_date' => $endDate,
             'templates' => $templates,
-            'roster' => $rosterByDateAndShift,
+            'roster' => (object) $rosterByDateAndShift,
         ];
     }
 
