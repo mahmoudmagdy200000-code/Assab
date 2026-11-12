@@ -438,9 +438,9 @@ class CashierService
     }
 
     /**
-     * Get branch shift templates along with assigned cashiers for an explicit date range.
+     * Get branch shift templates along with assigned cashiers for an explicit date range or default scheduling week.
      */
-    public function getDatedBranchRoster(string $startDate, string $endDate, ?string $branchId = null): array
+    public function getDatedBranchRoster(?string $startDate = null, ?string $endDate = null, ?string $branchId = null): array
     {
         $manager = auth('branch_manager')->user() ?? auth()->user();
         $targetBranchId = $branchId ?? ($manager ? $manager->branch_id : null);
@@ -448,6 +448,27 @@ class CashierService
         if (! $targetBranchId) {
             throw new \Illuminate\Auth\Access\AuthorizationException('Branch context is required.');
         }
+
+        $timezone = config('app.timezone', 'Asia/Riyadh');
+        $weekStartDay = (int) config('shift.week.week_start', 0); // 0 = Sunday
+        $carbonWeekStart = [
+            0 => Carbon::SUNDAY,
+            1 => Carbon::MONDAY,
+            2 => Carbon::TUESDAY,
+            3 => Carbon::WEDNESDAY,
+            4 => Carbon::THURSDAY,
+            5 => Carbon::FRIDAY,
+            6 => Carbon::SATURDAY,
+        ][$weekStartDay] ?? Carbon::SUNDAY;
+
+        $nowInTimezone = Carbon::now($timezone);
+        $todayInTimezone = $nowInTimezone->toDateString();
+
+        $defaultStart = $nowInTimezone->copy()->startOfWeek($carbonWeekStart)->toDateString();
+        $defaultEnd = Carbon::parse($defaultStart, $timezone)->addDays(6)->toDateString();
+
+        $effectiveStartDate = $startDate ?: $defaultStart;
+        $effectiveEndDate = $endDate ?: $defaultEnd;
 
         $templates = Shift::query()
             ->where('branch_id', $targetBranchId)
@@ -457,8 +478,8 @@ class CashierService
 
         $shifts = CashierShift::query()
             ->whereIn('shift_id', $templates->pluck('id'))
-            ->whereDate('shift_date', '>=', $startDate)
-            ->whereDate('shift_date', '<=', $endDate)
+            ->whereDate('shift_date', '>=', $effectiveStartDate)
+            ->whereDate('shift_date', '<=', $effectiveEndDate)
             ->with(['cashier:id,name,phone,branch_id'])
             ->get();
 
@@ -485,8 +506,15 @@ class CashierService
 
         return [
             'branch_id' => $targetBranchId,
-            'start_date' => $startDate,
-            'end_date' => $endDate,
+            'start_date' => $effectiveStartDate,
+            'end_date' => $effectiveEndDate,
+            'scheduling_calendar' => [
+                'today' => $todayInTimezone,
+                'timezone' => $timezone,
+                'week_start' => $weekStartDay,
+                'default_start_date' => $defaultStart,
+                'default_end_date' => $defaultEnd,
+            ],
             'templates' => $templates,
             'roster' => (object) $rosterByDateAndShift,
         ];

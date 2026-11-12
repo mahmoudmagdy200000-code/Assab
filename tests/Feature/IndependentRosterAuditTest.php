@@ -151,4 +151,47 @@ final class IndependentRosterAuditTest extends \Tests\Feature\ShiftRecurringRost
             Carbon::setTestNow();
         }
     }
+
+    public function test_audit_r6_server_driven_scheduling_calendar_and_open_shift_preservation(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-15 02:00:00')); // Sunday morning in Riyadh
+        try {
+            $this->actingAs($this->manager, 'sanctum');
+
+            // 1. Calling dated-roster without parameters defaults to current scheduling week (2026-11-15 to 2026-11-21)
+            $response = $this->getJson('/api/v1/branch-manager/cashiers/dated-roster')->assertOk();
+            $data = $response->json('data');
+
+            $this->assertSame('2026-11-15', $data['start_date']);
+            $this->assertSame('2026-11-21', $data['end_date']);
+            $this->assertArrayHasKey('scheduling_calendar', $data);
+            $this->assertSame('2026-11-15', $data['scheduling_calendar']['today']);
+            $this->assertSame('Asia/Riyadh', $data['scheduling_calendar']['timezone']);
+            $this->assertSame(0, $data['scheduling_calendar']['week_start']);
+            $this->assertSame('2026-11-15', $data['scheduling_calendar']['default_start_date']);
+            $this->assertSame('2026-11-21', $data['scheduling_calendar']['default_end_date']);
+
+            // 2. Open shift from Saturday remains in Saturday and does not distort the Sunday scheduling week
+            $satShift = CashierShift::create([
+                'shift_id' => $this->template1->id,
+                'cashier_id' => $this->cashierA->id,
+                'shift_date' => '2026-11-14',
+                'status' => ShiftStatus::IN_PROGRESS,
+            ]);
+
+            // Querying dated-roster for the new week returns the new week
+            $newWeekResp = $this->getJson('/api/v1/branch-manager/cashiers/dated-roster')->assertOk();
+            $this->assertSame('2026-11-15', $newWeekResp->json('data.start_date'));
+
+            // Querying Saturday's week returns Saturday's open shift intact
+            $prevWeekResp = $this->getJson('/api/v1/branch-manager/cashiers/dated-roster?start_date=2026-11-08&end_date=2026-11-14')->assertOk();
+            $satRoster = (array) $prevWeekResp->json('data.roster');
+            $key = '2026-11-14_'.$this->template1->id;
+            $this->assertArrayHasKey($key, $satRoster);
+            $this->assertSame($satShift->id, $satRoster[$key]['cashier_shift_id']);
+            $this->assertSame('in_progress', $satRoster[$key]['status']);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
 }

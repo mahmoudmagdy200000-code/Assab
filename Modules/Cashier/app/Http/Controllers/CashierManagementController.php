@@ -138,13 +138,13 @@ class CashierManagementController extends BaseController
     }
 
     /**
-     * Get branch shift templates along with assigned cashiers for an explicit date range.
+     * Get branch shift templates along with assigned cashiers for a date range or default scheduling week.
      */
     public function datedRoster(Request $request): JsonResponse
     {
         $request->validate([
-            'start_date' => 'required|date',
-            'end_date' => 'required|date|after_or_equal:start_date',
+            'start_date' => 'sometimes|nullable|date',
+            'end_date' => 'sometimes|nullable|date|after_or_equal:start_date',
         ]);
 
         $result = $this->cashierService->getDatedBranchRoster(
