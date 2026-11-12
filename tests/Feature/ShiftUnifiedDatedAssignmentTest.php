@@ -369,4 +369,46 @@ class ShiftUnifiedDatedAssignmentTest extends TestCase
         $this->assertEquals('Cashier Alpha', $rosterRes->json("data.roster.{$key}.cashier_name"));
         $this->assertTrue($rosterRes->json("data.roster.{$key}.can_swap"));
     }
+
+    /**
+     * Test available-cashiers endpoint contract: distinguishes unassigned template_id vs existing shift_id.
+     */
+    public function test_available_cashiers_contract_template_vs_existing_shift(): void
+    {
+        $this->actingAs($this->manager, 'sanctum');
+        $date = '2026-11-15';
+
+        // Assign Cashier A to template 1
+        $this->postJson('/api/v1/branch-manager/cashiers/assign-shifts', [
+            'cashier_id' => $this->cashierA->id,
+            'shift_ids' => [$this->template1->id],
+            'shift_date' => $date,
+        ])->assertOk();
+
+        $existingCashierShift = CashierShift::where('cashier_id', $this->cashierA->id)
+            ->where('shift_id', $this->template1->id)
+            ->whereDate('shift_date', $date)
+            ->firstOrFail();
+
+        // 1. Query available cashiers for unassigned template slot using template_id
+        $resTemplate = $this->getJson("/api/v1/branch-manager/cashiers/available-cashiers?template_id={$this->template1->id}&shift_date={$date}");
+        $resTemplate->assertOk();
+        $cashiers = collect($resTemplate->json('data'));
+        $cashierAEntry = $cashiers->firstWhere('id', $this->cashierA->id);
+        $cashierBEntry = $cashiers->firstWhere('id', $this->cashierB->id);
+        // Cashier A is already working on template 1 on this date -> disabled/unavailable
+        $this->assertFalse($cashierAEntry['is_available']);
+        $this->assertTrue($cashierAEntry['disabled']);
+        // Cashier B is free
+        $this->assertTrue($cashierBEntry['is_available']);
+        $this->assertFalse($cashierBEntry['disabled']);
+
+        // 2. Query available cashiers for existing CashierShift using shift_id
+        $resShift = $this->getJson("/api/v1/branch-manager/cashiers/available-cashiers?shift_id={$existingCashierShift->id}&shift_date={$date}");
+        $resShift->assertOk();
+        $cashiersShift = collect($resShift->json('data'));
+        $cashierAInShift = $cashiersShift->firstWhere('id', $this->cashierA->id);
+        // Current cashier for this shift is not marked busy because id != $shiftId
+        $this->assertTrue($cashierAInShift['is_available']);
+    }
 }

@@ -525,13 +525,21 @@ class CashierManagementController extends BaseController
                 return $this->errorResponse('Branch manager is not assigned to any branch', 400);
             }
 
-            // Get shift_id and shift_date from query parameters (optional)
+            // Get shift_id, template_id, and shift_date from query parameters (optional)
             $shiftId = $request->input('shift_id');
+            $templateId = $request->input('template_id') ?? $request->input('shift_template_id');
             $shiftDate = $request->input('shift_date', today()->format('Y-m-d'));
 
-            // If shift_id is provided, filter out busy cashiers
+            // Filter out busy cashiers
             $busyCashierIds = [];
-            if ($shiftId) {
+            if ($templateId) {
+                // When assigning an unassigned template slot, cashiers already assigned to this template on this date are busy
+                $busyCashierIds = CashierShift::whereDate('shift_date', $shiftDate)
+                    ->where('shift_id', $templateId)
+                    ->whereIn('status', [ShiftStatus::NOT_STARTED->value, ShiftStatus::IN_PROGRESS->value, ShiftStatus::REASSIGNED->value])
+                    ->pluck('cashier_id')
+                    ->toArray();
+            } elseif ($shiftId) {
                 $shiftModel = CashierShift::with([
                     'shift' => function ($q) {
                         $q->select(['id', 'name', 'branch_id']);
@@ -539,13 +547,23 @@ class CashierManagementController extends BaseController
                 ])->find($shiftId);
 
                 if ($shiftModel) {
-                    // Get cashiers who are already working on this date/shift
-                    $busyCashierIds = CashierShift::where('shift_date', $shiftDate)
+                    // Existing cashier shift: get cashiers already working on this date/shift excluding this record
+                    $busyCashierIds = CashierShift::whereDate('shift_date', $shiftDate)
                         ->where('shift_id', $shiftModel->shift_id)
                         ->where('id', '!=', $shiftId)
                         ->whereIn('status', [ShiftStatus::NOT_STARTED->value, ShiftStatus::IN_PROGRESS->value, ShiftStatus::REASSIGNED->value])
                         ->pluck('cashier_id')
                         ->toArray();
+                } else {
+                    // Fallback: if shift_id passed is a shift template id
+                    $template = Shift::where('branch_id', $branchId)->find($shiftId);
+                    if ($template) {
+                        $busyCashierIds = CashierShift::whereDate('shift_date', $shiftDate)
+                            ->where('shift_id', $template->id)
+                            ->whereIn('status', [ShiftStatus::NOT_STARTED->value, ShiftStatus::IN_PROGRESS->value, ShiftStatus::REASSIGNED->value])
+                            ->pluck('cashier_id')
+                            ->toArray();
+                    }
                 }
             }
 
