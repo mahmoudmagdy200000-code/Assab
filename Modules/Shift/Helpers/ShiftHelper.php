@@ -3,6 +3,7 @@
 namespace Modules\Shift\Helpers;
 
 use Carbon\Carbon;
+use Modules\Shift\Models\CashierShift;
 
 class ShiftHelper
 {
@@ -148,5 +149,98 @@ class ShiftHelper
             'reassigned' => 'orange',
             default => 'gray',
         };
+    }
+
+    /**
+     * Unified start window for a cashier shift:
+     * - Window opens 2 hours before scheduled start_time
+     * - Window closes 2 hours after scheduled end_time
+     * - Midnight crossings (end_time <= start_time) automatically extend to the following calendar day
+     * - All evaluations use the official branch timezone (default Asia/Riyadh)
+     */
+    public static function getShiftStartWindow(CashierShift $cashierShift, ?Carbon $now = null): array
+    {
+        $timezone = config('app.timezone', 'Asia/Riyadh');
+        $now = $now ? $now->copy()->setTimezone($timezone) : Carbon::now($timezone);
+
+        $shiftDate = $cashierShift->shift_date instanceof Carbon
+            ? $cashierShift->shift_date->format('Y-m-d')
+            : (string) $cashierShift->shift_date;
+
+        $shiftTemplate = $cashierShift->shift;
+        if (! $shiftTemplate) {
+            return [
+                'can_start' => false,
+                'reason' => 'بيانات قالب الوردية غير متوفرة',
+                'window_opens_at' => null,
+                'window_closes_at' => null,
+                'scheduled_start' => null,
+                'scheduled_end' => null,
+            ];
+        }
+
+        $startTime = $shiftTemplate->start_time instanceof Carbon
+            ? $shiftTemplate->start_time->format('H:i')
+            : (string) $shiftTemplate->start_time;
+        $endTime = $shiftTemplate->end_time instanceof Carbon
+            ? $shiftTemplate->end_time->format('H:i')
+            : (string) $shiftTemplate->end_time;
+
+        $startTime = substr(trim($startTime), 0, 5);
+        $endTime = substr(trim($endTime), 0, 5);
+
+        if (empty($startTime)) {
+            $startTime = '00:00';
+        }
+        if (empty($endTime)) {
+            $endTime = '23:59';
+        }
+
+        $scheduledStart = Carbon::createFromFormat('Y-m-d H:i', "{$shiftDate} {$startTime}", $timezone);
+        $scheduledEnd = Carbon::createFromFormat('Y-m-d H:i', "{$shiftDate} {$endTime}", $timezone);
+
+        // Midnight crossing: when end_time <= start_time, the shift ends on the next calendar day
+        if ($scheduledEnd->lte($scheduledStart)) {
+            $scheduledEnd->addDay();
+        }
+
+        // Start window opens 2 hours before scheduled start, and closes 2 hours after scheduled end
+        $windowOpensAt = $scheduledStart->copy()->subHours(2);
+        $windowClosesAt = $scheduledEnd->copy()->addHours(2);
+
+        if ($now->lt($windowOpensAt)) {
+            $opensAtFormatted = $windowOpensAt->format('H:i');
+
+            return [
+                'can_start' => false,
+                'reason' => "لا يمكن بدء الوردية قبل موعدها بأكثر من ساعتين (تفتح في {$opensAtFormatted})",
+                'window_opens_at' => $windowOpensAt->toIso8601String(),
+                'window_closes_at' => $windowClosesAt->toIso8601String(),
+                'scheduled_start' => $scheduledStart->toIso8601String(),
+                'scheduled_end' => $scheduledEnd->toIso8601String(),
+            ];
+        }
+
+        if ($now->gt($windowClosesAt)) {
+            $closesAtFormatted = $windowClosesAt->format('H:i');
+
+            return [
+                'can_start' => false,
+                'reason' => "انتهت نافذة بدء الوردية (أُغلقت في {$closesAtFormatted})",
+                'window_opens_at' => $windowOpensAt->toIso8601String(),
+                'window_closes_at' => $windowClosesAt->toIso8601String(),
+                'scheduled_start' => $scheduledStart->toIso8601String(),
+                'scheduled_end' => $scheduledEnd->toIso8601String(),
+            ];
+        }
+
+        return [
+            'can_start' => true,
+            'reason' => null,
+            'window_opens_at' => $windowOpensAt->toIso8601String(),
+            'window_closes_at' => $windowClosesAt->toIso8601String(),
+            'scheduled_start' => $scheduledStart->toIso8601String(),
+            'scheduled_end' => $scheduledEnd->toIso8601String(),
+        ];
     }
 }

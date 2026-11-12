@@ -11,6 +11,7 @@ use Modules\BranchManagers\Transformers\BranchManagerResource;
 use Modules\Cashier\Models\Cashier;
 use Modules\Cashier\Transformers\CashierResource;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Helpers\ShiftHelper;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Services\HandoverService;
 use Modules\Shift\Services\ShiftService;
@@ -154,9 +155,9 @@ class CashierShiftController extends BaseController
         try {
             $cashier = auth()->user();
 
-            // Same date range as manager pending: last month to next month (so past not_started shifts are visible)
-            $minDate = now()->subMonth();
-            $maxDate = now()->addMonth();
+            // 7-day rolling window: strictly from today through today+6 days inclusive (Asia/Riyadh)
+            $today = Carbon::now('Asia/Riyadh')->toDateString();
+            $maxDate = Carbon::now('Asia/Riyadh')->addDays(6)->toDateString();
 
             $shifts = CashierShift::with([
                 'shift' => function ($q) {
@@ -177,14 +178,15 @@ class CashierShiftController extends BaseController
                 // Pending tab entirely — the manager's own pending list
                 // (CashierShiftRepository::getUpcomingPaginated) always used both.
                 ->whereIn('status', [ShiftStatus::NOT_STARTED, ShiftStatus::REASSIGNED])
-                ->whereDate('shift_date', '>=', $minDate)
+                ->whereDate('shift_date', '>=', $today)
                 ->whereDate('shift_date', '<=', $maxDate)
-                ->orderBy('shift_date')
-                ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id)')
+                ->orderBy('shift_date', 'asc')
+                ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) asc')
                 ->paginate($request->input('per_page', 15));
 
             $transformedShifts = $shifts->getCollection()->map(function ($shift, $index) {
                 $isFirstShift = $index === 0;
+                $startWindow = ShiftHelper::getShiftStartWindow($shift);
                 $nextRecipient = $this->shiftService->getNextRecipientForDisplay($shift);
                 $handoverTo = $shift->handover?->handoverTo;
                 $handoverToName = $handoverTo?->name ?? $nextRecipient?->name;
@@ -218,8 +220,11 @@ class CashierShiftController extends BaseController
                     'assigned_by' => $shift->assignedBy?->name ?? 'Branch Manager',
                     'assigned_by_user_type' => $shift->assigned_by ? 'branch_manager' : null,
                     'is_next_shift' => $isFirstShift,
-                    'can_start' => $shift->status === ShiftStatus::NOT_STARTED && $shift->actual_start_time === null
-                        && $shift->operational_ended_at === null && $shift->shift_date->isToday(),
+                    'start_window' => $startWindow,
+                    'can_start' => in_array($shift->status, [ShiftStatus::NOT_STARTED, ShiftStatus::REASSIGNED], true)
+                        && $shift->actual_start_time === null
+                        && $shift->operational_ended_at === null
+                        && $startWindow['can_start'],
                     'can_accept_assignment' => $shift->status === ShiftStatus::REASSIGNED
                         && $shift->actual_start_time === null
                         && ($shift->handoverStatus === null || $shift->handoverStatus->manager_approval_status === 'pending'),
@@ -320,8 +325,9 @@ class CashierShiftController extends BaseController
                 return $this->errorResponse('Shift has already been started or is not in pending status', 400);
             }
 
-            if (! $shiftModel->shift_date->isToday()) {
-                return $this->errorResponse('You can only start shifts scheduled for today', 400);
+            $startWindow = ShiftHelper::getShiftStartWindow($shiftModel);
+            if (! $startWindow['can_start']) {
+                return $this->errorResponse($startWindow['reason'] ?? 'Cannot start shift outside start window', 400);
             }
 
             // Start the shift
@@ -944,8 +950,10 @@ class CashierShiftController extends BaseController
                         $query->where('branch_id', $branchManager->branch_id);
                     })
                     ->whereIn('status', [ShiftStatus::NOT_STARTED, ShiftStatus::REASSIGNED])
-                    ->whereDate('shift_date', '>=', today())
-                    ->orderBy('shift_date')
+                    ->whereDate('shift_date', '>=', Carbon::now('Asia/Riyadh')->toDateString())
+                    ->whereDate('shift_date', '<=', Carbon::now('Asia/Riyadh')->addDays(6)->toDateString())
+                    ->orderBy('shift_date', 'asc')
+                    ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) asc')
                     ->first();
             }
 
@@ -962,8 +970,9 @@ class CashierShiftController extends BaseController
                 return $this->errorResponse('Shift has already been started', 400);
             }
 
-            if (! $shiftModel->shift_date->isToday()) {
-                return $this->errorResponse('You can only start shifts scheduled for today', 400);
+            $startWindow = ShiftHelper::getShiftStartWindow($shiftModel);
+            if (! $startWindow['can_start']) {
+                return $this->errorResponse($startWindow['reason'] ?? 'Cannot start shift outside start window', 400);
             }
 
             $shiftModel->startShift();

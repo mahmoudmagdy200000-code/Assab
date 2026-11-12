@@ -30,16 +30,22 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
 
     /**
      * Pending list for branch manager: upcoming status, branch/cashier scoped, paginated.
+     * 7-day rolling window: strictly from today through today+6 days inclusive (Asia/Riyadh).
+     * Ordered chronologically from nearest to furthest (shift_date ASC, start_time ASC) before pagination.
      */
     public function getUpcomingPaginated(string $branchId, ?string $cashierId, int $perPage = 10): LengthAwarePaginator
     {
+        $today = Carbon::now('Asia/Riyadh')->toDateString();
+        $maxDate = Carbon::now('Asia/Riyadh')->addDays(6)->toDateString();
+
         $query = CashierShift::upcoming()
             ->with(['cashier', 'shift', 'nextCashier', 'originalCashier', 'reassignedBy', 'handover', 'handoverStatus'])
             ->whereHas('shift', fn ($q) => $q->where('branch_id', $branchId))
             ->whereHas('cashier', fn ($q) => $q->where('branch_id', $branchId))
-            ->whereDate('shift_date', '>=', now()->subMonth())
-            ->whereDate('shift_date', '<=', now()->addMonth())
-            ->orderBy('shift_date');
+            ->whereDate('shift_date', '>=', $today)
+            ->whereDate('shift_date', '<=', $maxDate)
+            ->orderBy('shift_date', 'asc')
+            ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) asc');
 
         if ($cashierId !== null) {
             $query->where('cashier_id', $cashierId);
