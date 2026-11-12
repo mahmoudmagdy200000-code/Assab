@@ -488,6 +488,115 @@ class CashierService
     }
 
     /**
+     * Save recurring roster assignments (P4b / MT-23).
+     *
+     * @param array $assignments List of ['shift_id' => ..., 'cashier_id' => ..., 'effective_from' => ..., 'effective_to' => ...]
+     * @param string|null $branchId Optional explicit branch ID
+     * @return array Created/updated roster assignments
+     */
+    public function saveRosterAssignments(array $assignments, ?string $branchId = null): array
+    {
+        $manager = auth('branch_manager')->user() ?? auth()->user();
+        $targetBranchId = $branchId ?? ($manager ? $manager->branch_id : null);
+
+        if (! $targetBranchId) {
+            throw new \Illuminate\Auth\Access\AuthorizationException('Branch context is required.');
+        }
+
+        return DB::transaction(function () use ($assignments, $targetBranchId, $manager) {
+            $saved = [];
+            $createdBy = $manager ? $manager->id : null;
+
+            foreach ($assignments as $item) {
+                $shiftId = $item['shift_id'] ?? null;
+                $cashierId = $item['cashier_id'] ?? null;
+                $effectiveFrom = $item['effective_from'] ?? Carbon::today()->toDateString();
+                $effectiveTo = $item['effective_to'] ?? null;
+
+                if (! $shiftId || ! $cashierId) {
+                    throw new \InvalidArgumentException('shift_id and cashier_id are required for each assignment.');
+                }
+
+                // Verify shift template belongs to branch and is active
+                Shift::where('id', $shiftId)
+                    ->where('branch_id', $targetBranchId)
+                    ->where('is_active', true)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                // Verify cashier belongs to branch and is active
+                Cashier::where('id', $cashierId)
+                    ->where('branch_id', $targetBranchId)
+                    ->where('status', 'active')
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                // Close any existing active roster assignment for the same template if newer
+                $existing = \Modules\Shift\Models\BranchShiftRosterAssignment::where('branch_id', $targetBranchId)
+                    ->where('shift_id', $shiftId)
+                    ->where(function ($q) use ($effectiveFrom) {
+                        $q->whereNull('effective_to')
+                            ->orWhereDate('effective_to', '>=', $effectiveFrom);
+                    })
+                    ->orderBy('effective_from', 'desc')
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($existing) {
+                    $existingFrom = $existing->effective_from->format('Y-m-d');
+                    if ($existingFrom === $effectiveFrom) {
+                        // Same effective date: update cashier
+                        $existing->update([
+                            'cashier_id' => $cashierId,
+                            'effective_to' => $effectiveTo,
+                        ]);
+                        $saved[] = $existing->fresh();
+                        continue;
+                    } elseif ($existingFrom < $effectiveFrom) {
+                        // Close previous assignment prior to new effective date
+                        $existing->update([
+                            'effective_to' => Carbon::parse($effectiveFrom)->subDay()->toDateString(),
+                        ]);
+                    }
+                }
+
+                $record = \Modules\Shift\Models\BranchShiftRosterAssignment::create([
+                    'branch_id' => $targetBranchId,
+                    'shift_id' => $shiftId,
+                    'cashier_id' => $cashierId,
+                    'effective_from' => $effectiveFrom,
+                    'effective_to' => $effectiveTo,
+                    'created_by' => $createdBy,
+                ]);
+
+                $saved[] = $record;
+            }
+
+            return $saved;
+        });
+    }
+
+    /**
+     * Get active recurring roster assignments for a branch.
+     */
+    public function getRosterAssignments(?string $branchId = null): array
+    {
+        $manager = auth('branch_manager')->user() ?? auth()->user();
+        $targetBranchId = $branchId ?? ($manager ? $manager->branch_id : null);
+
+        if (! $targetBranchId) {
+            throw new \Illuminate\Auth\Access\AuthorizationException('Branch context is required.');
+        }
+
+        $records = \Modules\Shift\Models\BranchShiftRosterAssignment::where('branch_id', $targetBranchId)
+            ->with(['shift:id,name,start_time,end_time,branch_id,is_active', 'cashier:id,name,phone,branch_id'])
+            ->orderBy('effective_from', 'desc')
+            ->get();
+
+        return $records->toArray();
+    }
+
+    /**
      * Update cashier shifts: remove pending shifts not in new list (target work week),
      * then assign for full work week. Uses next work week when current week has already ended.
      */

@@ -156,6 +156,46 @@ class CashierManagementController extends BaseController
     }
 
     /**
+     * Save recurring roster assignments (P4b / MT-23).
+     */
+    public function saveRosterAssignments(Request $request): JsonResponse
+    {
+        // Support either bulk 'assignments' array or a single object in the body
+        if ($request->has('assignments') && is_array($request->assignments)) {
+            $request->validate([
+                'assignments' => 'required|array|min:1',
+                'assignments.*.shift_id' => 'required|exists:shifts,id',
+                'assignments.*.cashier_id' => 'required|exists:cashiers,id',
+                'assignments.*.effective_from' => 'nullable|date',
+                'assignments.*.effective_to' => 'nullable|date|after_or_equal:assignments.*.effective_from',
+            ]);
+            $assignments = $request->assignments;
+        } else {
+            $request->validate([
+                'shift_id' => 'required|exists:shifts,id',
+                'cashier_id' => 'required|exists:cashiers,id',
+                'effective_from' => 'nullable|date',
+                'effective_to' => 'nullable|date|after_or_equal:effective_from',
+            ]);
+            $assignments = [$request->only(['shift_id', 'cashier_id', 'effective_from', 'effective_to'])];
+        }
+
+        $result = $this->cashierService->saveRosterAssignments($assignments);
+
+        return $this->successResponse($result, 'Roster assignments saved successfully');
+    }
+
+    /**
+     * Get recurring roster assignments for the branch.
+     */
+    public function getRosterAssignments(Request $request): JsonResponse
+    {
+        $result = $this->cashierService->getRosterAssignments();
+
+        return $this->successResponse($result, 'Roster assignments retrieved successfully');
+    }
+
+    /**
      * Resend activation link
      */
     public function resendActivation(Request $request): JsonResponse

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Branch\Models\Branch;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Helpers\ShiftHelper;
@@ -18,6 +19,7 @@ class ShiftRecurringRosterRenewalTest extends TestCase
     use RefreshDatabase;
 
     protected Branch $branch;
+    protected BranchManager $manager;
     protected Shift $template1; // Morning: 08:00 - 16:00
     protected Shift $template2; // Evening/Overnight: 20:00 - 04:00
     protected Cashier $cashierA;
@@ -30,6 +32,11 @@ class ShiftRecurringRosterRenewalTest extends TestCase
 
         $this->branch = Branch::factory()->create([
             'name' => 'Main Test Branch',
+        ]);
+
+        $this->manager = BranchManager::factory()->create([
+            'branch_id' => $this->branch->id,
+            'is_active' => true,
         ]);
 
         $this->template1 = Shift::factory()->create([
@@ -281,6 +288,193 @@ class ShiftRecurringRosterRenewalTest extends TestCase
                 ->count();
 
             $this->assertSame(count($nextDates), $nextWeekCount, 'Fallback pattern must generate next week shifts.');
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    /**
+     * MT-23: Save recurring roster via authorized branch manager API endpoint, then execute renewal.
+     */
+    public function test_mt23_save_roster_via_api_and_renew_week_creates_expected_shifts(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-11 10:00:00'));
+
+        try {
+            [$nextStart] = ShiftHelper::nextWorkWeekDates(Carbon::today());
+            $nextDates = ShiftHelper::workWeekDatesExcludingHolidays($nextStart);
+
+            // Call the authorized endpoint to save recurring roster assignments
+            $payload = [
+                'assignments' => [
+                    [
+                        'shift_id' => $this->template1->id,
+                        'cashier_id' => $this->cashierA->id,
+                        'effective_from' => '2026-11-01',
+                    ],
+                    [
+                        'shift_id' => $this->template2->id,
+                        'cashier_id' => $this->cashierB->id,
+                        'effective_from' => '2026-11-01',
+                    ],
+                ],
+            ];
+
+            $response = $this->actingAs($this->manager, 'sanctum')
+                ->postJson('/api/v1/branch-manager/cashiers/roster-assignments', $payload);
+
+            $response->assertOk()
+                ->assertJsonPath('message', 'Roster assignments saved successfully');
+
+            $this->assertDatabaseHas('branch_shift_roster_assignments', [
+                'branch_id' => $this->branch->id,
+                'shift_id' => $this->template1->id,
+                'cashier_id' => $this->cashierA->id,
+            ]);
+
+            // Now execute renewal command
+            $this->artisan('shifts:renew-week')->assertSuccessful();
+
+            // Verify shifts were generated for each date according to the roster
+            foreach ($nextDates as $date) {
+                $dateStr = $date->format('Y-m-d');
+
+                $t1Shift = CashierShift::where('shift_id', $this->template1->id)
+                    ->whereDate('shift_date', $dateStr)
+                    ->first();
+                $this->assertNotNull($t1Shift, "Shift for template 1 must exist on {$dateStr}");
+                $this->assertEquals($this->cashierA->id, $t1Shift->cashier_id);
+
+                $t2Shift = CashierShift::where('shift_id', $this->template2->id)
+                    ->whereDate('shift_date', $dateStr)
+                    ->first();
+                $this->assertNotNull($t2Shift, "Shift for template 2 must exist on {$dateStr}");
+                $this->assertEquals($this->cashierB->id, $t2Shift->cashier_id);
+            }
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    /**
+     * MT-23: Holidays are excluded from shift renewal.
+     */
+    public function test_mt23_holiday_is_excluded_from_renewal(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-11 10:00:00'));
+
+        try {
+            [$nextStart] = ShiftHelper::nextWorkWeekDates(Carbon::today());
+            $nextDatesAll = ShiftHelper::workWeekDateSequence($nextStart);
+
+            // Set Tuesday (the 3rd work day: Sun=0, Mon=1, Tue=2) as holiday
+            $holidayDate = $nextDatesAll[2]->format('Y-m-d');
+            config(['shift.holidays' => [$holidayDate]]);
+
+            $this->assertTrue(ShiftHelper::isHoliday($holidayDate), 'Date must be recognized as holiday.');
+
+            // Setup roster assignment
+            BranchShiftRosterAssignment::create([
+                'branch_id' => $this->branch->id,
+                'shift_id' => $this->template1->id,
+                'cashier_id' => $this->cashierA->id,
+                'effective_from' => '2026-01-01',
+            ]);
+
+            $this->artisan('shifts:renew-week')->assertSuccessful();
+
+            // Verify ZERO shifts generated on the holiday date
+            $holidayShifts = CashierShift::whereDate('shift_date', $holidayDate)->count();
+            $this->assertSame(0, $holidayShifts, "Zero shifts must be generated on holiday {$holidayDate}");
+
+            // Verify shifts WERE generated on non-holiday work days
+            $nonHolidayDates = array_filter($nextDatesAll, fn ($d) => $d->format('Y-m-d') !== $holidayDate);
+            foreach ($nonHolidayDates as $d) {
+                $dStr = $d->format('Y-m-d');
+                $count = CashierShift::whereDate('shift_date', $dStr)->count();
+                $this->assertGreaterThan(0, $count, "Shifts must be generated on regular work day {$dStr}");
+            }
+        } finally {
+            config(['shift.holidays' => []]);
+            Carbon::setTestNow();
+        }
+    }
+
+    /**
+     * MT-23: Non-contiguous work days (e.g. Sunday, Tuesday, Thursday) are respected.
+     */
+    public function test_mt23_non_contiguous_work_days_are_respected(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-11 10:00:00'));
+
+        try {
+            // Configure non-contiguous work days: Sunday (0), Tuesday (2), Thursday (4)
+            config(['shift.week.work_days' => [0, 2, 4]]);
+
+            [$nextStart] = ShiftHelper::nextWorkWeekDates(Carbon::today());
+            $workDates = ShiftHelper::workWeekDatesExcludingHolidays($nextStart);
+
+            // Sunday, Tuesday, Thursday = 3 dates
+            $this->assertCount(3, $workDates);
+
+            BranchShiftRosterAssignment::create([
+                'branch_id' => $this->branch->id,
+                'shift_id' => $this->template1->id,
+                'cashier_id' => $this->cashierA->id,
+                'effective_from' => '2026-01-01',
+            ]);
+
+            $this->artisan('shifts:renew-week')->assertSuccessful();
+
+            // Verify shifts only exist on work dates (0, 2, 4)
+            $createdDates = CashierShift::where('shift_id', $this->template1->id)
+                ->pluck('shift_date')
+                ->map(fn ($d) => Carbon::parse($d)->dayOfWeek)
+                ->unique()
+                ->sort()
+                ->values()
+                ->all();
+
+            $this->assertEquals([0, 2, 4], $createdDates, 'Shifts must only be created on configured work days.');
+        } finally {
+            config(['shift.week.work_days' => [0, 1, 2, 3, 4]]);
+            Carbon::setTestNow();
+        }
+    }
+
+    /**
+     * MT-23: Overnight shifts crossing midnight boundaries preserve hours and valid status.
+     */
+    public function test_mt23_overnight_shift_preserves_midnight_boundary_and_hours(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-11 10:00:00'));
+
+        try {
+            [$nextStart] = ShiftHelper::nextWorkWeekDates(Carbon::today());
+
+            // Template 2 is 20:00:00 - 04:00:00
+            $this->assertEquals('20:00:00', Carbon::parse($this->template2->start_time)->format('H:i:s'));
+            $this->assertEquals('04:00:00', Carbon::parse($this->template2->end_time)->format('H:i:s'));
+
+            BranchShiftRosterAssignment::create([
+                'branch_id' => $this->branch->id,
+                'shift_id' => $this->template2->id,
+                'cashier_id' => $this->cashierB->id,
+                'effective_from' => '2026-01-01',
+            ]);
+
+            $this->artisan('shifts:renew-week')->assertSuccessful();
+
+            $overnightShifts = CashierShift::where('shift_id', $this->template2->id)->get();
+            $this->assertNotEmpty($overnightShifts);
+
+            foreach ($overnightShifts as $cs) {
+                $this->assertEquals(ShiftStatus::NOT_STARTED->value, $cs->status->value ?? $cs->status);
+                $this->assertEquals($this->cashierB->id, $cs->cashier_id);
+                // Template definition remains intact
+                $this->assertEquals('20:00:00', Carbon::parse($cs->shift->start_time)->format('H:i:s'));
+                $this->assertEquals('04:00:00', Carbon::parse($cs->shift->end_time)->format('H:i:s'));
+            }
         } finally {
             Carbon::setTestNow();
         }
