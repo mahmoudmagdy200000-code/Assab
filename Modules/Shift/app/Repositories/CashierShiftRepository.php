@@ -33,10 +33,15 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
      * 7-day rolling window: strictly from today through today+6 days inclusive (Asia/Riyadh).
      * Ordered chronologically from nearest to furthest (shift_date ASC, start_time ASC) before pagination.
      */
-    public function getUpcomingPaginated(string $branchId, ?string $cashierId, int $perPage = 10): LengthAwarePaginator
-    {
-        $today = Carbon::now('Asia/Riyadh')->toDateString();
-        $maxDate = Carbon::now('Asia/Riyadh')->addDays(6)->toDateString();
+    public function getUpcomingPaginated(
+        string $branchId,
+        ?string $cashierId,
+        int $perPage = 10,
+        ?string $dateFrom = null,
+        ?string $dateTo = null
+    ): LengthAwarePaginator {
+        $today = $dateFrom ?? Carbon::now('Asia/Riyadh')->toDateString();
+        $maxDate = $dateTo ?? Carbon::now('Asia/Riyadh')->addDays(6)->toDateString();
 
         $query = CashierShift::upcoming()
             ->with(['cashier', 'shift', 'nextCashier', 'originalCashier', 'reassignedBy', 'handover', 'handoverStatus'])
@@ -122,14 +127,22 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
     /**
      * Pending (not started) shifts, optionally filtered by cashier and branch.
      */
-    public function getPendingShifts(?string $cashierId = null, ?string $branchId = null): Collection
-    {
+    public function getPendingShifts(
+        ?string $cashierId = null,
+        ?string $branchId = null,
+        ?string $dateFrom = null,
+        ?string $dateTo = null
+    ): Collection {
+        $today = $dateFrom ?? Carbon::now('Asia/Riyadh')->toDateString();
+        $maxDate = $dateTo ?? Carbon::now('Asia/Riyadh')->addDays(6)->toDateString();
+
         $query = CashierShift::query()
             ->with(['cashier', 'shift', 'nextCashier'])
             ->where('status', ShiftStatus::NOT_STARTED)
-            ->whereBetween('shift_date', [now(), now()->addMonth()])
-            ->orderBy('shift_date')
-            ->orderBy('actual_start_time');
+            ->whereDate('shift_date', '>=', $today)
+            ->whereDate('shift_date', '<=', $maxDate)
+            ->orderBy('shift_date', 'asc')
+            ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) asc');
 
         if ($cashierId) {
             $query->where('cashier_id', $cashierId);

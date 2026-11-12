@@ -156,8 +156,8 @@ class CashierShiftController extends BaseController
             $cashier = auth()->user();
 
             // 7-day rolling window: strictly from today through today+6 days inclusive (Asia/Riyadh)
-            $today = Carbon::now('Asia/Riyadh')->toDateString();
-            $maxDate = Carbon::now('Asia/Riyadh')->addDays(6)->toDateString();
+            $today = $request->input('date_from', Carbon::now('Asia/Riyadh')->toDateString());
+            $maxDate = $request->input('date_to', Carbon::now('Asia/Riyadh')->addDays(6)->toDateString());
 
             $shifts = CashierShift::with([
                 'shift' => function ($q) {

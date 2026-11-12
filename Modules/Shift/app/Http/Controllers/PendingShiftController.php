@@ -34,8 +34,10 @@ class PendingShiftController extends BaseController
 
             $managerBranchId = $manager->branch_id;
             $cashierId = $request->input('cashier_id');
+            $dateFrom = $request->input('date_from');
+            $dateTo = $request->input('date_to');
 
-            $shifts = $this->cashierShiftRepository->getUpcomingPaginated($managerBranchId, $cashierId, 10);
+            $shifts = $this->cashierShiftRepository->getUpcomingPaginated($managerBranchId, $cashierId, 10, $dateFrom, $dateTo);
 
             foreach ($shifts as $cs) {
                 $cs->setAttribute('computed_next_cashier', $this->shiftService->getNextShiftCashier($cs));
