@@ -34,54 +34,122 @@ class ShiftWeekRenewalCommand extends Command
             return Command::SUCCESS;
         }
 
+        // Active shift templates
+        $activeShifts = \Modules\Shift\Models\Shift::where('is_active', true)->get();
+
+        // 1. Check for durable recurring roster assignments (P4b)
+        $hasRosterAssignments = class_exists(\Modules\Shift\Models\BranchShiftRosterAssignment::class)
+            && \Illuminate\Support\Facades\Schema::hasTable('branch_shift_roster_assignments')
+            && \Modules\Shift\Models\BranchShiftRosterAssignment::exists();
+
         $pattern = $this->getCashierShiftPattern($currentStart, $currentEnd);
-        if (empty($pattern)) {
+        if (! $hasRosterAssignments && empty($pattern)) {
             $this->info('No cashiers with shifts in current week. Nothing to renew.');
 
             return Command::SUCCESS;
         }
 
+        // Templates to process
+        if ($hasRosterAssignments) {
+            $shiftsToProcess = $activeShifts;
+        } else {
+            $patternShiftIds = collect($pattern)->flatten()->unique()->all();
+            $shiftsToProcess = $activeShifts->whereIn('id', $patternShiftIds);
+        }
+
+        // Shift template IDs that have entered the recurring roster system (R3)
+        $rosteredTemplateIds = $hasRosterAssignments
+            ? \Modules\Shift\Models\BranchShiftRosterAssignment::query()->distinct()->pluck('shift_id')->all()
+            : [];
+
         $created = 0;
 
-        foreach ($pattern as $cashierId => $shiftIds) {
-            foreach ($shiftIds as $shiftId) {
-                foreach ($nextDates as $date) {
-                    $exists = CashierShift::where('cashier_id', $cashierId)
-                        ->where('shift_id', $shiftId)
-                        ->whereDate('shift_date', $date)
-                        ->exists();
+        foreach ($nextDates as $date) {
+            $dateStr = $date->format('Y-m-d');
 
-                    if ($exists) {
-                        continue;
+            // Collect active roster assignments for this date
+            $rosterAssignmentsByShift = [];
+            if ($hasRosterAssignments) {
+                $rosterAssignmentsByShift = \Modules\Shift\Models\BranchShiftRosterAssignment::activeForDate($date)
+                    ->orderBy('effective_from', 'desc')
+                    ->get()
+                    ->unique('shift_id')
+                    ->keyBy('shift_id');
+            }
+
+            foreach ($shiftsToProcess as $shift) {
+                $cashierId = null;
+
+                // Priority 1: Durable effective roster assignment (P4b)
+                if (isset($rosterAssignmentsByShift[$shift->id])) {
+                    $cashierId = $rosterAssignmentsByShift[$shift->id]->cashier_id;
+                }
+
+                // Priority 2: Fallback to current week pattern ONLY for legacy templates that have never entered the recurring roster system (R3)
+                if (! $cashierId && ! empty($pattern) && ! in_array($shift->id, $rosteredTemplateIds, true)) {
+                    foreach ($pattern as $patCashierId => $shiftIds) {
+                        if (in_array($shift->id, $shiftIds, true)) {
+                            $cashierId = $patCashierId;
+                            break;
+                        }
                     }
+                }
 
-                    if ($dryRun) {
-                        $this->line("Would create: cashier={$cashierId} shift={$shiftId} date=".$date->format('Y-m-d'));
-                        $created++;
+                if (! $cashierId) {
+                    continue;
+                }
 
-                        continue;
-                    }
+                // Priority 3 / Safety: Verify cashier is active, not soft-deleted, and belongs to template branch (R4)
+                $isEligibleCashier = \Modules\Cashier\Models\Cashier::query()
+                    ->whereKey($cashierId)
+                    ->where('branch_id', $shift->branch_id)
+                    ->where('status', 'active')
+                    ->exists();
 
-                    try {
-                        $cs = CashierShift::create([
-                            'cashier_id' => $cashierId,
-                            'shift_id' => $shiftId,
-                            'shift_date' => $date->format('Y-m-d'),
-                            'status' => ShiftStatus::NOT_STARTED->value,
-                            'opening_balance' => 0,
-                            'assigned_by' => null,
-                        ]);
-                        $this->setNextCashierFor($cs);
-                        $created++;
-                    } catch (\Throwable $e) {
-                        Log::error('Shift week renewal: create failed', [
-                            'cashier_id' => $cashierId,
-                            'shift_id' => $shiftId,
-                            'date' => $date->format('Y-m-d'),
-                            'error' => $e->getMessage(),
-                        ]);
-                        $this->error("Failed to create shift: {$e->getMessage()}");
-                    }
+                if (! $isEligibleCashier) {
+                    Log::info('Shift week renewal: skipping ineligible cashier', [
+                        'cashier_id' => $cashierId,
+                        'shift_id' => $shift->id,
+                        'date' => $dateStr,
+                    ]);
+                    continue;
+                }
+
+                // Check if shift already exists for this template on this date (Idempotency)
+                $exists = CashierShift::where('shift_id', $shift->id)
+                    ->whereDate('shift_date', $dateStr)
+                    ->exists();
+
+                if ($exists) {
+                    continue;
+                }
+
+                if ($dryRun) {
+                    $this->line("Would create: cashier={$cashierId} shift={$shift->id} date={$dateStr}");
+                    $created++;
+
+                    continue;
+                }
+
+                try {
+                    $cs = CashierShift::create([
+                        'cashier_id' => $cashierId,
+                        'shift_id' => $shift->id,
+                        'shift_date' => $dateStr,
+                        'status' => ShiftStatus::NOT_STARTED->value,
+                        'opening_balance' => 0,
+                        'assigned_by' => null,
+                    ]);
+                    $this->setNextCashierFor($cs);
+                    $created++;
+                } catch (\Throwable $e) {
+                    Log::error('Shift week renewal: create failed', [
+                        'cashier_id' => $cashierId,
+                        'shift_id' => $shift->id,
+                        'date' => $dateStr,
+                        'error' => $e->getMessage(),
+                    ]);
+                    $this->error("Failed to create shift: {$e->getMessage()}");
                 }
             }
         }

@@ -790,8 +790,13 @@ class OperationController extends AsabController
             ];
         }
 
+        $allocationReportRevision = isset($allocation->report_revision) && $allocation->report_revision !== null && $allocation->report_revision !== ''
+            ? (is_numeric($allocation->report_revision) ? (int) $allocation->report_revision : null)
+            : null;
+
         return [
             'version' => (int) $allocation->version,
+            'reportRevision' => $allocationReportRevision,
             'managerApprovalStatus' => $allocation->manager_approval_status,
             'createdByType' => $allocation->created_by_type,
             'shares' => $shares,

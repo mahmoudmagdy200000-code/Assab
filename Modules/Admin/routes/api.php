@@ -490,6 +490,7 @@ Route::prefix('v1')->group(function () {
                 Route::get('employees/payroll/export', [CompanyExportController::class, 'payroll']);
                 Route::get('employees', [EmployeeController::class, 'index']);
                 Route::get('employees/{id}/statement', [EmployeeController::class, 'statement']);
+                Route::get('employees/{id}/shift-custody-statement', [\Modules\Admin\Http\Controllers\Accountant\ShiftCustodyStatementController::class, 'statement']);
                 // «تحميل PDF» on the statement (?format=pdf|xlsx|csv).
                 Route::get('employees/{id}/statement/export', [CompanyExportController::class, 'employeeStatement']);
                 Route::post('employees/{id}/movements', [EmployeeController::class, 'addMovement']);
@@ -877,6 +878,8 @@ Route::prefix('v1')->group(function () {
                     Route::get('employees', [EmployeeController::class, 'index']);
                     Route::get('employees/{id}/movements', [EmployeeController::class, 'statement']);
                     Route::get('employees/{id}/statement/export', [CompanyExportController::class, 'employeeStatement']);
+                    // P2 / G2 Shift Custody Statement (read-only)
+                    Route::get('employees/{id}/shift-custody-statement', [\Modules\Admin\Http\Controllers\Accountant\ShiftCustodyStatementController::class, 'statement']);
                 });
 
                 /*

@@ -75,9 +75,11 @@ class ShiftHelper
      */
     public static function workWeekDatesExcludingHolidays(Carbon $date): array
     {
+        $workDays = self::workDays();
+
         return array_values(array_filter(
             self::workWeekDateSequence($date),
-            fn (Carbon $d) => ! self::isHoliday($d)
+            fn (Carbon $d) => in_array($d->dayOfWeek, $workDays, true) && ! self::isHoliday($d)
         ));
     }
 

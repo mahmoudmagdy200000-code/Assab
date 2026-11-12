@@ -52,7 +52,26 @@ class ShiftController extends AsabController
             // approval, so filtering on `closed` alone left the history table
             // empty while the KPI beside it counted the very same shifts
             // (prod E2E 2026-07-31: 10 SHF operations, zero history rows).
-            $q = $this->scopeToAssignedBranches(Shift::whereIn('status', ['pending_review', 'closed']));
+            $status = $request->query('status');
+            if ($status && $status !== 'all') {
+                if ($status === 'pending_review' || $status === 'pending') {
+                    $q = $this->scopeToAssignedBranches(Shift::whereIn('status', ['pending_review', 'pending']));
+                } elseif ($status === 'closed' || $status === 'approved' || $status === 'final-approved' || $status === 'final_approved') {
+                    $q = $this->scopeToAssignedBranches(Shift::whereIn('status', ['closed', 'approved']));
+                } elseif ($status === 'rejected') {
+                    // Shift reports in history reach closed or pending_review; rejected filter yields empty dataset
+                    $q = $this->scopeToAssignedBranches(Shift::where('status', 'rejected'));
+                } else {
+                    $q = $this->scopeToAssignedBranches(Shift::where('status', $status));
+                }
+            } else {
+                $q = $this->scopeToAssignedBranches(Shift::whereIn('status', ['pending_review', 'closed']));
+            }
+
+            if ($request->query('role') === 'cashier' || $request->boolean('cashierOnly')) {
+                $q->cashierRole();
+            }
+
             if ($branch = $request->query('branchId')) {
                 $q->where('branch_id', $branch);
             }

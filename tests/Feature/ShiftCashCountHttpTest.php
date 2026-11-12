@@ -591,7 +591,7 @@ class ShiftCashCountHttpTest extends TestCase
     public function test_official_return_recount_appends_real_cashier_evidence_and_resubmits_original_shf(): void
     {
         [$admin, $op, $member] = $this->returnedRecountFixture();
-        $count = app(\Modules\Shift\Services\ShiftCashCountService::class)->currentFor($this->recipientShift->id);
+        $count = ShiftReportCashCount::where('cashier_shift_id', $this->recipientShift->id)->latest('id')->first();
         $oldCount = $count->getRawOriginal();
         $oldRevision = ShiftReportRevision::findOrFail($count->report_revision_id)->getRawOriginal();
         $receipts = CashierShiftHandoverReceipt::all()->map->getRawOriginal()->all();
