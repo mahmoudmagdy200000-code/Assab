@@ -237,7 +237,8 @@ class CashierShiftController extends BaseController
 
             $shifts->setCollection($transformedShifts);
 
-            return $this->paginatedResponse($shifts, 'Pending shifts retrieved successfully');
+            return $this->paginatedResponse($shifts, 'Pending shifts retrieved successfully')
+                ->header('X-Server-Time', Carbon::now('Asia/Riyadh')->toIso8601String());
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
         }
@@ -346,7 +347,7 @@ class CashierShiftController extends BaseController
                     'remaining_time' => $this->calculateRemainingTime($shiftModel),
                     'progress_percentage' => $progress['progress_percentage'],
                 ],
-            ], 'Shift started successfully');
+            ], 'Shift started successfully')->header('X-Server-Time', Carbon::now('Asia/Riyadh')->toIso8601String());
         } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
             return HandoverErrorResponse::from($e, 'start shift');
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
@@ -981,7 +982,7 @@ class CashierShiftController extends BaseController
             return $this->successResponse(
                 new ShiftDetailResource($shiftModel),
                 'Shift started successfully by branch manager'
-            );
+            )->header('X-Server-Time', Carbon::now('Asia/Riyadh')->toIso8601String());
         } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
             return HandoverErrorResponse::from($e, 'start shift by manager');
         } catch (\Exception $e) {

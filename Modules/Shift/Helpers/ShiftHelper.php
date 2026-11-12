@@ -218,10 +218,11 @@ class ShiftHelper
                 'window_closes_at' => $windowClosesAt->toIso8601String(),
                 'scheduled_start' => $scheduledStart->toIso8601String(),
                 'scheduled_end' => $scheduledEnd->toIso8601String(),
+                'server_time' => $now->toIso8601String(),
             ];
         }
 
-        if ($now->gt($windowClosesAt)) {
+        if ($now->gte($windowClosesAt)) {
             $closesAtFormatted = $windowClosesAt->format('H:i');
 
             return [
@@ -231,6 +232,7 @@ class ShiftHelper
                 'window_closes_at' => $windowClosesAt->toIso8601String(),
                 'scheduled_start' => $scheduledStart->toIso8601String(),
                 'scheduled_end' => $scheduledEnd->toIso8601String(),
+                'server_time' => $now->toIso8601String(),
             ];
         }
 
@@ -241,6 +243,7 @@ class ShiftHelper
             'window_closes_at' => $windowClosesAt->toIso8601String(),
             'scheduled_start' => $scheduledStart->toIso8601String(),
             'scheduled_end' => $scheduledEnd->toIso8601String(),
+            'server_time' => $now->toIso8601String(),
         ];
     }
 }
