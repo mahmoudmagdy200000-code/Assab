@@ -30,7 +30,7 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
 
     /**
      * Pending list for branch manager: upcoming status, branch/cashier scoped, paginated.
-     * 7-day rolling window: strictly from today through today+6 days inclusive (Asia/Riyadh).
+     * Seven days from today, plus earlier shifts whose start window is still open.
      * Ordered chronologically from nearest to furthest (shift_date ASC, start_time ASC) before pagination.
      */
     public function getUpcomingPaginated(
@@ -40,15 +40,10 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
         ?string $dateFrom = null,
         ?string $dateTo = null
     ): LengthAwarePaginator {
-        $today = $dateFrom ?? Carbon::now('Asia/Riyadh')->toDateString();
-        $maxDate = $dateTo ?? Carbon::now('Asia/Riyadh')->addDays(6)->toDateString();
-
         $query = CashierShift::upcoming()
             ->with(['cashier', 'shift', 'nextCashier', 'originalCashier', 'reassignedBy', 'handover', 'handoverStatus'])
             ->whereHas('shift', fn ($q) => $q->where('branch_id', $branchId))
             ->whereHas('cashier', fn ($q) => $q->where('branch_id', $branchId))
-            ->whereDate('shift_date', '>=', $today)
-            ->whereDate('shift_date', '<=', $maxDate)
             ->orderBy('shift_date', 'asc')
             ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) asc');
 
@@ -56,7 +51,7 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
             $query->where('cashier_id', $cashierId);
         }
 
-        return $query->paginate($perPage);
+        return $query->pendingDateWindow($dateFrom, $dateTo)->paginate($perPage);
     }
 
     /**
@@ -133,14 +128,9 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
         ?string $dateFrom = null,
         ?string $dateTo = null
     ): Collection {
-        $today = $dateFrom ?? Carbon::now('Asia/Riyadh')->toDateString();
-        $maxDate = $dateTo ?? Carbon::now('Asia/Riyadh')->addDays(6)->toDateString();
-
         $query = CashierShift::query()
             ->with(['cashier', 'shift', 'nextCashier'])
             ->where('status', ShiftStatus::NOT_STARTED)
-            ->whereDate('shift_date', '>=', $today)
-            ->whereDate('shift_date', '<=', $maxDate)
             ->orderBy('shift_date', 'asc')
             ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) asc');
 
@@ -154,7 +144,7 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
             });
         }
 
-        return $query->get();
+        return $query->pendingDateWindow($dateFrom, $dateTo)->get();
     }
 
     /**

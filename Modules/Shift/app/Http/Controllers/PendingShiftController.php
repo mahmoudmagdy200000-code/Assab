@@ -88,7 +88,9 @@ class PendingShiftController extends BaseController
                         'mark_not_worked' => app(\Modules\Shift\Services\ShiftNotWorkedGuard::class)->canMark($shiftDetails, auth()->user()),
                         'view_details' => true,
                         'reassign_shift' => true,
-                        'start_shift' => $shiftDetails->shift_date->isToday(),
+                        'start_shift' => $shiftDetails->actual_start_time === null
+                            && $shiftDetails->operational_ended_at === null
+                            && ShiftHelper::getShiftStartWindow($shiftDetails)['can_start'],
                     ],
                 ],
             ]);

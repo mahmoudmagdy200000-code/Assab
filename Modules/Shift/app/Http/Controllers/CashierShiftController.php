@@ -155,10 +155,6 @@ class CashierShiftController extends BaseController
         try {
             $cashier = auth()->user();
 
-            // 7-day rolling window: strictly from today through today+6 days inclusive (Asia/Riyadh)
-            $today = $request->input('date_from', Carbon::now('Asia/Riyadh')->toDateString());
-            $maxDate = $request->input('date_to', Carbon::now('Asia/Riyadh')->addDays(6)->toDateString());
-
             $shifts = CashierShift::with([
                 'shift' => function ($q) {
                     $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
@@ -178,8 +174,7 @@ class CashierShiftController extends BaseController
                 // Pending tab entirely — the manager's own pending list
                 // (CashierShiftRepository::getUpcomingPaginated) always used both.
                 ->whereIn('status', [ShiftStatus::NOT_STARTED, ShiftStatus::REASSIGNED])
-                ->whereDate('shift_date', '>=', $today)
-                ->whereDate('shift_date', '<=', $maxDate)
+                ->pendingDateWindow($request->input('date_from'), $request->input('date_to'))
                 ->orderBy('shift_date', 'asc')
                 ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) asc')
                 ->paginate($request->input('per_page', 15));
@@ -951,8 +946,7 @@ class CashierShiftController extends BaseController
                         $query->where('branch_id', $branchManager->branch_id);
                     })
                     ->whereIn('status', [ShiftStatus::NOT_STARTED, ShiftStatus::REASSIGNED])
-                    ->whereDate('shift_date', '>=', Carbon::now('Asia/Riyadh')->toDateString())
-                    ->whereDate('shift_date', '<=', Carbon::now('Asia/Riyadh')->addDays(6)->toDateString())
+                    ->pendingDateWindow()
                     ->orderBy('shift_date', 'asc')
                     ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) asc')
                     ->first();

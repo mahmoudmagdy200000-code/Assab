@@ -13,6 +13,165 @@ use Modules\Shift\Models\Shift;
 
 final class ShiftStartWindowAndWeeklyScopeTest extends ShiftRecurringRosterRenewalTest
 {
+    public function test_pending_lists_keep_overnight_shift_until_exact_close_with_pagination(): void
+    {
+        $this->template2->update(['start_time' => '22:00', 'end_time' => '06:00']);
+        $overnight = $this->makePendingShift($this->template2, '2026-11-12');
+        $today = $this->makePendingShift($this->template1, '2026-11-13');
+        $this->makePendingShift($this->template1, '2026-11-12'); // Expired.
+        $this->makePendingShift($this->template1, '2026-11-20'); // Eighth day.
+        CashierShift::factory()->create([
+            'cashier_id' => $this->cashierB->id, 'shift_id' => $this->template2->id,
+            'shift_date' => '2026-11-12', 'status' => ShiftStatus::NOT_STARTED,
+        ]);
+        $otherBranch = Branch::factory()->create();
+        $foreignTemplate = Shift::factory()->create([
+            'branch_id' => $otherBranch->id, 'start_time' => '22:00', 'end_time' => '06:00',
+        ]);
+        $foreignCashier = Cashier::factory()->create(['branch_id' => $otherBranch->id]);
+        CashierShift::factory()->create([
+            'cashier_id' => $foreignCashier->id, 'shift_id' => $foreignTemplate->id,
+            'shift_date' => '2026-11-12', 'status' => ShiftStatus::NOT_STARTED,
+        ]);
+
+        try {
+            foreach (['2026-11-13 03:00:37', '2026-11-13 07:59:59'] as $time) {
+                Carbon::setTestNow(Carbon::parse($time, 'Asia/Riyadh'));
+                foreach ($this->pendingActors() as [$actor, $url]) {
+                    $this->actingAs($actor, 'sanctum');
+                    $first = $this->getJson($url.'&per_page=1')->assertOk();
+                    $this->assertSame($overnight->id, $first->json('data.0.id'));
+                    $this->assertTrue($first->json('data.0.can_start'));
+                    if ($actor instanceof Cashier) {
+                        $this->assertCount(1, $first->json('data'));
+                        $second = $this->getJson($url.'&per_page=1&page=2')->assertOk();
+                        $this->assertSame($today->id, $second->json('data.0.id'));
+                    }
+                    $this->assertCount(2, $this->getJson($url)->assertOk()->json('data'));
+                }
+            }
+
+            $this->actingAs($this->manager, 'sanctum');
+            $this->assertCount(3, $this->getJson('/api/v1/branch-manager/shifts/pending')->assertOk()->json('data'));
+            $this->getJson("/api/v1/branch-manager/shifts/pending/{$overnight->id}")
+                ->assertOk()->assertJsonPath('data.actions_available.start_shift', true);
+            $page = app(\Modules\Shift\Repositories\CashierShiftRepositoryInterface::class)
+                ->getUpcomingPaginated($this->branch->id, $this->cashierA->id, 1);
+            $this->assertSame(2, $page->total());
+            $this->assertCount(1, $page->items());
+            $this->assertSame($overnight->id, $page->items()[0]->id);
+
+            Carbon::setTestNow(Carbon::parse('2026-11-13 08:00:00', 'Asia/Riyadh'));
+            foreach ($this->pendingActors() as [$actor, $url]) {
+                $this->actingAs($actor, 'sanctum');
+                $result = $this->getJson($url)->assertOk();
+                $this->assertSame([$today->id], array_column($result->json('data'), 'id'));
+            }
+            $this->actingAs($this->cashierA, 'sanctum');
+            $this->postJson("/api/v1/cashier/shifts/{$overnight->id}/start")->assertStatus(400);
+            $this->actingAs($this->manager, 'sanctum');
+            $this->postJson("/api/v1/branch-manager/shifts/start-by-manager/{$overnight->id}")->assertStatus(400);
+            $this->getJson("/api/v1/branch-manager/shifts/pending/{$overnight->id}")
+                ->assertOk()->assertJsonPath('data.actions_available.start_shift', false);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_pending_lists_include_evening_grace_but_respect_explicit_date_ranges(): void
+    {
+        $this->template2->update(['start_time' => '17:00', 'end_time' => '23:00']);
+        $evening = $this->makePendingShift($this->template2, '2026-11-12');
+        $today = $this->makePendingShift($this->template1, '2026-11-13');
+        try {
+            Carbon::setTestNow(Carbon::parse('2026-11-13 00:30:37', 'Asia/Riyadh'));
+            foreach ($this->pendingActors() as [$actor, $url]) {
+                $this->actingAs($actor, 'sanctum');
+                $this->assertSame([$evening->id, $today->id], array_column($this->getJson($url)->assertOk()->json('data'), 'id'));
+                $this->assertSame([$evening->id], array_column($this->getJson($url.'&date_from=2026-11-12&date_to=2026-11-12')->assertOk()->json('data'), 'id'));
+                $this->assertSame([], $this->getJson($url.'&date_from=2026-11-14&date_to=2026-11-19')->assertOk()->json('data'));
+                $this->assertSame([$evening->id, $today->id], array_column($this->getJson($url.'&date_from=2026-11-13')->assertOk()->json('data'), 'id'));
+            }
+            Carbon::setTestNow(Carbon::parse('2026-11-13 01:00:00', 'Asia/Riyadh'));
+            foreach ($this->pendingActors() as [$actor, $url]) {
+                $this->actingAs($actor, 'sanctum');
+                $this->assertSame([$today->id], array_column($this->getJson($url)->assertOk()->json('data'), 'id'));
+            }
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_carry_over_requires_pending_unstarted_state_and_handles_second_midnight(): void
+    {
+        $this->template2->update(['start_time' => '23:00', 'end_time' => '22:30']);
+        $eligible = $this->makePendingShift($this->template2, '2026-11-11');
+        $eligible->update(['status' => ShiftStatus::REASSIGNED]);
+        $started = $this->makePendingShift($this->template2, '2026-11-12');
+        $started->update(['actual_start_time' => '2026-11-12 23:00:00']);
+        try {
+            Carbon::setTestNow(Carbon::parse('2026-11-13 00:15:37', 'Asia/Riyadh'));
+            $query = fn () => CashierShift::upcoming()->where('cashier_id', $this->cashierA->id)->pendingDateWindow()->pluck('id')->all();
+            $this->assertSame([$eligible->id], $query());
+            $eligible->update(['operational_ended_at' => '2026-11-12 23:50:00']);
+            $this->assertSame([], $query());
+            $eligible->update(['operational_ended_at' => null, 'status' => ShiftStatus::COMPLETED]);
+            $this->assertSame([], $query());
+            $eligible->update(['status' => ShiftStatus::NOT_STARTED]);
+            Carbon::setTestNow(Carbon::parse('2026-11-13 00:30:00', 'Asia/Riyadh'));
+            $this->assertSame([], $query());
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_manager_can_start_carry_over_via_cashier_id_fallback(): void
+    {
+        $overnight = $this->makePendingShift($this->template2, '2026-11-12');
+        $today = $this->makePendingShift($this->template1, '2026-11-13');
+        try {
+            Carbon::setTestNow(Carbon::parse('2026-11-13 03:00:37', 'Asia/Riyadh'));
+            $this->actingAs($this->manager, 'sanctum');
+            $this->postJson("/api/v1/branch-manager/shifts/start-by-manager/{$this->cashierA->id}")->assertOk();
+            $this->assertSame(ShiftStatus::IN_PROGRESS, $overnight->fresh()->status);
+            $this->assertSame(ShiftStatus::NOT_STARTED, $today->fresh()->status);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    public function test_window_boundaries_do_not_inherit_wall_clock_seconds(): void
+    {
+        $shift = $this->makePendingShift($this->template1, '2026-11-12');
+        try {
+            Carbon::setTestNow(Carbon::parse('2026-11-12 10:12:37', 'Asia/Riyadh'));
+            $open = ShiftHelper::getShiftStartWindow($shift, Carbon::parse('2026-11-12 06:00:00', 'Asia/Riyadh'));
+            $this->assertTrue($open['can_start']);
+            $this->assertSame('2026-11-12T06:00:00+03:00', $open['window_opens_at']);
+            $close = ShiftHelper::getShiftStartWindow($shift, Carbon::parse('2026-11-12 18:00:00', 'Asia/Riyadh'));
+            $this->assertFalse($close['can_start']);
+            $this->assertSame('2026-11-12T18:00:00+03:00', $close['window_closes_at']);
+        } finally {
+            Carbon::setTestNow();
+        }
+    }
+
+    private function makePendingShift(Shift $template, string $date): CashierShift
+    {
+        return CashierShift::factory()->create([
+            'cashier_id' => $this->cashierA->id, 'shift_id' => $template->id,
+            'shift_date' => $date, 'status' => ShiftStatus::NOT_STARTED,
+        ]);
+    }
+
+    private function pendingActors(): array
+    {
+        return [
+            [$this->cashierA, '/api/v1/cashier/my-shifts/pending?scope=test'],
+            [$this->manager, "/api/v1/branch-manager/shifts/pending?cashier_id={$this->cashierA->id}"],
+        ];
+    }
+
     public function test_shift_helper_start_window_standard_shift(): void
     {
         $shiftTemplate = Shift::factory()->create([
