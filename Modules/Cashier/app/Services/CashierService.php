@@ -504,6 +504,26 @@ class CashierService
             ];
         }
 
+        $hasBranchOverride = \Modules\Admin\Models\BranchShiftConfig::where('branch_id', $targetBranchId)->exists();
+        $branch = \Modules\Branch\Models\Branch::find($targetBranchId);
+        $brandName = null;
+        if ($branch) {
+            $brandId = $branch->asab_brand_id
+                ?? ($branch->asab_restaurant_id
+                    ? \Modules\Admin\Models\AsabRestaurant::withoutGlobalScopes()->whereKey($branch->asab_restaurant_id)->value('brand_id')
+                    : null);
+            if ($brandId) {
+                $brandName = \Modules\Admin\Models\AsabBrand::where('id', $brandId)->value('name');
+            }
+        }
+
+        $scheduleSource = [
+            'has_own_config' => $hasBranchOverride,
+            'type' => $hasBranchOverride ? 'branch' : 'brand',
+            'label_ar' => $hasBranchOverride ? 'إعداد خاص بالفرع' : 'إعداد موروث من العلامة التجارية',
+            'owner_name' => $hasBranchOverride ? ($branch?->name ?? 'الفرع') : ($brandName ?? 'العلامة التجارية'),
+        ];
+
         return [
             'branch_id' => $targetBranchId,
             'start_date' => $effectiveStartDate,
@@ -515,6 +535,7 @@ class CashierService
                 'default_start_date' => $defaultStart,
                 'default_end_date' => $defaultEnd,
             ],
+            'schedule_source' => $scheduleSource,
             'templates' => $templates,
             'roster' => (object) $rosterByDateAndShift,
         ];
@@ -534,6 +555,10 @@ class CashierService
 
         if (! $targetBranchId) {
             throw new \Illuminate\Auth\Access\AuthorizationException('Branch context is required.');
+        }
+
+        if (! \Illuminate\Support\Facades\Schema::hasTable('branch_shift_roster_assignments')) {
+            throw new \RuntimeException('جدول التعيينات المتكررة غير مرحل على قاعدة البيانات. يرجى تطبيق الترحيل البرمجي على الخادم.');
         }
 
         return DB::transaction(function () use ($assignments, $targetBranchId, $manager) {
@@ -637,12 +662,25 @@ class CashierService
             throw new \Illuminate\Auth\Access\AuthorizationException('Branch context is required.');
         }
 
+        if (! \Illuminate\Support\Facades\Schema::hasTable('branch_shift_roster_assignments')) {
+            return [];
+        }
+
         $records = \Modules\Shift\Models\BranchShiftRosterAssignment::where('branch_id', $targetBranchId)
             ->with(['shift:id,name,start_time,end_time,branch_id,is_active', 'cashier:id,name,phone,branch_id'])
             ->orderBy('effective_from', 'desc')
             ->get();
 
-        return $records->toArray();
+        return $records->map(function ($record) {
+            $arr = $record->toArray();
+            if ($record->getRawOriginal('effective_from')) {
+                $arr['effective_from'] = Carbon::parse($record->getRawOriginal('effective_from'))->format('Y-m-d');
+            }
+            if ($record->getRawOriginal('effective_to')) {
+                $arr['effective_to'] = Carbon::parse($record->getRawOriginal('effective_to'))->format('Y-m-d');
+            }
+            return $arr;
+        })->values()->all();
     }
 
     /**

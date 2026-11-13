@@ -30,22 +30,28 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
 
     /**
      * Pending list for branch manager: upcoming status, branch/cashier scoped, paginated.
+     * Seven days from today, plus earlier shifts whose start window is still open.
+     * Ordered chronologically from nearest to furthest (shift_date ASC, start_time ASC) before pagination.
      */
-    public function getUpcomingPaginated(string $branchId, ?string $cashierId, int $perPage = 10): LengthAwarePaginator
-    {
+    public function getUpcomingPaginated(
+        string $branchId,
+        ?string $cashierId,
+        int $perPage = 10,
+        ?string $dateFrom = null,
+        ?string $dateTo = null
+    ): LengthAwarePaginator {
         $query = CashierShift::upcoming()
             ->with(['cashier', 'shift', 'nextCashier', 'originalCashier', 'reassignedBy', 'handover', 'handoverStatus'])
             ->whereHas('shift', fn ($q) => $q->where('branch_id', $branchId))
             ->whereHas('cashier', fn ($q) => $q->where('branch_id', $branchId))
-            ->whereDate('shift_date', '>=', now()->subMonth())
-            ->whereDate('shift_date', '<=', now()->addMonth())
-            ->orderBy('shift_date');
+            ->orderBy('shift_date', 'asc')
+            ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) asc');
 
         if ($cashierId !== null) {
             $query->where('cashier_id', $cashierId);
         }
 
-        return $query->paginate($perPage);
+        return $query->pendingDateWindow($dateFrom, $dateTo)->paginate($perPage);
     }
 
     /**
@@ -116,14 +122,17 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
     /**
      * Pending (not started) shifts, optionally filtered by cashier and branch.
      */
-    public function getPendingShifts(?string $cashierId = null, ?string $branchId = null): Collection
-    {
+    public function getPendingShifts(
+        ?string $cashierId = null,
+        ?string $branchId = null,
+        ?string $dateFrom = null,
+        ?string $dateTo = null
+    ): Collection {
         $query = CashierShift::query()
             ->with(['cashier', 'shift', 'nextCashier'])
             ->where('status', ShiftStatus::NOT_STARTED)
-            ->whereBetween('shift_date', [now(), now()->addMonth()])
-            ->orderBy('shift_date')
-            ->orderBy('actual_start_time');
+            ->orderBy('shift_date', 'asc')
+            ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) asc');
 
         if ($cashierId) {
             $query->where('cashier_id', $cashierId);
@@ -135,7 +144,7 @@ class CashierShiftRepository implements CashierShiftRepositoryInterface
             });
         }
 
-        return $query->get();
+        return $query->pendingDateWindow($dateFrom, $dateTo)->get();
     }
 
     /**

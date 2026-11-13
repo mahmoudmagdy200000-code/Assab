@@ -2,6 +2,8 @@
 
 namespace Modules\Shift\Models;
 
+use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -11,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Helpers\ShiftHelper;
 use Modules\Shift\Services\CashierShiftStartService;
 
 class CashierShift extends Model
@@ -193,6 +196,49 @@ class CashierShift extends Model
             ShiftStatus::NOT_STARTED->value,
             ShiftStatus::REASSIGNED->value,
         ]);
+    }
+
+    /**
+     * Seven calendar days plus older pending shifts whose start window is still open.
+     * Explicit historical/future date filters remain exact. Carry-over IDs are
+     * resolved before pagination using the same clock/rule as the start endpoint.
+     */
+    public function scopePendingDateWindow(Builder $query, ?string $dateFrom = null, ?string $dateTo = null): Builder
+    {
+        $now = Carbon::now(config('app.timezone', 'Asia/Riyadh'));
+        $today = $now->toDateString();
+        $from = $dateFrom ?? $today;
+        $to = $dateTo ?? $now->copy()->addDays(6)->toDateString();
+        $carryOverIds = [];
+
+        if ($from === $today && $to >= $today) {
+            // A schedule may span midnight and its two-hour grace period can
+            // cross another midnight. No older business date can still be open.
+            // Clone preserves caller ownership/branch predicates; never fetch
+            // the entire historical list or filter a page after pagination.
+            $carryOverIds = (clone $query)
+                ->reorder()
+                ->withOnly('shift')
+                ->upcoming()
+                ->whereNull('actual_start_time')
+                ->whereNull('operational_ended_at')
+                ->whereDate('shift_date', '>=', $now->copy()->subDays(2)->toDateString())
+                ->whereDate('shift_date', '<', $today)
+                ->get()
+                ->filter(fn (CashierShift $shift) => ShiftHelper::getShiftStartWindow($shift, $now)['can_start'])
+                ->modelKeys();
+        }
+
+        return $query->where(function (Builder $dates) use ($from, $to, $carryOverIds) {
+            $dates->where(function (Builder $range) use ($from, $to) {
+                $range->whereDate('shift_date', '>=', $from)
+                    ->whereDate('shift_date', '<=', $to);
+            });
+
+            if ($carryOverIds !== []) {
+                $dates->orWhereIn('cashier_shifts.id', $carryOverIds);
+            }
+        });
     }
 
     public function scopeInProgress($query)

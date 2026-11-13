@@ -13,7 +13,13 @@ interface CashierShiftRepositoryInterface
     public function findById(string $id): ?CashierShift;
 
     /** Pending list for branch manager: upcoming status, branch/cashier scoped, paginated */
-    public function getUpcomingPaginated(string $branchId, ?string $cashierId, int $perPage = 10): LengthAwarePaginator;
+    public function getUpcomingPaginated(
+        string $branchId,
+        ?string $cashierId,
+        int $perPage = 10,
+        ?string $dateFrom = null,
+        ?string $dateTo = null
+    ): LengthAwarePaginator;
 
     /** In-progress list for branch manager: branch/cashier scoped, paginated */
     public function getInProgressPaginated(string $branchId, ?string $cashierId, int $perPage = 10): LengthAwarePaginator;
@@ -24,8 +30,13 @@ interface CashierShiftRepositoryInterface
     /** Upcoming shifts for one cashier in a work week (branch-scoped), paginated */
     public function getUpcomingByCashierAndWeek(string $cashierId, string $branchId, Carbon $weekStart, Carbon $weekEnd, int $perPage = 10): LengthAwarePaginator;
 
-    /** Pending (not started) shifts, optionally filtered by cashier and branch. */
-    public function getPendingShifts(?string $cashierId = null, ?string $branchId = null): Collection;
+    /** Pending (not started) shifts, optionally filtered by cashier, branch, and date range. */
+    public function getPendingShifts(
+        ?string $cashierId = null,
+        ?string $branchId = null,
+        ?string $dateFrom = null,
+        ?string $dateTo = null
+    ): Collection;
 
     /** In-progress shifts (today), optionally filtered by cashier and branch. */
     public function getInProgressShifts(?string $cashierId = null, ?string $branchId = null): Collection;

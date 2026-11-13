@@ -109,7 +109,12 @@ class ShiftScheduleBridgeService
         $cfg = BranchShiftConfig::where('branch_id', $branchId)->first();
 
         if ($cfg === null) {
-            $brandId = Branch::where('id', $branchId)->value('asab_brand_id');
+            $branch = Branch::where('id', $branchId)->first();
+            $brandId = $branch?->asab_brand_id
+                ?? ($branch?->asab_restaurant_id
+                    ? \Modules\Admin\Models\AsabRestaurant::withoutGlobalScopes()
+                        ->whereKey($branch->asab_restaurant_id)->value('brand_id')
+                    : null);
             $cfg = $brandId ? BrandShiftConfig::where('brand_id', $brandId)->first() : null;
         }
         if ($cfg === null) {

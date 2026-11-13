@@ -384,12 +384,14 @@ class ShiftDetailResource extends JsonResource
     private function getAvailableActions(): array
     {
         $status = $this->status?->value ?? 'not_started';
+        $startWindow = \Modules\Shift\Helpers\ShiftHelper::getShiftStartWindow($this->resource);
 
         return [
             // Cashier self-start UI hint only; the manager start route has its own
             // authorization and schedule behavior. Neither hint bypasses server checks.
-            'can_start' => $status === 'not_started' && $this->actual_start_time === null
-                && $this->operational_ended_at === null && $this->shift_date?->isToday(),
+            'can_start' => in_array($status, ['not_started', 'reassigned'], true) && $this->actual_start_time === null
+                && $this->operational_ended_at === null && ($startWindow['can_start'] ?? false),
+            'start_window' => $startWindow,
             'can_accept_assignment' => $status === 'reassigned' && $this->actual_start_time === null
                 && ($this->handoverStatus === null || $this->handoverStatus->manager_approval_status === 'pending'),
             'can_end' => $status === 'in_progress',

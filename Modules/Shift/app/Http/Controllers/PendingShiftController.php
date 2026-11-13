@@ -34,8 +34,10 @@ class PendingShiftController extends BaseController
 
             $managerBranchId = $manager->branch_id;
             $cashierId = $request->input('cashier_id');
+            $dateFrom = $request->input('date_from');
+            $dateTo = $request->input('date_to');
 
-            $shifts = $this->cashierShiftRepository->getUpcomingPaginated($managerBranchId, $cashierId, 10);
+            $shifts = $this->cashierShiftRepository->getUpcomingPaginated($managerBranchId, $cashierId, 10, $dateFrom, $dateTo);
 
             foreach ($shifts as $cs) {
                 $cs->setAttribute('computed_next_cashier', $this->shiftService->getNextShiftCashier($cs));
@@ -86,7 +88,9 @@ class PendingShiftController extends BaseController
                         'mark_not_worked' => app(\Modules\Shift\Services\ShiftNotWorkedGuard::class)->canMark($shiftDetails, auth()->user()),
                         'view_details' => true,
                         'reassign_shift' => true,
-                        'start_shift' => $shiftDetails->shift_date->isToday(),
+                        'start_shift' => $shiftDetails->actual_start_time === null
+                            && $shiftDetails->operational_ended_at === null
+                            && ShiftHelper::getShiftStartWindow($shiftDetails)['can_start'],
                     ],
                 ],
             ]);

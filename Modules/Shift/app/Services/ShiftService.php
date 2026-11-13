@@ -112,7 +112,7 @@ class ShiftService
             ->first();
     }
 
-    public function getPendingShifts(?string $cashierId = null): LengthAwarePaginator
+    public function getPendingShifts(?string $cashierId = null, ?string $dateFrom = null, ?string $dateTo = null): LengthAwarePaginator
     {
         $query = CashierShift::upcoming() // ✅ استخدم upcoming بدل pending
             ->with([
@@ -122,9 +122,7 @@ class ShiftService
                 'originalCashier',
                 'reassignedBy',
             ])
-            ->whereDate('shift_date', '>=', now()->subMonth()->toDateString())
-            ->whereDate('shift_date', '<=', now()->addMonth()->toDateString())
-            ->orderBy('shift_date')
+            ->orderBy('shift_date', 'asc')
             ->orderBy(
                 Shift::select('start_time')
                     ->whereColumn('shifts.id', 'cashier_shifts.shift_id')
@@ -134,7 +132,7 @@ class ShiftService
             $query->where('cashier_id', $cashierId);
         }
 
-        return $query->paginate(10);
+        return $query->pendingDateWindow($dateFrom, $dateTo)->paginate(10);
     }
 
     /**
