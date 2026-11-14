@@ -278,4 +278,50 @@ final class ShiftScheduleSourceAndRosterAssignmentSafetyTest extends TestCase
         $this->assertSame($this->cashierOverride->id, $data[0]['cashier_id']);
         $this->assertSame('2026-11-13', substr($data[0]['effective_from'], 0, 10));
     }
+    private function overnightTemplate(): Shift
+    {
+        Carbon::setTestNow(Carbon::parse('2026-11-13 22:39:00', 'Asia/Riyadh'));
+        config(['shift.week.work_days' => [0, 1, 2, 3, 4]]);
+        $this->actingAs($this->managerOverride, 'sanctum');
+        return Shift::create([
+            'id' => (string) Str::uuid(), 'branch_id' => $this->branchWithOverride->id,
+            'name' => 'الأول', 'start_time' => '22:30:00', 'end_time' => '00:30:00', 'is_active' => true,
+        ]);
+    }
+
+    public function test_friday_legacy_change_does_not_claim_success_without_assigning(): void
+    {
+        $template = $this->overnightTemplate();
+        $this->putJson('/api/v1/branch-manager/cashiers/update-shifts', [
+            'cashier_id' => $this->cashierOverride->id, 'shift_ids' => [$template->id],
+        ])->assertUnprocessable()->assertJsonValidationErrors('shift_ids');
+        $this->assertDatabaseMissing('cashier_shifts', ['cashier_id' => $this->cashierOverride->id]);
+    }
+
+    public function test_explicit_friday_assignment_creates_one_overnight_shift(): void
+    {
+        $template = $this->overnightTemplate();
+        $payload = ['cashier_id' => $this->cashierOverride->id, 'shift_ids' => [$template->id], 'shift_date' => '2026-11-13'];
+        $this->postJson('/api/v1/branch-manager/cashiers/assign-shifts', $payload)->assertOk()->assertJsonPath('data.shifts_assigned', 1);
+        $this->postJson('/api/v1/branch-manager/cashiers/assign-shifts', $payload)->assertOk();
+        $this->assertSame(1, \Modules\Shift\Models\CashierShift::where('cashier_id', $this->cashierOverride->id)->count());
+    }
+
+    public function test_missing_roster_schema_returns_actionable_error_without_blocking_dated_assignment(): void
+    {
+        $template = $this->overnightTemplate();
+        \Illuminate\Support\Facades\Schema::rename('branch_shift_roster_assignments', 'test_hidden_roster');
+        try {
+            $this->postJson('/api/v1/branch-manager/cashiers/roster-assignments', [
+                'shift_id' => $template->id, 'cashier_id' => $this->cashierOverride->id, 'effective_from' => '2026-11-13',
+            ])->assertStatus(503)->assertJsonPath('error.code', 'ROSTER_SCHEMA_NOT_READY');
+            $this->getJson('/api/v1/branch-manager/cashiers/roster-assignments')->assertOk()->assertJsonPath('data', []);
+            $this->postJson('/api/v1/branch-manager/cashiers/assign-shifts', [
+                'cashier_id' => $this->cashierOverride->id, 'shift_ids' => [$template->id], 'shift_date' => '2026-11-13',
+            ])->assertOk()->assertJsonPath('data.shifts_assigned', 1);
+        } finally {
+            \Illuminate\Support\Facades\Schema::rename('test_hidden_roster', 'branch_shift_roster_assignments');
+        }
+    }
+
 }
