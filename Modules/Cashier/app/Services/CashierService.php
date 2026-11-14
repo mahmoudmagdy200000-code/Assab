@@ -267,6 +267,11 @@ class CashierService
                 ? array_values(array_filter(\Modules\Shift\Helpers\ShiftHelper::workWeekDatesExcludingHolidays($refDate),
                     fn (Carbon $date) => $date->greaterThanOrEqualTo($refDate->copy()->startOfDay())))
                 : [$refDate];
+            if ($dates === []) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'shift_ids' => 'لا توجد أيام عمل متبقية في الفترة المحددة. استخدم التعيين المؤرخ لاختيار يوم محدد.',
+                ]);
+            }
             $targetDateStrings = array_map(fn (Carbon $date) => $date->toDateString(), $dates);
             // Serialize competing roster writers on the selected template rows for the targeted dates.
             if (CashierShift::query()->whereIn('shift_id', $shiftIds)
@@ -558,7 +563,7 @@ class CashierService
         }
 
         if (! \Illuminate\Support\Facades\Schema::hasTable('branch_shift_roster_assignments')) {
-            throw new \RuntimeException('جدول التعيينات المتكررة غير مرحل على قاعدة البيانات. يرجى تطبيق الترحيل البرمجي على الخادم.');
+            throw new \App\Exceptions\RosterSchemaUnavailableException();
         }
 
         return DB::transaction(function () use ($assignments, $targetBranchId, $manager) {
