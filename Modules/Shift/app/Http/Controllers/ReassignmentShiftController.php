@@ -95,6 +95,12 @@ class ReassignmentShiftController extends Controller
             ], 400);
         }
 
+        if ($request->filled('new_cashier_id')) {
+            app(\Modules\Cashier\Services\CashierService::class)->ensureBranchManagerCashier(
+                candidateId: (string) $request->input('new_cashier_id')
+            );
+        }
+
         $validator = Validator::make($request->all(), [
             'new_cashier_id' => 'required|exists:cashiers,id',
             'reason' => 'nullable|string|max:500', // غيرت من required ل nullable
@@ -331,6 +337,12 @@ class ReassignmentShiftController extends Controller
                 'success' => false,
                 'message' => 'Invalid shift ID format',
             ], 400);
+        }
+
+        if ($request->filled('new_cashier_id')) {
+            app(\Modules\Cashier\Services\CashierService::class)->ensureBranchManagerCashier(
+                candidateId: (string) $request->input('new_cashier_id')
+            );
         }
 
         ShiftMoneyValidation::normalizeRepresentationNoise($request);

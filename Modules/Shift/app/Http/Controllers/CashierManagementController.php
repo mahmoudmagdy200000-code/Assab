@@ -611,6 +611,21 @@ class CashierManagementController extends BaseController
             $responseData['meta']['total_count'] = $totalCount;
             $responseData['meta']['available_count'] = $availableCount;
 
+            if ($manager instanceof BranchManager) {
+                $managerIsAvailable = ! in_array($manager->id, $busyCashierIds);
+                $responseData['meta']['branch_manager'] = [
+                    'id' => $manager->id,
+                    'name' => $manager->name,
+                    'email' => $manager->email,
+                    'phone' => $manager->phone,
+                    'image' => $manager->image ? asset('storage/'.$manager->image) : null,
+                    'is_available' => $managerIsAvailable,
+                    'disabled' => ! $managerIsAvailable,
+                    'reason_disabled' => ! $managerIsAvailable ? 'Already assigned to this shift' : null,
+                    'is_branch_manager' => true,
+                ];
+            }
+
             return response()->json($responseData, 200);
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage(), 500);
