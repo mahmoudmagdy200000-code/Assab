@@ -16,6 +16,20 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 /** Shared correction/reopen boundary. Cash owners precede workday, source and report locks. */
 class ShiftReportMutationGuard
 {
+    /** Read-only editability check reusing lockEditable rules without opening a transaction or locking rows. */
+    public function assertEditable(CashierShift $source, Model $actor, array $additionalWorkdayDates = []): CashierShift
+    {
+        $shift = CashierShift::withoutEagerLoads()->findOrFail($source->id);
+        $branchId = $shift->shift()->value('branch_id');
+        $this->assertActor($shift, $actor, $branchId);
+        app(ShiftReportReviewService::class)->assertReportEditable($shift);
+        app(ShiftNotWorkedGuard::class)->assertMutable($shift);
+        $days = $this->scopeDays($shift, $branchId, $additionalWorkdayDates, lock: false);
+        $this->assertScopeEditable($shift, $days, lock: false);
+
+        return $shift;
+    }
+
     public function lockEditable(CashierShift $source, Model $actor, array $additionalCashierIds = [], array $additionalWorkdayDates = []): CashierShift
     {
         if (DB::transactionLevel() === 0) {
@@ -27,24 +41,7 @@ class ShiftReportMutationGuard
         app(ShiftReportReviewService::class)->lockCashier($snapshot, $additionalCashierIds, $additionalWorkdayDates);
         app(ShiftReportReviewService::class)->assertReportEditable($snapshot);
         $this->lockCashOwners($snapshot, $additionalCashierIds);
-        $membershipDates = $this->membershipDates($snapshot, $additionalWorkdayDates);
-
-        $receivingDays = DB::table('cashier_shift_handover_receipts as receipts')
-            ->join('cashier_shift_handovers as requests', 'requests.id', '=', 'receipts.cashier_shift_handover_id')
-            ->where('requests.cashier_shift_id', $snapshot->id)
-            ->whereNotNull('receipts.receiving_branch_manager_shift_id')
-            ->select('receipts.receiving_branch_manager_shift_id');
-        $lockedDays = DB::table('shift_liability_daily_locks')->where('cashier_shift_id', $snapshot->id)
-            ->select('branch_manager_shift_id');
-        $days = BranchManagerShift::query()->where(function ($query) use ($membershipDates, $branchId, $receivingDays, $lockedDays) {
-            $query->where(function ($sameDate) use ($membershipDates, $branchId) {
-                $sameDate->where('branch_id', $branchId)->where(function ($dates) use ($membershipDates) {
-                    foreach ($membershipDates as $date) {
-                        $dates->orWhereDate('shift_date', $date);
-                    }
-                });
-            })->orWhereIn('id', $receivingDays)->orWhereIn('id', $lockedDays);
-        })->orderBy('id')->lockForUpdate()->get();
+        $days = $this->scopeDays($snapshot, $branchId, $additionalWorkdayDates, lock: true);
 
         $ids = array_values(array_unique(array_filter(array_merge([$snapshot->id], $additionalCashierIds))));
         sort($ids, SORT_STRING);
@@ -61,24 +58,7 @@ class ShiftReportMutationGuard
         }
         $this->assertActor($shift, $actor, $shift->shift()->value('branch_id'));
         app(ShiftNotWorkedGuard::class)->assertMutable($shift);
-        $requests = DB::table('cashier_shift_handovers')->where('cashier_shift_id', $shift->id)
-            ->orderBy('id')->lockForUpdate()->get(['id', 'daily_closed_at']);
-        $locks = DB::table('shift_liability_daily_locks')->where(function ($query) use ($shift, $days) {
-            $query->where('cashier_shift_id', $shift->id)->orWhereIn('branch_manager_shift_id', $days->modelKeys());
-        })->whereNull('released_at')->whereNull('superseded_at')->orderBy('id')->lockForUpdate()->get(['id']);
-        $admin = DB::table('asab_shifts')->where('legacy_shift_id', $shift->id)
-            ->orderBy('id')->lockForUpdate()->get(['id', 'status']);
-        $finalOperations = DB::table('asab_operations')->where('module_key', 'shifts')
-            ->whereIn('source_id', array_merge([$shift->id], $admin->pluck('id')->all(), $days->modelKeys()))
-            ->where('status', 'final-approved')->orderBy('id')->lockForUpdate()->get(['id']);
-        if ($days->contains(fn ($day) => $day->daily_report_submitted || $day->daily_report_submitted_at !== null)
-            || $requests->contains(fn ($request) => $request->daily_closed_at !== null)
-            || $locks->isNotEmpty()
-            || $admin->contains(fn ($projection) => $projection->status === 'closed')
-            || ($admin->contains(fn ($projection) => $projection->status === 'pending_review') && $days->isEmpty())
-            || $finalOperations->isNotEmpty()) {
-            throw new ConflictHttpException('REPORT_REOPEN_REQUIRED');
-        }
+        $this->assertScopeEditable($shift, $days, lock: true);
 
         return $shift;
     }
@@ -94,24 +74,7 @@ class ShiftReportMutationGuard
         app(ShiftReportReviewService::class)->lockCashier($snapshot, $additionalCashierIds, [], $additionalFinancialOwners);
         app(ShiftReportReviewService::class)->assertReportEditable($snapshot);
         $this->lockCashOwners($snapshot, $additionalCashierIds);
-        $membershipDates = $this->membershipDates($snapshot, []);
-
-        $receivingDays = DB::table('cashier_shift_handover_receipts as receipts')
-            ->join('cashier_shift_handovers as requests', 'requests.id', '=', 'receipts.cashier_shift_handover_id')
-            ->where('requests.cashier_shift_id', $snapshot->id)
-            ->whereNotNull('receipts.receiving_branch_manager_shift_id')
-            ->select('receipts.receiving_branch_manager_shift_id');
-        $lockedDays = DB::table('shift_liability_daily_locks')->where('cashier_shift_id', $snapshot->id)
-            ->select('branch_manager_shift_id');
-        $days = BranchManagerShift::query()->where(function ($query) use ($membershipDates, $branchId, $receivingDays, $lockedDays) {
-            $query->where(function ($sameDate) use ($membershipDates, $branchId) {
-                $sameDate->where('branch_id', $branchId)->where(function ($dates) use ($membershipDates) {
-                    foreach ($membershipDates as $date) {
-                        $dates->orWhereDate('shift_date', $date);
-                    }
-                });
-            })->orWhereIn('id', $receivingDays)->orWhereIn('id', $lockedDays);
-        })->orderBy('id')->lockForUpdate()->get();
+        $days = $this->scopeDays($snapshot, $branchId, [], lock: true);
 
         $ids = array_values(array_unique(array_filter(array_merge([$snapshot->id], $additionalCashierIds))));
         sort($ids, SORT_STRING);
@@ -139,27 +102,58 @@ class ShiftReportMutationGuard
             return $shift;
         }
 
-        $requests = DB::table('cashier_shift_handovers')->where('cashier_shift_id', $shift->id)
-            ->orderBy('id')->lockForUpdate()->get(['id', 'daily_closed_at']);
-        $locks = DB::table('shift_liability_daily_locks')->where(function ($query) use ($shift, $days) {
+        $this->assertScopeEditable($shift, $days, lock: true);
+
+        return $shift;
+    }
+
+    private function scopeDays(CashierShift $source, ?string $branchId, array $additionalWorkdayDates, bool $lock)
+    {
+        $membershipDates = $this->membershipDates($source, $additionalWorkdayDates);
+        $receivingDays = DB::table('cashier_shift_handover_receipts as receipts')
+            ->join('cashier_shift_handovers as requests', 'requests.id', '=', 'receipts.cashier_shift_handover_id')
+            ->where('requests.cashier_shift_id', $source->id)
+            ->whereNotNull('receipts.receiving_branch_manager_shift_id')
+            ->select('receipts.receiving_branch_manager_shift_id');
+        $lockedDays = DB::table('shift_liability_daily_locks')->where('cashier_shift_id', $source->id)
+            ->select('branch_manager_shift_id');
+
+        $query = BranchManagerShift::query()->where(function ($query) use ($membershipDates, $branchId, $receivingDays, $lockedDays) {
+            $query->where(function ($sameDate) use ($membershipDates, $branchId) {
+                $sameDate->where('branch_id', $branchId)->where(function ($dates) use ($membershipDates) {
+                    foreach ($membershipDates as $date) {
+                        $dates->orWhereDate('shift_date', $date);
+                    }
+                });
+            })->orWhereIn('id', $receivingDays)->orWhereIn('id', $lockedDays);
+        })->orderBy('id');
+
+        return ($lock ? $query->lockForUpdate() : $query)->get();
+    }
+
+    private function assertScopeEditable(CashierShift $shift, $days, bool $lock): void
+    {
+        $lockQuery = static fn ($query) => $lock ? $query->lockForUpdate() : $query;
+
+        $requests = $lockQuery(DB::table('cashier_shift_handovers')->where('cashier_shift_id', $shift->id)
+            ->orderBy('id'))->get(['id', 'daily_closed_at']);
+        $locks = $lockQuery(DB::table('shift_liability_daily_locks')->where(function ($query) use ($shift, $days) {
             $query->where('cashier_shift_id', $shift->id)->orWhereIn('branch_manager_shift_id', $days->modelKeys());
-        })->whereNull('released_at')->whereNull('superseded_at')->orderBy('id')->lockForUpdate()->get(['id']);
-        $admin = DB::table('asab_shifts')->where('legacy_shift_id', $shift->id)
-            ->orderBy('id')->lockForUpdate()->get(['id', 'status']);
-        $finalOperations = DB::table('asab_operations')->where('module_key', 'shifts')
+        })->whereNull('released_at')->whereNull('superseded_at')->orderBy('id'))->get(['id']);
+        $admin = $lockQuery(DB::table('asab_shifts')->where('legacy_shift_id', $shift->id)
+            ->orderBy('id'))->get(['id', 'status']);
+        $finalOperations = $lockQuery(DB::table('asab_operations')->where('module_key', 'shifts')
             ->whereIn('source_id', array_merge([$shift->id], $admin->pluck('id')->all(), $days->modelKeys()))
-            ->where('status', 'final-approved')->orderBy('id')->lockForUpdate()->get(['id']);
+            ->where('status', 'final-approved')->orderBy('id'))->get(['id']);
 
         if ($days->contains(fn ($day) => $day->daily_report_submitted || $day->daily_report_submitted_at !== null)
             || $requests->contains(fn ($request) => $request->daily_closed_at !== null)
             || $locks->isNotEmpty()
-            || $admin->contains(fn ($projection) => in_array($projection->status, ['closed'], true))
-            || ($admin->contains(fn ($projection) => in_array($projection->status, ['pending_review'], true)) && $days->isEmpty())
+            || $admin->contains(fn ($projection) => $projection->status === 'closed')
+            || ($admin->contains(fn ($projection) => $projection->status === 'pending_review') && $days->isEmpty())
             || $finalOperations->isNotEmpty()) {
             throw new ConflictHttpException('REPORT_REOPEN_REQUIRED');
         }
-
-        return $shift;
     }
 
     private function membershipDates(CashierShift $source, array $additionalDates): array

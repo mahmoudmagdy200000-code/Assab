@@ -101,6 +101,23 @@ class ShiftPhases234MySqlConcurrencyTest extends TestCase
         $this->assertSame('0.00', (string) $source->fresh()->card_payments);
     }
 
+    public function test_submitted_boundary_serializes_before_shift_start(): void
+    {
+        [, $days, $destinations] = $this->fixture();
+        $pending = $destinations[0];
+
+        [$first, $second] = $this->race(
+            ['command' => 'submit_boundary', 'day' => $days[0]->id],
+            ['command' => 'start', 'day' => $days[0]->id, 'source' => $pending->id]
+        );
+
+        $this->assertSame('submitted', $first['status']);
+        $this->assertSame('conflict', $second['status']);
+        $this->assertSame('REPORT_REOPEN_REQUIRED', $second['code']);
+        $this->assertNull($pending->fresh()->actual_start_time);
+        $this->assertSame(\Modules\Shift\Enums\ShiftStatus::NOT_STARTED, $pending->fresh()->status);
+    }
+
     public static function mutationCommands(): array
     {
         return [['correct'], ['reopen']];

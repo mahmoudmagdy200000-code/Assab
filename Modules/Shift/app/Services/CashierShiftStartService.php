@@ -2,9 +2,12 @@
 
 namespace Modules\Shift\Services;
 
+use Carbon\CarbonInterface;
 use Illuminate\Database\DatabaseManager;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Modules\Shift\Enums\ShiftStatus;
+use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
@@ -19,9 +22,21 @@ final class CashierShiftStartService
     public function startShift(CashierShift $expected): CashierShift
     {
         return $this->database->transaction(function () use ($expected) {
+            // Lock workday rows before cashier rows to share lock order with daily report submission.
+            $snapshot = CashierShift::withoutEagerLoads()->findOrFail($expected->id);
+            $branchId = $snapshot->shift()->value('branch_id');
+            $businessDate = $this->businessDate($snapshot);
+            $workdays = $branchId === null
+                ? collect()
+                : BranchManagerShift::withoutEagerLoads()
+                    ->where('branch_id', $branchId)
+                    ->whereDate('shift_date', $businessDate)
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get();
+
             // All starters in a chain lock the same rows in UUID order before
             // locking their individual incoming row, avoiding B/C lock inversion.
-            $snapshot = CashierShift::withoutEagerLoads()->findOrFail($expected->id);
             $linkedId = $this->predecessorId($snapshot);
             $linkedSnapshot = $linkedId === null ? null : CashierShift::withoutEagerLoads()->findOrFail($linkedId);
             $lockChainId = $snapshot->operational_chain_id ?? $linkedSnapshot?->operational_chain_id;
@@ -35,6 +50,11 @@ final class CashierShiftStartService
                     ->orderBy('id')->lockForUpdate()->get();
             }
             $shift = CashierShift::withoutEagerLoads()->whereKey($expected->id)->lockForUpdate()->firstOrFail();
+            if ($shift->shift_id !== $snapshot->shift_id
+                || $this->businessDate($shift) !== $businessDate
+                || $shift->shift()->value('branch_id') !== $branchId) {
+                throw new ConflictHttpException('REPORT_SOURCE_CHANGED');
+            }
             if ($shift->operational_chain_id !== $snapshot->operational_chain_id) {
                 throw new ConflictHttpException('OPERATIONAL_CHAIN_CHANGED');
             }
@@ -53,6 +73,15 @@ final class CashierShiftStartService
                 || $shift->status !== ShiftStatus::NOT_STARTED) {
                 throw new ConflictHttpException('SHIFT_NO_LONGER_PENDING');
             }
+            if (! $this->isLegacySharedReassignment($shift) && $shift->actual_start_time !== null) {
+                throw new ConflictHttpException('SHIFT_NO_LONGER_PENDING');
+            }
+            if ($shift->history()->where('action', 'reassignment_work_assigned')->exists()
+                && app(ShiftCashCountService::class)->currentFor($shift->id) !== null) {
+                throw new ConflictHttpException('REPORT_ALREADY_SUBMITTED');
+            }
+            // Reject submitted workdays before separating legacy reassignments or mutating chain, status, or history.
+            $this->assertWorkdayOpen($workdays);
             $shift = app(ReassignmentReportOwnershipService::class)->separate($shift);
             if ($shift->actual_start_time !== null) {
                 throw new ConflictHttpException('SHIFT_NO_LONGER_PENDING');
@@ -102,6 +131,28 @@ final class CashierShiftStartService
 
             return $shift;
         });
+    }
+
+    private function businessDate(CashierShift $shift): string
+    {
+        return $shift->shift_date instanceof CarbonInterface
+            ? $shift->shift_date->toDateString()
+            : substr((string) $shift->shift_date, 0, 10);
+    }
+
+    private function isLegacySharedReassignment(CashierShift $shift): bool
+    {
+        return $shift->original_cashier_id !== null
+            && $shift->original_cashier_id !== $shift->cashier_id
+            && $shift->actual_start_time !== null
+            && $shift->history()->where('action', 'reassignment_report_separated')->doesntExist();
+    }
+
+    private function assertWorkdayOpen(Collection $workdays): void
+    {
+        if ($workdays->contains(fn (BranchManagerShift $day) => $day->daily_report_submitted || $day->daily_report_submitted_at !== null)) {
+            throw new ConflictHttpException('REPORT_REOPEN_REQUIRED');
+        }
     }
 
     private function predecessorId(CashierShift $shift): ?string

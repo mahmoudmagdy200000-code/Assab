@@ -38,6 +38,10 @@ try {
             app(\Modules\Shift\Services\BranchManagerShiftService::class)->lockCashierFinancialInputs($day);
             $day->update(['daily_report_submitted' => true, 'daily_report_submitted_at' => now()]);
             $result = ['status' => 'submitted'];
+        } elseif ($input['command'] === 'start') {
+            $source = \Modules\Shift\Models\CashierShift::findOrFail($input['source']);
+            $started = app(\Modules\Shift\Services\CashierShiftStartService::class)->startShift($source);
+            $result = ['status' => 'started', 'id' => $started->id];
         } elseif ($input['command'] === 'same_recipient_correct') {
             $source = \Modules\Shift\Models\CashierShift::findOrFail($input['source']);
             $actor = \Modules\Cashier\Models\Cashier::findOrFail($source->cashier_id);

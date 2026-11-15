@@ -18,6 +18,7 @@ use Modules\Shift\Services\CountedReassignmentGuard;
 use Modules\Shift\Services\HandoverService;
 use Modules\Shift\Services\ShiftCashCountService;
 use Modules\Shift\Services\ShiftEndService;
+use Modules\Shift\Services\ShiftReportMutationGuard;
 use Modules\Shift\Services\VarianceCalculationService;
 use Modules\Shift\Transformers\ShiftDetailResource;
 
@@ -235,13 +236,16 @@ class ShiftEndController extends Controller
         }
 
         try {
-            $shiftModel = $this->getShiftForUser($shift, auth()->user());
+            $user = auth()->user();
+            $shiftModel = $this->getShiftForUser($shift, $user);
             if (! $shiftModel) {
                 return response()->json(['success' => false, 'message' => 'Shift not found or you do not have access to it'], 404);
             }
+            $this->reassignmentGuard->assertCanContinue($shiftModel, $user);
             if ($shiftModel->status !== ShiftStatus::IN_PROGRESS) {
                 return response()->json(['success' => false, 'message' => 'This shift is not in progress. Current status: '.$shiftModel->status->value], 400);
             }
+            app(ShiftReportMutationGuard::class)->assertEditable($shiftModel, $user);
 
             $countedHalalas = $this->shiftEndService->parseCountedCash($request->all());
             $apps = 0;
