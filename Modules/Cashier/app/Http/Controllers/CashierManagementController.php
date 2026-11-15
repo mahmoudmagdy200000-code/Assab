@@ -76,6 +76,12 @@ class CashierManagementController extends BaseController
      */
     public function assignShifts(Request $request): JsonResponse
     {
+        if ($request->filled('cashier_id')) {
+            $this->cashierService->ensureBranchManagerCashier(
+                candidateId: (string) $request->input('cashier_id')
+            );
+        }
+
         $request->validate([
             'cashier_id' => 'required|exists:cashiers,id',
             'shift_ids' => 'required|array|min:1',
@@ -97,6 +103,12 @@ class CashierManagementController extends BaseController
      */
     public function updateShifts(Request $request): JsonResponse
     {
+        if ($request->filled('cashier_id')) {
+            $this->cashierService->ensureBranchManagerCashier(
+                candidateId: (string) $request->input('cashier_id')
+            );
+        }
+
         $request->validate([
             'cashier_id' => 'required|exists:cashiers,id',
             'shift_ids' => 'required|array|min:1',
@@ -116,6 +128,17 @@ class CashierManagementController extends BaseController
      */
     public function swapShifts(Request $request): JsonResponse
     {
+        if ($request->filled('cashier_a_id')) {
+            $this->cashierService->ensureBranchManagerCashier(
+                candidateId: (string) $request->input('cashier_a_id')
+            );
+        }
+        if ($request->filled('cashier_b_id')) {
+            $this->cashierService->ensureBranchManagerCashier(
+                candidateId: (string) $request->input('cashier_b_id')
+            );
+        }
+
         $request->validate([
             'cashier_a_id' => 'required|exists:cashiers,id',
             'shift_a_id' => 'required|exists:shifts,id',
@@ -162,6 +185,13 @@ class CashierManagementController extends BaseController
     {
         // Support either bulk 'assignments' array or a single object in the body
         if ($request->has('assignments') && is_array($request->assignments)) {
+            foreach ($request->assignments as $item) {
+                if (is_array($item) && ! empty($item['cashier_id'])) {
+                    $this->cashierService->ensureBranchManagerCashier(
+                        candidateId: (string) $item['cashier_id']
+                    );
+                }
+            }
             $request->validate([
                 'assignments' => 'required|array|min:1',
                 'assignments.*.shift_id' => 'required|exists:shifts,id',
@@ -171,6 +201,11 @@ class CashierManagementController extends BaseController
             ]);
             $assignments = $request->assignments;
         } else {
+            if ($request->filled('cashier_id')) {
+                $this->cashierService->ensureBranchManagerCashier(
+                    candidateId: (string) $request->input('cashier_id')
+                );
+            }
             $request->validate([
                 'shift_id' => 'required|exists:shifts,id',
                 'cashier_id' => 'required|exists:cashiers,id',

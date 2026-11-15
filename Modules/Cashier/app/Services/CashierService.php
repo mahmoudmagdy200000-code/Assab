@@ -795,4 +795,86 @@ class CashierService
 
         return $cashier;
     }
+
+    /**
+     * Ensure an active Cashier mirror record exists (sharing the same UUID)
+     * when a Branch Manager assigns himself to a cashier shift or recurring roster.
+     */
+    public function ensureBranchManagerCashier(
+        ?string $candidateId = null,
+        ?string $branchId = null,
+        ?\Modules\BranchManagers\Models\BranchManager $manager = null
+    ): ?Cashier {
+        $authManager = $manager ?? (auth('branch_manager')->user() ?? auth()->user());
+        $targetBranchId = $branchId ?? ($authManager instanceof \Modules\BranchManagers\Models\BranchManager ? $authManager->branch_id : null);
+
+        $bm = null;
+        if ($candidateId !== null) {
+            if ($existingCashier = Cashier::whereKey($candidateId)->first()) {
+                return $existingCashier;
+            }
+
+            $bm = \Modules\BranchManagers\Models\BranchManager::query()
+                ->whereKey($candidateId)
+                ->when($targetBranchId, fn ($q) => $q->where('branch_id', $targetBranchId))
+                ->where('is_active', true)
+                ->where('status', 'active')
+                ->first();
+        } elseif ($authManager instanceof \Modules\BranchManagers\Models\BranchManager && $authManager->isActive()) {
+            $bm = $authManager;
+        }
+
+        if (! $bm || ! $bm->branch_id) {
+            return null;
+        }
+
+        $existing = Cashier::withTrashed()->whereKey($bm->id)->first();
+        if ($existing) {
+            if ($existing->trashed()) {
+                $existing->restore();
+            }
+            $existing->forceFill([
+                'name' => $bm->name,
+                'branch_id' => $bm->branch_id,
+                'status' => 'active',
+                'activated_at' => $existing->activated_at ?? now(),
+                'deactivated_at' => null,
+            ])->saveQuietly();
+
+            return $existing;
+        }
+
+        $email = ($bm->email && ! Cashier::withTrashed()->where('email', $bm->email)->exists())
+            ? $bm->email
+            : "bm.cashier.{$bm->id}@assab.local";
+
+        $cashier = new Cashier();
+        $cashier->forceFill([
+            'id' => $bm->id,
+            'name' => $bm->name,
+            'email' => $email,
+            'password' => $bm->getAuthPassword() ?: Hash::make(\Illuminate\Support\Str::random(32)),
+            'phone' => $bm->phone,
+            'image' => $bm->image,
+            'branch_id' => $bm->branch_id,
+            'status' => 'active',
+            'created_by' => $bm->id,
+            'activated_at' => now(),
+        ]);
+        $cashier->saveQuietly();
+
+        try {
+            \Modules\Admin\Models\Employee::withoutGlobalScope('tenant')
+                ->where('branch_id', $bm->branch_id)
+                ->where('name', $bm->name)
+                ->whereNull('legacy_cashier_id')
+                ->first()
+                ?->forceFill(['legacy_cashier_id' => $bm->id])
+                ->save();
+        } catch (\Throwable) {
+            // Best-effort dashboard employee mirror linkage
+        }
+
+        return $cashier;
+    }
 }

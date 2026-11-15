@@ -411,4 +411,47 @@ class ShiftUnifiedDatedAssignmentTest extends TestCase
         // Current cashier for this shift is not marked busy because id != $shiftId
         $this->assertTrue($cashierAInShift['is_available']);
     }
+
+    /**
+     * Test that Branch Manager can view himself in available-cashiers meta and assign himself to shifts & recurring roster.
+     */
+    public function test_branch_manager_can_self_assign_via_dated_and_recurring_endpoints(): void
+    {
+        $this->manager->update(['status' => 'active', 'is_active' => true]);
+        $this->actingAs($this->manager, 'sanctum');
+        $date = '2026-11-15';
+        $key = "{$date}_{$this->template1->id}";
+
+        // 1. available-cashiers exposes meta.branch_manager
+        $availRes = $this->getJson("/api/v1/branch-manager/cashiers/available-cashiers?template_id={$this->template1->id}&shift_date={$date}");
+        $availRes->assertOk()
+            ->assertJsonPath('meta.branch_manager.id', $this->manager->id)
+            ->assertJsonPath('meta.branch_manager.name', $this->manager->name)
+            ->assertJsonPath('meta.branch_manager.is_branch_manager', true)
+            ->assertJsonPath('meta.branch_manager.is_available', true);
+
+        // 2. assign-shifts succeeds when cashier_id is the Branch Manager's ID
+        $this->postJson('/api/v1/branch-manager/cashiers/assign-shifts', [
+            'cashier_id' => $this->manager->id,
+            'shift_ids' => [$this->template1->id],
+            'shift_date' => $date,
+        ])->assertOk();
+
+        // 3. dated-roster reads back the Branch Manager on that slot
+        $rosterRes = $this->getJson("/api/v1/branch-manager/cashiers/dated-roster?start_date={$date}&end_date={$date}");
+        $rosterRes->assertOk()
+            ->assertJsonPath("data.roster.{$key}.cashier_id", $this->manager->id)
+            ->assertJsonPath("data.roster.{$key}.cashier_name", $this->manager->name);
+
+        // 4. roster-assignments succeeds when cashier_id is the Branch Manager's ID
+        $this->postJson('/api/v1/branch-manager/cashiers/roster-assignments', [
+            'assignments' => [
+                [
+                    'shift_id' => $this->template2->id,
+                    'cashier_id' => $this->manager->id,
+                    'effective_from' => $date,
+                ],
+            ],
+        ])->assertOk();
+    }
 }
