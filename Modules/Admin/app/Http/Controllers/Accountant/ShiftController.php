@@ -68,8 +68,21 @@ class ShiftController extends AsabController
                 $q = $this->scopeToAssignedBranches(Shift::whereIn('status', ['pending_review', 'closed']));
             }
 
-            if ($request->query('role') === 'cashier' || $request->boolean('cashierOnly')) {
+            $submittedWithWorkday = $request->boolean('submittedWithWorkday');
+            if ($submittedWithWorkday || $request->query('role') === 'cashier' || $request->boolean('cashierOnly')) {
                 $q->cashierRole();
+            }
+            if ($submittedWithWorkday) {
+                $q->whereExists(function ($membership) {
+                    $membership->selectRaw('1')
+                        ->from('shift_liability_daily_locks as membership')
+                        ->join('branch_manager_shifts as workday', 'workday.id', '=', 'membership.branch_manager_shift_id')
+                        ->whereColumn('membership.cashier_shift_id', 'asab_shifts.legacy_shift_id')
+                        ->whereColumn('workday.branch_id', 'asab_shifts.branch_id')
+                        ->where('workday.daily_report_submitted', true)
+                        ->whereNull('membership.released_at')
+                        ->whereNull('membership.superseded_at');
+                });
             }
 
             if ($branch = $request->query('branchId')) {
@@ -89,7 +102,11 @@ class ShiftController extends AsabController
             }
             $p = $q->orderByDesc('ended_at')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
-            return $this->paginated($p, $this->presenter->collection(collect($p->items())));
+            return $this->paginated(
+                $p,
+                $this->presenter->collection(collect($p->items())),
+                $submittedWithWorkday ? ['submittedWithWorkday' => true] : [],
+            );
         });
     }
 

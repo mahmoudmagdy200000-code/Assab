@@ -14,7 +14,12 @@ use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Shift;
 use Modules\Admin\Services\ShiftLatenessService;
 use Modules\Branch\Models\Branch;
+use Modules\BranchManagers\Models\BranchManager;
+use Modules\Cashier\Models\Cashier;
+use Modules\Shift\Models\BranchManagerShift;
+use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\Shift as MobileShift;
+use Modules\Shift\Models\ShiftLiabilityDailyLock;
 use Tests\TestCase;
 
 /**
@@ -314,6 +319,70 @@ class ShiftsTest extends TestCase
      * MT-20: Optional status, cashier role, and multi-page pagination scope.
      * Table rows and meta.total counter must share the exact same filtered scope.
      */
+    public function test_sales_history_requires_active_membership_in_a_submitted_workday_before_pagination(): void
+    {
+        $manager = BranchManager::factory()->create(['branch_id' => $this->branchA->id]);
+        $cashier = Cashier::factory()->create(['branch_id' => $this->branchA->id]);
+        $template = MobileShift::factory()->create(['branch_id' => $this->branchA->id]);
+        $day = BranchManagerShift::create([
+            'branch_manager_id' => $manager->id,
+            'branch_id' => $this->branchA->id,
+            'shift_date' => '2026-11-14',
+            'status' => 'completed',
+        ]);
+
+        $shifts = [];
+        foreach (['included', 'cashier_only', 'released', 'superseded'] as $index => $kind) {
+            $date = Carbon::parse('2026-11-14')->addDays($index);
+            $source = CashierShift::factory()->completed()->create([
+                'cashier_id' => $cashier->id,
+                'shift_id' => $template->id,
+                'shift_date' => $date->toDateString(),
+            ]);
+            $shifts[$kind] = Shift::create([
+                'company_id' => $this->company->id,
+                'branch_id' => $this->branchA->id,
+                'cashier_name' => 'Cashier',
+                'shift_type' => 'first',
+                'started_at' => $date->copy()->addHour(),
+                'ended_at' => $date->copy()->addHours(2),
+                'status' => 'pending_review',
+                'legacy_shift_id' => $source->id,
+                'sales_amount' => 11000,
+            ]);
+
+            if ($kind !== 'cashier_only') {
+                ShiftLiabilityDailyLock::create([
+                    'cashier_shift_id' => $source->id,
+                    'branch_manager_shift_id' => $day->id,
+                    'report_revision' => '1',
+                    'locked_by_id' => $manager->id,
+                    'locked_at' => now(),
+                    'released_at' => $kind === 'released' ? now() : null,
+                    'superseded_at' => $kind === 'superseded' ? now() : null,
+                ]);
+            }
+        }
+
+        $path = '/api/v1/accountant/shifts/history';
+        $scoped = $path.'?submittedWithWorkday=1&pageSize=1';
+        $this->acc()->getJson($scoped)->assertOk()
+            ->assertJsonPath('meta.submittedWithWorkday', true)
+            ->assertJsonPath('meta.total', 0);
+
+        $day->update(['daily_report_submitted' => true, 'daily_report_submitted_at' => now()]);
+        $this->acc()->getJson($scoped)->assertOk()
+            ->assertJsonPath('meta.total', 1)
+            ->assertJsonPath('meta.totalPages', 1)
+            ->assertJsonPath('data.0.id', $shifts['included']->id)
+            ->assertJsonPath('data.0.salesHalalas', 11000);
+
+        $this->acc()->getJson($path)->assertOk()
+            ->assertJsonPath('meta.total', 4)
+            ->assertJsonMissingPath('meta.submittedWithWorkday')
+            ->assertJsonFragment(['id' => $shifts['cashier_only']->id]);
+    }
+
     public function test_history_filters_status_role_and_scopes_pagination_total(): void
     {
         // Branch A: 2 cashier closed, 2 cashier pending_review, 1 manager closed
