@@ -128,14 +128,19 @@ class BranchManagerShiftController extends BaseController
         try {
             /** @var BranchManager $manager */
             $manager = Auth::user();
+            if (! $manager || ! $manager->branch_id) {
+                return HandoverErrorResponse::domain('FORBIDDEN_SCOPE', 403);
+            }
+            app(\Modules\BranchManagers\Services\BranchManagerService::class)
+                ->assertAssignedActiveManager($manager->branch_id, $manager->id);
 
-            $query = BranchManagerShift::where('branch_manager_id', $manager->id)
+            $query = BranchManagerShift::where('branch_id', $manager->branch_id)
                 ->select([
                     'id', 'branch_manager_id', 'branch_id', 'shift_date',
                     'status', 'actual_start_time', 'actual_end_time',
                     'next_manager_id', 'created_at', 'updated_at',
                 ])
-                ->with(['branch:id,name,location', 'nextManager:id,name'])
+                ->with(['branch:id,name,location', 'nextManager:id,name', 'branchManager:id,name'])
                 ->orderBy('shift_date', 'desc');
 
             $this->applyShiftFilters($query, $request);
@@ -147,8 +152,8 @@ class BranchManagerShiftController extends BaseController
                 BranchManagerShiftResource::collection($shifts),
                 'Shifts history retrieved successfully'
             );
-        } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 500);
+        } catch (\Throwable $e) {
+            return HandoverErrorResponse::from($e, 'manager workday history');
         }
     }
 
@@ -1056,9 +1061,13 @@ class BranchManagerShiftController extends BaseController
         try {
             /** @var BranchManager $manager */
             $manager = Auth::user();
+            if (! $manager || ! $manager->branch_id) {
+                return HandoverErrorResponse::domain('FORBIDDEN_SCOPE', 403);
+            }
+            app(\Modules\BranchManagers\Services\BranchManagerService::class)
+                ->assertAssignedActiveManager($manager->branch_id, $manager->id);
 
             $managerShift = BranchManagerShift::where('id', $shiftId)
-                ->where('branch_manager_id', $manager->id)
                 ->select([
                     'id', 'branch_manager_id', 'branch_id', 'shift_date', 'status',
                     'total_sales', 'net_sales', 'vat_amount', 'cash_collected',
@@ -1071,6 +1080,10 @@ class BranchManagerShiftController extends BaseController
                 ])
                 ->with(['branchManager:id,name', 'nextManager:id,name', 'branch:id,name'])
                 ->firstOrFail();
+
+            if ((string) $managerShift->branch_id !== (string) $manager->branch_id) {
+                return HandoverErrorResponse::domain('FORBIDDEN_SCOPE', 403);
+            }
 
             $financialSummary = $this->shiftService->calculateFinancialSummary($managerShift);
             $handovers = $this->shiftService->getShiftHandovers($managerShift, 'to_manager');
@@ -1158,6 +1171,10 @@ class BranchManagerShiftController extends BaseController
     {
         if ($status = $request->input('status')) {
             $query->where('status', $status);
+        }
+
+        if ($date = $request->input('date')) {
+            $query->whereDate('shift_date', $date);
         }
 
         if ($from = $request->input('date_from')) {
