@@ -4,6 +4,7 @@ namespace Modules\Shift\Transformers;
 
 use Carbon\Carbon;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 
 /**
@@ -24,18 +25,36 @@ class HandoverSummaryResource extends JsonResource
         $acceptanceMessage = $this->getAcceptanceMessage();
 
         $authUser = auth()->user();
-        $recipientId = $this->handover?->handover_to_id ?? $this->next_cashier_id;
-        $isIncoming = $authUser instanceof Cashier
-                        && (string) $recipientId === (string) $authUser->id
-                        && (string) $this->cashier_id !== (string) $authUser->id;
-        $isOutgoing = $authUser instanceof Cashier
-                        && (string) $this->cashier_id === (string) $authUser->id
-                        && (string) $recipientId !== (string) $authUser->id;
+        $handover = $this->handover;
+        $handoverToType = $handover?->handover_to_type ?? 'cashier';
+        $recipientId = $handover?->handover_to_id ?? ($handoverToType === 'cashier' ? $this->next_cashier_id : null);
+
+        $isIncoming = false;
+        $isOutgoing = false;
+
+        if ($authUser instanceof BranchManager) {
+            $isIncoming = $handoverToType === 'branch_manager'
+                && $recipientId !== null
+                && (string) $recipientId === (string) $authUser->id
+                && (string) $this->shift?->branch_id === (string) $authUser->branch_id;
+        } elseif ($authUser instanceof Cashier) {
+            $isIncoming = $handoverToType === 'cashier'
+                && $recipientId !== null
+                && (string) $recipientId === (string) $authUser->id
+                && (string) $this->cashier_id !== (string) $authUser->id;
+            $isOutgoing = (string) $this->cashier_id === (string) $authUser->id
+                && (string) $recipientId !== (string) $authUser->id;
+        }
+
+        $managerApprovalStatus = $this->handoverStatus?->manager_approval_status ?? 'pending';
+        $handoverStatus = $handover?->status ?? 'pending';
         $canBeAccepted = $isIncoming
-                        && ($this->handoverStatus?->manager_approval_status ?? 'pending') === 'pending';
+            && $managerApprovalStatus === 'pending'
+            && $handoverStatus === 'pending';
 
         return [
             'id' => $this->id,
+            'handover_id' => $handover?->id,
             'shift_date' => $this->shift_date?->format('M j, Y'),
             'shift_date_iso' => $this->shift_date?->format('Y-m-d'),
             'status' => $status,
@@ -43,6 +62,10 @@ class HandoverSummaryResource extends JsonResource
             'variance' => $varianceDisplay,
             'variance_amount' => $varianceAmount,
             'cash_from' => $cashFrom,
+            'handover_to_id' => $recipientId,
+            'handover_to_name' => $handover?->handoverTo?->name ?? $this->nextCashier?->name,
+            'handover_to_type' => $handoverToType,
+            'receipt_id' => $handover?->receipt?->id,
             'acceptance_message' => $acceptanceMessage,
             'responsibility_status' => $this->getResponsibilityStatus(),
             'responsibility_reviewed_at' => $this->getResponsibilityReviewedAt(),

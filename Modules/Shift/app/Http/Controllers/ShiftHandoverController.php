@@ -237,6 +237,15 @@ class ShiftHandoverController extends Controller
             }
 
             if ($handover->handover_to_type === 'branch_manager') {
+                app(\Modules\BranchManagers\Services\BranchManagerService::class)
+                    ->assertAssignedActiveManager($shiftModel->shift->branch_id, $manager->id);
+                if ((string) $handover->handover_to_id !== (string) $manager->id) {
+                    return HandoverErrorResponse::domain('ONLY_ASSIGNED_BRANCH_MANAGER_RECIPIENT', 403);
+                }
+                if (! $handover->canApprove()) {
+                    return HandoverErrorResponse::domain('HANDOVER_NOT_PENDING', 409);
+                }
+
                 ShiftMoneyValidation::normalizeRepresentationNoise($request);
                 $amountValidator = Validator::make($request->all(), [
                     'confirmed_amount' => 'required|'.ShiftMoneyValidation::SAR,
@@ -245,14 +254,6 @@ class ShiftHandoverController extends Controller
                     return response()->json(['success' => false, 'message' => 'Validation failed', 'code' => 'VALIDATION_ERROR', 'errors' => $amountValidator->errors()], 422);
                 }
             }
-
-            // if (!in_array($shiftModel->handoverStatus->manager_approval_status, ['pending', 'rejected'])) {
-            //     return response()->json([
-            //         'success' => false,
-            //         'message' => 'Handover is not pending approval',
-            //         'current_status' => $shiftModel->handoverStatus->manager_approval_status
-            //     ], 400);
-            // }
 
             $result = $this->handoverService->approveHandover(
                 $shiftModel,
@@ -264,6 +265,7 @@ class ShiftHandoverController extends Controller
             );
 
             $isManagerReceipt = $handover->handover_to_type === 'branch_manager';
+            $receiptId = $handover->fresh('receipt')?->receipt?->id;
 
             return response()->json([
                 'success' => true,
@@ -273,6 +275,8 @@ class ShiftHandoverController extends Controller
                 'data' => [
                     'shift' => new ShiftDetailResource($result),
                     'approval_details' => [
+                        'handover_id' => $handover->id,
+                        'receipt_id' => $receiptId,
                         'approved_by' => $manager->name,
                         'approved_at' => now()->format('Y-m-d H:i:s'),
                         'manager_comment' => $request->get('manager_comment') ?? null,
@@ -439,7 +443,7 @@ class ShiftHandoverController extends Controller
                 ], 404);
             }
 
-            if (! $shiftModel->handoverStatus->canBeRejected()) {
+            if (! $shiftModel->handoverStatus->canBeRejected() || ! $managerHandover->canReject()) {
                 return response()->json([
                     'success' => false,
                     'message' => 'HANDOVER_NOT_PENDING',

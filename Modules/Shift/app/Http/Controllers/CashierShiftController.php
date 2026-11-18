@@ -179,14 +179,44 @@ class CashierShiftController extends BaseController
                 ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) asc')
                 ->paginate($request->input('per_page', 15));
 
-            $transformedShifts = $shifts->getCollection()->map(function ($shift, $index) {
-                $isFirstShift = $index === 0;
+            $earliestPendingId = CashierShift::query()
+                ->where('cashier_id', $cashier->id)
+                ->whereIn('status', [ShiftStatus::NOT_STARTED, ShiftStatus::REASSIGNED])
+                ->pendingDateWindow($request->input('date_from'), $request->input('date_to'))
+                ->orderBy('shift_date', 'asc')
+                ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) asc')
+                ->orderBy('cashier_shifts.id', 'asc')
+                ->value('cashier_shifts.id');
+
+            $transformedShifts = $shifts->getCollection()->map(function ($shift) use ($earliestPendingId) {
+                $isFirstShift = $earliestPendingId !== null && (string) $shift->id === (string) $earliestPendingId;
                 $startWindow = ShiftHelper::getShiftStartWindow($shift);
                 $nextRecipient = $this->shiftService->getNextRecipientForDisplay($shift);
                 $handoverTo = $shift->handover?->handoverTo;
                 $handoverToName = $handoverTo?->name ?? $nextRecipient?->name;
                 $handoverToId = $shift->handover?->handover_to_id ?? $nextRecipient?->id ?? $shift->next_cashier_id;
                 $handoverToType = $shift->handover?->handover_to_type ?? ($nextRecipient instanceof \Modules\BranchManagers\Models\BranchManager ? 'branch_manager' : 'cashier');
+
+                $canAcceptAssignment = $shift->status === ShiftStatus::REASSIGNED
+                    && $shift->actual_start_time === null
+                    && ($shift->handoverStatus === null || $shift->handoverStatus->manager_approval_status === 'pending');
+
+                $canStart = $shift->status === ShiftStatus::NOT_STARTED
+                    && $isFirstShift
+                    && $shift->actual_start_time === null
+                    && $shift->operational_ended_at === null
+                    && $startWindow['can_start'];
+
+                $startDisabledReason = null;
+                if (! $canStart) {
+                    if ($shift->status === ShiftStatus::REASSIGNED) {
+                        $startDisabledReason = 'يجب قبول تكليف الوردية أولاً';
+                    } elseif (! $isFirstShift) {
+                        $startDisabledReason = 'لم يحن دور الوردية بعد؛ يرجى بدء الوردية السابقة أولاً';
+                    } else {
+                        $startDisabledReason = $startWindow['reason'];
+                    }
+                }
 
                 return [
                     'id' => $shift->id,
@@ -216,13 +246,9 @@ class CashierShiftController extends BaseController
                     'assigned_by_user_type' => $shift->assigned_by ? 'branch_manager' : null,
                     'is_next_shift' => $isFirstShift,
                     'start_window' => $startWindow,
-                    'can_start' => in_array($shift->status, [ShiftStatus::NOT_STARTED, ShiftStatus::REASSIGNED], true)
-                        && $shift->actual_start_time === null
-                        && $shift->operational_ended_at === null
-                        && $startWindow['can_start'],
-                    'can_accept_assignment' => $shift->status === ShiftStatus::REASSIGNED
-                        && $shift->actual_start_time === null
-                        && ($shift->handoverStatus === null || $shift->handoverStatus->manager_approval_status === 'pending'),
+                    'can_start' => $canStart,
+                    'start_disabled_reason' => $startDisabledReason,
+                    'can_accept_assignment' => $canAcceptAssignment,
                     'actions' => [
                         'view_details' => true,
                         'reassign_shift' => true,
@@ -273,9 +299,9 @@ class CashierShiftController extends BaseController
                         'start_time' => $shift->shift->start_time?->format('H:i') ?? 'N/A',
                         'end_time' => $shift->shift->end_time?->format('H:i') ?? 'N/A',
                         'actual_start_time' => $shift->actual_start_time?->format('H:i:s'),
-                        'opening_balance' => $shift->opening_balance > 0
+                        'opening_balance' => $shift->opening_balance !== null
                             ? (float) $shift->opening_balance
-                            : 'Not yet recorded',
+                            : null,
                         'closing_balance' => (float) ($shift->closing_balance ?? 0),
                         'assigned_to' => $shift->cashier->name ?? 'N/A',
                         'next_cashier' => $this->formatNextRecipientName($nextRecipient),
@@ -319,6 +345,19 @@ class CashierShiftController extends BaseController
 
             if ($shiftModel->status !== ShiftStatus::NOT_STARTED && $shiftModel->status !== ShiftStatus::REASSIGNED) {
                 return $this->errorResponse('Shift has already been started or is not in pending status', 400);
+            }
+
+            $earliestPendingId = CashierShift::query()
+                ->where('cashier_id', $cashier->id)
+                ->whereIn('status', [ShiftStatus::NOT_STARTED, ShiftStatus::REASSIGNED])
+                ->pendingDateWindow()
+                ->orderBy('shift_date', 'asc')
+                ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) asc')
+                ->orderBy('cashier_shifts.id', 'asc')
+                ->value('cashier_shifts.id');
+
+            if ($earliestPendingId !== null && (string) $shiftModel->id !== (string) $earliestPendingId) {
+                return $this->errorResponse('لم يحن دور الوردية بعد؛ يرجى بدء الوردية السابقة أولاً', 400);
             }
 
             $startWindow = ShiftHelper::getShiftStartWindow($shiftModel);

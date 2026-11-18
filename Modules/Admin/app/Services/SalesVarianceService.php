@@ -149,18 +149,6 @@ class SalesVarianceService
     /** Resolve an employee by id or employee-number within the operation's tenant + branch. */
     private function resolveEmployee(Operation $op, array $a): Employee
     {
-        $ref = $a['employeeId'] ?? ($a['empNumber'] ?? null);
-        $emp = Employee::where('company_id', $op->company_id)
-            ->when($op->branch_id, fn ($q) => $q->where('branch_id', $op->branch_id))
-            ->where(fn ($q) => $q->where('id', $ref)->orWhere('emp_number', $ref))
-            ->first();
-
-        if (! $emp) {
-            throw new AsabException('VALIDATION_ERROR', 'Employee not found in branch', 'الموظف غير موجود في الفرع', 422, [
-                'employeeId' => ['unknown employee '.$ref],
-            ]);
-        }
-
-        return $emp;
+        return app(EmployeeAllocationService::class)->resolveEmployee($op, $a);
     }
 }

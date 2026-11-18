@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Modules\Admin\Models\AsabUser;
+use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Shift\Liability\AllocationRules;
 use Modules\Shift\Liability\ResponsibleActorResolver;
 use Modules\Shift\Models\CashierShift;
@@ -197,6 +198,51 @@ class AccountantReportCorrectionService
 
             $openingHalalas = ShiftFinancialCalculator::storedSarToHalalas($shift->shift?->opening_float ?? $shift->opening_balance ?? '0.00');
 
+            // Sales channel integrity (BE-01 / S1-07): cards + apps cannot exceed gross, and
+            // explicitly corrected cash_collected cannot exceed derived sales cash (gross - cards - apps).
+            $channels = ShiftFinancialCalculator::salesChannelCheck(
+                $grossHalalas,
+                $newCardsHalalas,
+                $newAppsHalalas,
+                $newCashCollectedHalalas
+            );
+            if (! $channels['channelsValid']) {
+                throw ValidationException::withMessages([
+                    'card_payments' => 'Card payments plus delivery-app sales cannot exceed gross sales.',
+                ]);
+            }
+            $cashCollectedExplicit = array_key_exists('cash_collected', $changes);
+            if ($cashCollectedExplicit && ($channels['channelDifference'] ?? 0) > 0) {
+                throw ValidationException::withMessages([
+                    'cash_collected' => 'Collected sales cash cannot exceed gross sales minus card and delivery-app sales.',
+                ]);
+            }
+
+            $postedSalesCustodyRows = CashierCustodyTransaction::query()
+                ->where('related_shift_id', $shift->id)
+                ->where('transaction_type', 'Total Sales')
+                ->lockForUpdate()
+                ->get();
+            $hasPostedSalesCustody = $postedSalesCustodyRows->isNotEmpty();
+            $postedSalesCustodyHalalas = 0;
+            foreach ($postedSalesCustodyRows as $entry) {
+                if ((string) $entry->cashier_id !== (string) $shift->cashier_id) {
+                    throw new ConflictHttpException('BALANCE_EVIDENCE_UNAVAILABLE');
+                }
+                $amountH = ShiftFinancialCalculator::storedSarToHalalas($entry->amount);
+                $postedSalesCustodyHalalas += $entry->is_cash_in ? $amountH : -$amountH;
+            }
+
+            $cappedCustodyCashHalalas = min($newCashCollectedHalalas, $channels['derivedCashSales']);
+            if (! $cashCollectedExplicit
+                && $hasPostedSalesCustody
+                && ($cardsChanged || $aggsChanged)
+                && $cappedCustodyCashHalalas > $postedSalesCustodyHalalas) {
+                throw ValidationException::withMessages([
+                    'cash_collected' => 'يجب تحديد مبلغ الكاش المحصّل فعليًا قبل حفظ التصحيح لأن تعديل القنوات سيزيد عهدة الكاشير.',
+                ]);
+            }
+
             $calc = ShiftFinancialCalculator::calculate(
                 $grossHalalas,
                 $newCardsHalalas,
@@ -213,12 +259,13 @@ class AccountantReportCorrectionService
             $newCardsSar = number_format($newCardsHalalas / 100, 2, '.', '');
             $newCashCollectedSar = number_format($newCashCollectedHalalas / 100, 2, '.', '');
 
-            // Reconcile balance entry if cash_collected changed
-            if ($cashCollectedChanged) {
+            // Reconcile balance entry if cash_collected changed, or if channel edits lowered
+            // derived sales cash below previously posted Total Sales custody.
+            if ($cashCollectedChanged || ($hasPostedSalesCustody && ($cardsChanged || $aggsChanged))) {
                 $this->balanceService->reconcileCashCollected(
                     $shift,
                     $oldCashCollectedHalalas,
-                    $newCashCollectedHalalas,
+                    $cappedCustodyCashHalalas,
                     $operationId
                 );
             }

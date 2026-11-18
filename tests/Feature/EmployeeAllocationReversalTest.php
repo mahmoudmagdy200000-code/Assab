@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
+use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
@@ -186,5 +188,120 @@ class EmployeeAllocationReversalTest extends TestCase
         $this->assertSame($this->emp1->id, $credit->employee_id);
         $this->assertSame(3000, (int) $credit->amount);
         $this->assertStringStartsWith('REV-', $credit->ref);
+    }
+
+    public function test_resolve_employee_refuses_ambiguous_number_and_disambiguates_by_uuid(): void
+    {
+        $op = $this->makeOp();
+
+        $emp7Numeric = Employee::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branch->id,
+            'emp_number' => '7',
+            'name' => 'موظف 7',
+            'role' => 'كاشير',
+            'status' => 'active',
+        ]);
+
+        $emp7Code = Employee::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branch->id,
+            'emp_number' => 'EMP-0007',
+            'name' => 'موظف كود 7',
+            'role' => 'كاشير',
+            'status' => 'active',
+        ]);
+
+        // Ambiguous reference throws AMBIGUOUS_EMPLOYEE_REF
+        try {
+            $this->service->resolveEmployee($op, ['empNumber' => '7']);
+            $this->fail('Expected AsabException for ambiguous employee reference');
+        } catch (\Modules\Admin\Exceptions\AsabException $e) {
+            $this->assertSame(422, $e->status);
+            $this->assertSame('AMBIGUOUS_EMPLOYEE_REF', $e->errorCode);
+        }
+
+        // With explicit UUID employeeId, resolves unambiguously
+        $resolvedNumeric = $this->service->resolveEmployee($op, [
+            'employeeId' => $emp7Numeric->id,
+            'empNumber' => '7',
+        ]);
+        $this->assertSame($emp7Numeric->id, $resolvedNumeric->id);
+
+        $resolvedCode = $this->service->resolveEmployee($op, [
+            'employeeId' => $emp7Code->id,
+            'empNumber' => 'EMP-0007',
+        ]);
+        $this->assertSame($emp7Code->id, $resolvedCode->id);
+    }
+
+    public function test_resolve_employee_uses_uuid_alone_and_rejects_foreign_or_missing_uuid_even_with_valid_local_emp_number(): void
+    {
+        $op = $this->makeOp();
+        $this->assertSame(0, $this->ledger->currentBalance($this->emp1->id));
+
+        $otherBranch = Branch::factory()->create([
+            'name' => 'Branch B',
+            'asab_brand_id' => $this->brand->id,
+            'asab_company_id' => $this->company->id,
+        ]);
+        $foreignBranchEmp = Employee::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $otherBranch->id,
+            'emp_number' => '999',
+            'name' => 'Other Branch Emp',
+            'role' => 'cashier',
+            'status' => 'active',
+        ]);
+
+        // 1. UUID from another branch + valid local empNumber ('101') must throw 422 VALIDATION_ERROR
+        try {
+            $this->service->resolveEmployee($op, [
+                'employeeId' => $foreignBranchEmp->id,
+                'empNumber' => $this->emp1->emp_number,
+            ]);
+            $this->fail('Expected AsabException for foreign-branch UUID');
+        } catch (AsabException $e) {
+            $this->assertSame(422, $e->status);
+            $this->assertSame('VALIDATION_ERROR', $e->errorCode);
+        }
+
+        // 2. Non-existent UUID + valid local empNumber ('101') must throw 422 VALIDATION_ERROR
+        try {
+            $this->service->resolveEmployee($op, [
+                'employeeId' => (string) Str::uuid(),
+                'empNumber' => $this->emp1->emp_number,
+            ]);
+            $this->fail('Expected AsabException for non-existent UUID');
+        } catch (AsabException $e) {
+            $this->assertSame(422, $e->status);
+            $this->assertSame('VALIDATION_ERROR', $e->errorCode);
+        }
+
+        // 3. UUID from another company + valid local empNumber ('101') must throw 422 VALIDATION_ERROR
+        $otherCompany = AsabCompany::create(['name' => 'Foreign Co', 'plan' => 'Professional', 'status' => 'active']);
+        $otherCompanyBranch = Branch::factory()->create(['name' => 'Foreign Branch', 'asab_company_id' => $otherCompany->id]);
+        $foreignCompanyEmp = Employee::create([
+            'company_id' => $otherCompany->id,
+            'branch_id' => $otherCompanyBranch->id,
+            'emp_number' => '888',
+            'name' => 'Foreign Company Emp',
+            'role' => 'cashier',
+            'status' => 'active',
+        ]);
+
+        try {
+            $this->service->resolveEmployee($op, [
+                'employeeId' => $foreignCompanyEmp->id,
+                'empNumber' => $this->emp1->emp_number,
+            ]);
+            $this->fail('Expected AsabException for foreign-company UUID');
+        } catch (AsabException $e) {
+            $this->assertSame(422, $e->status);
+            $this->assertSame('VALIDATION_ERROR', $e->errorCode);
+        }
+
+        $this->assertSame(0, EmployeeMovement::count());
+        $this->assertSame(0, $this->ledger->currentBalance($this->emp1->id));
     }
 }

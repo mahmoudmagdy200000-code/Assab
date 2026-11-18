@@ -152,14 +152,43 @@ class AccountantCompanyController extends AsabController
     public function employeeLookup(Request $request, string $branchId): JsonResponse
     {
         return $this->run(function () use ($request, $branchId) {
-            $num = $request->query('empNumber');
-            $emp = $this->scopeToAssignedBranches(Employee::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))
-                ->where('branch_id', $branchId)->where('emp_number', $num)->first();
-            if (! $emp) {
+            $raw = $request->query('empNumber');
+            if ($raw === null || trim((string) $raw) === '') {
+                throw new AsabException('NOT_FOUND', 'Employee not found', 'الموظف غير موجود', 404);
+            }
+            $num = trim((string) $raw);
+
+            $matches = $this->scopeToAssignedBranches(Employee::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))
+                ->where('branch_id', $branchId)
+                ->where(function ($w) use ($num) {
+                    $w->where('emp_number', $num);
+                    if (preg_match('/^(?:EMP-?)?(\d+)$/i', $num, $m)) {
+                        $digits = $m[1];
+                        $padded = 'EMP-'.str_pad((string) (int) $digits, 4, '0', STR_PAD_LEFT);
+                        $w->orWhere('emp_number', $padded)
+                            ->orWhere('emp_number', (string) (int) $digits);
+                    }
+                })
+                ->where('status', 'active')
+                ->limit(2)
+                ->get(['id', 'emp_number', 'name']);
+
+            if ($matches->isEmpty()) {
                 throw new AsabException('NOT_FOUND', 'Employee not found', 'الموظف غير موجود', 404);
             }
 
-            return $this->ok(['empNumber' => $emp->emp_number, 'name' => $emp->name]);
+            if ($matches->count() > 1) {
+                throw new AsabException(
+                    'DUPLICATE_EMP_NUMBER',
+                    'Multiple active employees match this employee number in the branch.',
+                    'يوجد أكثر من موظف نشط بنفس الرقم الوظيفي في هذا الفرع.',
+                    409,
+                );
+            }
+
+            $emp = $matches->first();
+
+            return $this->ok(['id' => $emp->id, 'employeeId' => $emp->id, 'empNumber' => $emp->emp_number, 'name' => $emp->name]);
         });
     }
 

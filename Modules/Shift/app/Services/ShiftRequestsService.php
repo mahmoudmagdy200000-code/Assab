@@ -41,6 +41,7 @@ class ShiftRequestsService
             ->with([
                 'handoverStatus.reviewedBy',
                 'handover.handoverTo',
+                'handover.receipt',
                 'cashier:id,name,branch_id',
                 'nextCashier:id,name,branch_id',
                 'shift:id,name,start_time,end_time,branch_id',
