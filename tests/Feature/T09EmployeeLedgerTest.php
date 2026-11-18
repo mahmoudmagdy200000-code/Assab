@@ -105,6 +105,54 @@ class T09EmployeeLedgerTest extends TestCase
         $this->assertSame([$this->empB->id], collect($found)->pluck('id')->all());
     }
 
+    public function test_search_by_formatted_emp_number_numeric_and_name_preserves_scope(): void
+    {
+        $emp7 = $this->employee($this->branchA, 'EMP-0007', 'كاشير الملقا', 90000);
+
+        // 1. Search by formatted code EMP-0007 via q and empNumber
+        $byQFormatted = $this->acc()->getJson('/api/v1/company/me/employees?q=EMP-0007')->assertOk()->json('data');
+        $this->assertSame([$emp7->id], collect($byQFormatted)->pluck('id')->all());
+
+        $byNumFormatted = $this->acc()->getJson('/api/v1/company/me/employees?empNumber=EMP-0007')->assertOk()->json('data');
+        $this->assertSame([$emp7->id], collect($byNumFormatted)->pluck('id')->all());
+
+        // 2. Search by numeric 7 and 0007 via q and empNumber
+        $byQNum = $this->acc()->getJson('/api/v1/company/me/employees?q=7')->assertOk()->json('data');
+        $this->assertContains($emp7->id, collect($byQNum)->pluck('id')->all());
+
+        $byNum = $this->acc()->getJson('/api/v1/company/me/employees?empNumber=7')->assertOk()->json('data');
+        $this->assertSame([$emp7->id], collect($byNum)->pluck('id')->all());
+
+        $byNumPadded = $this->acc()->getJson('/api/v1/company/me/employees?empNumber=0007')->assertOk()->json('data');
+        $this->assertSame([$emp7->id], collect($byNumPadded)->pluck('id')->all());
+
+        // 3. Search by name
+        $byName = $this->acc()->getJson('/api/v1/company/me/employees?q=الملقا')->assertOk()->json('data');
+        $this->assertSame([$emp7->id], collect($byName)->pluck('id')->all());
+
+        // 4. Search by non-existent number
+        $nonExistentQ = $this->acc()->getJson('/api/v1/company/me/employees?q=9999')->assertOk()->json('data');
+        $this->assertEmpty($nonExistentQ);
+
+        $nonExistentNum = $this->acc()->getJson('/api/v1/company/me/employees?empNumber=9999')->assertOk()->json('data');
+        $this->assertEmpty($nonExistentNum);
+
+        // 5. Scope preservation: scoped accountant on branchB cannot see emp7 (in branchA)
+        $scopedSearch = $this->actingAs($this->scoped, 'sanctum')
+            ->getJson('/api/v1/company/me/employees?empNumber=EMP-0007')
+            ->assertOk()
+            ->json('data');
+        // Scoped user was initialized on branchA in setUp: scoped=[branchA], so scoped CAN see emp7
+        $this->assertSame([$emp7->id], collect($scopedSearch)->pluck('id')->all());
+
+        // But scoped cannot see empB (in branchB) even by exact empNumber
+        $scopedHidden = $this->actingAs($this->scoped, 'sanctum')
+            ->getJson('/api/v1/company/me/employees?empNumber=2001')
+            ->assertOk()
+            ->json('data');
+        $this->assertEmpty($scopedHidden);
+    }
+
     public function test_role_denial_and_unauthenticated(): void
     {
         $this->actingAs($this->branchUser, 'sanctum')->getJson('/api/v1/company/me/employees')->assertStatus(403);

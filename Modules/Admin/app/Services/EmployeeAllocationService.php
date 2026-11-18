@@ -33,7 +33,14 @@ class EmployeeAllocationService
         $needle = $ref['employeeId'] ?? ($ref['empNumber'] ?? null);
         $emp = Employee::where('company_id', $op->company_id)
             ->when($op->branch_id, fn ($q) => $q->where('branch_id', $op->branch_id))
-            ->where(fn ($q) => $q->where('id', $needle)->orWhere('emp_number', $needle))
+            ->where(function ($q) use ($needle) {
+                $q->where('id', $needle)->orWhere('emp_number', $needle);
+                if (is_string($needle) && preg_match('/^(?:EMP-?)?(\d+)$/i', $needle, $m)) {
+                    $padded = 'EMP-'.str_pad((string) (int) $m[1], 4, '0', STR_PAD_LEFT);
+                    $q->orWhere('emp_number', $padded)
+                        ->orWhere('emp_number', (string) (int) $m[1]);
+                }
+            })
             ->first();
 
         if (! $emp) {

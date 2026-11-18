@@ -50,11 +50,31 @@ class EmployeeController extends AsabController
                 $q->where(fn ($w) => $w->where('branch_id', $branch)
                     ->when($managerIds !== [], fn ($x) => $x->orWhereIn('id', $managerIds)));
             }
-            if ($num = $request->query('empNumber')) {
-                $q->where('emp_number', $num);
+            if ($num = trim((string) $request->query('empNumber', ''))) {
+                $q->where(function ($w) use ($num) {
+                    $w->where('emp_number', $num);
+                    if (preg_match('/^(?:EMP-?)?(\d+)$/i', $num, $m)) {
+                        $digits = $m[1];
+                        $padded = 'EMP-'.str_pad((string) (int) $digits, 4, '0', STR_PAD_LEFT);
+                        $w->orWhere('emp_number', $padded)
+                            ->orWhere('emp_number', (string) (int) $digits);
+                    } else {
+                        $w->orWhere('emp_number', 'like', '%'.$num.'%');
+                    }
+                });
             }
             if ($needle = trim((string) $request->query('q', ''))) {
-                $q->where('name', 'like', '%'.$needle.'%');
+                $q->where(function ($w) use ($needle) {
+                    $w->where('name', 'like', '%'.$needle.'%')
+                        ->orWhere('emp_number', $needle)
+                        ->orWhere('emp_number', 'like', '%'.$needle.'%');
+                    if (preg_match('/^(?:EMP-?)?(\d+)$/i', $needle, $m)) {
+                        $digits = $m[1];
+                        $padded = 'EMP-'.str_pad((string) (int) $digits, 4, '0', STR_PAD_LEFT);
+                        $w->orWhere('emp_number', $padded)
+                            ->orWhere('emp_number', (string) (int) $digits);
+                    }
+                });
             }
             $p = $q->orderBy('name')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 

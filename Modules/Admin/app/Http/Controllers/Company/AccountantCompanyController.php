@@ -159,7 +159,15 @@ class AccountantCompanyController extends AsabController
 
             $matches = $this->scopeToAssignedBranches(Employee::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))
                 ->where('branch_id', $branchId)
-                ->where('emp_number', $num)
+                ->where(function ($w) use ($num) {
+                    $w->where('emp_number', $num);
+                    if (preg_match('/^(?:EMP-?)?(\d+)$/i', $num, $m)) {
+                        $digits = $m[1];
+                        $padded = 'EMP-'.str_pad((string) (int) $digits, 4, '0', STR_PAD_LEFT);
+                        $w->orWhere('emp_number', $padded)
+                            ->orWhere('emp_number', (string) (int) $digits);
+                    }
+                })
                 ->where('status', 'active')
                 ->limit(2)
                 ->get(['id', 'emp_number', 'name']);
