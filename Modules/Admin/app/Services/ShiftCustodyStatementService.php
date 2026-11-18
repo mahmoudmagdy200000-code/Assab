@@ -367,6 +367,10 @@ class ShiftCustodyStatementService
             $classification = 'reversal';
             $labelAr = 'عكس تسليم';
             $labelEn = 'Handover reversal';
+        } elseif ($tx->settlement_id || str_starts_with($tx->transaction_type, 'Settlement')) {
+            $classification = 'handover_settlement';
+            $labelAr = 'تسوية تسليم';
+            $labelEn = 'Handover settlement';
         }
 
         // Shifts resolution
@@ -529,6 +533,14 @@ class ShiftCustodyStatementService
             $classification = 'handover_sent';
             $labelAr = 'تسليم لمالك العلامة';
             $labelEn = 'Handover to brand owner';
+        } elseif ($tx->reversal_id || str_contains($tx->transaction_type, 'Reversal')) {
+            $classification = 'reversal';
+            $labelAr = 'عكس تسليم';
+            $labelEn = 'Handover reversal';
+        } elseif ($tx->settlement_id || str_starts_with($tx->transaction_type, 'Settlement')) {
+            $classification = 'handover_settlement';
+            $labelAr = 'تسوية تسليم';
+            $labelEn = 'Handover settlement';
         }
 
         // Shifts resolution
@@ -627,6 +639,8 @@ class ShiftCustodyStatementService
             // Cashier outgoing handovers pending
             $outgoing = CashierShiftHandover::query()
                 ->where('status', 'pending')
+                ->whereNull('cancelled_at')
+                ->whereNull('superseded_at')
                 ->whereHas('cashierShift', fn ($q) => $q->where('cashier_id', $cashierId))
                 ->with(['cashierShift.cashier'])
                 ->get();
@@ -651,6 +665,8 @@ class ShiftCustodyStatementService
             // Cashier incoming handovers pending
             $incoming = CashierShiftHandover::query()
                 ->where('status', 'pending')
+                ->whereNull('cancelled_at')
+                ->whereNull('superseded_at')
                 ->where('handover_to_type', 'cashier')
                 ->where('handover_to_id', $cashierId)
                 ->with(['cashierShift.cashier'])
@@ -677,6 +693,8 @@ class ShiftCustodyStatementService
             // Manager transfers to this cashier pending
             $transfersIn = BranchManagerCashTransfer::query()
                 ->where('status', 'pending')
+                ->whereNull('cancelled_at')
+                ->whereNull('superseded_at')
                 ->where('destination_cashier_id', $cashierId)
                 ->get();
 
@@ -702,6 +720,8 @@ class ShiftCustodyStatementService
             // Manager incoming handovers pending
             $incomingManager = CashierShiftHandover::query()
                 ->where('status', 'pending')
+                ->whereNull('cancelled_at')
+                ->whereNull('superseded_at')
                 ->where('handover_to_type', 'branch_manager')
                 ->where('handover_to_id', $managerId)
                 ->with(['cashierShift.cashier'])
@@ -728,6 +748,8 @@ class ShiftCustodyStatementService
             // Manager transfers out pending
             $transfersOut = BranchManagerCashTransfer::query()
                 ->where('status', 'pending')
+                ->whereNull('cancelled_at')
+                ->whereNull('superseded_at')
                 ->where('created_by_id', $managerId)
                 ->get();
 
