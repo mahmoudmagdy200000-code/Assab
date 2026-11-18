@@ -50,7 +50,9 @@ class EmployeeController extends AsabController
                 $q->where(fn ($w) => $w->where('branch_id', $branch)
                     ->when($managerIds !== [], fn ($x) => $x->orWhereIn('id', $managerIds)));
             }
-            if ($num = trim((string) $request->query('empNumber', ''))) {
+            $rawNum = $request->query('empNumber');
+            if ($rawNum !== null && trim((string) $rawNum) !== '') {
+                $num = trim((string) $rawNum);
                 $q->where(function ($w) use ($num) {
                     $w->where('emp_number', $num);
                     if (preg_match('/^(?:EMP-?)?(\d+)$/i', $num, $m)) {
@@ -63,16 +65,19 @@ class EmployeeController extends AsabController
                     }
                 });
             }
-            if ($needle = trim((string) $request->query('q', ''))) {
+            $rawNeedle = $request->query('q');
+            if ($rawNeedle !== null && trim((string) $rawNeedle) !== '') {
+                $needle = trim((string) $rawNeedle);
                 $q->where(function ($w) use ($needle) {
-                    $w->where('name', 'like', '%'.$needle.'%')
-                        ->orWhere('emp_number', $needle)
-                        ->orWhere('emp_number', 'like', '%'.$needle.'%');
+                    $w->where('name', 'like', '%'.$needle.'%');
                     if (preg_match('/^(?:EMP-?)?(\d+)$/i', $needle, $m)) {
                         $digits = $m[1];
                         $padded = 'EMP-'.str_pad((string) (int) $digits, 4, '0', STR_PAD_LEFT);
                         $w->orWhere('emp_number', $padded)
                             ->orWhere('emp_number', (string) (int) $digits);
+                    } else {
+                        $w->orWhere('emp_number', $needle)
+                            ->orWhere('emp_number', 'like', '%'.$needle.'%');
                     }
                 });
             }

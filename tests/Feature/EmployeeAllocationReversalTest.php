@@ -187,4 +187,49 @@ class EmployeeAllocationReversalTest extends TestCase
         $this->assertSame(3000, (int) $credit->amount);
         $this->assertStringStartsWith('REV-', $credit->ref);
     }
+
+    public function test_resolve_employee_refuses_ambiguous_number_and_disambiguates_by_uuid(): void
+    {
+        $op = $this->makeOp();
+
+        $emp7Numeric = Employee::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branch->id,
+            'emp_number' => '7',
+            'name' => 'موظف 7',
+            'role' => 'كاشير',
+            'status' => 'active',
+        ]);
+
+        $emp7Code = Employee::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branch->id,
+            'emp_number' => 'EMP-0007',
+            'name' => 'موظف كود 7',
+            'role' => 'كاشير',
+            'status' => 'active',
+        ]);
+
+        // Ambiguous reference throws AMBIGUOUS_EMPLOYEE_REF
+        try {
+            $this->service->resolveEmployee($op, ['empNumber' => '7']);
+            $this->fail('Expected AsabException for ambiguous employee reference');
+        } catch (\Modules\Admin\Exceptions\AsabException $e) {
+            $this->assertSame(422, $e->status);
+            $this->assertSame('AMBIGUOUS_EMPLOYEE_REF', $e->errorCode);
+        }
+
+        // With explicit UUID employeeId, resolves unambiguously
+        $resolvedNumeric = $this->service->resolveEmployee($op, [
+            'employeeId' => $emp7Numeric->id,
+            'empNumber' => '7',
+        ]);
+        $this->assertSame($emp7Numeric->id, $resolvedNumeric->id);
+
+        $resolvedCode = $this->service->resolveEmployee($op, [
+            'employeeId' => $emp7Code->id,
+            'empNumber' => 'EMP-0007',
+        ]);
+        $this->assertSame($emp7Code->id, $resolvedCode->id);
+    }
 }

@@ -152,10 +152,11 @@ class AccountantCompanyController extends AsabController
     public function employeeLookup(Request $request, string $branchId): JsonResponse
     {
         return $this->run(function () use ($request, $branchId) {
-            $num = trim((string) $request->query('empNumber', ''));
-            if ($num === '') {
+            $raw = $request->query('empNumber');
+            if ($raw === null || trim((string) $raw) === '') {
                 throw new AsabException('NOT_FOUND', 'Employee not found', 'الموظف غير موجود', 404);
             }
+            $num = trim((string) $raw);
 
             $matches = $this->scopeToAssignedBranches(Employee::whereIn('company_id', $this->tenantCompanyIdsFor($request->user())))
                 ->where('branch_id', $branchId)
@@ -187,7 +188,7 @@ class AccountantCompanyController extends AsabController
 
             $emp = $matches->first();
 
-            return $this->ok(['empNumber' => $emp->emp_number, 'name' => $emp->name]);
+            return $this->ok(['id' => $emp->id, 'employeeId' => $emp->id, 'empNumber' => $emp->emp_number, 'name' => $emp->name]);
         });
     }
 

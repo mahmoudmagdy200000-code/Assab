@@ -137,6 +137,21 @@ class T09EmployeeLedgerTest extends TestCase
         $nonExistentNum = $this->acc()->getJson('/api/v1/company/me/employees?empNumber=9999')->assertOk()->json('data');
         $this->assertEmpty($nonExistentNum);
 
+        // 4b. Search for 0 applies filter and returns empty list when no employee has 0
+        $zeroQ = $this->acc()->getJson('/api/v1/company/me/employees?q=0')->assertOk()->json('data');
+        $this->assertEmpty($zeroQ, 'Search for q=0 must apply filter and return empty when no 0 exists');
+
+        $zeroNum = $this->acc()->getJson('/api/v1/company/me/employees?empNumber=0')->assertOk()->json('data');
+        $this->assertEmpty($zeroNum, 'Search for empNumber=0 must apply filter and return empty when no 0 exists');
+
+        // When an employee with emp_number = '0' exists, 0 returns that employee
+        $empZero = $this->employee($this->branchA, '0', 'موظف صفر', 40000);
+        $zeroFoundQ = $this->acc()->getJson('/api/v1/company/me/employees?q=0')->assertOk()->json('data');
+        $this->assertSame([$empZero->id], collect($zeroFoundQ)->pluck('id')->all());
+
+        $zeroFoundNum = $this->acc()->getJson('/api/v1/company/me/employees?empNumber=0')->assertOk()->json('data');
+        $this->assertSame([$empZero->id], collect($zeroFoundNum)->pluck('id')->all());
+
         // 5. Scope preservation: scoped accountant on branchB cannot see emp7 (in branchA)
         $scopedSearch = $this->actingAs($this->scoped, 'sanctum')
             ->getJson('/api/v1/company/me/employees?empNumber=EMP-0007')

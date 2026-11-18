@@ -219,10 +219,109 @@ class SalesVarianceAllocationTest extends TestCase
         $this->acc()
             ->getJson("/api/v1/company/me/branches/{$this->branch->id}/employees/lookup?empNumber=1001")
             ->assertOk()
-            ->assertJsonPath('name', 'محمد العتيبي');
+            ->assertJsonPath('name', 'محمد العتيبي')
+            ->assertJsonPath('employeeId', $this->cashier->id);
 
         $this->acc()
             ->getJson("/api/v1/company/me/branches/{$this->branch->id}/employees/lookup?empNumber=9999")
             ->assertStatus(404);
+    }
+
+    public function test_coexistence_of_numeric_7_and_emp_0007_in_same_branch_refuses_ambiguous_request(): void
+    {
+        $empNumeric7 = Employee::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branch->id,
+            'emp_number' => '7',
+            'name' => 'موظف سبعة',
+            'role' => 'كاشير',
+            'status' => 'active',
+        ]);
+        $empCode7 = Employee::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branch->id,
+            'emp_number' => 'EMP-0007',
+            'name' => 'موظف كود سبعة',
+            'role' => 'كاشير',
+            'status' => 'active',
+        ]);
+
+        $op = $this->shortfallOp();
+
+        // 1. Ambiguous lookup in same branch returns 409 DUPLICATE_EMP_NUMBER
+        $this->acc()
+            ->getJson("/api/v1/company/me/branches/{$this->branch->id}/employees/lookup?empNumber=7")
+            ->assertStatus(409)
+            ->assertJsonPath('error.code', 'DUPLICATE_EMP_NUMBER');
+
+        $this->acc()
+            ->getJson("/api/v1/company/me/branches/{$this->branch->id}/employees/lookup?empNumber=EMP-0007")
+            ->assertStatus(409)
+            ->assertJsonPath('error.code', 'DUPLICATE_EMP_NUMBER');
+
+        // 2. Ambiguous assignment using empNumber '7' without employeeId fails with 422 AMBIGUOUS_EMPLOYEE_REF
+        $this->acc()->postJson("/api/v1/company/me/operations/{$op->id}/sales-variance/assign", [
+            'allocations' => [['empNumber' => '7', 'amountHalalas' => 35000]],
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'AMBIGUOUS_EMPLOYEE_REF');
+
+        // Ensure NO deduction movements were created
+        $this->assertSame(0, EmployeeMovement::count());
+
+        // 3. Ambiguous assignment using empNumber 'EMP-0007' without employeeId also fails with 422
+        $this->acc()->postJson("/api/v1/company/me/operations/{$op->id}/sales-variance/assign", [
+            'allocations' => [['empNumber' => 'EMP-0007', 'amountHalalas' => 35000]],
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'AMBIGUOUS_EMPLOYEE_REF');
+
+        // Ensure STILL NO deduction movements exist
+        $this->assertSame(0, EmployeeMovement::count());
+    }
+
+    public function test_coexistence_of_numeric_7_and_emp_0007_resolved_cleanly_via_uuid_employee_id(): void
+    {
+        $empNumeric7 = Employee::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branch->id,
+            'emp_number' => '7',
+            'name' => 'موظف سبعة',
+            'role' => 'كاشير',
+            'status' => 'active',
+        ]);
+        $empCode7 = Employee::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $this->branch->id,
+            'emp_number' => 'EMP-0007',
+            'name' => 'موظف كود سبعة',
+            'role' => 'كاشير',
+            'status' => 'active',
+        ]);
+
+        $op = $this->shortfallOp();
+
+        // Disambiguate by supplying exact UUID employeeId for empNumeric7
+        $this->acc()->postJson("/api/v1/company/me/operations/{$op->id}/sales-variance/assign", [
+            'allocations' => [
+                [
+                    'employeeId' => $empNumeric7->id,
+                    'empNumber' => '7',
+                    'amountHalalas' => 35000,
+                ],
+            ],
+            'notes' => 'تحديد دقيق بالمعرف للموظف رقم 7',
+        ])
+            ->assertOk()
+            ->assertJsonPath('varianceTotalHalalas', 35000);
+
+        // Verify movement created strictly for empNumeric7, zero for empCode7
+        $this->assertSame(1, EmployeeMovement::where('employee_id', $empNumeric7->id)->count());
+        $this->assertSame(0, EmployeeMovement::where('employee_id', $empCode7->id)->count());
+
+        $movement = EmployeeMovement::where('employee_id', $empNumeric7->id)->first();
+        $this->assertSame(35000, $movement->amount);
+        $this->assertSame('debit', $movement->movement_type);
+        $this->assertSame('sales_variance', $movement->category);
     }
 }

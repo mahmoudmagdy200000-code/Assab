@@ -149,18 +149,65 @@ class SalesVarianceService
     /** Resolve an employee by id or employee-number within the operation's tenant + branch. */
     private function resolveEmployee(Operation $op, array $a): Employee
     {
-        $ref = $a['employeeId'] ?? ($a['empNumber'] ?? null);
-        $emp = Employee::where('company_id', $op->company_id)
-            ->when($op->branch_id, fn ($q) => $q->where('branch_id', $op->branch_id))
-            ->where(fn ($q) => $q->where('id', $ref)->orWhere('emp_number', $ref))
-            ->first();
+        // 1. If explicit UUID employeeId is provided and exists in branch, use it immediately
+        if (! empty($a['employeeId'])) {
+            $byUuid = Employee::where('company_id', $op->company_id)
+                ->when($op->branch_id, fn ($q) => $q->where('branch_id', $op->branch_id))
+                ->where('id', $a['employeeId'])
+                ->first();
+            if ($byUuid) {
+                return $byUuid;
+            }
+        }
 
-        if (! $emp) {
-            throw new AsabException('VALIDATION_ERROR', 'Employee not found in branch', 'الموظف غير موجود في الفرع', 422, [
-                'employeeId' => ['unknown employee '.$ref],
+        // 2. Otherwise fall back to employee number / identifier
+        $rawNeedle = $a['empNumber'] ?? ($a['employeeId'] ?? null);
+        if ($rawNeedle === null || trim((string) $rawNeedle) === '') {
+            throw new AsabException('VALIDATION_ERROR', 'Employee reference is required', 'معرف الموظف مطلوب', 422, [
+                'employeeId' => ['Employee identifier is required'],
             ]);
         }
 
-        return $emp;
+        $needle = trim((string) $rawNeedle);
+
+        // Also check if $needle itself is an exact primary key id
+        $byDirectId = Employee::where('company_id', $op->company_id)
+            ->when($op->branch_id, fn ($q) => $q->where('branch_id', $op->branch_id))
+            ->where('id', $needle)
+            ->first();
+        if ($byDirectId) {
+            return $byDirectId;
+        }
+
+        $matches = Employee::where('company_id', $op->company_id)
+            ->when($op->branch_id, fn ($q) => $q->where('branch_id', $op->branch_id))
+            ->where(function ($q) use ($needle) {
+                $q->where('emp_number', $needle);
+                if (preg_match('/^(?:EMP-?)?(\d+)$/i', $needle, $m)) {
+                    $digits = $m[1];
+                    $padded = 'EMP-'.str_pad((string) (int) $digits, 4, '0', STR_PAD_LEFT);
+                    $q->orWhere('emp_number', $padded)
+                        ->orWhere('emp_number', (string) (int) $digits);
+                }
+            })
+            ->get();
+
+        if ($matches->isEmpty()) {
+            throw new AsabException('VALIDATION_ERROR', 'Employee not found in branch', 'الموظف غير موجود في الفرع', 422, [
+                'employeeId' => ['unknown employee '.$needle],
+            ]);
+        }
+
+        if ($matches->count() > 1) {
+            throw new AsabException(
+                'AMBIGUOUS_EMPLOYEE_REF',
+                'Multiple employees match this employee number in the branch. Please specify employee by ID.',
+                'الرقم الوظيفي يحتمل أكثر من موظف في هذا الفرع. يرجى تحديد الموظف بدقة.',
+                422,
+                ['employeeId' => ['Ambiguous employee ref matches multiple branch employees: '.$needle]],
+            );
+        }
+
+        return $matches->first();
     }
 }
