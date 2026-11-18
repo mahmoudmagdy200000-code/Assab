@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
 use Modules\Admin\Models\AsabUser;
@@ -11,6 +12,7 @@ use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\EmployeeMovement;
 use Modules\Admin\Models\Operation;
+use Modules\Admin\Services\EmployeeLedgerService;
 use Modules\Admin\Services\OperationSequence;
 use Modules\Branch\Models\Branch;
 use Tests\TestCase;
@@ -323,5 +325,94 @@ class SalesVarianceAllocationTest extends TestCase
         $this->assertSame(35000, $movement->amount);
         $this->assertSame('debit', $movement->movement_type);
         $this->assertSame('sales_variance', $movement->category);
+    }
+
+    public function test_uuid_from_other_branch_with_valid_local_emp_number_is_refused_and_preserves_local_balance(): void
+    {
+        $ledger = app(EmployeeLedgerService::class);
+        $this->assertSame(0, $ledger->currentBalance($this->cashier->id));
+
+        $otherBranch = Branch::factory()->create([
+            'name' => 'فرع آخر',
+            'asab_company_id' => $this->company->id,
+        ]);
+        $foreignBranchEmp = Employee::create([
+            'company_id' => $this->company->id,
+            'branch_id' => $otherBranch->id,
+            'emp_number' => '9001',
+            'name' => 'موظف فرع آخر',
+            'role' => 'كاشير',
+            'status' => 'active',
+        ]);
+
+        $otherCompany = AsabCompany::create(['name' => 'Other Co', 'plan' => 'Professional', 'status' => 'active']);
+        $otherCompanyBranch = Branch::factory()->create(['name' => 'فرع شركة أخرى', 'asab_company_id' => $otherCompany->id]);
+        $otherCompanyEmp = Employee::create([
+            'company_id' => $otherCompany->id,
+            'branch_id' => $otherCompanyBranch->id,
+            'emp_number' => '9002',
+            'name' => 'موظف شركة أخرى',
+            'role' => 'كاشير',
+            'status' => 'active',
+        ]);
+
+        $op = $this->shortfallOp();
+
+        // 1. UUID from another branch + valid local empNumber ('1001') must be refused with 422
+        $this->acc()->postJson("/api/v1/company/me/operations/{$op->id}/sales-variance/assign", [
+            'allocations' => [
+                [
+                    'employeeId' => $foreignBranchEmp->id,
+                    'empNumber' => $this->cashier->emp_number,
+                    'amountHalalas' => 35000,
+                ],
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'VALIDATION_ERROR');
+
+        $this->assertSame(0, EmployeeMovement::count());
+        $this->assertSame(0, $ledger->currentBalance($this->cashier->id));
+        $this->assertSame(0, $ledger->currentBalance($foreignBranchEmp->id));
+
+        // 2. UUID from another company + valid local empNumber ('1001') must also be refused with 422
+        $this->acc()->postJson("/api/v1/company/me/operations/{$op->id}/sales-variance/assign", [
+            'allocations' => [
+                [
+                    'employeeId' => $otherCompanyEmp->id,
+                    'empNumber' => $this->cashier->emp_number,
+                    'amountHalalas' => 35000,
+                ],
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'VALIDATION_ERROR');
+
+        $this->assertSame(0, EmployeeMovement::count());
+        $this->assertSame(0, $ledger->currentBalance($this->cashier->id));
+    }
+
+    public function test_nonexistent_uuid_with_valid_local_emp_number_is_refused_and_preserves_local_balance(): void
+    {
+        $ledger = app(EmployeeLedgerService::class);
+        $this->assertSame(0, $ledger->currentBalance($this->cashier->id));
+
+        $op = $this->shortfallOp();
+        $nonexistentUuid = (string) Str::uuid();
+
+        $this->acc()->postJson("/api/v1/company/me/operations/{$op->id}/sales-variance/assign", [
+            'allocations' => [
+                [
+                    'employeeId' => $nonexistentUuid,
+                    'empNumber' => $this->cashier->emp_number,
+                    'amountHalalas' => 35000,
+                ],
+            ],
+        ])
+            ->assertStatus(422)
+            ->assertJsonPath('error.code', 'VALIDATION_ERROR');
+
+        $this->assertSame(0, EmployeeMovement::count());
+        $this->assertSame(0, $ledger->currentBalance($this->cashier->id));
     }
 }

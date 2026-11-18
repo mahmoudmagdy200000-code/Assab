@@ -3,6 +3,7 @@
 namespace Modules\Admin\Services;
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Employee;
@@ -30,15 +31,22 @@ class EmployeeAllocationService
      */
     public function resolveEmployee(Operation $op, array $ref): Employee
     {
-        // 1. If explicit UUID employeeId is provided and exists in branch, use it immediately
-        if (! empty($ref['employeeId'])) {
+        // 1. When employeeId is supplied in UUID format, resolve exclusively by UUID
+        //    within the operation's company & branch. Never fall back to empNumber.
+        $rawEmployeeId = isset($ref['employeeId']) ? trim((string) $ref['employeeId']) : '';
+        if ($rawEmployeeId !== '' && Str::isUuid($rawEmployeeId)) {
             $byUuid = Employee::where('company_id', $op->company_id)
                 ->when($op->branch_id, fn ($q) => $q->where('branch_id', $op->branch_id))
-                ->where('id', $ref['employeeId'])
+                ->where('id', $rawEmployeeId)
                 ->first();
-            if ($byUuid) {
-                return $byUuid;
+
+            if (! $byUuid) {
+                throw new AsabException('VALIDATION_ERROR', 'Employee not found in branch', 'الموظف غير موجود في الفرع', 422, [
+                    'employeeId' => ['unknown employee '.$rawEmployeeId],
+                ]);
             }
+
+            return $byUuid;
         }
 
         // 2. Otherwise fall back to employee number / identifier
