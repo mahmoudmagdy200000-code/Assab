@@ -273,9 +273,9 @@ class CashierShiftController extends BaseController
                         'start_time' => $shift->shift->start_time?->format('H:i') ?? 'N/A',
                         'end_time' => $shift->shift->end_time?->format('H:i') ?? 'N/A',
                         'actual_start_time' => $shift->actual_start_time?->format('H:i:s'),
-                        'opening_balance' => $shift->opening_balance > 0
+                        'opening_balance' => $shift->opening_balance !== null
                             ? (float) $shift->opening_balance
-                            : 'Not yet recorded',
+                            : null,
                         'closing_balance' => (float) ($shift->closing_balance ?? 0),
                         'assigned_to' => $shift->cashier->name ?? 'N/A',
                         'next_cashier' => $this->formatNextRecipientName($nextRecipient),
