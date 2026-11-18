@@ -211,9 +211,35 @@ class AccountantReportCorrectionService
                     'card_payments' => 'Card payments plus delivery-app sales cannot exceed gross sales.',
                 ]);
             }
-            if (array_key_exists('cash_collected', $changes) && ($channels['channelDifference'] ?? 0) > 0) {
+            $cashCollectedExplicit = array_key_exists('cash_collected', $changes);
+            if ($cashCollectedExplicit && ($channels['channelDifference'] ?? 0) > 0) {
                 throw ValidationException::withMessages([
                     'cash_collected' => 'Collected sales cash cannot exceed gross sales minus card and delivery-app sales.',
+                ]);
+            }
+
+            $postedSalesCustodyRows = CashierCustodyTransaction::query()
+                ->where('related_shift_id', $shift->id)
+                ->where('transaction_type', 'Total Sales')
+                ->lockForUpdate()
+                ->get();
+            $hasPostedSalesCustody = $postedSalesCustodyRows->isNotEmpty();
+            $postedSalesCustodyHalalas = 0;
+            foreach ($postedSalesCustodyRows as $entry) {
+                if ((string) $entry->cashier_id !== (string) $shift->cashier_id) {
+                    throw new ConflictHttpException('BALANCE_EVIDENCE_UNAVAILABLE');
+                }
+                $amountH = ShiftFinancialCalculator::storedSarToHalalas($entry->amount);
+                $postedSalesCustodyHalalas += $entry->is_cash_in ? $amountH : -$amountH;
+            }
+
+            $cappedCustodyCashHalalas = min($newCashCollectedHalalas, $channels['derivedCashSales']);
+            if (! $cashCollectedExplicit
+                && $hasPostedSalesCustody
+                && ($cardsChanged || $aggsChanged)
+                && $cappedCustodyCashHalalas > $postedSalesCustodyHalalas) {
+                throw ValidationException::withMessages([
+                    'cash_collected' => 'يجب تحديد مبلغ الكاش المحصّل فعليًا قبل حفظ التصحيح لأن تعديل القنوات سيزيد عهدة الكاشير.',
                 ]);
             }
 
@@ -235,11 +261,6 @@ class AccountantReportCorrectionService
 
             // Reconcile balance entry if cash_collected changed, or if channel edits lowered
             // derived sales cash below previously posted Total Sales custody.
-            $cappedCustodyCashHalalas = min($newCashCollectedHalalas, $channels['derivedCashSales']);
-            $hasPostedSalesCustody = CashierCustodyTransaction::query()
-                ->where('related_shift_id', $shift->id)
-                ->where('transaction_type', 'Total Sales')
-                ->exists();
             if ($cashCollectedChanged || ($hasPostedSalesCustody && ($cardsChanged || $aggsChanged))) {
                 $this->balanceService->reconcileCashCollected(
                     $shift,

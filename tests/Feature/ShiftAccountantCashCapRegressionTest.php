@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Support\ShiftFinancialCalculator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Modules\Admin\Models\AsabBrand;
@@ -534,12 +535,11 @@ class ShiftAccountantCashCapRegressionTest extends TestCase
         $this->assertEquals(90.00, $salesCustodyNet);
     }
 
-    public function test_reverse_case_card_decrease_with_existing_over_reported_cash_collected_posts_10_cash_in(): void
+    public function test_reverse_case_1_card_decrease_alone_that_would_increase_custody_returns_422_with_no_mutation(): void
     {
         $shift = $this->startInProgressShift();
 
-        // Initial: gross 200, card 110, reported cash_collected 120, counted 100.
-        // ShiftEndService caps posted Total Sales custody at derived cash sales (200 - 110 = 90.00).
+        // Initial: gross 200, card 110, reported cash_collected 120, counted 100 -> posted Total Sales custody = 90.00
         $ended = app(ShiftEndService::class)->endShiftOnly($shift, [
             'total_sales' => '200.00',
             'card_payments' => '110.00',
@@ -549,14 +549,11 @@ class ShiftAccountantCashCapRegressionTest extends TestCase
 
         $beforeTxns = CashierCustodyTransaction::where('related_shift_id', $ended->id)
             ->where('transaction_type', 'Total Sales')
-            ->orderBy('id')
             ->get();
         $this->assertCount(1, $beforeTxns);
-        $this->assertSame('120.00', (string) $ended->cash_collected);
         $this->assertSame('90.00', (string) $beforeTxns->first()->amount);
-        $this->assertTrue((bool) $beforeTxns->first()->is_cash_in);
 
-        // Accountant corrects ONLY card_payments from 110.00 to 100.00 (derived cash sales becomes 100.00).
+        // Case 1: Accountant adjusts ONLY card_payments 110 -> 100 without specifying cash_collected
         $res = $this->withHeader('Idempotency-Key', (string) Str::uuid())
             ->actingAs($this->accountant, 'sanctum')
             ->postJson("/api/v1/accountant/shifts/{$ended->id}/corrections", [
@@ -567,24 +564,132 @@ class ShiftAccountantCashCapRegressionTest extends TestCase
                 ],
             ]);
 
-        $res->assertOk()
-            ->assertJsonPath('financial_results.total_sales', '200.00')
-            ->assertJsonPath('financial_results.card_payments', '100.00')
-            ->assertJsonPath('financial_results.cash_collected', '120.00');
+        $res->assertStatus(422)
+            ->assertJsonPath('error.code', 'VALIDATION_ERROR')
+            ->assertJsonStructure(['error' => ['details' => ['cash_collected']]]);
+
+        $fresh = $ended->fresh();
+        $this->assertSame('110.00', (string) $fresh->card_payments);
+        $this->assertSame('120.00', (string) $fresh->cash_collected);
+        $this->assertSame(1, $fresh->reportAggregate()->sole()->current_revision_number);
 
         $afterTxns = CashierCustodyTransaction::where('related_shift_id', $ended->id)
             ->where('transaction_type', 'Total Sales')
-            ->orderBy('created_at')
+            ->get();
+        $this->assertCount(1, $afterTxns);
+        $this->assertEquals(90.00, $afterTxns->sum(fn ($t) => $t->is_cash_in ? (float) $t->amount : -(float) $t->amount));
+    }
+
+    public function test_reverse_case_2_explicit_cash_collected_90_saves_keeps_custody_90_and_exposes_10_collection_difference(): void
+    {
+        $shift = $this->startInProgressShift();
+
+        $ended = app(ShiftEndService::class)->endShiftOnly($shift, [
+            'total_sales' => '200.00',
+            'card_payments' => '110.00',
+            'cash_collected' => '120.00',
+            'counted_cash' => '100.00',
+        ], $this->cashier);
+
+        // Case 2: Accountant adjusts card 110 -> 100 and explicitly sets cash_collected = 90.00
+        $res = $this->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->actingAs($this->accountant, 'sanctum')
+            ->postJson("/api/v1/accountant/shifts/{$ended->id}/corrections", [
+                'expected_revision' => 1,
+                'reason' => 'Confirmed card 100.00 SAR and actual cash collected 90.00 SAR',
+                'changes' => [
+                    'card_payments' => '100.00',
+                    'cash_collected' => '90.00',
+                ],
+            ]);
+
+        $res->assertOk()
+            ->assertJsonPath('revision_number', 2)
+            ->assertJsonPath('financial_results.total_sales', '200.00')
+            ->assertJsonPath('financial_results.card_payments', '100.00')
+            ->assertJsonPath('financial_results.cash_collected', '90.00');
+
+        $fresh = $ended->fresh();
+        $this->assertSame(10.0, $fresh->calculateChannelDifference());
+        $channelCheck = ShiftFinancialCalculator::salesChannelCheck(20000, 10000, 0, 9000);
+        $this->assertSame(-1000, $channelCheck['channelDifference']);
+
+        // Custody stays at 90.00 with zero new entry
+        $afterTxns = CashierCustodyTransaction::where('related_shift_id', $ended->id)
+            ->where('transaction_type', 'Total Sales')
+            ->get();
+        $this->assertCount(1, $afterTxns);
+        $this->assertSame('90.00', (string) $afterTxns->first()->amount);
+        $this->assertEquals(90.00, $afterTxns->sum(fn ($t) => $t->is_cash_in ? (float) $t->amount : -(float) $t->amount));
+
+        $this->assertDatabaseHas('shift_report_corrections', [
+            'new_revision_number' => 2,
+            'field_name' => 'card_payments',
+            'new_value' => '100.00',
+        ]);
+        $this->assertDatabaseHas('shift_report_corrections', [
+            'new_revision_number' => 2,
+            'field_name' => 'cash_collected',
+            'new_value' => '90.00',
+        ]);
+    }
+
+    public function test_reverse_case_3_explicit_cash_collected_100_posts_single_plus_10_entry_and_is_idempotent(): void
+    {
+        $shift = $this->startInProgressShift();
+
+        $ended = app(ShiftEndService::class)->endShiftOnly($shift, [
+            'total_sales' => '200.00',
+            'card_payments' => '110.00',
+            'cash_collected' => '120.00',
+            'counted_cash' => '100.00',
+        ], $this->cashier);
+
+        $beforeTxn = CashierCustodyTransaction::where('related_shift_id', $ended->id)
+            ->where('transaction_type', 'Total Sales')
+            ->sole();
+
+        // Case 3: Accountant adjusts card 110 -> 100 and explicitly sets cash_collected = 100.00
+        $idemKey = (string) Str::uuid();
+        $payload = [
+            'expected_revision' => 1,
+            'reason' => 'Confirmed card 100.00 SAR and actual cash collected 100.00 SAR',
+            'changes' => [
+                'card_payments' => '100.00',
+                'cash_collected' => '100.00',
+            ],
+        ];
+
+        $res1 = $this->withHeader('Idempotency-Key', $idemKey)
+            ->actingAs($this->accountant, 'sanctum')
+            ->postJson("/api/v1/accountant/shifts/{$ended->id}/corrections", $payload);
+
+        $res1->assertOk()
+            ->assertJsonPath('revision_number', 2)
+            ->assertJsonPath('financial_results.total_sales', '200.00')
+            ->assertJsonPath('financial_results.card_payments', '100.00')
+            ->assertJsonPath('financial_results.cash_collected', '100.00');
+
+        $this->assertSame(0.0, $ended->fresh()->calculateChannelDifference());
+
+        // Replay exact same Idempotency-Key + payload must not duplicate +10.00 custody entry
+        $res2 = $this->withHeader('Idempotency-Key', $idemKey)
+            ->actingAs($this->accountant, 'sanctum')
+            ->postJson("/api/v1/accountant/shifts/{$ended->id}/corrections", $payload);
+
+        $res2->assertOk();
+        $this->assertSame($res1->getContent(), $res2->getContent());
+
+        $afterTxns = CashierCustodyTransaction::where('related_shift_id', $ended->id)
+            ->where('transaction_type', 'Total Sales')
             ->orderBy('id')
             ->get();
         $this->assertCount(2, $afterTxns);
 
-        $newEntry = $afterTxns->first(fn ($t) => $t->id !== $beforeTxns->first()->id);
+        $newEntry = $afterTxns->first(fn ($t) => $t->id !== $beforeTxn->id);
         $this->assertNotNull($newEntry);
         $this->assertTrue((bool) $newEntry->is_cash_in);
         $this->assertSame('10.00', (string) $newEntry->amount);
-
-        $salesCustodyNet = $afterTxns->sum(fn ($t) => $t->is_cash_in ? (float) $t->amount : -(float) $t->amount);
-        $this->assertEquals(100.00, $salesCustodyNet);
+        $this->assertEquals(100.00, $afterTxns->sum(fn ($t) => $t->is_cash_in ? (float) $t->amount : -(float) $t->amount));
     }
 }
