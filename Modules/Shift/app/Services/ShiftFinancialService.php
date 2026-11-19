@@ -264,9 +264,11 @@ class ShiftFinancialService
 
         $aggregators = $this->buildAggregatorsBreakdown($cashierShifts);
 
-        $closingBalance = $totals['total_cash_collected'];
-        $expectedBalance = $totals['total_sales'];
-        $calcVariance = $expectedBalance - $closingBalance;
+        $expectedBalance = $totals['total_cash_collected'];
+        $closingBalance = $shift->handover_amount !== null
+            ? (float) $shift->handover_amount
+            : (float) collect($cashierBreakdown)->sum('handover_amount');
+        $calcVariance = (float) ((ShiftFinancialCalculator::sarToHalalas($expectedBalance) - ShiftFinancialCalculator::sarToHalalas($closingBalance)) / 100);
 
         if (! $shift->relationLoaded('branchManager')) {
             $shift->load('branchManager:id,name');

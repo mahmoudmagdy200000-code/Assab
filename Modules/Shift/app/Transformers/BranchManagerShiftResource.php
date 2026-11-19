@@ -154,9 +154,13 @@ class BranchManagerShiftResource extends JsonResource
 
         $currentTime = now()->format(self::DATETIME_FORMAT);
 
-        $expectedBalance = (float) ($this->total_sales ?? 0);
+        $financialSummary = $this->getFinancialSummary();
+        $expectedCash = (float) ($financialSummary['cash_collected'] ?? $this->cash_collected ?? 0);
         $closingBalance = (float) ($this->handover_amount ?? $this->closing_balance ?? 0);
-        $variance = $expectedBalance - $closingBalance;
+        $expectedCashHalalas = ShiftFinancialCalculator::sarToHalalas($expectedCash);
+        $closingBalanceHalalas = ShiftFinancialCalculator::sarToHalalas($closingBalance);
+        $expectedBalance = (float) ($expectedCashHalalas / 100);
+        $variance = (float) (($expectedCashHalalas - $closingBalanceHalalas) / 100);
         $finalCashCollected = $closingBalance;
 
         $lastDepositDateRaw = $this->handover_date ?? $this->actual_end_time ?? now();
