@@ -142,12 +142,38 @@ class CashierShiftResource extends JsonResource
             'reviewed_at' => optional($this->reviewed_at)->format('Y-m-d H:i:s'),
             'review_reason' => $this->review_reason,
 
-            // Start Window & Actions
-            'start_window' => \Modules\Shift\Helpers\ShiftHelper::getShiftStartWindow($this->resource),
-            'can_start' => in_array($status, ['not_started', 'reassigned'], true)
-                && $this->actual_start_time === null
-                && $this->operational_ended_at === null
-                && (\Modules\Shift\Helpers\ShiftHelper::getShiftStartWindow($this->resource)['can_start'] ?? false),
+            // Start Window & Actions (authoritative backend eligibility shared with pending list)
+            ...$this->getStartEligibilityFields($request),
+        ];
+    }
+
+    /** Authoritative start-shift eligibility aligned with pending list & start endpoint. */
+    private function getStartEligibilityFields($request): array
+    {
+        $user = $request?->user();
+        $actorRole = $user instanceof \Modules\BranchManagers\Models\BranchManager
+            ? 'branch_manager'
+            : 'cashier';
+
+        $eligibility = app(\Modules\Shift\Services\ShiftStartEligibilityService::class)
+            ->evaluateForActor(
+                $this->resource,
+                actorRole: $actorRole,
+                enforceTurnOrder: $actorRole === 'cashier',
+            );
+
+        return [
+            'start_window' => $eligibility['start_window'],
+            'window_phase' => $eligibility['window_phase'],
+            'can_start' => $eligibility['can_start'],
+            'can_start_normal' => $eligibility['can_start_normal'],
+            'can_start_late' => $eligibility['can_start_late'],
+            'is_late_start' => $eligibility['is_late_start'],
+            'requires_manager_authorization' => $eligibility['requires_manager_authorization'],
+            'is_next_shift' => $eligibility['is_next_shift'],
+            'can_accept_assignment' => $eligibility['can_accept_assignment'],
+            'start_disabled_reason' => $eligibility['start_disabled_reason'],
+            'start_disabled_code' => $eligibility['start_disabled_code'],
         ];
     }
 

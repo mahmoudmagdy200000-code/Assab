@@ -163,7 +163,9 @@ class ShiftNotWorkedHttpTest extends TestCase
     public function test_prior_work_history_cannot_be_washed_by_resetting_replacement_to_pending(): void
     {
         $replacement = $this->administrativeReplacement();
+        $this->travelTo(today()->setTime(9, 0));
         $this->actingAs($replacement, 'sanctum')->postJson("/api/v1/cashier/shifts/{$this->shift->id}/start")->assertOk();
+        $this->travelTo(today()->setTime(15, 0));
         // Corruption fixture resets fields; immutable prior started history still proves activity.
         DB::table('cashier_shifts')->where('id', $this->shift->id)->update([
             'status' => 'not_started', 'actual_start_time' => null, 'operational_chain_id' => null,

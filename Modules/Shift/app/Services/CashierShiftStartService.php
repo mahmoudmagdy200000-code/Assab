@@ -19,9 +19,9 @@ final class CashierShiftStartService
         private CountedReassignmentGuard $reassignmentGuard
     ) {}
 
-    public function startShift(CashierShift $expected): CashierShift
+    public function startShift(CashierShift $expected, array $auditContext = []): CashierShift
     {
-        return $this->database->transaction(function () use ($expected) {
+        return $this->database->transaction(function () use ($expected, $auditContext) {
             // Lock workday rows before cashier rows to share lock order with daily report submission.
             $snapshot = CashierShift::withoutEagerLoads()->findOrFail($expected->id);
             $branchId = $snapshot->shift()->value('branch_id');
@@ -124,10 +124,18 @@ final class CashierShiftStartService
             }
             $shift->update(['status' => ShiftStatus::IN_PROGRESS, 'actual_start_time' => $startedAt,
                 'operational_chain_id' => $chainId]);
-            $shift->recordHistory('started', null, [
+            $historyPayload = [
                 'status' => ShiftStatus::IN_PROGRESS->value,
                 'actual_start_time' => $shift->actual_start_time,
-            ]);
+            ];
+            if (! empty($auditContext['is_late_start'])) {
+                $historyPayload['is_late_start'] = true;
+                $historyPayload['scheduled_start_at'] = $auditContext['scheduled_start_at'] ?? null;
+                $historyPayload['late_start_reason'] = $auditContext['late_start_reason'] ?? null;
+                $historyPayload['authorized_by_id'] = $auditContext['authorized_by_id'] ?? null;
+                $historyPayload['authorized_by_type'] = $auditContext['authorized_by_type'] ?? null;
+            }
+            $shift->recordHistory('started', null, $historyPayload, $auditContext['notes'] ?? null);
 
             return $shift;
         });

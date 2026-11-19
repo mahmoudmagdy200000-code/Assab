@@ -225,7 +225,11 @@ class CashierShift extends Model
                 ->whereDate('shift_date', '>=', $now->copy()->subDays(2)->toDateString())
                 ->whereDate('shift_date', '<', $today)
                 ->get()
-                ->filter(fn (CashierShift $shift) => ShiftHelper::getShiftStartWindow($shift, $now)['can_start'])
+                ->filter(function (CashierShift $shift) use ($now) {
+                    $window = ShiftHelper::getShiftStartWindow($shift, $now);
+
+                    return ($window['can_start'] ?? false) || ($window['can_late_start'] ?? false);
+                })
                 ->modelKeys();
         }
 
@@ -259,9 +263,9 @@ class CashierShift extends Model
     }
 
     // Methods
-    public function startShift(): void
+    public function startShift(array $auditContext = []): void
     {
-        $started = app(CashierShiftStartService::class)->startShift($this);
+        $started = app(CashierShiftStartService::class)->startShift($this, $auditContext);
         $this->setRawAttributes($started->getAttributes(), true);
     }
 
@@ -315,7 +319,7 @@ class CashierShift extends Model
         return $this->calculateChannelDifference();
     }
 
-    public function recordHistory(string $action, ?array $oldValue, array $newValue): void
+    public function recordHistory(string $action, ?array $oldValue, array $newValue, ?string $notes = null): void
     {
         $user = auth()->user();
         $performedBy = $user?->id ?? 0;
@@ -333,7 +337,7 @@ class CashierShift extends Model
             'performed_by_type' => $performedByType,
             'old_value' => $oldValue ? json_encode($oldValue) : null,
             'new_value' => json_encode($newValue),
-            'notes' => null,
+            'notes' => $notes,
         ]);
     }
 

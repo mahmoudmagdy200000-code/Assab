@@ -384,14 +384,25 @@ class ShiftDetailResource extends JsonResource
     private function getAvailableActions(): array
     {
         $status = $this->status?->value ?? 'not_started';
-        $startWindow = \Modules\Shift\Helpers\ShiftHelper::getShiftStartWindow($this->resource);
+        $user = auth()->user();
+        $actorRole = $user instanceof \Modules\BranchManagers\Models\BranchManager ? 'branch_manager' : 'cashier';
+        $eligibility = app(\Modules\Shift\Services\ShiftStartEligibilityService::class)->evaluateForActor(
+            $this->resource,
+            actorRole: $actorRole,
+            enforceTurnOrder: $actorRole === 'cashier',
+        );
 
         return [
-            // Cashier self-start UI hint only; the manager start route has its own
-            // authorization and schedule behavior. Neither hint bypasses server checks.
-            'can_start' => in_array($status, ['not_started', 'reassigned'], true) && $this->actual_start_time === null
-                && $this->operational_ended_at === null && ($startWindow['can_start'] ?? false),
-            'start_window' => $startWindow,
+            'can_start' => $eligibility['can_start'],
+            'can_start_normal' => $eligibility['can_start_normal'],
+            'can_start_late' => $eligibility['can_start_late'],
+            'is_late_start' => $eligibility['is_late_start'],
+            'window_phase' => $eligibility['window_phase'],
+            'requires_manager_authorization' => $eligibility['requires_manager_authorization'],
+            'is_next_shift' => $eligibility['is_next_shift'],
+            'start_disabled_reason' => $eligibility['start_disabled_reason'],
+            'start_disabled_code' => $eligibility['start_disabled_code'],
+            'start_window' => $eligibility['start_window'],
             'can_accept_assignment' => $status === 'reassigned' && $this->actual_start_time === null
                 && ($this->handoverStatus === null || $this->handoverStatus->manager_approval_status === 'pending'),
             'can_end' => $status === 'in_progress',

@@ -99,7 +99,8 @@ class CashierShiftController extends BaseController
                         'branch_id' => $shift->shift->branch_id,
                         'branch_location' => $shift->shift->branch->location ?? 'N/A',
                         'duration' => $this->calculateDuration($shift),
-                        'can_start' => $shift->status === ShiftStatus::NOT_STARTED && $shift->shift_date->isToday(),
+                        'can_start' => app(\Modules\Shift\Services\ShiftStartEligibilityService::class)
+                            ->evaluateForActor($shift, actorRole: 'cashier')['can_start'],
                         'can_end' => $shift->status === ShiftStatus::IN_PROGRESS,
                         'can_handover' => $shift->status === ShiftStatus::IN_PROGRESS ||
                             ($shift->total_sales > 0 && ! $shift->handoverStatus?->isManagerApproved()),
@@ -157,7 +158,7 @@ class CashierShiftController extends BaseController
 
             $shifts = CashierShift::with([
                 'shift' => function ($q) {
-                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
                 },
                 'shift.branch:id,name',
                 'nextCashier:id,name',
@@ -179,18 +180,20 @@ class CashierShiftController extends BaseController
                 ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) asc')
                 ->paginate($request->input('per_page', 15));
 
-            $earliestPendingId = CashierShift::query()
-                ->where('cashier_id', $cashier->id)
-                ->whereIn('status', [ShiftStatus::NOT_STARTED, ShiftStatus::REASSIGNED])
-                ->pendingDateWindow($request->input('date_from'), $request->input('date_to'))
-                ->orderBy('shift_date', 'asc')
-                ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) asc')
-                ->orderBy('cashier_shifts.id', 'asc')
-                ->value('cashier_shifts.id');
+            $eligibilityService = app(\Modules\Shift\Services\ShiftStartEligibilityService::class);
+            $nextStartableId = $eligibilityService->nextStartableShiftId(
+                (string) $cashier->id,
+                $request->input('date_from'),
+                $request->input('date_to'),
+            );
 
-            $transformedShifts = $shifts->getCollection()->map(function ($shift) use ($earliestPendingId) {
-                $isFirstShift = $earliestPendingId !== null && (string) $shift->id === (string) $earliestPendingId;
-                $startWindow = ShiftHelper::getShiftStartWindow($shift);
+            $transformedShifts = $shifts->getCollection()->map(function ($shift) use ($nextStartableId, $eligibilityService) {
+                $eligibility = $eligibilityService->evaluateForActor(
+                    $shift,
+                    actorRole: 'cashier',
+                    nextStartableShiftId: $nextStartableId,
+                    enforceTurnOrder: true,
+                );
                 $nextRecipient = $this->shiftService->getNextRecipientForDisplay($shift);
                 $handoverTo = $shift->handover?->handoverTo;
                 $handoverToName = $handoverTo?->name ?? $nextRecipient?->name;
@@ -200,23 +203,6 @@ class CashierShiftController extends BaseController
                 $canAcceptAssignment = $shift->status === ShiftStatus::REASSIGNED
                     && $shift->actual_start_time === null
                     && ($shift->handoverStatus === null || $shift->handoverStatus->manager_approval_status === 'pending');
-
-                $canStart = $shift->status === ShiftStatus::NOT_STARTED
-                    && $isFirstShift
-                    && $shift->actual_start_time === null
-                    && $shift->operational_ended_at === null
-                    && $startWindow['can_start'];
-
-                $startDisabledReason = null;
-                if (! $canStart) {
-                    if ($shift->status === ShiftStatus::REASSIGNED) {
-                        $startDisabledReason = 'يجب قبول تكليف الوردية أولاً';
-                    } elseif (! $isFirstShift) {
-                        $startDisabledReason = 'لم يحن دور الوردية بعد؛ يرجى بدء الوردية السابقة أولاً';
-                    } else {
-                        $startDisabledReason = $startWindow['reason'];
-                    }
-                }
 
                 return [
                     'id' => $shift->id,
@@ -244,10 +230,16 @@ class CashierShiftController extends BaseController
                     'next_cashier' => $nextRecipient?->name,
                     'assigned_by' => $shift->assignedBy?->name ?? 'Branch Manager',
                     'assigned_by_user_type' => $shift->assigned_by ? 'branch_manager' : null,
-                    'is_next_shift' => $isFirstShift,
-                    'start_window' => $startWindow,
-                    'can_start' => $canStart,
-                    'start_disabled_reason' => $startDisabledReason,
+                    'is_next_shift' => $eligibility['is_next_shift'],
+                    'start_window' => $eligibility['start_window'],
+                    'window_phase' => $eligibility['window_phase'],
+                    'can_start' => $eligibility['can_start'],
+                    'can_start_normal' => $eligibility['can_start_normal'],
+                    'can_start_late' => $eligibility['can_start_late'],
+                    'is_late_start' => $eligibility['is_late_start'],
+                    'requires_manager_authorization' => $eligibility['requires_manager_authorization'],
+                    'start_disabled_reason' => $eligibility['start_disabled_reason'],
+                    'start_disabled_code' => $eligibility['start_disabled_code'],
                     'can_accept_assignment' => $canAcceptAssignment,
                     'actions' => [
                         'view_details' => true,
@@ -334,7 +326,7 @@ class CashierShiftController extends BaseController
 
             $shiftModel = CashierShift::with([
                 'shift' => function ($q) {
-                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
                 },
                 'shift.branch:id,name',
                 'cashier:id,name',
@@ -347,22 +339,18 @@ class CashierShiftController extends BaseController
                 return $this->errorResponse('Shift has already been started or is not in pending status', 400);
             }
 
-            $earliestPendingId = CashierShift::query()
-                ->where('cashier_id', $cashier->id)
-                ->whereIn('status', [ShiftStatus::NOT_STARTED, ShiftStatus::REASSIGNED])
-                ->pendingDateWindow()
-                ->orderBy('shift_date', 'asc')
-                ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) asc')
-                ->orderBy('cashier_shifts.id', 'asc')
-                ->value('cashier_shifts.id');
+            $eligibility = app(\Modules\Shift\Services\ShiftStartEligibilityService::class)
+                ->evaluateForActor($shiftModel, actorRole: 'cashier', enforceTurnOrder: true);
 
-            if ($earliestPendingId !== null && (string) $shiftModel->id !== (string) $earliestPendingId) {
-                return $this->errorResponse('لم يحن دور الوردية بعد؛ يرجى بدء الوردية السابقة أولاً', 400);
-            }
+            if (! $eligibility['can_start']) {
+                $code = $eligibility['start_disabled_code'];
+                if (in_array($code, ['ASSIGNMENT_ACCEPTANCE_REQUIRED', 'WORKDAY_FINALIZED', 'OPERATIONAL_OWNER_ALREADY_ACTIVE'], true)) {
+                    throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException(
+                        $code === 'WORKDAY_FINALIZED' ? 'REPORT_REOPEN_REQUIRED' : $code
+                    );
+                }
 
-            $startWindow = ShiftHelper::getShiftStartWindow($shiftModel);
-            if (! $startWindow['can_start']) {
-                return $this->errorResponse($startWindow['reason'] ?? 'Cannot start shift outside start window', 400);
+                return $this->errorResponse($eligibility['start_disabled_reason'] ?? 'Cannot start shift outside start window', 400);
             }
 
             // Start the shift
@@ -940,7 +928,7 @@ class CashierShiftController extends BaseController
      * Start shift by manager (for cashier)
      * Accepts either shiftId or cashierId - will find pending shift for cashier if cashierId is provided
      */
-    public function startShiftByManager($shiftId): JsonResponse
+    public function startShiftByManager(Request $request, $shiftId): JsonResponse
     {
         try {
             $branchManager = auth()->user();
@@ -949,10 +937,12 @@ class CashierShiftController extends BaseController
                 return $this->errorResponse('Unauthorized: Only branch managers can start shifts on behalf of cashiers', 403);
             }
 
+            $eligibilityService = app(\Modules\Shift\Services\ShiftStartEligibilityService::class);
+
             // First try to find by shift ID (optimized eager loading)
             $shiftModel = CashierShift::with([
                 'shift' => function ($q) {
-                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                    $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
                 },
                 'shift.branch:id,name',
                 'cashier:id,name,branch_id',
@@ -967,11 +957,11 @@ class CashierShiftController extends BaseController
                 })
                 ->first();
 
-            // If not found, assume it's a cashier_id and find pending shift for that cashier
+            // If not found, assume it's a cashier_id and find first manager-eligible pending shift
             if (! $shiftModel) {
-                $shiftModel = CashierShift::with([
+                $candidates = CashierShift::with([
                     'shift' => function ($q) {
-                        $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id']);
+                        $q->select(['id', 'name', 'start_time', 'end_time', 'branch_id', 'is_active']);
                     },
                     'shift.branch:id,name',
                     'cashier:id,name,branch_id',
@@ -988,7 +978,15 @@ class CashierShiftController extends BaseController
                     ->pendingDateWindow()
                     ->orderBy('shift_date', 'asc')
                     ->orderByRaw('(SELECT start_time FROM shifts WHERE shifts.id = cashier_shifts.shift_id) asc')
-                    ->first();
+                    ->get();
+
+                $shiftModel = $candidates->first(
+                    fn (CashierShift $candidate) => $eligibilityService->evaluateForActor(
+                        $candidate,
+                        actorRole: 'branch_manager',
+                        enforceTurnOrder: false,
+                    )['can_start']
+                ) ?? $candidates->first();
             }
 
             if (! $shiftModel) {
@@ -1004,12 +1002,38 @@ class CashierShiftController extends BaseController
                 return $this->errorResponse('Shift has already been started', 400);
             }
 
-            $startWindow = ShiftHelper::getShiftStartWindow($shiftModel);
-            if (! $startWindow['can_start']) {
-                return $this->errorResponse($startWindow['reason'] ?? 'Cannot start shift outside start window', 400);
+            $eligibility = $eligibilityService->evaluateForActor(
+                $shiftModel,
+                actorRole: 'branch_manager',
+                enforceTurnOrder: false,
+            );
+
+            if (! $eligibility['can_start']) {
+                $code = $eligibility['start_disabled_code'];
+                if (in_array($code, ['ASSIGNMENT_ACCEPTANCE_REQUIRED', 'WORKDAY_FINALIZED', 'OPERATIONAL_OWNER_ALREADY_ACTIVE'], true)) {
+                    throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException(
+                        $code === 'WORKDAY_FINALIZED' ? 'REPORT_REOPEN_REQUIRED' : $code
+                    );
+                }
+
+                return $this->errorResponse($eligibility['start_disabled_reason'] ?? 'Cannot start shift outside start window', 400);
             }
 
-            $shiftModel->startShift();
+            $lateReasonRaw = $request->input('late_start_reason', $request->input('reason'));
+            $lateReason = is_string($lateReasonRaw) && trim($lateReasonRaw) !== '' ? trim($lateReasonRaw) : null;
+
+            $auditContext = [
+                'is_late_start' => $eligibility['is_late_start'],
+                'scheduled_start_at' => $eligibility['start_window']['scheduled_start_at'] ?? null,
+                'late_start_reason' => $lateReason ?? ($eligibility['is_late_start'] ? 'Authorized late start by branch manager' : null),
+                'authorized_by_id' => $branchManager->id,
+                'authorized_by_type' => 'branch_manager',
+                'notes' => $eligibility['is_late_start']
+                    ? ('Late start authorized by branch manager'.($lateReason ? ': '.$lateReason : ''))
+                    : null,
+            ];
+
+            $shiftModel->startShift($auditContext);
             $shiftModel->loadFullRelationships();
 
             return $this->successResponse(

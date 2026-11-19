@@ -81,7 +81,7 @@ class ShiftSubmittedWorkdayCloseAndStartTest extends TestCase
         ]);
         $this->overnightTemplate = Shift::factory()->create([
             'branch_id' => $this->branch->id,
-            'start_time' => '22:00:00',
+            'start_time' => '23:00:00',
             'end_time' => '02:00:00',
             'is_active' => true,
         ]);

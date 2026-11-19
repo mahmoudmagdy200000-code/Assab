@@ -77,6 +77,10 @@ class PendingShiftController extends BaseController
             }
 
             $progress = $this->shiftService->getShiftProgress($shift);
+            $user = auth()->user();
+            $actorRole = $user instanceof \Modules\BranchManagers\Models\BranchManager ? 'branch_manager' : 'cashier';
+            $eligibility = app(\Modules\Shift\Services\ShiftStartEligibilityService::class)
+                ->evaluateForActor($shiftDetails, actorRole: $actorRole, enforceTurnOrder: $actorRole === 'cashier');
 
             return response()->json([
                 'success' => true,
@@ -85,12 +89,15 @@ class PendingShiftController extends BaseController
                     'shift' => new ShiftDetailResource($shiftDetails),
                     'progress' => $progress,
                     'actions_available' => [
-                        'mark_not_worked' => app(\Modules\Shift\Services\ShiftNotWorkedGuard::class)->canMark($shiftDetails, auth()->user()),
+                        'mark_not_worked' => app(\Modules\Shift\Services\ShiftNotWorkedGuard::class)->canMark($shiftDetails, $user),
                         'view_details' => true,
                         'reassign_shift' => true,
-                        'start_shift' => $shiftDetails->actual_start_time === null
-                            && $shiftDetails->operational_ended_at === null
-                            && ShiftHelper::getShiftStartWindow($shiftDetails)['can_start'],
+                        'start_shift' => $eligibility['can_start'],
+                        'can_start' => $eligibility['can_start'],
+                        'can_start_late' => $eligibility['can_start_late'],
+                        'is_late_start' => $eligibility['is_late_start'],
+                        'start_disabled_reason' => $eligibility['start_disabled_reason'],
+                        'start_disabled_code' => $eligibility['start_disabled_code'],
                     ],
                 ],
             ]);

@@ -41,11 +41,14 @@ final class ShiftStartWindowAndWeeklyScopeTest extends ShiftRecurringRosterRenew
                     $this->actingAs($actor, 'sanctum');
                     $first = $this->getJson($url.'&per_page=1')->assertOk();
                     $this->assertSame($overnight->id, $first->json('data.0.id'));
-                    $this->assertTrue($first->json('data.0.can_start'));
+                    $this->assertTrue($first->json('data.0.is_late_start'));
                     if ($actor instanceof Cashier) {
+                        $this->assertFalse($first->json('data.0.can_start'));
                         $this->assertCount(1, $first->json('data'));
                         $second = $this->getJson($url.'&per_page=1&page=2')->assertOk();
                         $this->assertSame($today->id, $second->json('data.0.id'));
+                    } else {
+                        $this->assertTrue($first->json('data.0.can_start'));
                     }
                     $this->assertCount(2, $this->getJson($url)->assertOk()->json('data'));
                 }
@@ -148,9 +151,9 @@ final class ShiftStartWindowAndWeeklyScopeTest extends ShiftRecurringRosterRenew
             $open = ShiftHelper::getShiftStartWindow($shift, Carbon::parse('2026-11-12 06:00:00', 'Asia/Riyadh'));
             $this->assertTrue($open['can_start']);
             $this->assertSame('2026-11-12T06:00:00+03:00', $open['window_opens_at']);
-            $close = ShiftHelper::getShiftStartWindow($shift, Carbon::parse('2026-11-12 18:00:00', 'Asia/Riyadh'));
+            $close = ShiftHelper::getShiftStartWindow($shift, Carbon::parse('2026-11-12 10:00:01', 'Asia/Riyadh'));
             $this->assertFalse($close['can_start']);
-            $this->assertSame('2026-11-12T18:00:00+03:00', $close['window_closes_at']);
+            $this->assertSame('2026-11-12T10:00:00+03:00', $close['window_closes_at']);
         } finally {
             Carbon::setTestNow();
         }
@@ -202,32 +205,36 @@ final class ShiftStartWindowAndWeeklyScopeTest extends ShiftRecurringRosterRenew
         $this->assertTrue($resAtOpen['can_start']);
         $this->assertNull($resAtOpen['reason']);
 
-        // 3. During scheduled shift (11:00)
+        // 3. During normal +/-2h window (11:00)
         $during = Carbon::parse('2026-11-12 11:00:00', 'Asia/Riyadh');
         $resDuring = ShiftHelper::getShiftStartWindow($cashierShift, $during);
         $this->assertTrue($resDuring['can_start']);
         $this->assertNull($resDuring['reason']);
 
-        // 4. Before window close (13:59:59) -> still open
-        $beforeClose = Carbon::parse('2026-11-12 13:59:59', 'Asia/Riyadh');
-        $resBeforeClose = ShiftHelper::getShiftStartWindow($cashierShift, $beforeClose);
-        $this->assertTrue($resBeforeClose['can_start']);
-        $this->assertNull($resBeforeClose['reason']);
+        // 4. Exactly at normal close (12:00:00) -> inclusive normal boundary
+        $atNormalClose = Carbon::parse('2026-11-12 12:00:00', 'Asia/Riyadh');
+        $resAtNormalClose = ShiftHelper::getShiftStartWindow($cashierShift, $atNormalClose);
+        $this->assertTrue($resAtNormalClose['can_start']);
+        $this->assertFalse($resAtNormalClose['is_late_start']);
+        $this->assertSame('normal', $resAtNormalClose['window_phase']);
 
-        // 5. Exactly at window close (14:00:00) -> strictly disabled!
-        $atClose = Carbon::parse('2026-11-12 14:00:00', 'Asia/Riyadh');
-        $resAtClose = ShiftHelper::getShiftStartWindow($cashierShift, $atClose);
-        $this->assertFalse($resAtClose['can_start'], 'Window must be closed/disabled at 14:00:00 sharp.');
-        $this->assertStringContainsString('انتهت نافذة بدء الوردية', $resAtClose['reason']);
-        $this->assertStringContainsString('14:00', $resAtClose['reason']);
-        $this->assertArrayHasKey('server_time', $resAtClose);
+        // 5. After normal close (12:01:00) -> transitions to late recovery phase
+        $afterNormalClose = Carbon::parse('2026-11-12 12:01:00', 'Asia/Riyadh');
+        $resLate = ShiftHelper::getShiftStartWindow($cashierShift, $afterNormalClose);
+        $this->assertFalse($resLate['can_start']);
+        $this->assertTrue($resLate['is_late_start']);
+        $this->assertTrue($resLate['can_late_start']);
+        $this->assertSame('late', $resLate['window_phase']);
+        $this->assertStringContainsString('12:00', $resLate['reason']);
+        $this->assertArrayHasKey('server_time', $resLate);
 
-        // 6. After window close (14:01)
-        $after = Carbon::parse('2026-11-12 14:01:00', 'Asia/Riyadh');
+        // 6. After business-day late recovery cutoff (next day 00:00:00) -> expired
+        $after = Carbon::parse('2026-11-13 00:00:00', 'Asia/Riyadh');
         $resAfter = ShiftHelper::getShiftStartWindow($cashierShift, $after);
         $this->assertFalse($resAfter['can_start']);
+        $this->assertFalse($resAfter['can_late_start']);
+        $this->assertSame('expired', $resAfter['window_phase']);
         $this->assertStringContainsString('انتهت نافذة بدء الوردية', $resAfter['reason']);
-        $this->assertStringContainsString('14:00', $resAfter['reason']);
     }
 
     public function test_shift_helper_start_window_midnight_crossing(): void
@@ -257,13 +264,18 @@ final class ShiftStartWindowAndWeeklyScopeTest extends ShiftRecurringRosterRenew
         $open = Carbon::parse('2026-11-12 20:00:00', 'Asia/Riyadh');
         $this->assertTrue(ShiftHelper::getShiftStartWindow($cashierShift, $open)['can_start']);
 
-        // 3. Middle of the night across midnight (02:00 on Nov 13)
-        $midnight = Carbon::parse('2026-11-13 02:00:00', 'Asia/Riyadh');
-        $this->assertTrue(ShiftHelper::getShiftStartWindow($cashierShift, $midnight)['can_start']);
+        // 3. Normal close boundary for 22:00 shift is 00:00 on Nov 13; 02:00 is late-start recovery
+        $atNormalBoundary = Carbon::parse('2026-11-13 00:00:00', 'Asia/Riyadh');
+        $this->assertTrue(ShiftHelper::getShiftStartWindow($cashierShift, $atNormalBoundary)['can_start']);
 
-        // 4. Near close (07:59:59 on Nov 13) -> still open
+        $midnightLate = Carbon::parse('2026-11-13 02:00:00', 'Asia/Riyadh');
+        $resLateNight = ShiftHelper::getShiftStartWindow($cashierShift, $midnightLate);
+        $this->assertFalse($resLateNight['can_start']);
+        $this->assertTrue($resLateNight['can_late_start']);
+
+        // 4. Late recovery stays available before 08:00:00 on Nov 13
         $nearClose = Carbon::parse('2026-11-13 07:59:59', 'Asia/Riyadh');
-        $this->assertTrue(ShiftHelper::getShiftStartWindow($cashierShift, $nearClose)['can_start']);
+        $this->assertTrue(ShiftHelper::getShiftStartWindow($cashierShift, $nearClose)['can_late_start']);
 
         // 5. Exactly at close (08:00:00 on Nov 13) -> strictly disabled!
         $atClose = Carbon::parse('2026-11-13 08:00:00', 'Asia/Riyadh');
@@ -412,8 +424,8 @@ final class ShiftStartWindowAndWeeklyScopeTest extends ShiftRecurringRosterRenew
 
         $this->actingAs($this->cashierB, 'sanctum');
 
-        // Start next morning at 03:00 (Nov 13) -> Expect 200 OK
-        Carbon::setTestNow(Carbon::parse('2026-11-13 03:00:00', 'Asia/Riyadh'));
+        // Start within normal +/-2h window crossing midnight (23:55 on Nov 12) -> Expect 200 OK
+        Carbon::setTestNow(Carbon::parse('2026-11-12 23:55:00', 'Asia/Riyadh'));
         try {
             $respNight = $this->postJson("/api/v1/cashier/shifts/{$overnightShift->id}/start");
             $respNight->assertOk();

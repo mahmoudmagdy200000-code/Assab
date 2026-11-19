@@ -32,6 +32,7 @@ class ShiftAssignmentAcceptanceGateTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->travelTo(now()->setTime(10, 0, 0));
 
         $company = AsabCompany::create(['name' => 'BRC-06', 'plan' => 'Professional', 'status' => 'active']);
         $brand = AsabBrand::create(['company_id' => $company->id, 'name' => 'BRC-06', 'sub_status' => 'active', 'status' => 'active']);
@@ -39,7 +40,7 @@ class ShiftAssignmentAcceptanceGateTest extends TestCase
         $this->manager = BranchManager::factory()->create(['branch_id' => $branch->id, 'is_active' => true, 'status' => 'active']);
         $this->outgoing = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $this->manager->id]);
         $this->incoming = Cashier::factory()->create(['branch_id' => $branch->id, 'created_by' => $this->manager->id]);
-        $template = Shift::factory()->create(['branch_id' => $branch->id, 'is_active' => true]);
+        $template = Shift::factory()->create(['branch_id' => $branch->id, 'start_time' => '10:00:00', 'end_time' => '18:00:00', 'is_active' => true]);
         $this->source = CashierShift::create([
             'cashier_id' => $this->outgoing->id, 'shift_id' => $template->id,
             'shift_date' => today()->toDateString(), 'status' => ShiftStatus::IN_PROGRESS,
