@@ -27,10 +27,11 @@ final class ShiftLiabilityService
             $this->assertNotLockedByDailySubmit($shiftId);
             $identity = $this->actors->identity($actor, $report->companyId, $report->branchId);
             $managerCorrection = $identity['type'] === 'branch_manager';
+            $isOwnShift = $managerCorrection && (string) $identity['id'] === (string) $shift->cashier_id;
             if (! $managerCorrection && ($identity['type'] !== 'cashier' || $identity['id'] !== $shift->cashier_id)) {
                 throw new AccessDeniedHttpException('ONLY_OWNER_OR_BRANCH_MANAGER');
             }
-            if ($managerCorrection && trim($reason ?? '') === '') {
+            if ($managerCorrection && ! $isOwnShift && trim($reason ?? '') === '') {
                 throw ValidationException::withMessages(['reason' => 'Manager correction requires a reason.']);
             }
             $previous = $this->latest($shiftId);
@@ -68,13 +69,19 @@ final class ShiftLiabilityService
                 'created_by_type' => $identity['type'],
                 'created_by_id' => $identity['id'],
                 'reason' => $reason,
-                'cashier_confirmed_at' => ! $managerCorrection && $cashierConfirmed ? now() : null,
+                'cashier_confirmed_at' => ($isOwnShift || (! $managerCorrection && $cashierConfirmed)) ? now() : null,
+                'manager_approval_status' => $isOwnShift ? 'approved' : 'pending',
+                'manager_approved_by' => $isOwnShift ? $identity['id'] : null,
+                'manager_approved_at' => $isOwnShift ? now() : null,
             ]);
             foreach ($shares as $share) {
+                $isSelfShare = $isOwnShift && (string) $share['id'] === (string) $identity['id'];
                 $allocation->shares()->create([
                     'responsible_type' => $share['type'],
                     'responsible_id' => $share['id'],
                     'amount_halalas' => $share['amount'],
+                    'employee_response_status' => $isSelfShare ? 'accepted' : 'pending',
+                    'employee_responded_at' => $isSelfShare ? now() : null,
                 ]);
             }
 

@@ -138,7 +138,15 @@ class BranchManagerShiftController extends BaseController
                 ->select([
                     'id', 'branch_manager_id', 'branch_id', 'shift_date',
                     'status', 'actual_start_time', 'actual_end_time',
-                    'next_manager_id', 'created_at', 'updated_at',
+                    'next_manager_id', 'handover_amount', 'closing_balance',
+                    'opening_balance', 'handover_status', 'handover_timing',
+                    'handover_date', 'handover_time', 'handover_notes',
+                    'total_sales', 'net_sales', 'vat_amount', 'cash_collected',
+                    'card_payments', 'aggregator_payments', 'variance',
+                    'daily_report_submitted', 'daily_report_submitted_at',
+                    'daily_report_notes', 'can_reopen', 'reopened_at',
+                    'reopen_reason', 'approved_by', 'approved_at',
+                    'archived_at', 'created_at', 'updated_at',
                 ])
                 ->with(['branch:id,name,location', 'nextManager:id,name', 'branchManager:id,name'])
                 ->orderBy('shift_date', 'desc');
@@ -850,7 +858,12 @@ class BranchManagerShiftController extends BaseController
         ]);
 
         if ($validator->fails()) {
-            return $this->errorResponse($validator->errors()->first(), 422);
+            return response()->json([
+                'success' => false,
+                'message' => $validator->errors()->first(),
+                'code' => 'VALIDATION_ERROR',
+                'errors' => $validator->errors(),
+            ], 422);
         }
 
         try {
@@ -860,16 +873,20 @@ class BranchManagerShiftController extends BaseController
             if ($request->filled('branch_manager_shift_id')) {
                 $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
                     ->whereKey($request->branch_manager_shift_id)
-                    ->firstOrFail();
+                    ->first();
             } else {
                 $managerShift = BranchManagerShift::where('branch_manager_id', $manager->id)
                     ->whereDate('shift_date', today())
                     ->where('status', 'completed')
-                    ->firstOrFail();
+                    ->first();
+            }
+
+            if (! $managerShift) {
+                return HandoverErrorResponse::domain('DAILY_CLOSE_WORKDAY_NOT_FOUND', 404);
             }
 
             if ($managerShift->daily_report_submitted) {
-                return $this->errorResponse('Daily report already submitted', 400);
+                return HandoverErrorResponse::domain('DAILY_REPORT_ALREADY_SUBMITTED', 409);
             }
 
             DB::transaction(function () use ($managerShift, $request, $manager) {
@@ -925,12 +942,10 @@ class BranchManagerShiftController extends BaseController
                 'shift' => new BranchManagerShiftResource($managerShift->fresh()),
                 'message' => 'Daily report submitted successfully. Waiting for Sales Team approval.',
             ], 'Daily report submitted successfully');
-        } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException) {
+            return HandoverErrorResponse::domain('DAILY_CLOSE_WORKDAY_NOT_FOUND', 404);
+        } catch (\Throwable $e) {
             return HandoverErrorResponse::from($e, 'daily report submit');
-        } catch (\Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException $e) {
-            return HandoverErrorResponse::from($e, 'daily report submit');
-        } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage(), 500);
         }
     }
 
@@ -1105,7 +1120,18 @@ class BranchManagerShiftController extends BaseController
             $vatAmount = (float) ($split['vat'] / 100);
             $netSales = (float) ($split['net'] / 100);
             $closingBalance = (float) ($managerShift->handover_amount ?? $managerShift->closing_balance ?? 0);
-            $variance = $totalSales - $closingBalance;
+            // Custody reconciliation compares authoritative cash collected against handover amount,
+            // never gross sales (which includes card and aggregator settlements).
+            $expectedCashHalalas = \App\Support\ShiftFinancialCalculator::sarToHalalas($cashCollected);
+            $closingBalanceHalalas = \App\Support\ShiftFinancialCalculator::sarToHalalas($closingBalance);
+            $varianceHalalas = $expectedCashHalalas - $closingBalanceHalalas;
+            $expectedBalance = (float) ($expectedCashHalalas / 100);
+            $variance = (float) ($varianceHalalas / 100);
+            $confirmedTransfersHalalas = \Modules\Shift\Models\CashierShiftHandoverReceipt::query()
+                ->where('receiving_branch_manager_shift_id', $managerShift->id)
+                ->get(['confirmed_amount'])
+                ->sum(fn ($receipt) => \App\Support\ShiftFinancialCalculator::storedSarToHalalas($receipt->confirmed_amount));
+            $confirmedTransfersAmount = (float) ($confirmedTransfersHalalas / 100);
             $handoverStatus = $this->shiftService->normalizeHandoverStatus($managerShift->handover_status);
             $accountantName = $this->shiftService->responsibleAccountantNameForBranch($managerShift->branch_id);
             $currentTime = $managerShift->handover_timing === 'yesterday'
@@ -1137,9 +1163,19 @@ class BranchManagerShiftController extends BaseController
                     'handover_notes' => $managerShift->handover_notes,
                     'opening_balance' => (float) ($managerShift->opening_balance ?? 0),
                     'closing_balance' => $closingBalance,
-                    'expected_balance' => $totalSales,
+                    'expected_balance' => $expectedBalance,
                     'variance' => $variance,
                     'variance_type' => $this->shiftService->normalizeVarianceType($variance),
+                    'custody_reconciliation' => [
+                        'basis' => 'cash_custody_evidence',
+                        'opening_cash' => (float) ($managerShift->opening_balance ?? 0),
+                        'expected_cash_collected' => $expectedBalance,
+                        'confirmed_transfers_amount' => $confirmedTransfersAmount,
+                        'handover_amount' => $closingBalance,
+                        'cash_variance' => $variance,
+                        'variance_type' => $this->shiftService->normalizeVarianceType($variance),
+                        'handover_status' => $handoverStatus,
+                    ],
                 ],
                 'financial_summary' => [
                     'total_sales' => $totalSales,

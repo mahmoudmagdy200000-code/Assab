@@ -26,25 +26,29 @@ class ShiftDailyCloseScopeService
         $consumedElsewhere = DB::table('shift_liability_daily_locks')
             ->where('branch_manager_shift_id', '!=', $day->id)
             ->whereNull('released_at')->whereNull('superseded_at')->select('cashier_shift_id');
+        $lockedForThisDay = DB::table('shift_liability_daily_locks')
+            ->where('branch_manager_shift_id', $day->id)
+            ->whereNull('released_at')->whereNull('superseded_at')->select('cashier_shift_id');
 
         $cashierShiftQuery = CashierShift::query()
             ->whereNotIn('id', $consumedElsewhere)
             ->whereDate('shift_date', '<=', $through)
-            ->where(function ($inputs) use ($through, $day) {
+            ->where(function ($inputs) use ($through, $day, $lockedForThisDay) {
                 $inputs->where(function ($sameDay) use ($through) {
                     $sameDay->whereDate('shift_date', $through);
-                })->orWhereHas('handover', function ($carried) use ($day, $through) {
-                    $carried->where('handover_to_type', 'branch_manager')
-                        ->where(function ($historical) use ($day) {
-                            $historical->where('handover_to_id', $day->branch_manager_id)
-                                ->orWhereHas('receipt', fn ($receipt) => $receipt->where('receiving_branch_manager_shift_id', $day->id));
-                        })
-                        ->where(fn ($state) => $state->where('status', 'approved')
-                            ->orWhere(fn ($presented) => $presented->whereDate('handover_date', $through)
-                                ->whereNull('cancelled_at')->whereNull('superseded_at')))
-                        ->whereDate('handover_date', '<=', $through)
-                        ->whereNull('daily_closed_at');
-                });
+                })->orWhereIn('id', $lockedForThisDay)
+                    ->orWhereHas('handover', function ($carried) use ($day, $through) {
+                        $carried->where('handover_to_type', 'branch_manager')
+                            ->where(function ($historical) use ($day) {
+                                $historical->where('handover_to_id', $day->branch_manager_id)
+                                    ->orWhereHas('receipt', fn ($receipt) => $receipt->where('receiving_branch_manager_shift_id', $day->id));
+                            })
+                            ->where(fn ($state) => $state->where('status', 'approved')
+                                ->orWhere(fn ($presented) => $presented->whereDate('handover_date', $through)
+                                    ->whereNull('cancelled_at')->whereNull('superseded_at')))
+                            ->whereDate('handover_date', '<=', $through)
+                            ->whereNull('daily_closed_at');
+                    });
             })
             ->whereHas('shift', fn ($query) => $query->where('branch_id', $day->branch_id))
             ->where(function ($active) {
@@ -103,7 +107,10 @@ class ShiftDailyCloseScopeService
                 ->where(function ($q) use ($day) {
                     $q->where(function ($m) use ($day) {
                         $m->where('handover_to_type', 'branch_manager')
-                            ->where('handover_to_id', $day->branch_manager_id);
+                            ->where(function ($historical) use ($day) {
+                                $historical->where('handover_to_id', $day->branch_manager_id)
+                                    ->orWhereHas('receipt', fn ($receipt) => $receipt->where('receiving_branch_manager_shift_id', $day->id));
+                            });
                     })->orWhere('handover_to_type', 'cashier');
                 });
 

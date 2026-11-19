@@ -6,10 +6,13 @@ use App\Support\ShiftFinancialCalculator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
+use Modules\Shift\Models\ShiftLiabilityAllocation;
 use Modules\Shift\Models\ShiftReportAggregate;
+use Modules\Shift\Models\ShiftReportCashCount;
 use Modules\Shift\Models\ShiftSalesBreakdown;
 
 /**
@@ -80,6 +83,77 @@ class ShiftFinancialService
             'card_payments' => (float) $cardPayments,
             'aggregator_payments' => (float) $aggregatorPayments,
             'total_variance' => (float) $totalVariance,
+        ];
+    }
+
+    /**
+     * Compute financial summary from canonical ShiftDailyCloseScopeService members so
+     * history cards, workday detail, and final daily close always report the same totals.
+     * Falls back to persisted row columns only when no canonical cashier shifts exist
+     * (e.g. legacy synthetic rows without shift-level records).
+     */
+    public function computeCanonicalFinancialSummary(
+        BranchManagerShift $shift,
+        Collection $cashierShifts,
+        Collection $managerHandovers
+    ): array {
+        if ($cashierShifts->isEmpty()) {
+            return $this->computeFinancialSummaryFromHandovers($shift, $managerHandovers);
+        }
+
+        $handoversByShiftId = $managerHandovers->keyBy('cashier_shift_id');
+
+        $totalSalesHalalas = 0;
+        $cashCollectedHalalas = 0;
+        $cardPaymentsHalalas = 0;
+        $aggregatorHalalas = 0;
+        $totalVarianceHalalas = 0;
+        $netHalalas = 0;
+        $vatHalalas = 0;
+
+        foreach ($cashierShifts as $cashierShift) {
+            $handover = $handoversByShiftId->get($cashierShift->id);
+
+            $totalSalesHalalas += ShiftFinancialCalculator::storedSarToHalalas($cashierShift->total_sales ?? '0.00');
+            $cashCollectedHalalas += ShiftFinancialCalculator::storedSarToHalalas($cashierShift->cash_collected ?? '0.00');
+            $cardPaymentsHalalas += ShiftFinancialCalculator::storedSarToHalalas($cashierShift->card_payments ?? '0.00');
+            $aggregatorHalalas += (int) ($cashierShift->salesBreakdown?->sum(
+                fn ($row) => ShiftFinancialCalculator::storedSarToHalalas($row->amount ?? '0.00')
+            ) ?? 0);
+
+            $varianceRaw = $handover !== null
+                ? ($handover->variance_amount ?? $cashierShift->variance ?? '0.00')
+                : ($cashierShift->variance ?? '0.00');
+            $totalVarianceHalalas += ShiftFinancialCalculator::storedSarToHalalas($varianceRaw);
+
+            $split = ShiftFinancialCalculator::persistedSalesSplitHalalas(
+                $cashierShift->total_sales,
+                $cashierShift->net_sales,
+                $cashierShift->vat_amount
+            );
+            $netHalalas += $split['net'];
+            $vatHalalas += $split['vat'];
+        }
+
+        if (
+            $totalSalesHalalas === 0
+            && $cashCollectedHalalas === 0
+            && $cardPaymentsHalalas === 0
+            && $aggregatorHalalas === 0
+            && $totalVarianceHalalas === 0
+            && ($shift->total_sales != 0 || $shift->cash_collected != 0 || $shift->card_payments != 0)
+        ) {
+            return $this->computeFinancialSummaryFromHandovers($shift, $managerHandovers);
+        }
+
+        return [
+            'total_sales' => (float) ($totalSalesHalalas / 100),
+            'net_sales' => (float) ($netHalalas / 100),
+            'vat_amount' => (float) ($vatHalalas / 100),
+            'cash_collected' => (float) ($cashCollectedHalalas / 100),
+            'card_payments' => (float) ($cardPaymentsHalalas / 100),
+            'aggregator_payments' => (float) ($aggregatorHalalas / 100),
+            'total_variance' => (float) ($totalVarianceHalalas / 100),
         ];
     }
 
@@ -224,7 +298,51 @@ class ShiftFinancialService
             ->get()
             ->keyBy('source_id');
 
-        $cashierBreakdown = $cashierShifts->map(function ($cashierShift) use ($handoversByShiftId, $aggregates) {
+        $countsByShiftId = collect();
+        $allocationsByShiftId = collect();
+        if ($allCashierShiftIds->isNotEmpty()) {
+            $aggregateIds = $aggregates->pluck('id')->filter()->values()->all();
+            if (! empty($aggregateIds)) {
+                $revisionRows = DB::table('shift_report_revisions')
+                    ->whereIn('report_aggregate_id', $aggregateIds)
+                    ->get(['id', 'report_aggregate_id', 'revision_number']);
+                $currentRevisionIdByShiftId = [];
+                foreach ($aggregates as $shiftId => $agg) {
+                    if (! empty($agg->fresh_count_required)) {
+                        continue;
+                    }
+                    $matched = $revisionRows->first(
+                        fn ($r) => (string) $r->report_aggregate_id === (string) $agg->id
+                            && (int) $r->revision_number === (int) $agg->current_revision_number
+                    );
+                    if ($matched) {
+                        $currentRevisionIdByShiftId[(string) $shiftId] = (string) $matched->id;
+                    }
+                }
+                if (! empty($currentRevisionIdByShiftId)) {
+                    $countsByRevisionId = ShiftReportCashCount::query()
+                        ->whereIn('report_revision_id', array_values($currentRevisionIdByShiftId))
+                        ->get()
+                        ->keyBy('report_revision_id');
+                    foreach ($currentRevisionIdByShiftId as $shiftId => $revisionId) {
+                        if ($countsByRevisionId->has($revisionId)) {
+                            $countsByShiftId->put($shiftId, $countsByRevisionId->get($revisionId));
+                        }
+                    }
+                }
+            }
+
+            $allocationsByShiftId = ShiftLiabilityAllocation::query()
+                ->whereIn('cashier_shift_id', $allCashierShiftIds)
+                ->whereNull('superseded_at')
+                ->with(['shares:id,allocation_id,responsible_type,responsible_id,amount_halalas'])
+                ->orderByDesc('version')
+                ->get()
+                ->unique('cashier_shift_id')
+                ->keyBy('cashier_shift_id');
+        }
+
+        $cashierBreakdown = $cashierShifts->map(function ($cashierShift) use ($handoversByShiftId, $aggregates, $countsByShiftId, $allocationsByShiftId, $shift) {
             $deliveryApps = $cashierShift->salesBreakdown->sum('amount');
             $handover = $handoversByShiftId->get($cashierShift->id);
             $variance = $handover
@@ -237,6 +355,45 @@ class ShiftFinancialService
 
             $agg = $aggregates->get($cashierShift->id);
             $rev = $agg ? $agg->current_revision_number : 0;
+
+            $count = $countsByShiftId->get((string) $cashierShift->id);
+            $shortageHalalas = $count !== null
+                ? (int) $count->variance_halalas
+                : ShiftFinancialCalculator::storedSarToHalalas($variance);
+
+            $liabilityStatus = 'not_required';
+            $liabilityVersion = null;
+            $liabilityHasSelfShare = false;
+
+            if ($shortageHalalas < 0) {
+                $alloc = $allocationsByShiftId->get($cashierShift->id);
+                $evidenceRev = $count !== null
+                    ? (string) ($count->evidence_revision_id ?? $count->counted_revision_id)
+                    : null;
+                $matchesRevision = $alloc !== null && (
+                    $evidenceRev === null
+                    || (string) $alloc->report_revision === $evidenceRev
+                    || (string) $alloc->report_revision === (string) $rev
+                );
+                if (! $alloc || ! $matchesRevision || (int) $alloc->variance_halalas !== $shortageHalalas) {
+                    $liabilityStatus = 'missing';
+                } else {
+                    $liabilityVersion = (int) $alloc->version;
+                    $liabilityHasSelfShare = $alloc->shares->contains(
+                        fn ($s) => $s->responsible_type === 'branch_manager'
+                            && (string) $s->responsible_id === (string) $shift->branch_manager_id
+                    );
+                    $isReady = $alloc->created_by_type === 'accountant'
+                        ? $alloc->manager_approval_status === 'approved'
+                        : (
+                            $alloc->manager_approval_status === 'approved'
+                            && $alloc->manager_approved_by !== null
+                            && $alloc->manager_approved_at !== null
+                            && ($alloc->created_by_type !== 'cashier' || $alloc->cashier_confirmed_at !== null)
+                        );
+                    $liabilityStatus = $isReady ? 'approved' : 'pending';
+                }
+            }
 
             return [
                 'cashier_shift_id' => $cashierShift->id,
@@ -251,6 +408,9 @@ class ShiftFinancialService
                 'sales' => (float) ($cashierShift->total_sales ?? 0),
                 'handover_amount' => $handoverAmount,
                 'handover_status' => $handover?->status ?? 'not_submitted',
+                'liability_approval_status' => $liabilityStatus,
+                'liability_allocation_version' => $liabilityVersion,
+                'liability_has_manager_self_share' => $liabilityHasSelfShare,
             ];
         })->values()->all();
 
@@ -264,9 +424,11 @@ class ShiftFinancialService
 
         $aggregators = $this->buildAggregatorsBreakdown($cashierShifts);
 
-        $closingBalance = $totals['total_cash_collected'];
-        $expectedBalance = $totals['total_sales'];
-        $calcVariance = $expectedBalance - $closingBalance;
+        $expectedBalance = $totals['total_cash_collected'];
+        $closingBalance = $shift->handover_amount !== null
+            ? (float) $shift->handover_amount
+            : (float) collect($cashierBreakdown)->sum('handover_amount');
+        $calcVariance = (float) ((ShiftFinancialCalculator::sarToHalalas($expectedBalance) - ShiftFinancialCalculator::sarToHalalas($closingBalance)) / 100);
 
         if (! $shift->relationLoaded('branchManager')) {
             $shift->load('branchManager:id,name');

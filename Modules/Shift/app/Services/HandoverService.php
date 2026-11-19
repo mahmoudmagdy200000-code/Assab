@@ -66,6 +66,28 @@ class HandoverService
         DB::beginTransaction();
         try {
             $commandActor = $actor ?? auth()->user() ?? $shift->cashier;
+            $handoverToType = $data['handover_to_type'] ?? 'cashier';
+            $handoverToId = $data['handover_to_id'] ?? $data['next_cashier_id'] ?? null;
+            $isSelfManagerHandover = $commandActor instanceof BranchManager
+                && $handoverToType === 'branch_manager'
+                && (string) $handoverToId === (string) $commandActor->id
+                && (string) $shift->cashier_id === (string) $commandActor->id;
+
+            if ($isSelfManagerHandover) {
+                $branchId = $shift->shift()->value('branch_id');
+                app(\Modules\BranchManagers\Services\BranchManagerService::class)
+                    ->assertAssignedActiveManager($branchId, (string) $commandActor->id);
+                $this->receipts->lockManagerCashOwner((string) $commandActor->id);
+                BranchManagerShift::firstOrCreate(
+                    ['branch_manager_id' => $commandActor->id, 'shift_date' => today()],
+                    [
+                        'branch_id' => $branchId,
+                        'status' => 'not_started',
+                        'opening_balance' => app(BranchManagerShiftService::class)->resolveBranchManagerOpeningBalance($branchId),
+                    ]
+                );
+            }
+
             $shift = app(ShiftReportMutationGuard::class)->lockEditable($shift, $commandActor, [], [today()->toDateString()]);
             $this->reassignmentGuard->assertCanContinue($shift, $actor ?? auth()->user());
             $existingHandover = CashierShiftHandover::query()
@@ -75,8 +97,6 @@ class HandoverService
                 ->lockForUpdate()
                 ->first();
             $this->assertNoCorrectionPending($shift);
-            $handoverToType = $data['handover_to_type'] ?? 'cashier';
-            $handoverToId = $data['handover_to_id'] ?? $data['next_cashier_id'] ?? null;
 
             if ($existingHandover) {
                 if ($existingHandover->handover_to_type !== $handoverToType || (string) $existingHandover->handover_to_id !== (string) $handoverToId) {
@@ -225,6 +245,18 @@ class HandoverService
                     'variance' => $variance,
                 ]
             );
+
+            // Direct close & auto-confirm handover when the Branch Manager is the shift's Cashier.
+            if ($isSelfManagerHandover && $handover->current_transfer_attempt_id === null) {
+                $this->receipts->confirmManagerHandover(
+                    $handover->id,
+                    $commandActor,
+                    (string) $data['handover_amount'],
+                    $data['handover_notes'] ?? null,
+                    null,
+                    true
+                );
+            }
 
             DB::commit();
 

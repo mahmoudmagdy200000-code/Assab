@@ -311,9 +311,10 @@ class ShiftTransferReceiptService
         BranchManager $recipient,
         string $confirmedAmount,
         ?string $comment = null,
-        ?string $expectedAttemptId = null
+        ?string $expectedAttemptId = null,
+        bool $createWorkdayIfMissing = false
     ): CashierShiftHandoverReceipt {
-        return DB::transaction(function () use ($handoverId, $recipient, $confirmedAmount, $comment, $expectedAttemptId) {
+        return DB::transaction(function () use ($handoverId, $recipient, $confirmedAmount, $comment, $expectedAttemptId, $createWorkdayIfMissing) {
             $this->lockManagerCashOwner((string) $recipient->id);
             $stub = CashierShiftHandover::query()->whereKey($handoverId)->firstOrFail();
             $sourceSnapshot = CashierShift::withoutEagerLoads()->whereKey($stub->cashier_shift_id)->firstOrFail();
@@ -326,6 +327,17 @@ class ShiftTransferReceiptService
                 ->where('branch_id', $branchId)
                 ->whereDate('shift_date', today())
                 ->first();
+
+            if (! $managerWorkday && $createWorkdayIfMissing) {
+                $managerWorkday = BranchManagerShift::firstOrCreate(
+                    ['branch_manager_id' => $recipient->id, 'shift_date' => today()],
+                    [
+                        'branch_id' => $branchId,
+                        'status' => 'not_started',
+                        'opening_balance' => app(BranchManagerShiftService::class)->resolveBranchManagerOpeningBalance($branchId),
+                    ]
+                );
+            }
 
             if (! $managerWorkday) {
                 throw new ConflictHttpException('RECEIVING_MANAGER_WORKDAY_REQUIRED');

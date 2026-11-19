@@ -6,11 +6,14 @@ use App\Support\ShiftFinancialCalculator;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
 use Modules\Custody\Models\CashierCustodyTransaction;
 use Modules\Shift\Enums\ShiftStatus;
 use Modules\Shift\Liability\ShiftLiabilityService;
+use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Modules\Shift\Models\CashierShiftHandover;
 use Modules\Shift\Models\ShiftLiabilityAllocation;
@@ -38,6 +41,9 @@ class ShiftEndService
 
         DB::beginTransaction();
         try {
+            if ($actor instanceof BranchManager && (string) $shift->cashier_id === (string) $actor->getKey()) {
+                app(ShiftTransferReceiptService::class)->lockManagerCashOwner((string) $actor->getKey());
+            }
             $shift = app(ShiftReportMutationGuard::class)->lockEditable($shift, $actor);
             $this->reassignmentGuard->assertCanContinue($shift, $actor);
             if ($shift->status !== ShiftStatus::IN_PROGRESS) {
@@ -175,6 +181,23 @@ class ShiftEndService
 
         DB::beginTransaction();
         try {
+            $handoverToType = $data['handover_to_type'] ?? 'cashier';
+            $handoverToId = $data['handover_to_id'] ?? $data['branch_manager_id'] ?? null;
+            if ($actor instanceof BranchManager && (string) $shift->cashier_id === (string) $actor->getKey()) {
+                app(ShiftTransferReceiptService::class)->lockManagerCashOwner((string) $actor->getKey());
+                if ($handoverToType === 'branch_manager' && ($handoverToId === null || (string) $handoverToId === (string) $actor->getKey())) {
+                    $branchId = $shift->shift()->value('branch_id');
+                    BranchManagerShift::firstOrCreate(
+                        ['branch_manager_id' => $actor->getKey(), 'shift_date' => today()],
+                        [
+                            'branch_id' => $branchId,
+                            'status' => 'not_started',
+                            'opening_balance' => app(BranchManagerShiftService::class)->resolveBranchManagerOpeningBalance($branchId),
+                        ]
+                    );
+                }
+            }
+
             // First, end the shift
             $shift = $this->endShiftOnly($shift, $data, $actor);
 
@@ -314,15 +337,26 @@ class ShiftEndService
         // needs a reason and leaves the cashier confirmation pending. No ledger entry (S1-11).
         // The shift row is locked by the caller; supersede any earlier version (re-end after a rejection).
         $latestVersion = (int) ShiftLiabilityAllocation::where('cashier_shift_id', $shift->id)->max('version');
+        $isOwnManagerShift = $actor instanceof BranchManager
+            && (string) $shift->cashier_id === (string) $actor->getKey();
         try {
-            $this->liability->allocate(
+            $allocation = $this->liability->allocate(
                 $shift->id,
                 $actor,
                 $shares,
                 $latestVersion,
-                $actor instanceof Cashier,
+                $actor instanceof Cashier || $isOwnManagerShift,
                 isset($data['allocation_reason']) ? (string) $data['allocation_reason'] : null,
             );
+            if ($isOwnManagerShift) {
+                app(ShortagePostingService::class)->reconcile(
+                    $shift,
+                    $actor,
+                    $revision->revision_number,
+                    $allocation->version,
+                    (string) ($data['operation_id'] ?? Str::uuid()),
+                );
+            }
         } catch (ValidationException $e) {
             // The end-of-shift request names this field `shortage_allocations`; keep the error on that key.
             $errors = $e->errors();
