@@ -36,8 +36,9 @@ class BranchManagerShiftService
     }
 
     /**
-     * Attach handoffs_summary and financial_summary to each shift to avoid N+1 in BranchManagerShiftResource.
-     * Call this when returning a collection of BranchManagerShift (e.g. list/history).
+     * Attach handoffs_summary and financial_summary to each shift using canonical
+     * ShiftDailyCloseScopeService membership so history, detail, and daily close
+     * agree on eligible shifts and carryovers without N+1 queries.
      */
     public function attachHandoffsAndFinancialSummariesForCollection(Collection $shifts): void
     {
@@ -45,30 +46,67 @@ class BranchManagerShiftService
             return;
         }
 
-        $branchIds = $shifts->pluck('branch_id')->unique()->filter()->values()->all();
-        if (empty($branchIds)) {
-            return;
-        }
-
-        $handovers = CashierShiftHandover::active()->where('handover_to_type', 'branch_manager')
-            ->whereIn('handover_to_id', $shifts->pluck('branch_manager_id')->unique())
-            ->whereHas('cashierShift.shift', function ($q) use ($branchIds) {
-                $q->whereIn('branch_id', $branchIds);
-            })
-            ->with(['cashierShift.shift', 'cashierShift.salesBreakdown.aggregator'])
-            ->get();
-
-        $grouped = collect($handovers)->groupBy(function (CashierShiftHandover $h) {
-            $cs = $h->cashierShift;
-            $shiftDate = $cs?->shift_date?->format('Y-m-d');
-            $branchId = $cs?->shift?->branch_id;
-
-            return ($shiftDate ?? '').'|'.($branchId ?? '').'|'.$h->handover_to_id;
-        });
+        $scopeService = app(ShiftDailyCloseScopeService::class);
+        $scopesByWorkdayId = [];
+        $allCashierShiftIds = [];
+        $allHandoverIds = [];
 
         foreach ($shifts as $shift) {
-            $key = ($shift->shift_date?->format('Y-m-d') ?? '').'|'.($shift->branch_id ?? '').'|'.$shift->branch_manager_id;
-            $shiftHandovers = $grouped->get($key, collect());
+            if (! $shift->id || ! $shift->branch_id || ! $shift->shift_date) {
+                continue;
+            }
+            $scope = $scopeService->resolve($shift, false);
+            $scopesByWorkdayId[$shift->id] = $scope;
+            foreach ($scope['cashier_shift_ids'] as $shiftId) {
+                $allCashierShiftIds[$shiftId] = true;
+            }
+            foreach ($scope['handover_ids'] as $handoverId) {
+                $allHandoverIds[$handoverId] = true;
+            }
+        }
+
+        $cashierShiftIdList = array_keys($allCashierShiftIds);
+        $handoverIdList = array_keys($allHandoverIds);
+
+        $cashierShiftsById = empty($cashierShiftIdList)
+            ? collect()
+            : CashierShift::query()
+                ->whereIn('id', $cashierShiftIdList)
+                ->select([
+                    'id',
+                    'cashier_id',
+                    'shift_id',
+                    'shift_date',
+                    'total_sales',
+                    'net_sales',
+                    'vat_amount',
+                    'cash_collected',
+                    'card_payments',
+                    'variance',
+                ])
+                ->with(['salesBreakdown:id,cashier_shift_id,amount'])
+                ->get()
+                ->keyBy('id');
+
+        $managerHandoversById = empty($handoverIdList)
+            ? collect()
+            : CashierShiftHandover::active()
+                ->where('handover_to_type', 'branch_manager')
+                ->whereIn('id', $handoverIdList)
+                ->get()
+                ->keyBy('id');
+
+        foreach ($shifts as $shift) {
+            $scope = $scopesByWorkdayId[$shift->id] ?? ['cashier_shift_ids' => [], 'handover_ids' => []];
+            $memberShifts = collect($scope['cashier_shift_ids'])
+                ->map(fn (string $id) => $cashierShiftsById->get($id))
+                ->filter()
+                ->values();
+
+            $shiftHandovers = collect($scope['handover_ids'])
+                ->map(fn (string $id) => $managerHandoversById->get($id))
+                ->filter()
+                ->values();
 
             $shift->setAttribute('handoffs_summary', [
                 'total_handovers' => $shiftHandovers->count(),
@@ -81,7 +119,7 @@ class BranchManagerShiftService
                 'all_received' => $shiftHandovers->count() > 0 && $shiftHandovers->where('status', 'pending')->count() === 0,
             ]);
 
-            $financial = $this->financialService()->computeFinancialSummaryFromHandovers($shift, $shiftHandovers);
+            $financial = $this->financialService()->computeCanonicalFinancialSummary($shift, $memberShifts, $shiftHandovers);
             $shift->setAttribute('financial_summary', $financial);
         }
     }

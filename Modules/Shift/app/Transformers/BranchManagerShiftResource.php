@@ -117,6 +117,15 @@ class BranchManagerShiftResource extends JsonResource
             return $precomputed;
         }
 
+        if ($this->resource->exists && $this->resource->id !== null && $this->resource->branch_id !== null && $this->resource->shift_date !== null) {
+            app(\Modules\Shift\Services\BranchManagerShiftService::class)
+                ->attachHandoffsAndFinancialSummariesForCollection(collect([$this->resource]));
+            $computed = $this->resource->getAttribute('handoffs_summary');
+            if (is_array($computed)) {
+                return $computed;
+            }
+        }
+
         $handovers = $this->resource->cashierHandovers()->get();
 
         return [
@@ -236,6 +245,15 @@ class BranchManagerShiftResource extends JsonResource
         $precomputed = $this->resource->getAttribute('financial_summary');
         if (is_array($precomputed)) {
             return $precomputed;
+        }
+
+        if ($this->resource->exists && $this->resource->id !== null && $this->resource->branch_id !== null && $this->resource->shift_date !== null) {
+            app(\Modules\Shift\Services\BranchManagerShiftService::class)
+                ->attachHandoffsAndFinancialSummariesForCollection(collect([$this->resource]));
+            $computed = $this->resource->getAttribute('financial_summary');
+            if (is_array($computed)) {
+                return $computed;
+            }
         }
 
         if ($this->total_sales > 0 || $this->cash_collected > 0 || $this->card_payments > 0) {
