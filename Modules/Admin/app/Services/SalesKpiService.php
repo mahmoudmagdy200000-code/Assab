@@ -33,6 +33,21 @@ class SalesKpiService
         $collected = 0;
         $varianceByBranch = [];
         foreach ($today as $op) {
+            $daySettlement = $op->payload['daySettlement'] ?? null;
+            if (is_array($daySettlement) && isset($daySettlement['cashHalalas'], $daySettlement['cardsHalalas'])) {
+                $deliverySum = is_array($daySettlement['delivery'] ?? null)
+                    ? array_sum(array_map(fn ($row) => (int) ($row['amountHalalas'] ?? 0), $daySettlement['delivery']))
+                    : 0;
+                $opCollected = (int) $daySettlement['cashHalalas'] + (int) $daySettlement['cardsHalalas'] + $deliverySum;
+                $opGross = (int) ($op->payload['totalSalesHalalas'] ?? $op->amount);
+                $collected += $opCollected;
+                $variance = $opCollected - $opGross;
+                if ($variance !== 0) {
+                    $varianceByBranch[$op->branch_id] = ($varianceByBranch[$op->branch_id] ?? 0) + $variance;
+                }
+
+                continue;
+            }
             $reconciliation = $op->payload['reconciliation'] ?? null;
             if (! is_array($reconciliation) || ! isset($reconciliation['channels'])) {
                 continue;

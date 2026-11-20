@@ -32,7 +32,7 @@ class OperationFactory
      * @param  string  $channel  physical surface the record was submitted from
      *                           (`mobile_app` | `dashboard`); orthogonal to $origin.
      */
-    public function createFromUpload(string $moduleKey, array $payload, AsabUser $submitter, ?string $branchId, int $amount = 0, string $origin = 'mobile', string $channel = 'mobile_app', bool $nativeLegacySales = false): Operation
+    public function createFromUpload(string $moduleKey, array $payload, AsabUser $submitter, ?string $branchId, int $amount = 0, string $origin = 'mobile', string $channel = 'mobile_app', bool $nativeLegacySales = false, ?string $operationDate = null): Operation
     {
         if (! OperationEnums::isValidOrigin($origin)) {
             throw new AsabException(
@@ -46,7 +46,7 @@ class OperationFactory
 
         $op = OperationSequence::createWithPublicId(
             self::PREFIX[$moduleKey] ?? 'OPS',
-            fn (string $publicId) => DB::transaction(function () use ($publicId, $moduleKey, $payload, $submitter, $branchId, $amount, $origin, $channel, $nativeLegacySales) {
+            fn (string $publicId) => DB::transaction(function () use ($publicId, $moduleKey, $payload, $submitter, $branchId, $amount, $origin, $channel, $nativeLegacySales, $operationDate) {
                 if ($nativeLegacySales && ($moduleKey !== 'sales' || ! \Modules\Branch\Models\Branch::whereKey($branchId)
                     ->where('asab_company_id', $submitter->company_id)->exists()
                     || ! $submitter->roleAssignments()->where('role_key', 'branch')->get()
@@ -67,7 +67,7 @@ class OperationFactory
                     'status' => Operation::STATUS_PENDING,
                     'submitted_by_id' => $submitter->id,
                     'submitted_at' => now(),
-                    'operation_date' => now(),
+                    'operation_date' => $operationDate ?? now(),
                 ]);
 
                 ApprovalStep::create([

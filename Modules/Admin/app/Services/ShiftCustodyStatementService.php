@@ -258,6 +258,18 @@ class ShiftCustodyStatementService
                 ->value('legacy_id');
         }
 
+        $isManagerRole = in_array(mb_strtolower(trim((string) $employee->role)), ['branch_manager', 'مدير فرع', 'مدير الفرع'], true);
+        if (! $managerId && $isManagerRole && $employee->branch_id) {
+            $branchManagerUserId = Branch::withoutGlobalScopes()
+                ->where('id', $employee->branch_id)
+                ->value('asab_manager_user_id');
+            if ($branchManagerUserId) {
+                $managerId = AsabIdentityMap::where('entity_type', AsabIdentityMap::ENTITY_BRANCH_MANAGER)
+                    ->where('dashboard_id', $branchManagerUserId)
+                    ->value('legacy_id');
+            }
+        }
+
         // Validate manager belongs to employee branch and company
         if ($managerId) {
             $manager = BranchManager::withTrashed()->where('id', $managerId)->first();
@@ -294,7 +306,7 @@ class ShiftCustodyStatementService
         $linkedType = 'cashier';
         $linkedId = $cashierId;
 
-        if ($employee->role === 'branch_manager' && $managerId) {
+        if ($isManagerRole && $managerId) {
             $linkedType = 'branch_manager';
             $linkedId = $managerId;
         } elseif (! $cashierId && $managerId) {

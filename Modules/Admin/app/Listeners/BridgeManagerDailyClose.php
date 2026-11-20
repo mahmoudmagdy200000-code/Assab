@@ -103,6 +103,7 @@ class BridgeManagerDailyClose
             $payload['totalHalalas'],
             'mobile',
             'mobile_app',
+            operationDate: $payload['date'],
         );
     }
 

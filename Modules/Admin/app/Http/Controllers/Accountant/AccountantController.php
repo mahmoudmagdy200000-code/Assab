@@ -114,7 +114,8 @@ class AccountantController extends AsabController
             if ($status = $request->query('status')) {
                 $q->where('status', $status);
             }
-            $p = $q->orderByDesc('operation_date')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
+            $p = $q->orderByDesc('operation_date')->orderByDesc('id')
+                ->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
             $maps = $this->opDisplayMaps($p->items());
 
@@ -489,6 +490,9 @@ class AccountantController extends AsabController
             'brandId' => $brandId,
             'brandName' => $brandId ? ($maps['brands'][$brandId] ?? null) : null,
             'moduleKey' => $op->module_key,
+            'workflowKind' => $op->module_key === 'sales'
+                ? app(\Modules\Admin\Services\OperationWorkflowClassifier::class)->classify($op) : null,
+            'reportReview' => $op->payload['pkg6Review'] ?? null,
             'amount' => $op->amount,
             // Same integer, named for its unit. `amount` alone is ambiguous, and
             // the dashboard reads `amountHalalas` when present and otherwise

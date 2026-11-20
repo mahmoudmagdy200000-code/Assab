@@ -314,6 +314,8 @@ Route::prefix('v1')->group(function () {
             // «طلب توضيح» (SRS ACC-0.5) — non-terminal: asks the submitter for
             // information without moving the operation off its stage.
             Route::post('operations/{id}/request-clarification', [OperationController::class, 'requestClarification'])->middleware('asab.role:accountant,head');
+            Route::post('operations/{id}/return-workday', [OperationController::class, 'returnWorkday'])->middleware('asab.role:accountant');
+            Route::patch('operations/{id}/workday-settlement', [OperationController::class, 'saveWorkdaySettlement'])->middleware('asab.role:accountant');
             // ACC-3.4 «توثيق» — accountant documents a purchase order before the head.
             Route::post('operations/{id}/document', [OperationController::class, 'document'])->middleware('asab.role:accountant,head');
             // ACC-3.4 accountant edit of one purchase line (recomputes amount + 3-way match).
