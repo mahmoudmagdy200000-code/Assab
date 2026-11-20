@@ -7,7 +7,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Attachment;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\ExpenseInvoiceService;
 use Modules\Admin\Services\OperationService;
@@ -16,6 +18,7 @@ use Modules\Admin\Services\PurchaseReceivingBridge;
 use Modules\Admin\Services\SalesReconciliationService;
 use Modules\Admin\Support\OperationEnums;
 use Modules\Branch\Models\Branch;
+use Modules\Shift\Services\ShiftReportReviewService;
 
 class OperationController extends AsabController
 {
@@ -98,9 +101,9 @@ class OperationController extends AsabController
             : \Modules\Admin\Models\AsabSupplier::whereIn('id', $ids)->pluck('name', 'id')->all();
     }
 
-    public function show(string $id): JsonResponse
+    public function show(Request $request, string $id): JsonResponse
     {
-        return $this->run(function () use ($id) {
+        return $this->run(function () use ($request, $id) {
             $op = $this->scopeToAssignedBranches(
                 Operation::with('steps')->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id)),
             )->firstOrFail();
@@ -111,7 +114,17 @@ class OperationController extends AsabController
                 $data['reconciliation'] = $this->reconciler->present($op);
                 $dayId = app(\Modules\Admin\Services\OperationWorkflowClassifier::class)->daySource($op);
                 if ($dayId !== null) {
-                    $data['workdayShifts'] = $this->workdayShifts($op, $dayId);
+                    $actor = $request->user();
+                    $isHead = $actor instanceof AsabUser && $actor->status === 'active' && $actor->hasAnyAsabRole(['head'])
+                        && (string) $actor->company_id === (string) $op->company_id
+                        && CompanyUser::where('company_id', $op->company_id)
+                            ->where('user_id', $actor->id)->where('status', 'active')->exists();
+                    $data['workdayShifts'] = $this->workdayShifts($op, $dayId, $isHead);
+                    if ($isHead) {
+                        $data['workdayFinalApprovalReady'] = $data['workdayShifts'] !== []
+                            && collect($data['workdayShifts'])->every(fn ($shift) => $shift['reportStatus'] === Operation::STATUS_FINAL)
+                            && $this->service->workdayFinalApprovalReady($op, $actor);
+                    }
                     $data['workdayReview'] = app(\Modules\Admin\Services\WorkdaySalesReview::class)->details($op);
                     if (isset($op->payload['totalSalesHalalas'], $op->payload['cashHalalas'], $op->payload['cardHalalas'], $op->payload['appsHalalas'])) {
                         $data['workdaySettlement'] = app(\Modules\Admin\Services\WorkdaySalesSettlement::class)->present($op);
@@ -681,8 +694,8 @@ class OperationController extends AsabController
         ];
     }
 
-    /** Cash-count evidence bound to the submitted day, independent of review status. */
-    private function workdayShifts(Operation $op, string $dayId): array
+    /** Cash-count evidence bound to the submitted day, with member review status for the head. */
+    private function workdayShifts(Operation $op, string $dayId, bool $includeReviewStatus): array
     {
         return DB::table('shift_liability_daily_locks as membership')
             ->join('cashier_shifts as source', 'source.id', '=', 'membership.cashier_shift_id')
@@ -704,6 +717,7 @@ class OperationController extends AsabController
                 'cashierName' => $row->name,
                 'salesHalalas' => $row->gross_halalas === null ? null : (int) $row->gross_halalas,
                 'varianceHalalas' => $row->variance_halalas === null ? null : (int) $row->variance_halalas,
+                ...($includeReviewStatus ? ['reportStatus' => app(ShiftReportReviewService::class)->reportState((string) $row->id, $op)['status'] ?? null] : []),
             ])->all();
     }
 

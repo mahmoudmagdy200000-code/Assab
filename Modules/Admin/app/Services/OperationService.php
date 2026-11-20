@@ -2,13 +2,17 @@
 
 namespace Modules\Admin\Services;
 
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Models\ApprovalStep;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Support\OperationEnums;
+use Modules\Shift\Services\ShiftReportReviewService;
 use Psr\Log\LoggerInterface;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 /**
  * The shared approval-pipeline state machine (BACKEND_API_SPEC.md §5).
@@ -180,6 +184,48 @@ class OperationService
         return $fresh;
     }
 
+    public function workdayFinalApprovalReady(Operation $op, AsabUser $actor): bool
+    {
+        if ($op->status !== Operation::STATUS_APPROVED || $op->module_key !== 'sales') {
+            return false;
+        }
+
+        try {
+            return DB::transaction(function () use ($op, $actor) {
+                $current = $this->lockOperation($op);
+                if (app(OperationWorkflowClassifier::class)->classify($current) !== OperationWorkflowClassifier::SAL) {
+                    return false;
+                }
+
+                $this->assertFinalApprovalReady($current, $actor);
+
+                return true;
+            });
+        } catch (ConflictHttpException|AccessDeniedHttpException|ModelNotFoundException) {
+            return false;
+        } catch (AsabException $error) {
+            if ($error->status !== 409) {
+                throw $error;
+            }
+
+            return false;
+        }
+    }
+
+    private function assertFinalApprovalReady(Operation $op, AsabUser $actor): void
+    {
+        $this->assertDecisionAuthorized($op);
+        $this->assertStatus($op, Operation::STATUS_APPROVED, 'OP_NOT_APPROVED');
+        if ($op->module_key === 'sales' && app(OperationWorkflowClassifier::class)->classify($op) === OperationWorkflowClassifier::SAL
+            && ($op->payload['pkg6Review']['phase'] ?? null) !== 'head_review') {
+            throw new AsabException('REPORT_NOT_IN_HEAD_REVIEW', 'Day report is not in head review', 'التقرير ليس في مرحلة مراجعة رئيس الحسابات', 409);
+        }
+
+        $reviews = app(ShiftReportReviewService::class);
+        $reviews->authorizeReview($op, $actor, 'head');
+        $reviews->approvalSnapshot($op, final: true);
+    }
+
     /**
      * @param  array<int, array{id?:string, text:string, dueAt?:string}>  $conditions
      */
@@ -187,14 +233,7 @@ class OperationService
     {
         $fresh = DB::transaction(function () use ($op, $actor, $conditional, $conditionalNote, $conditions) {
             $op = $this->lockOperation($op);
-            $this->assertDecisionAuthorized($op);
-            $this->assertStatus($op, Operation::STATUS_APPROVED, 'OP_NOT_APPROVED');
-            if ($op->module_key === 'sales' && app(OperationWorkflowClassifier::class)->classify($op) === OperationWorkflowClassifier::SAL
-                && ($op->payload['pkg6Review']['phase'] ?? null) !== 'head_review') {
-                throw new AsabException('REPORT_NOT_IN_HEAD_REVIEW', 'Day report is not in head review', 'التقرير ليس في مرحلة مراجعة رئيس الحسابات', 409);
-            }
-            app(\Modules\Shift\Services\ShiftReportReviewService::class)->authorizeReview($op, $actor, 'head');
-            app(\Modules\Shift\Services\ShiftReportReviewService::class)->approvalSnapshot($op, final: true);
+            $this->assertFinalApprovalReady($op, $actor);
             app(WorkdaySalesSettlement::class)->postOnFinalApproval($op, $actor);
             $op->update([
                 'status' => Operation::STATUS_FINAL,
