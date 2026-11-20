@@ -24,9 +24,9 @@ class OperationService
         private readonly LoggerInterface $log,
     ) {}
 
-    public function approve(Operation $op, AsabUser $actor, ?string $note = null): Operation
+    public function approve(Operation $op, AsabUser $actor, ?string $note = null, ?string $confirmation = null): Operation
     {
-        $fresh = DB::transaction(function () use ($op, $actor, $note) {
+        $fresh = DB::transaction(function () use ($op, $actor, $note, $confirmation) {
             // BRC-05: lock the row, THEN validate and write on the locked copy
             // (same pattern as finalApprove) so a stale request cannot act on a
             // state another actor already moved.
@@ -35,7 +35,10 @@ class OperationService
             $this->assertStatus($op, Operation::STATUS_PENDING);
 
             app(\Modules\Shift\Services\ShiftReportReviewService::class)->authorizeReview($op, $actor, 'accountant');
-            $snapshot = app(\Modules\Shift\Services\ShiftReportReviewService::class)->approvalSnapshot($op);
+            $reviews = app(\Modules\Shift\Services\ShiftReportReviewService::class);
+            $openQuestions = $reviews->managerSource($op) !== null
+                ? app(WorkdaySalesReview::class)->checkConfirmation($op, $confirmation) : [];
+            $snapshot = $reviews->approvalSnapshot($op);
             if ($snapshot !== null) {
                 $payload = $op->payload ?? [];
                 $payload['pkg6Review'] = array_merge($payload['pkg6Review'] ?? [], [
@@ -53,7 +56,8 @@ class OperationService
                 'reviewed_by_id' => $op->reviewed_by_id ?: $actor->id,
                 'reviewed_at' => $op->reviewed_at ?: now(),
             ]);
-            $this->step($op, 'approved', 'راجعه المحاسب ووافق عليه — أُرسل لرئيس الحسابات', $actor, $note);
+            $this->step($op, 'approved', 'راجعه المحاسب ووافق عليه — أُرسل لرئيس الحسابات', $actor, $note,
+                $openQuestions ? ['open_workday_questions' => $openQuestions] : []);
 
             return $op->fresh();
         });
@@ -191,6 +195,7 @@ class OperationService
             }
             app(\Modules\Shift\Services\ShiftReportReviewService::class)->authorizeReview($op, $actor, 'head');
             app(\Modules\Shift\Services\ShiftReportReviewService::class)->approvalSnapshot($op, final: true);
+            app(WorkdaySalesSettlement::class)->postOnFinalApproval($op, $actor);
             $op->update([
                 'status' => Operation::STATUS_FINAL,
                 'final_approved_by_id' => $actor->id,
@@ -287,21 +292,25 @@ class OperationService
      * information without moving the operation off its stage. Non-terminal:
      * the status is deliberately untouched.
      */
-    public function requestClarification(Operation $op, AsabUser $actor, string $message): Operation
+    public function requestClarification(Operation $op, AsabUser $actor, string $message, ?string $shiftId = null): Operation
     {
-        $fresh = DB::transaction(function () use ($op, $actor, $message) {
+        $fresh = DB::transaction(function () use ($op, $actor, $message, $shiftId) {
             // BRC-05: closed-record check on the locked row, so a stale request
             // cannot add evidence/notifications to an operation that was
             // finalised or rejected meanwhile.
             $op = $this->lockOperation($op);
             $this->assertMutable($op, 'لا يمكن طلب توضيح على عملية مُغلقة');
 
-            $this->step($op, 'review', 'طلب توضيح: '.$message, $actor, $message, ['clarification' => true]);
+            if (app(\Modules\Shift\Services\ShiftReportReviewService::class)->managerSource($op) !== null) {
+                app(WorkdaySalesReview::class)->ask($op, $actor, $shiftId, $message);
+            } else {
+                $this->step($op, 'review', 'طلب توضيح: '.$message, $actor, $message, ['clarification' => true]);
+            }
 
             return $op->fresh();
         });
 
-        if ($fresh->submitted_by_id) {
+        if ($fresh->submitted_by_id && app(\Modules\Shift\Services\ShiftReportReviewService::class)->managerSource($fresh) === null) {
             $this->notifications->push(
                 $fresh->submitted_by_id, 'operation.clarification_requested',
                 'طلب توضيح على عمليتك', $fresh->public_id.' — '.$message,
@@ -391,10 +400,10 @@ class OperationService
      * @param  string[]  $ids
      * @return array{approved: string[], failed: array<int, array{id:string, code:string}>}
      */
-    public function bulkApprove(array $ids, AsabUser $actor): array
+    public function bulkApprove(array $ids, AsabUser $actor, array $confirmations = []): array
     {
-        return DB::transaction(function () use ($ids, $actor) {
-            $this->assertBulkAllowed($ids, $actor);
+        return DB::transaction(function () use ($ids, $actor, $confirmations) {
+            $this->assertBulkAllowed($ids, $actor, $confirmations);
             $approved = [];
             $failed = [];
             foreach ($ids as $id) {
@@ -405,10 +414,12 @@ class OperationService
                     continue;
                 }
                 try {
-                    $this->approve($op, $actor);
+                    $this->approve($op, $actor, confirmation: $confirmations[$op->public_id] ?? null);
                     $approved[] = $op->public_id;
                 } catch (AsabException $e) {
                     $failed[] = ['id' => $id, 'code' => $e->errorCode];
+                } catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $e) {
+                    $failed[] = ['id' => $id, 'code' => $e->getMessage()];
                 }
             }
 
@@ -516,7 +527,7 @@ class OperationService
         }
     }
 
-    private function assertBulkAllowed(array $ids, AsabUser $actor): void
+    private function assertBulkAllowed(array $ids, AsabUser $actor, array $confirmations = []): void
     {
         // Resolve/lock in stable order; no mutation happens until the entire selection passes.
         $ids = array_values(array_unique($ids));
@@ -534,6 +545,11 @@ class OperationService
                 || ($branches !== null && ! in_array($op->branch_id, $branches, true))
                 || $actor->status !== 'active' || ! $actor->hasAnyAsabRole(['accountant', 'head'])) {
                 throw new AsabException('BULK_SCOPE_FORBIDDEN', 'Bulk selection is outside actor scope', 'نطاق العمليات غير مصرح به', 403);
+            }
+            if ($op->module_key === 'sales' && isset($confirmations[$op->public_id]) && $actor->hasAnyAsabRole(['accountant'])
+                && app(OperationWorkflowClassifier::class)->classify($op) === OperationWorkflowClassifier::SAL) {
+                app(WorkdaySalesReview::class)->checkConfirmation($op, $confirmations[$op->public_id]);
+                continue;
             }
             if (($op->module_key === 'shifts' && ! $this->verifiedNativeShiftForBulk($op)) || ($op->module_key === 'sales'
                 && app(OperationWorkflowClassifier::class)->classify($op) !== OperationWorkflowClassifier::LEGACY)) {

@@ -3,8 +3,13 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
+use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Models\AsabUserRole;
+use Modules\Admin\Models\CompanyUser;
+use Modules\Aggregator\Models\Aggregator;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
@@ -69,6 +74,207 @@ class ShiftDailyCloseSubmitGateTest extends TestCase
             'shift_date' => today(),
             'status' => 'completed',
         ]);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('workdaySettlementCases')]
+    public function test_workday_review_with_four_shifts_return_and_open_clarification(bool $saveSettlement, bool $clean = false): void
+    {
+        $accountant = AsabUser::create([
+            'company_id' => $this->company->id, 'name' => 'Workday Accountant',
+            'email' => 'workday-accountant@example.test', 'password' => 'test-password',
+            'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $accountant->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id, 'user_id' => $accountant->id,
+            'role_key' => 'accountant', 'status' => 'active',
+        ]);
+        $delivery = Aggregator::factory()->create();
+        $amounts = [
+            ['400.00', '100.00', '300.00', '95.00', -500],
+            ['300.00', '50.00', '250.00', '50.00', 0],
+            ['700.00', '200.00', '480.00', '195.00', -500],
+            ['200.00', '120.00', '80.00', '120.00', 0],
+        ];
+        if ($clean) {
+            $amounts[0] = ['8800.00', '3630.00', '2190.00', '3630.00', 0];
+            $amounts[2][3] = '200.00';
+            $amounts[2][4] = 0;
+        }
+        $gross = $clean ? 1000000 : 160000;
+        $expectedShifts = [];
+        foreach ($amounts as [$sales, $cash, $cards, $counted, $variance]) {
+            $cashier = Cashier::factory()->create(['branch_id' => $this->branch->id, 'created_by' => $this->manager->id]);
+            $employee = \Modules\Admin\Models\Employee::create([
+                'company_id' => $this->company->id, 'branch_id' => $this->branch->id,
+                'emp_number' => (string) (2001 + count($expectedShifts)), 'name' => $cashier->name,
+                'role' => 'كاشير', 'status' => 'active',
+            ]);
+            $employee->forceFill(['legacy_cashier_id' => $cashier->id])->save();
+            $shift = CashierShift::create(['cashier_id' => $cashier->id, 'shift_id' => $this->template->id,
+                'shift_date' => today(), 'status' => 'not_started']);
+            app(\Modules\Shift\Services\CashierShiftStartService::class)->startShift($shift);
+            $body = [
+                'total_sales' => $sales, 'cash_collected' => $cash,
+                'card_payments' => $cards, 'counted_cash' => $counted,
+            ];
+            if ($sales === '700.00') {
+                $body['aggregators'] = [['aggregator_id' => $delivery->id, 'amount' => '20.00']];
+            }
+            if ($sales === '8800.00') {
+                $body['aggregators'] = [['aggregator_id' => $delivery->id, 'amount' => '2980.00']];
+            }
+            if ($variance < 0) {
+                $body['shortage_allocations'] = [
+                    ['responsible_type' => 'cashier', 'responsible_id' => $cashier->id, 'amount' => '5.00'],
+                ];
+            }
+            $this->actingAs($cashier, 'sanctum')->postJson("/api/v1/cashier/shifts/{$shift->id}/end", $body,
+                ['Idempotency-Key' => (string) Str::uuid()])->assertOk();
+            if ($variance < 0) {
+                $this->actingAs($this->manager, 'sanctum')->postJson("/api/v1/branch-manager/shifts/{$shift->id}/liability/approve",
+                    ['version' => 1, 'expected_revision' => 1], ['Idempotency-Key' => (string) Str::uuid()])->assertOk();
+            }
+            $expectedShifts[$shift->id] = [(int) $sales * 100, $variance];
+        }
+        $this->workday->update([
+            'total_sales' => $clean ? '10000.00' : '1600.00', 'cash_collected' => $clean ? '4000.00' : '470.00',
+            'card_payments' => $clean ? '3000.00' : '1110.00', 'aggregator_payments' => $clean ? '3000.00' : '20.00',
+        ]);
+        app(ShiftReportRevisionService::class)->recordManagerRevision($this->workday, 'branch_manager', $this->manager->id, 0);
+
+        $businessDate = $this->workday->shift_date->toDateString();
+        $this->travel(1)->day();
+        $submit = $this->actingAs($this->manager, 'sanctum')->postJson('/api/v1/branch-manager/workday/daily-close/submit', [
+            'branch_manager_shift_id' => $this->workday->id, 'expected_revision' => 1,
+        ], ['Idempotency-Key' => (string) Str::uuid()]);
+        $submit->assertOk();
+
+        $list = $this->actingAs($accountant, 'sanctum')->getJson("/api/v1/accountant/operations?moduleKey=sales&dateFrom={$businessDate}&dateTo={$businessDate}");
+        $list->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.amountHalalas', $gross)
+            ->assertJsonPath('data.0.date', $businessDate);
+        $publicId = $list->json('data.0.publicId');
+        $detail = $this->getJson("/api/v1/operations/{$publicId}");
+        $detail->assertOk()->assertJsonPath('amountHalalas', $gross)->assertJsonCount(4, 'workdayShifts');
+        $detail->assertJsonPath('payload.cashHalalas', $clean ? 400000 : 47000)
+            ->assertJsonPath('payload.cardHalalas', $clean ? 300000 : 111000)
+            ->assertJsonPath('payload.appsHalalas', $clean ? 300000 : 2000);
+        $actualShifts = collect($detail->json('workdayShifts'))->mapWithKeys(
+            fn (array $shift) => [$shift['id'] => [$shift['salesHalalas'], $shift['varianceHalalas']]],
+        )->all();
+        $this->assertEquals($expectedShifts, $actualShifts);
+
+        $operationPath = "/api/v1/operations/{$publicId}";
+        if ($saveSettlement) {
+            $managerEmployee = \Modules\Admin\Models\Employee::create([
+                'company_id' => $this->company->id, 'branch_id' => $this->branch->id,
+                'emp_number' => '2010', 'name' => $this->manager->name, 'role' => 'مدير فرع', 'status' => 'active',
+            ]);
+            $cashierEmployee = \Modules\Admin\Models\Employee::where('emp_number', '2001')->firstOrFail();
+            $settlement = [
+                'commandId' => (string) Str::uuid(), 'expectedRevision' => 0, 'reason' => 'تسوية التحصيل',
+                'cashHalalas' => $clean ? 400000 : 46500, 'cardsHalalas' => $clean ? 300000 : 111000,
+                'delivery' => [['id' => $detail->json('workdaySettlement.delivery.0.id'), 'amountHalalas' => $clean ? 299500 : 2000]],
+                'allocations' => [['empNumber' => '2001', 'amountHalalas' => 200], ['empNumber' => '2010', 'amountHalalas' => 300]],
+            ];
+            $settlementPath = "{$operationPath}/workday-settlement";
+            $this->patchJson($settlementPath, [...$settlement, 'allocations' => []])->assertUnprocessable();
+            $this->patchJson($settlementPath, $settlement)->assertOk()
+                ->assertJsonPath('revision', 1)->assertJsonPath('grossHalalas', $gross)
+                ->assertJsonPath('collectedHalalas', $gross - 500)->assertJsonPath('varianceHalalas', -500);
+            $this->patchJson($settlementPath, $settlement)->assertOk()->assertJsonPath('revision', 1);
+            $this->patchJson($settlementPath, [...$settlement, 'commandId' => (string) Str::uuid()])->assertConflict();
+            $this->getJson($operationPath)->assertOk()->assertJsonPath('workdayShifts', $detail->json('workdayShifts'));
+            $dayOperationId = \Modules\Admin\Models\Operation::where('public_id', $publicId)->value('id');
+            $this->assertDatabaseMissing('asab_employee_movements', ['ref_operation_id' => $dayOperationId]);
+        }
+        $this->postJson("{$operationPath}/return-workday", ['reason' => 'وضح مستند التسليم'])
+            ->assertOk()->assertJsonPath('status', 'rejected');
+        $managerPath = '/api/v1/branch-manager/workday/sales-reviews';
+        $managerReview = $this->actingAs($this->manager, 'sanctum')->getJson($managerPath)
+            ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.returnReason', 'وضح مستند التسليم');
+        $returnCycle = $managerReview->json('data.0.returnCycle');
+        $dayPath = "{$managerPath}/{$this->workday->id}";
+        $this->postJson($dayPath, ['action' => 'resubmit', 'returnCycle' => $returnCycle, 'message' => 'أضيف مرجع مستند التسليم'])
+            ->assertOk();
+        $this->postJson($dayPath, ['action' => 'resubmit', 'returnCycle' => $returnCycle, 'message' => 'محاولة مكررة'])
+            ->assertConflict();
+
+        $this->actingAs($accountant, 'sanctum')->getJson($operationPath)
+            ->assertOk()->assertJsonPath('status', 'pending')
+            ->assertJsonPath('workdayReview.correctionNote', 'أضيف مرجع مستند التسليم');
+        $third = array_search([70000, $clean ? 0 : -500], $expectedShifts, true);
+        $question = ['shiftId' => $third, 'message' => 'ما سبب عجز 5 ريالات؟'];
+        $this->postJson("{$operationPath}/request-clarification", ['shiftId' => (string) Str::uuid(), 'message' => 'خارج النطاق'])
+            ->assertUnprocessable();
+        $this->postJson("{$operationPath}/request-clarification", $question)->assertOk();
+        $this->postJson("{$operationPath}/approve")->assertConflict()->assertJsonPath('error.code', 'WORKDAY_REVIEW_CONFIRMATION_REQUIRED');
+        $review = $this->getJson($operationPath)->assertOk()->assertJsonPath('workdayReview.questions.0.shiftId', $third);
+        $staleConfirmation = $review->json('workdayReview.confirmation');
+        $questionId = $review->json('workdayReview.questions.0.id');
+        $this->postJson("{$operationPath}/request-clarification", [...$question, 'message' => 'أين مستند التسليم؟'])->assertOk();
+        $this->postJson("{$operationPath}/approve", ['workdayConfirmation' => $staleConfirmation])
+            ->assertConflict()->assertJsonPath('error.code', 'WORKDAY_REVIEW_CONFIRMATION_REQUIRED');
+
+        $head = AsabUser::create(['company_id' => $this->company->id, 'name' => 'Head',
+            'email' => 'head-workday@example.test', 'password' => 'test-password', 'status' => 'active']);
+        AsabUserRole::create(['user_id' => $head->id, 'role_key' => 'head', 'scope' => 'all']);
+        CompanyUser::create(['company_id' => $this->company->id, 'user_id' => $head->id, 'role_key' => 'head', 'status' => 'active']);
+        $memberOps = \Modules\Admin\Models\Operation::query()->where('module_key', 'shifts')->get();
+        $this->assertCount(4, $memberOps);
+        foreach ($memberOps as $member) {
+            $this->postJson("/api/v1/operations/{$member->public_id}/approve")->assertOk();
+        }
+        $confirmation = $this->getJson($operationPath)->json('workdayReview.confirmation');
+        $this->postJson('/api/v1/operations/bulk-approve', [
+            'operationIds' => [$publicId], 'workdayConfirmations' => [$publicId => $confirmation],
+        ], ['Idempotency-Key' => (string) Str::uuid()])->assertOk()->assertJsonPath('approved.0', $publicId);
+        $this->postJson("{$operationPath}/final-approve", [], ['Idempotency-Key' => (string) Str::uuid()])->assertForbidden();
+        $this->actingAs($head, 'sanctum')->getJson($operationPath)->assertOk()
+            ->assertJsonPath('status', 'approved')->assertJsonPath('workdayReview.questions.0.reply', null);
+        $this->actingAs($this->manager, 'sanctum')->postJson($dayPath, [
+            'action' => 'reply', 'questionId' => $questionId, 'message' => 'تمت مراجعة سجل النقد',
+        ])->assertOk();
+        $this->actingAs($head, 'sanctum')->getJson($operationPath)
+            ->assertOk()->assertJsonPath('workdayReview.questions.0.reply', 'تمت مراجعة سجل النقد');
+        foreach ($memberOps as $member) {
+            $this->postJson("/api/v1/operations/{$member->public_id}/final-approve", [],
+                ['Idempotency-Key' => (string) Str::uuid()])->assertOk();
+        }
+        $final = $this->postJson("{$operationPath}/final-approve", [], ['Idempotency-Key' => (string) Str::uuid()]);
+        if ($saveSettlement) {
+            $final->assertOk()->assertJsonPath('status', 'final-approved');
+            if ($clean) {
+                foreach ([[$cashierEmployee, 200], [$managerEmployee, 300]] as [$employee, $amount]) {
+                    $this->assertDatabaseHas('asab_employee_movements', [
+                        'ref_operation_id' => $dayOperationId, 'employee_id' => $employee->id,
+                        'amount' => $amount, 'movement_type' => 'debit',
+                    ]);
+                }
+                $this->postJson("{$operationPath}/final-approve", [], ['Idempotency-Key' => (string) Str::uuid()])->assertConflict();
+                $this->assertSame(2, \Modules\Admin\Models\EmployeeMovement::where('ref_operation_id', $dayOperationId)->count());
+                $this->actingAs($accountant, 'sanctum')->patchJson($settlementPath, [
+                    ...$settlement, 'commandId' => (string) Str::uuid(), 'expectedRevision' => 1,
+                ])->assertConflict();
+            } else {
+                $this->assertSame(2, \Illuminate\Support\Facades\DB::table('shift_liability_postings')
+                    ->where('operation_id', $dayOperationId)->where('delta_halalas', -500)->count());
+                $this->assertSame(2, \Illuminate\Support\Facades\DB::table('cashier_custody_transactions')
+                    ->where('category', 'cash_variance')->where('is_cash_in', true)->count());
+                $this->assertSame(2, \Illuminate\Support\Facades\DB::table('asab_employee_movements')
+                    ->where('ref_operation_id', $dayOperationId)->where('movement_type', 'debit')->count());
+            }
+            $duplicateFinal = $this->postJson("{$operationPath}/final-approve", [], ['Idempotency-Key' => (string) Str::uuid()]);
+            $this->assertContains($duplicateFinal->getStatusCode(), [403, 409]);
+        } else {
+            $final->assertOk()->assertJsonPath('status', 'final-approved');
+        }
+    }
+
+    public static function workdaySettlementCases(): array
+    {
+        return ['original review' => [false], 'settlement with already posted shift liability' => [true],
+            '10000 SAR and final-only posting' => [true, true]];
     }
 
     public function test_f09_real_start_counted_end_approval_posting_and_daily_replay(): void

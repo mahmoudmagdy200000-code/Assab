@@ -348,6 +348,8 @@ Route::prefix('branch-manager/workday')
             ->name('workday.final-handover.details');
 
         // Section E: Final Daily Close
+        Route::get('/sales-reviews', [\Modules\Shift\Http\Controllers\WorkdaySalesReviewController::class, 'index']);
+        Route::post('/sales-reviews/{day}', [\Modules\Shift\Http\Controllers\WorkdaySalesReviewController::class, 'update'])->whereUuid('day');
         Route::get('/daily-close', [BranchManagerShiftController::class, 'getFinalDailyClose'])
             ->name('workday.daily-close');
         Route::put('/daily-close', [BranchManagerShiftController::class, 'updateFinalDailyClose'])

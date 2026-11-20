@@ -514,6 +514,13 @@ class ShiftReportReviewService
             if ($snapshot['day_revision'] === null) {
                 throw new ConflictHttpException('DAY_REPORT_EVIDENCE_REQUIRED');
             }
+            if (isset($operation->payload['daySettlement'])) {
+                $settlement = $operation->payload['daySettlement'];
+                if ($settlement['dayRevision'] !== $snapshot['day_revision']) {
+                    throw new ConflictHttpException('STALE_DAY_SETTLEMENT');
+                }
+                $snapshot['settlement'] = $settlement;
+            }
         }
         if ($final && ($operation->payload['pkg6Review']['approved_snapshot'] ?? null) !== $snapshot) {
             throw new ConflictHttpException('STALE_APPROVED_REPORT');

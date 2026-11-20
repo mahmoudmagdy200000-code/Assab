@@ -24,6 +24,75 @@ class ShortagePostingService
         private ShiftLiabilityLegacyPostingLinkService $legacyLinks,
     ) {}
 
+    /** Reverse only linked ledger effects whose source is this exact cashier shift. */
+    public function reverseVerifiedForDay(CashierShift $source, Model $actor, string $operationId): int
+    {
+        return DB::transaction(function () use ($source, $actor, $operationId) {
+            $shift = CashierShift::withoutEagerLoads()->whereKey($source->id)->lockForUpdate()->firstOrFail();
+            $revision = $this->revisions->currentCashierRevision($shift);
+            $report = app(\Modules\Shift\Liability\LiabilityEvidenceSource::class)->report($shift->id);
+            app(\Modules\Shift\Liability\ShiftLiabilityService::class)->assertDailyReportReady($report);
+            $allocation = ShiftLiabilityAllocation::where('cashier_shift_id', $shift->id)
+                ->whereNull('superseded_at')->lockForUpdate()->first();
+            $this->legacyLinks->reconcileShiftLegacyEvidence($shift);
+
+            $lineages = ShiftLiabilityPosting::where('cashier_shift_id', $shift->id)->where('status', 'posted')
+                ->pluck('lineage_key')
+                ->merge(\Modules\Shift\Models\ShiftLiabilityLegacyPostingLink::where('cashier_shift_id', $shift->id)->pluck('lineage_key'))
+                ->unique()->sort()->values();
+            if ($lineages->isEmpty()) {
+                return 0;
+            }
+            $effective = [];
+            foreach ($lineages as $lineage) {
+                $amount = $this->legacyLinks->resolveEffectivePostedHalalas($lineage);
+                if ($amount !== 0) {
+                    $effective[$lineage] = $amount;
+                }
+            }
+            if ($effective === []) {
+                return 0;
+            }
+            if (array_sum($effective) !== abs(min(0, $report->varianceHalalas))) {
+                throw new ConflictHttpException('DAY_SHIFT_LIABILITY_SOURCE_MISMATCH');
+            }
+            if (! $revision || ! $allocation || $allocation->manager_approval_status !== 'approved') {
+                throw new ConflictHttpException('DAY_SHIFT_LIABILITY_EVIDENCE_REQUIRED');
+            }
+
+            foreach ($effective as $lineage => $amount) {
+                $state = ShiftLiabilityPostingState::where('lineage_key', $lineage)->lockForUpdate()->first();
+                $identity = ShiftLiabilityShare::query()->where('lineage_key', $lineage)->first();
+                $responsible = $state
+                    ? ['type' => $state->responsible_type, 'id' => (string) $state->responsible_id]
+                    : ['type' => $identity->responsible_type ?? null, 'id' => (string) ($identity->responsible_id ?? '')];
+                abort_unless($responsible['type'] && $responsible['id'] !== '', 409, 'DAY_SHIFT_LIABILITY_SOURCE_MISMATCH');
+
+                $postingId = (string) Str::uuid();
+                [$ledgerTable, $ledgerId] = $this->postToLedgerAdapter(
+                    $responsible['type'], $responsible['id'], -$amount, $shift,
+                    $lineage, $postingId, $operationId
+                );
+                $reversal = new ShiftLiabilityPosting([
+                    'company_id' => DB::table('branches')->where('id', $shift->shift?->branch_id
+                        ?? DB::table('shifts')->where('id', $shift->shift_id)->value('branch_id'))->value('asab_company_id'),
+                    'branch_id' => $shift->shift?->branch_id ?? DB::table('shifts')->where('id', $shift->shift_id)->value('branch_id'),
+                    'cashier_shift_id' => $shift->id, 'lineage_key' => $lineage,
+                    'responsible_type' => $responsible['type'], 'responsible_id' => $responsible['id'],
+                    'delta_halalas' => -$amount, 'target_halalas' => 0, 'effective_before_halalas' => $amount,
+                    'allocation_id' => $allocation->id, 'evidence_id' => $revision->id,
+                    'operation_id' => $operationId, 'actor_type' => $actor->getMorphClass() ?? class_basename($actor),
+                    'actor_id' => $actor->id, 'ledger_table' => $ledgerTable, 'ledger_id' => $ledgerId,
+                    'status' => 'posted',
+                ]);
+                $reversal->id = $postingId;
+                $reversal->save();
+            }
+
+            return count($effective);
+        });
+    }
+
     /**
      * Reconcile liability posting for a cashier shift to its current approved target.
      * Computes signed delta = approved_target - effective_already_posted.

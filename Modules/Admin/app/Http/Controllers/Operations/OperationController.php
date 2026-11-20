@@ -109,6 +109,14 @@ class OperationController extends AsabController
             // ACC-1.4 «جدول المقارنة والتسوية» — computed, never stored.
             if ($op->module_key === 'sales') {
                 $data['reconciliation'] = $this->reconciler->present($op);
+                $dayId = app(\Modules\Admin\Services\OperationWorkflowClassifier::class)->daySource($op);
+                if ($dayId !== null) {
+                    $data['workdayShifts'] = $this->workdayShifts($op, $dayId);
+                    $data['workdayReview'] = app(\Modules\Admin\Services\WorkdaySalesReview::class)->details($op);
+                    if (isset($op->payload['totalSalesHalalas'], $op->payload['cashHalalas'], $op->payload['cardHalalas'], $op->payload['appsHalalas'])) {
+                        $data['workdaySettlement'] = app(\Modules\Admin\Services\WorkdaySalesSettlement::class)->present($op);
+                    }
+                }
             }
             // ACC-2.2 the statement's invoices with their VAT split and توثيق stamps.
             if ($op->module_key === 'expenses') {
@@ -204,7 +212,8 @@ class OperationController extends AsabController
     public function approve(Request $request, string $id): JsonResponse
     {
         return $this->run(fn () => $this->ok($this->present(
-            $this->service->approve($this->find($id), $request->user(), $request->input('note')),
+            $this->service->approve($this->find($id), $request->user(), $request->input('note'),
+                $request->validate(['workdayConfirmation' => 'sometimes|string|size:64'])['workdayConfirmation'] ?? null),
         )));
     }
 
@@ -244,11 +253,43 @@ class OperationController extends AsabController
     public function requestClarification(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $data = $request->validate(['message' => 'required|string|max:500']);
+            $data = $request->validate(['message' => 'required|string|max:500', 'shiftId' => 'sometimes|required|uuid']);
 
             return $this->ok($this->present(
-                $this->service->requestClarification($this->find($id), $request->user(), $data['message']),
+                $this->service->requestClarification($this->find($id), $request->user(), $data['message'], $data['shiftId'] ?? null),
             ));
+        });
+    }
+
+    public function saveWorkdaySettlement(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $data = $request->validate([
+                'commandId' => 'required|uuid', 'expectedRevision' => 'required|integer|min:0',
+                'reason' => 'required|string|max:1000',
+                'cashHalalas' => 'required|integer|min:0|max:999999999999',
+                'cardsHalalas' => 'required|integer|min:0|max:999999999999',
+                'delivery' => 'required|array|max:50', 'delivery.*' => 'array:id,amountHalalas',
+                'delivery.*.id' => 'required|string|max:100|distinct',
+                'delivery.*.amountHalalas' => 'required|integer|min:0|max:999999999999',
+                'allocations' => 'present|array|max:50', 'allocations.*' => 'array:empNumber,amountHalalas',
+                'allocations.*.empNumber' => 'required|string|max:100',
+                'allocations.*.amountHalalas' => 'required|integer|min:1|max:999999999999',
+            ]);
+
+            return $this->ok(app(\Modules\Admin\Services\WorkdaySalesSettlement::class)
+                ->save($this->find($id), $request->user(), $data));
+        });
+    }
+
+    public function returnWorkday(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $data = $request->validate(['reason' => 'required|string|max:1000']);
+            $operation = app(\Modules\Admin\Services\WorkdaySalesReview::class)
+                ->returnDay($this->find($id), $request->user(), $data['reason']);
+
+            return $this->ok($this->present($operation));
         });
     }
 
@@ -313,13 +354,16 @@ class OperationController extends AsabController
     public function bulkApprove(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $data = $request->validate(['operationIds' => 'required|array', 'operationIds.*' => 'string']);
+            $data = $request->validate([
+                'operationIds' => 'required|array', 'operationIds.*' => 'string|distinct',
+                'workdayConfirmations' => 'sometimes|array', 'workdayConfirmations.*' => 'string|size:64',
+            ]);
 
             // Refuse the whole selection if any requested row is unavailable.
             $ids = $data['operationIds'];
             $allowed = $this->scopedBulkIds($ids);
 
-            return $this->ok($this->service->bulkApprove($allowed, $request->user()));
+            return $this->ok($this->service->bulkApprove($allowed, $request->user(), $data['workdayConfirmations'] ?? []));
         });
     }
 
@@ -635,6 +679,32 @@ class OperationController extends AsabController
                 ? $this->purchases->row($op, $supplierNames[$op->payload['supplierId'] ?? ''] ?? null)
                 : null,
         ];
+    }
+
+    /** Cash-count evidence bound to the submitted day, independent of review status. */
+    private function workdayShifts(Operation $op, string $dayId): array
+    {
+        return DB::table('shift_liability_daily_locks as membership')
+            ->join('cashier_shifts as source', 'source.id', '=', 'membership.cashier_shift_id')
+            ->join('shifts as template', 'template.id', '=', 'source.shift_id')
+            ->leftJoin('cashiers as cashier', 'cashier.id', '=', 'source.cashier_id')
+            ->leftJoin('shift_report_cash_counts as evidence', function ($join) {
+                $join->on('evidence.report_revision_id', '=', 'membership.report_revision')
+                    ->on('evidence.cashier_shift_id', '=', 'source.id');
+            })
+            ->where('membership.branch_manager_shift_id', $dayId)
+            ->where('template.branch_id', $op->branch_id)
+            ->whereNull('membership.released_at')
+            ->whereNull('membership.superseded_at')
+            ->orderBy('source.actual_start_time')
+            ->orderBy('source.id')
+            ->get(['source.id', 'cashier.name', 'evidence.gross_halalas', 'evidence.variance_halalas'])
+            ->map(fn ($row) => [
+                'id' => $row->id,
+                'cashierName' => $row->name,
+                'salesHalalas' => $row->gross_halalas === null ? null : (int) $row->gross_halalas,
+                'varianceHalalas' => $row->variance_halalas === null ? null : (int) $row->variance_halalas,
+            ])->all();
     }
 
     /**
