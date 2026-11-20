@@ -31,7 +31,7 @@ class Pkg6FinalityAndDayMembershipTest extends TestCase
             'aggregator_payments' => 'appsHalalas', 'variance' => 'varianceHalalas'] as $field => $key) {
             $payload[$key] = \App\Support\ShiftFinancialCalculator::storedSarToHalalas($this->day->$field ?? '0.00');
         }
-        return Operation::create(['public_id' => 'SAL-'.Str::uuid(), 'company_id' => $this->operation->company_id,
+        return Operation::create(['public_id' => 'SAL-'.Str::upper(Str::random(10)), 'company_id' => $this->operation->company_id,
             'branch_id' => $this->operation->branch_id, 'module_key' => 'sales', 'origin' => 'mobile',
             'status' => 'pending', 'payload' => $payload, 'operation_date' => now()]);
     }
@@ -116,6 +116,43 @@ class Pkg6FinalityAndDayMembershipTest extends TestCase
         }
         $this->assertSame('approved', $approved->fresh()->status);
         $this->assertSame(0, $approved->steps()->where('stage_id', 'final')->count());
+    }
+
+    public function test_approval_accepts_reordered_json_object_keys_in_saved_snapshots(): void
+    {
+        $sibling = $this->sibling();
+        $day = $this->dayOperation();
+        $service = app(OperationService::class);
+        $members = [
+            $service->approve($this->operation, $this->accountant),
+            $service->approve($sibling, $this->accountant),
+        ];
+
+        // Reproduce JSON column key normalization on SQLite as well as MySQL.
+        foreach ($members as $member) {
+            $payload = $member->payload;
+            $payload['pkg6Review']['approved_snapshot'] = array_reverse($payload['pkg6Review']['approved_snapshot'], true);
+            $member->update(['payload' => $payload]);
+        }
+
+        $approvedDay = $service->approve($day, $this->accountant);
+        $this->assertSame(Operation::STATUS_APPROVED, $approvedDay->status);
+        foreach ($members as $member) {
+            $this->assertSame(Operation::STATUS_FINAL, $service->finalApprove($member, $this->head)->status);
+        }
+
+        $payload = $approvedDay->payload;
+        $snapshot = $payload['pkg6Review']['approved_snapshot'];
+        $snapshot['financial'] = array_reverse($snapshot['financial'], true);
+        $snapshot['members'] = array_reverse(array_map(
+            fn (array $member) => array_reverse($member, true),
+            $snapshot['members'],
+        ), true);
+        $payload['pkg6Review']['approved_snapshot'] = array_reverse($snapshot, true);
+        $approvedDay->update(['payload' => $payload]);
+
+        $this->assertSame(Operation::STATUS_FINAL, $service->finalApprove($day, $this->head)->status);
+        $this->assertSame(1, $day->steps()->where('stage_id', 'final')->count());
     }
 
     public function test_final_report_refuses_every_mutation_guard_even_from_stale_objects(): void

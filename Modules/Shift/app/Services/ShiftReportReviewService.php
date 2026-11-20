@@ -505,7 +505,7 @@ class ShiftReportReviewService
                 $requiredStatuses = $final ? [Operation::STATUS_FINAL] : [Operation::STATUS_APPROVED, Operation::STATUS_FINAL];
                 if ($coordinate['day_id'] !== $dayId || ! in_array($memberOperation->status, $requiredStatuses, true)
                     || in_array($memberOperation->payload['pkg6Review']['phase'] ?? '', ['head_returned', 'manager_returned'], true)
-                    || ($memberOperation->payload['pkg6Review']['approved_snapshot'] ?? null) !== $coordinate) {
+                    || ! $this->matchesApprovalSnapshot($memberOperation->payload['pkg6Review']['approved_snapshot'] ?? null, $coordinate)) {
                     throw new ConflictHttpException('DAY_MEMBER_NOT_FINAL_CURRENT');
                 }
                 $snapshot['members'][(string) $memberId] = $coordinate;
@@ -522,11 +522,29 @@ class ShiftReportReviewService
                 $snapshot['settlement'] = $settlement;
             }
         }
-        if ($final && ($operation->payload['pkg6Review']['approved_snapshot'] ?? null) !== $snapshot) {
+        if ($final && ! $this->matchesApprovalSnapshot($operation->payload['pkg6Review']['approved_snapshot'] ?? null, $snapshot)) {
             throw new ConflictHttpException('STALE_APPROVED_REPORT');
         }
 
         return $snapshot;
+    }
+
+    // JSON storage may reorder object keys. List positions and scalar types still form part of the evidence.
+    private function matchesApprovalSnapshot(mixed $stored, mixed $current): bool
+    {
+        if (! is_array($stored) || ! is_array($current)) {
+            return $stored === $current;
+        }
+        if (count($stored) !== count($current) || array_is_list($stored) !== array_is_list($current)) {
+            return false;
+        }
+        foreach ($current as $key => $value) {
+            if (! array_key_exists($key, $stored) || ! $this->matchesApprovalSnapshot($stored[$key], $value)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function memberSnapshot(string $sourceId, Operation $operation, bool $requireReady = true): array
