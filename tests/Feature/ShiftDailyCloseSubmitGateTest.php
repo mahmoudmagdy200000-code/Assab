@@ -625,4 +625,134 @@ class ShiftDailyCloseSubmitGateTest extends TestCase
         );
         $this->assertContains($repeatResponse->status(), [400, 409]);
     }
+
+    public function test_workday_settlement_enforces_role_branch_company_isolation_and_atomic_rollback_on_final_approval_failure(): void
+    {
+        $accountant = AsabUser::create([
+            'company_id' => $this->company->id, 'name' => 'Branch Accountant',
+            'email' => 'acc-iso@example.test', 'password' => 'test-password', 'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $accountant->id, 'role_key' => 'accountant', 'scope' => 'branch', 'branch_ids' => [$this->branch->id]]);
+        CompanyUser::create(['company_id' => $this->company->id, 'user_id' => $accountant->id, 'role_key' => 'accountant', 'status' => 'active']);
+
+        $head = AsabUser::create([
+            'company_id' => $this->company->id, 'name' => 'Head User',
+            'email' => 'head-iso@example.test', 'password' => 'test-password', 'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $head->id, 'role_key' => 'head', 'scope' => 'all']);
+        CompanyUser::create(['company_id' => $this->company->id, 'user_id' => $head->id, 'role_key' => 'head', 'status' => 'active']);
+
+        $cashierEmp = \Modules\Admin\Models\Employee::create([
+            'company_id' => $this->company->id, 'branch_id' => $this->branch->id,
+            'emp_number' => '2001', 'name' => 'Cashier 1', 'role' => 'كاشير', 'status' => 'active',
+        ]);
+        $cashierEmp->forceFill(['legacy_cashier_id' => $this->cashier->id])->save();
+        $managerEmp = \Modules\Admin\Models\Employee::create([
+            'company_id' => $this->company->id, 'branch_id' => $this->branch->id,
+            'emp_number' => '2010', 'name' => 'Manager 1', 'role' => 'مدير فرع', 'status' => 'active',
+        ]);
+
+        $shift = CashierShift::create([
+            'cashier_id' => $this->cashier->id, 'shift_id' => $this->template->id,
+            'shift_date' => today(), 'status' => 'not_started',
+        ]);
+        app(\Modules\Shift\Services\CashierShiftStartService::class)->startShift($shift);
+        $this->actingAs($this->cashier, 'sanctum')->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/cashier/shifts/'.$shift->id.'/end', [
+                'total_sales' => '7000.00', 'cash_collected' => '4000.00',
+                'card_payments' => '3000.00', 'counted_cash' => '3995.00',
+                'shortage_allocations' => [['responsible_type' => 'cashier', 'responsible_id' => $this->cashier->id, 'amount' => '5.00']],
+            ])->assertOk();
+        $this->actingAs($this->manager, 'sanctum')->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson('/api/v1/branch-manager/shifts/'.$shift->id.'/liability/approve', [
+                'version' => 1, 'expected_revision' => 1,
+            ])->assertOk();
+
+        $this->workday->update([
+            'total_sales' => '10000.00', 'cash_collected' => '4000.00',
+            'card_payments' => '3000.00', 'aggregator_payments' => '3000.00',
+        ]);
+        app(ShiftReportRevisionService::class)->recordManagerRevision($this->workday, 'branch_manager', $this->manager->id, 0);
+        $this->travel(1)->day();
+        $this->actingAs($this->manager, 'sanctum')->postJson('/api/v1/branch-manager/workday/daily-close/submit', [
+            'branch_manager_shift_id' => $this->workday->id, 'expected_revision' => 1,
+        ], ['Idempotency-Key' => (string) Str::uuid()])->assertOk();
+
+        $otherCompany = AsabCompany::create(['company_code' => 'OTHER99', 'name' => 'Other Co', 'status' => 'active']);
+        $otherBranch = Branch::factory()->create(['asab_company_id' => $otherCompany->id]);
+        $otherAccountant = AsabUser::create([
+            'company_id' => $otherCompany->id, 'name' => 'Other Accountant',
+            'email' => 'other-acc@example.test', 'password' => 'test-password', 'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $otherAccountant->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        CompanyUser::create(['company_id' => $otherCompany->id, 'user_id' => $otherAccountant->id, 'role_key' => 'accountant', 'status' => 'active']);
+        $otherEmployee = \Modules\Admin\Models\Employee::create([
+            'company_id' => $this->company->id, 'branch_id' => $otherBranch->id,
+            'emp_number' => '9999', 'name' => 'Other Branch Employee', 'role' => 'كاشير', 'status' => 'active',
+        ]);
+
+        $op = \Modules\Admin\Models\Operation::withoutGlobalScopes()->where('module_key', 'sales')->firstOrFail();
+        $settlementPath = "/api/v1/operations/{$op->public_id}/workday-settlement";
+        $payload = [
+            'commandId' => (string) Str::uuid(), 'expectedRevision' => 0, 'reason' => 'تسوية عجز التوصيل',
+            'cashHalalas' => 400000, 'cardsHalalas' => 300000,
+            'delivery' => [['id' => 'delivery', 'amountHalalas' => 299500]],
+            'allocations' => [
+                ['empNumber' => '2001', 'amountHalalas' => 200],
+                ['empNumber' => '2010', 'amountHalalas' => 300],
+            ],
+        ];
+
+        // 7. Non-accountant role (head) cannot modify workday settlement
+        $this->actingAs($head, 'sanctum')->patchJson($settlementPath, $payload)->assertForbidden();
+
+        // 8. Cross-company accountant cannot modify or access workday settlement
+        $this->actingAs($otherAccountant, 'sanctum')->patchJson($settlementPath, $payload)->assertStatus(404);
+
+        // 8b. Cross-branch employee allocation is rejected
+        $this->actingAs($accountant, 'sanctum')->patchJson($settlementPath, [
+            ...$payload,
+            'commandId' => (string) Str::uuid(),
+            'allocations' => [['empNumber' => '9999', 'amountHalalas' => 500]],
+        ])->assertStatus(422);
+
+        // Authorized accountant saves 10,000 / 4,000 / 3,000 / 2,995 -> -500 variance allocated 200 + 300
+        $this->actingAs($accountant, 'sanctum')->patchJson($settlementPath, $payload)
+            ->assertOk()
+            ->assertJsonPath('grossHalalas', 1000000)
+            ->assertJsonPath('collectedHalalas', 999500)
+            ->assertJsonPath('varianceHalalas', -500);
+
+        // Approve shift and workday operations to reach head_review
+        $shiftOp = \Modules\Admin\Models\Operation::where('module_key', 'shifts')->firstOrFail();
+        $this->actingAs($accountant, 'sanctum')->postJson("/api/v1/operations/{$shiftOp->public_id}/approve")->assertOk();
+        $this->actingAs($accountant, 'sanctum')->postJson("/api/v1/operations/{$op->public_id}/approve")->assertOk();
+        $this->actingAs($head, 'sanctum')->postJson("/api/v1/operations/{$shiftOp->public_id}/final-approve", [], [
+            'Idempotency-Key' => (string) Str::uuid(),
+        ])->assertOk();
+
+        // 5. Simulate mid-transaction failure during finalApprove (allocated employee becomes inactive)
+        $managerEmp->update(['status' => 'inactive']);
+        $postingsBefore = \Illuminate\Support\Facades\DB::table('shift_liability_postings')->count();
+        $custodyBefore = \Illuminate\Support\Facades\DB::table('cashier_custody_transactions')->count();
+
+        $this->actingAs($head, 'sanctum')->postJson("/api/v1/operations/{$op->public_id}/final-approve", [], [
+            'Idempotency-Key' => (string) Str::uuid(),
+        ])->assertStatus(409);
+
+        // Full rollback verified: no partial reversal posting, no employee movement, status remains 'approved'
+        $this->assertSame('approved', $op->fresh()->status);
+        $this->assertSame($postingsBefore, \Illuminate\Support\Facades\DB::table('shift_liability_postings')->count());
+        $this->assertSame($custodyBefore, \Illuminate\Support\Facades\DB::table('cashier_custody_transactions')->count());
+        $this->assertSame(0, \Modules\Admin\Models\EmployeeMovement::where('ref_operation_id', $op->id)->count());
+
+        // Restore active employee and complete final approval atomically
+        $managerEmp->update(['status' => 'active']);
+        $this->actingAs($head, 'sanctum')->postJson("/api/v1/operations/{$op->public_id}/final-approve", [], [
+            'Idempotency-Key' => (string) Str::uuid(),
+        ])->assertOk()->assertJsonPath('status', 'final-approved');
+
+        $this->assertSame($postingsBefore + 1, \Illuminate\Support\Facades\DB::table('shift_liability_postings')->count());
+        $this->assertSame(2, \Modules\Admin\Models\EmployeeMovement::where('ref_operation_id', $op->id)->count());
+    }
 }
