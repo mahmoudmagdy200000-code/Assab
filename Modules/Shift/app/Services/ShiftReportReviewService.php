@@ -14,10 +14,11 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 class ShiftReportReviewService
 {
     /** Informational projection only; every command revalidates these coordinates under locks. */
-    public function reportState(string $sourceId): ?array
+    public function reportState(string $sourceId, ?Operation $scope = null): ?array
     {
         $adminIds = DB::table('asab_shifts')->where('legacy_shift_id', $sourceId)->pluck('id');
         $operations = Operation::where('module_key', 'shifts')->whereNull('corrective_ref_id')
+            ->when($scope, fn ($query) => $query->where('company_id', $scope->company_id)->where('branch_id', $scope->branch_id))
             ->where(fn ($query) => $query->whereIn('payload->shiftId', $adminIds)->orWhereIn('source_id', $adminIds)
                 ->orWhere('payload->legacyShiftId', $sourceId))->get();
         if ($operations->count() !== 1) {

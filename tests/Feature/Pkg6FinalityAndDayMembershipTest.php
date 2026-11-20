@@ -7,6 +7,7 @@ require_once __DIR__.'/Pkg6ApprovalStageGuardTest.php';
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\Shift as AdminShift;
 use Modules\Admin\Services\OperationService;
@@ -22,6 +23,12 @@ use Tests\TestCase;
 class Pkg6FinalityAndDayMembershipTest extends TestCase
 {
     use RefreshDatabase, Pkg6ReviewFixture;
+
+    private function authenticateHead(): void
+    {
+        CompanyUser::create(['company_id' => $this->head->company_id, 'user_id' => $this->head->id, 'role_key' => 'head', 'status' => 'active']);
+        $this->actingAs($this->head, 'sanctum');
+    }
 
     private function dayOperation(): Operation
     {
@@ -83,6 +90,13 @@ class Pkg6FinalityAndDayMembershipTest extends TestCase
         $dayOperation = $this->dayOperation();
         $member = app(OperationService::class)->approve($this->operation, $this->accountant);
         $approvedDay = app(OperationService::class)->approve($dayOperation, $this->accountant);
+        $path = "/api/v1/operations/{$approvedDay->id}";
+        $this->actingAs($this->accountant, 'sanctum')->getJson($path)->assertOk()
+            ->assertJsonMissingPath('workdayFinalApprovalReady');
+        $this->authenticateHead();
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('workdayShifts.0.reportStatus', Operation::STATUS_APPROVED)
+            ->assertJsonPath('workdayFinalApprovalReady', false);
         try {
             app(OperationService::class)->finalApprove($approvedDay, $this->head);
             $this->fail('Day finalized before member final approval.');
@@ -90,15 +104,19 @@ class Pkg6FinalityAndDayMembershipTest extends TestCase
             $this->assertSame('DAY_MEMBER_NOT_FINAL_CURRENT', $error->getMessage());
         }
         app(OperationService::class)->finalApprove($member, $this->head);
-        $final = app(OperationService::class)->finalApprove($approvedDay, $this->head);
-        $this->assertSame('final-approved', $final->status);
+        $this->getJson($path)->assertOk()
+            ->assertJsonPath('workdayShifts.0.reportStatus', Operation::STATUS_FINAL)
+            ->assertJsonPath('workdayFinalApprovalReady', true);
+        $this->assertSame(0, $approvedDay->steps()->where('stage_id', 'final')->count());
+        $this->postJson("{$path}/final-approve", [], ['Idempotency-Key' => (string) Str::uuid()])->assertOk()
+            ->assertJsonPath('status', Operation::STATUS_FINAL);
         try {
             app(OperationService::class)->returnForReview($approvedDay, $this->head, 'Stale request');
             $this->fail('A final day was reopened.');
         } catch (\Modules\Admin\Exceptions\AsabException $error) {
             $this->assertSame('OP_NOT_APPROVED', $error->errorCode);
         }
-        $this->assertSame('final-approved', $final->fresh()->status);
+        $this->assertSame('final-approved', $approvedDay->fresh()->status);
     }
 
     public function test_stale_member_evidence_blocks_day_final_without_partial_writes(): void
@@ -108,6 +126,10 @@ class Pkg6FinalityAndDayMembershipTest extends TestCase
         app(OperationService::class)->finalApprove($member, $this->head);
         $approved = app(OperationService::class)->approve($dayOperation, $this->accountant);
         $this->membership->update(['report_revision' => (string) Str::uuid()]);
+        $this->authenticateHead();
+        $this->getJson("/api/v1/operations/{$approved->id}")->assertOk()
+            ->assertJsonPath('workdayShifts.0.reportStatus', Operation::STATUS_FINAL)
+            ->assertJsonPath('workdayFinalApprovalReady', false);
         try {
             app(OperationService::class)->finalApprove($approved, $this->head);
             $this->fail('Stale day membership finalized.');
