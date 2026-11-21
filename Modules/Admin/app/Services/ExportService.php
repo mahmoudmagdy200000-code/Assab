@@ -629,7 +629,7 @@ class ExportService
      *
      * @param  array<string,mixed>  $filters
      */
-    private function filteredOperations(string $companyId, array $filters): \Illuminate\Support\Collection
+    private function filteredOperations(string|array $companyId, array $filters): \Illuminate\Support\Collection
     {
         $q = Operation::whereIn('company_id', (array) $companyId);
         if (($filters['branchIds'] ?? null) !== null) {
