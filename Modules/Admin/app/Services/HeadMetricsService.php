@@ -68,6 +68,85 @@ class HeadMetricsService
     }
 
     /**
+     * Company-wide module totals for the head dashboard.
+     * Keep every workflow status so submitted work cannot look like an empty module.
+     *
+     * @return array<int, array{moduleKey:string,pending:int,approved:int,final:int,rejected:int,erp:int,total:int,totalAmount:int}>
+     */
+    public function moduleAggregation(string $companyId): array
+    {
+        $summaries = $this->scoped($companyId)
+            ->selectRaw('module_key, status, erp_posted, count(*) as operation_count, sum(amount) as total_amount')
+            ->groupBy('module_key', 'status', 'erp_posted')
+            ->get()
+            ->groupBy('module_key')
+            ->map(function ($rows, string $moduleKey): array {
+                $summary = [
+                    'moduleKey' => $moduleKey,
+                    'pending' => 0,
+                    'approved' => 0,
+                    'final' => 0,
+                    'rejected' => 0,
+                    'erp' => 0,
+                    'total' => 0,
+                    'totalAmount' => 0,
+                ];
+
+                foreach ($rows as $row) {
+                    $summary['total'] += (int) $row->operation_count;
+                    $summary['totalAmount'] += (int) $row->total_amount;
+                    $statusKey = match ($row->status) {
+                        Operation::STATUS_PENDING => 'pending',
+                        Operation::STATUS_APPROVED => 'approved',
+                        Operation::STATUS_FINAL => 'final',
+                        Operation::STATUS_REJECTED => 'rejected',
+                        default => null,
+                    };
+
+                    if ($statusKey !== null) {
+                        $summary[$statusKey] += (int) $row->operation_count;
+                    }
+
+                    if ($row->erp_posted) {
+                        $summary['erp'] += (int) $row->operation_count;
+                    }
+                }
+
+                return $summary;
+            })
+            ->values()
+            ->all();
+
+        // The head queues intentionally omit accountant-approved and pending
+        // entries. Supply a small company-scoped preview so dashboard cards can
+        // show real records for every workflow stage without loading full queues.
+        $branchNames = Branch::where('asab_company_id', $companyId)->pluck('name', 'id');
+        foreach ($summaries as &$summary) {
+            $summary['recentOperations'] = $this->scoped($companyId)
+                ->where('module_key', $summary['moduleKey'])
+                ->orderByDesc('updated_at')
+                ->limit(5)
+                ->get(['id', 'branch_id', 'status', 'amount', 'operation_date', 'erp_posted'])
+                ->map(fn (Operation $operation): array => [
+                    'id' => $operation->id,
+                    'branch' => $branchNames[$operation->branch_id] ?? '—',
+                    'status' => $operation->status,
+                    'amountHalalas' => (int) $operation->amount,
+                    'operationDate' => optional($operation->operation_date)->toIso8601String(),
+                    'erpPosted' => (bool) $operation->erp_posted,
+                ])->values()->all();
+        }
+        unset($summary);
+
+        return $summaries;
+    }
+
+    public function branchesCount(string $companyId): int
+    {
+        return Branch::where('asab_company_id', $companyId)->count();
+    }
+
+    /**
      * HEAD-1.3 brand performance — this-month sales/expenses/net per brand and
      * pctOfTarget vs the sum of the brand's branch monthly_target. Two grouped
      * queries (by branch) + a branch→brand map; bounded by branch count.

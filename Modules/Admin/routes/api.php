@@ -481,6 +481,7 @@ Route::prefix('v1')->group(function () {
                 // Shifts (§6.3.9)
                 Route::get('shifts/live', [ShiftController::class, 'live']);
                 Route::get('shifts/history', [ShiftController::class, 'history']);
+                Route::get('shifts/configs', [AccountantCompanyController::class, 'shiftConfigs']);
                 Route::post('shifts/{id}/close', [ShiftController::class, 'close'])->middleware('asab.idempotency');
                 // ACC-6.4 accountant's split of the cash gap before head approval.
                 Route::post('shifts/{id}/variance-allocations', [ShiftController::class, 'varianceAllocations']);

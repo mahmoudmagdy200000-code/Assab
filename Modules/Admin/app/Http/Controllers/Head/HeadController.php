@@ -40,12 +40,13 @@ class HeadController extends AsabController
     {
         return $this->run(function () use ($request) {
             $companyId = $request->user()->company_id;
-            $byStatus = Operation::query()->selectRaw('status, count(*) as c')->groupBy('status')->pluck('c', 'status');
+            $companyOperations = Operation::where('company_id', $companyId);
+            $byStatus = (clone $companyOperations)->selectRaw('status, count(*) as c')->groupBy('status')->pluck('c', 'status');
             $awaiting = (int) ($byStatus['approved'] ?? 0);
             $final = (int) ($byStatus['final-approved'] ?? 0);
             $rejected = (int) ($byStatus['rejected'] ?? 0);
-            $erpPosted = Operation::where('erp_posted', true)->count();
-            $finalAwaitingErp = Operation::where('status', Operation::STATUS_FINAL)->where('erp_posted', false)->count();
+            $erpPosted = (clone $companyOperations)->where('erp_posted', true)->count();
+            $finalAwaitingErp = (clone $companyOperations)->where('status', Operation::STATUS_FINAL)->where('erp_posted', false)->count();
 
             return $this->ok([
                 // Existing fields kept; enriched per MISSING_Dashboard §4.1.
@@ -70,6 +71,8 @@ class HeadController extends AsabController
                 ],
                 'brandPerformance' => $this->metrics->brandPerformance($companyId),
                 'weeklyPerformance' => $this->metrics->weeklyPerformance($companyId),
+                'moduleAggregation' => $this->metrics->moduleAggregation($companyId),
+                'branchesCount' => $this->metrics->branchesCount($companyId),
             ]);
         });
     }
