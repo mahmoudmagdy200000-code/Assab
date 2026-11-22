@@ -25,11 +25,16 @@ try {
             if ($input['command'] === 'approve') {
                 $service->approveExpense($expense, $input['owner'], 'Phase 5 MySQL owner',
                     \Modules\Expense\Enums\ExpenseDecisionRole::BRAND_OWNER, 1);
+                $result = ['status' => 'approved'];
             } else {
                 $service->rejectExpense($expense, $input['owner'], 'MySQL concurrent decision rejection', 'Phase 5 MySQL owner',
                     \Modules\Expense\Enums\ExpenseDecisionRole::BRAND_OWNER, 1);
+                $result = ['status' => 'rejected'];
             }
-            $result = ['status' => $input['command']];
+        } elseif ($input['command'] === 'confirm_receipt') {
+            $actor = \Modules\BranchManagers\Models\BranchManager::query()->findOrFail($input['manager']);
+            app(\Modules\Custody\Services\CustodyRequestService::class)->confirmReceipt($input['custody_request'], $actor);
+            $result = ['status' => 'received', 'custody_request' => $input['custody_request']];
         } else {
             throw new LogicException('Unknown expense custody concurrency command.');
         }
@@ -51,16 +56,11 @@ try {
     echo json_encode($result, JSON_THROW_ON_ERROR);
 } catch (\Modules\Custody\Exceptions\InsufficientExpenseCustodyException) {
     echo json_encode(['status' => 'insufficient'], JSON_THROW_ON_ERROR);
-} catch (\Symfony\Component\HttpKernel\Exception\ConflictHttpException $exception) {
-    echo json_encode(['status' => 'conflict', 'code' => $exception->getMessage()], JSON_THROW_ON_ERROR);
-} catch (\Exception $exception) {
-    if (in_array($input['command'], ['approve', 'reject'], true)) {
+} catch (\Throwable $exception) {
+    if (\Tests\Support\ExpenseCustodyConcurrencyErrorClassifier::isExpectedConflict($exception, (string) ($input['command'] ?? ''))) {
         echo json_encode(['status' => 'conflict', 'code' => $exception->getMessage()], JSON_THROW_ON_ERROR);
     } else {
-        fwrite(STDERR, get_class($exception).': '.$exception->getMessage());
+        fwrite(STDERR, \Tests\Support\ExpenseCustodyConcurrencyErrorClassifier::sanitizeErrorMessage($exception));
         exit(1);
     }
-} catch (\Throwable $exception) {
-    fwrite(STDERR, get_class($exception).': '.$exception->getMessage());
-    exit(1);
 }

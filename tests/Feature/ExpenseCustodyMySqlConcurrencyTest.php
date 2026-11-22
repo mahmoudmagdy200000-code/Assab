@@ -8,6 +8,7 @@ use Modules\Admin\Models\AsabCompany;
 use Modules\BrandOwner\Models\BrandOwner;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Custody\Models\CustodyRequest;
 use Modules\Custody\Models\CustodyTransaction;
 use Modules\Custody\Services\ExpenseCustodyService;
 use Modules\Expense\Models\Expense;
@@ -123,6 +124,35 @@ class ExpenseCustodyMySqlConcurrencyTest extends TestCase
         $this->assertSame('approved', $expense->fresh()->status);
         $this->assertSame(1, CustodyTransaction::where('related_expense_id', $expense->id)->where('is_cash_in', false)->count());
         $this->assertSame(0, CustodyTransaction::where('related_expense_id', $expense->id)->where('is_cash_in', true)->count());
+    }
+
+    public function test_concurrent_confirm_receipt_credits_branch_custody_once_on_mysql(): void
+    {
+        $request = CustodyRequest::create([
+            'branch_manager_id' => $this->currentManager->id,
+            'branch_id' => $this->branch->id,
+            'requested_amount' => 100,
+            'purpose' => 'Phase 5 MySQL concurrent receipt',
+            'preferred_receipt_method' => 'Bank Transfer',
+            'status' => 'Approved',
+            'approved_by' => $this->owner->id,
+            'approved_at' => now(),
+            'executed_at' => now(),
+            'transfer_reference' => 'TRX-MYSQL-001',
+        ]);
+
+        [$first, $second] = $this->race(
+            ['command' => 'confirm_receipt', 'custody_request' => $request->id, 'manager' => $this->currentManager->id],
+            ['command' => 'confirm_receipt', 'custody_request' => $request->id, 'manager' => $this->currentManager->id],
+        );
+
+        $statuses = [$first['status'], $second['status']];
+        sort($statuses);
+        $this->assertSame(['conflict', 'received'], $statuses);
+        $this->assertSame('Completed', $request->fresh()->status);
+        $this->assertSame(1, CustodyTransaction::where('related_custody_request_id', $request->id)->where('is_cash_in', true)->count());
+        $this->assertSame('100.00', number_format((float) app(\Modules\Custody\Services\CustodyBalanceService::class)
+            ->getCustodyBalance((string) $this->currentManager->id, (string) $this->branch->id), 2, '.', ''));
     }
 
     private function pendingCashExpense(BranchManager $manager, int $amount): Expense

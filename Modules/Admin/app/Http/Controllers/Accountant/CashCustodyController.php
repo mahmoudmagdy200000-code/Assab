@@ -66,7 +66,42 @@ class CashCustodyController extends AsabController
             $branchNames = $this->custody->branchNames(collect($p->items())->pluck('branch_id'));
             $data = array_map(fn (CashCustody $c) => $this->custody->present($c, $branchNames), $p->items());
 
-            return $this->paginated($p, $data, ['kpis' => $kpis]);
+            // INT-CASH-01: Include branch-level custody balances backed by `custody_transactions`
+            // for scoped branches that do not already have an `asab_cash_custodies` row.
+            $scopedBranchQ = Branch::query()->whereIn('asab_company_id', $this->tenantCompanyIdsFor($request->user()));
+            if (($assigned = $this->assignedBranchIds()) !== null) {
+                $scopedBranchQ->whereIn('id', $assigned);
+            }
+            if (($roleBranches = $this->cashCustodyBrandBranchIds($request)) !== null) {
+                $scopedBranchQ->whereIn('id', $roleBranches);
+            }
+            $this->brandBranches->applyFilter($scopedBranchQ, $request->query('brandId'), 'id');
+            if ($branch = $request->query('branchId')) {
+                $scopedBranchQ->where('id', $branch);
+            }
+            $coveredBranchIds = $kpiSet->pluck('branch_id')->filter()->unique()->values()->all();
+            $ledgerCustodies = $this->custody->branchCustodiesFromLedger(
+                $scopedBranchQ->pluck('id'),
+                $coveredBranchIds,
+                [
+                    'status' => $request->query('status'),
+                    'q' => $request->query('q'),
+                ],
+            );
+            $kpis['activeCustodies'] += $ledgerCustodies['kpis']['activeCustodies'];
+            $kpis['nearDepletion'] += $ledgerCustodies['kpis']['nearDepletion'];
+
+            $merged = array_merge($data, $ledgerCustodies['items']);
+            $response = $this->paginated($p, $merged, ['kpis' => $kpis]);
+            if (count($ledgerCustodies['items']) > 0) {
+                $payload = $response->getData(true);
+                $total = $p->total() + count($ledgerCustodies['items']);
+                $payload['meta']['total'] = $total;
+                $payload['meta']['totalPages'] = max(1, (int) ceil($total / max(1, $perPage)));
+                $response->setData($payload);
+            }
+
+            return $response;
         });
     }
 

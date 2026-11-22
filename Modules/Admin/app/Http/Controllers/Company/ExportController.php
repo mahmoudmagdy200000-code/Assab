@@ -117,6 +117,23 @@ class ExportController extends AsabController
     /** GET /cash-custody/{id}/transactions/export?month=YYYY-MM — HEAD-4 monthly ledger. */
     public function custodyLedger(Request $request, string $id): BinaryFileResponse
     {
+        if (str_starts_with($id, 'branch-custody-')) {
+            $branchId = substr($id, strlen('branch-custody-'));
+            $branchQ = \Modules\Branch\Models\Branch::query()
+                ->whereIn('asab_company_id', $this->tenantCompanyIdsFor($request->user()))
+                ->whereKey($branchId);
+            if (($assigned = $this->assignedBranchIds()) !== null) {
+                $branchQ->whereIn('id', $assigned);
+            }
+            if (($roleBranches = $this->cashCustodyBrandBranchIds($request)) !== null) {
+                $branchQ->whereIn('id', $roleBranches);
+            }
+            $branch = $branchQ->firstOrFail();
+            $ledger = $this->custody->branchLedgerFromTransactions($branch, $request->query('month'), 1, 2000);
+
+            return $this->exports->custodyLedger($this->format($request), $ledger);
+        }
+
         // Zero-trust: a custody outside the caller's branches reads as absent.
         $custody = $this->scopeCashCustodyToBrandRole(
             $this->scopeToAssignedBranches(
