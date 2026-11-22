@@ -113,7 +113,7 @@ class ExpenseApprovalController extends BaseController
      * POST /api/brand-owner/expenses/{expense}/approve
      * POST /api/branch-manager/expenses/{expense}/approve
      */
-    public function approve(string $expense): JsonResponse
+    public function approve(Request $request, string $expense): JsonResponse
     {
         if (! (auth()->user() instanceof \Modules\BrandOwner\Models\BrandOwner)) {
             return $this->errorResponse('Only brand owners can approve expenses', 403);
@@ -125,12 +125,18 @@ class ExpenseApprovalController extends BaseController
             return $this->expenseNotFound();
         }
 
+        $validator = Validator::make($request->all(), ['review_revision' => 'sometimes|integer|min:1']);
+        if ($validator->fails()) {
+            return $this->errorResponse('Validation failed', 422, $validator->errors()->toArray());
+        }
+
         try {
             $this->approvalService->approveExpense(
                 $expenseModel,
                 auth()->id(),
                 auth()->user()->name,
-                ExpenseDecisionRole::forActor(auth()->user())
+                ExpenseDecisionRole::forActor(auth()->user()),
+                $request->has('review_revision') ? (int) $request->input('review_revision') : null
             );
 
             return $this->successResponse(
@@ -138,10 +144,11 @@ class ExpenseApprovalController extends BaseController
                 'Expense approved successfully'
             );
         } catch (\Exception $e) {
+            $status = $e instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface ? $e->getStatusCode() : 400;
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage(),
-            ], 400);
+            ], $status);
         }
     }
 
@@ -157,6 +164,7 @@ class ExpenseApprovalController extends BaseController
 
         $validator = Validator::make($request->all(), [
             'reason' => 'required|string|min:10|max:500',
+            'review_revision' => 'sometimes|integer|min:1',
         ]);
 
         if ($validator->fails()) {
@@ -179,7 +187,8 @@ class ExpenseApprovalController extends BaseController
                 auth()->id(),
                 $request->reason,
                 auth()->user()->name,
-                ExpenseDecisionRole::forActor(auth()->user())
+                ExpenseDecisionRole::forActor(auth()->user()),
+                $request->has('review_revision') ? (int) $request->input('review_revision') : null
             );
 
             return $this->successResponse(
@@ -187,7 +196,8 @@ class ExpenseApprovalController extends BaseController
                 'Expense rejected successfully'
             );
         } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage());
+            $status = $e instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface ? $e->getStatusCode() : 400;
+            return $this->errorResponse($e->getMessage(), $status);
         }
     }
 

@@ -40,6 +40,7 @@ class ExpenseDetailResource extends JsonResource
             'created_at' => $this->created_at?->format('Y-m-d H:i:s') ?? '',
             // A draft has no submitted_at; the list still renders a date for it.
             'submitted_at' => ($this->submitted_at ?? $this->created_at)?->format('Y-m-d H:i:s') ?? '',
+            'review_revision' => (int) ($this->review_revision ?? 1),
             // The two-cycle approval chain (meeting 2026-08-14). `status` alone
             // cannot say «موافق عليه من المحاسب — بانتظار رئيس الحسابات»: that
             // record is still «pending».
@@ -55,7 +56,10 @@ class ExpenseDetailResource extends JsonResource
                 'decided_at' => $this->decided_at?->format('Y-m-d H:i:s') ?? '',
             ],
             'approval' => $this->getApprovalFragment(),
-            'cancellation' => $this->getCancellationFragment(),
+            'rejection' => $this->getRejectionFragment(),
+            // Deprecated compatibility alias for existing app versions. New clients
+            // must read `rejection`; this is never a financial cancellation action.
+            'cancellation' => $this->getLegacyRejectionAlias(),
             'timelines' => $this->whenLoaded('timelines', fn () => \App\Http\Resources\UnifiedTimelineResource::collection($this->timelines)),
         ];
 
@@ -400,37 +404,51 @@ class ExpenseDetailResource extends JsonResource
         ];
     }
 
-    private function getCancellationFragment(): ?array
+    private function getRejectionFragment(): ?array
     {
         if ($this->status !== 'rejected') {
             return null;
         }
 
-        // Rejected by the accountant on the dashboard: no legacy actor id, the
-        // name rides in decided_by_name.
+        return [
+            'reason' => $this->rejection_reason,
+            'rejected_at' => $this->rejected_at?->toIso8601String(),
+            'rejected_by' => $this->getRejectionActor(),
+        ];
+    }
+
+    private function getRejectionActor(): array
+    {
         if (! $this->rejected_by) {
-            return $this->decided_by_name === null && $this->decided_by_role === null ? null : [
-                'cancellation_reason' => $this->rejection_reason,
-                'cancelled_at' => $this->rejected_at?->toIso8601String(),
-                'cancelled_by' => [
-                    'id' => null,
-                    'name' => $this->decided_by_name,
-                    'type' => $this->decided_by_role,
-                ],
+            return [
+                'id' => null,
+                'name' => $this->decided_by_name,
+                'type' => $this->decided_by_role,
             ];
         }
 
         $decider = \Modules\Expense\Enums\ExpenseDecisionRole::fromStored($this->decided_by_role);
-        $brandOwner = $decider->actorModel()::find($this->rejected_by);
+        $actor = $decider->actorModel()::find($this->rejected_by);
 
         return [
-            'cancellation_reason' => $this->rejection_reason,
-            'cancelled_at' => $this->rejected_at?->toIso8601String(),
-            'cancelled_by' => [
-                'id' => $this->rejected_by,
-                'name' => $brandOwner?->name,
-                'type' => $decider->value,
-            ],
+            'id' => $this->rejected_by,
+            'name' => $actor?->name ?? $this->decided_by_name,
+            'type' => $decider->value,
+        ];
+    }
+
+    private function getLegacyRejectionAlias(): ?array
+    {
+        $rejection = $this->getRejectionFragment();
+        if ($rejection === null) {
+            return null;
+        }
+
+        return [
+            'cancellation_reason' => $rejection['reason'],
+            'cancelled_at' => $rejection['rejected_at'],
+            'cancelled_by' => $rejection['rejected_by'],
+            'deprecated_alias_of' => 'rejection',
         ];
     }
 

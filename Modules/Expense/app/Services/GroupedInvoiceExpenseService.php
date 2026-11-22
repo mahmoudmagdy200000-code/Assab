@@ -36,7 +36,7 @@ class GroupedInvoiceExpenseService
         $grandTotals = $this->calculateGrandTotals($data['invoices']);
 
         $expense = Expense::create([
-            'branch_manager_id' => auth()->id(),
+            'branch_manager_id' => \Modules\Expense\Services\ExpenseActorContext::branchManagerId(),
             'expense_type' => 'grouped_invoice',
             'status' => $data['is_draft'] ?? false ? 'draft' : 'pending',
             'submitted_at' => ($data['is_draft'] ?? false) ? null : now(),
@@ -49,6 +49,7 @@ class GroupedInvoiceExpenseService
         $groupedInvoice = GroupedInvoice::create([
             'expense_id' => $expense->id,
             'payment_type' => $data['payment_type'],
+            'paid_amount' => $this->paidAmount($data['payment_type'], $data['paid_amount'] ?? null, $grandTotals['total_amount']),
             'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
             'due_date' => $data['due_date'] ?? null,
             'default_supplier_id' => $data['default_supplier_id'] ?? null,
@@ -57,6 +58,7 @@ class GroupedInvoiceExpenseService
         foreach ($data['invoices'] as $invoiceData) {
             $this->createSingleInvoiceInGroup($expense, $groupedInvoice, $invoiceData);
         }
+        $this->synchronizeInvoicePayments($expense, $groupedInvoice);
 
         // EXP-02 / EXP-05: a non-draft create is a submission — charge the branch custody once, or refuse it.
         if (! ($data['is_draft'] ?? false)) {
@@ -85,9 +87,10 @@ class GroupedInvoiceExpenseService
         DB::beginTransaction();
         try {
             // Update payment info in grouped invoice
-            if (isset($data['payment_type']) || isset($data['payment_supplier_id']) || isset($data['due_date'])) {
+            if (isset($data['payment_type']) || isset($data['payment_supplier_id']) || isset($data['due_date']) || isset($data['paid_amount'])) {
                 $expense->groupedInvoice->update(array_filter([
                     'payment_type' => $data['payment_type'] ?? null,
+                    'paid_amount' => $data['paid_amount'] ?? null,
                     'payment_supplier_id' => $data['payment_supplier_id'] ?? null,
                     'default_supplier_id' => $data['default_supplier_id'] ?? null,
                     'due_date' => $data['due_date'] ?? null,
@@ -245,6 +248,10 @@ class GroupedInvoiceExpenseService
                 }
             }
 
+            // The group has one actual payment amount. Persist its deterministic allocation on each
+            // invoice so reports and later edits never have to guess which invoices were paid.
+            $this->synchronizeInvoicePayments($expense, $expense->groupedInvoice->fresh());
+
             // Delete specific attachments (global deletion)
             if (! empty($data['delete_attachments'])) {
                 $this->deleteAttachments($expense, $data['delete_attachments']);
@@ -338,6 +345,88 @@ class GroupedInvoiceExpenseService
         }
 
         return $invoice;
+    }
+
+    private function synchronizeInvoicePayments(Expense $expense, GroupedInvoice $group): void
+    {
+        $invoices = $expense->invoiceDetails()->with(['items', 'expenseLines'])->orderBy('created_at')->orderBy('id')->get();
+        $totals = $invoices->map(fn (InvoiceDetail $invoice): int => $this->invoiceTotalHalalas($invoice))->all();
+        $total = array_sum($totals);
+        $paymentType = $group->payment_type;
+        $paid = $this->toHalalas($this->paidAmount($paymentType, (float) $group->paid_amount, $total / 100));
+
+        if ($paid > $total || ($paymentType === 'partial' && $paid <= 0)) {
+            throw new InvalidArgumentException('Grouped invoice paid amount must be greater than zero and no more than the invoice total.');
+        }
+
+        $allocated = match ($paymentType) {
+            'full' => $totals,
+            'partial' => $this->allocateProportionally($totals, $paid),
+            default => array_fill(0, count($totals), 0),
+        };
+
+        foreach ($invoices as $index => $invoice) {
+            $invoicePaid = $allocated[$index] ?? 0;
+            $invoice->update([
+                'payment_type' => $invoicePaid === 0 ? 'deferred' : ($invoicePaid >= $totals[$index] ? 'full' : 'partial'),
+                'paid_amount' => number_format($invoicePaid / 100, 2, '.', ''),
+                'due_date' => $group->due_date,
+                'payment_supplier_id' => $group->payment_supplier_id,
+            ]);
+        }
+
+        $group->update(['paid_amount' => number_format($paid / 100, 2, '.', '')]);
+    }
+
+    /** Allocate integer halalas proportionally; leftover halalas go to earlier invoice rows. */
+    private function allocateProportionally(array $invoiceTotals, int $paid): array
+    {
+        $total = array_sum($invoiceTotals);
+        if ($total <= 0) {
+            return array_fill(0, count($invoiceTotals), 0);
+        }
+
+        $allocations = [];
+        $allocated = 0;
+        foreach ($invoiceTotals as $invoiceTotal) {
+            $share = intdiv($paid * $invoiceTotal, $total);
+            $allocations[] = $share;
+            $allocated += $share;
+        }
+
+        for ($i = 0; $allocated < $paid && $i < count($allocations); $i++) {
+            if ($allocations[$i] < $invoiceTotals[$i]) {
+                $allocations[$i]++;
+                $allocated++;
+            }
+            if ($i === count($allocations) - 1 && $allocated < $paid) {
+                $i = -1;
+            }
+        }
+
+        return $allocations;
+    }
+
+    private function invoiceTotalHalalas(InvoiceDetail $invoice): int
+    {
+        $items = $invoice->items->sum(fn ($item): float => (float) $item->quantity * (float) $item->unit_price);
+        $expenses = $invoice->expenseLines->sum(fn ($line): float => (float) $line->price);
+
+        return $this->toHalalas($items + $expenses);
+    }
+
+    private function paidAmount(string $paymentType, ?float $paidAmount, float $total): float
+    {
+        return match ($paymentType) {
+            'full' => $total,
+            'partial' => $paidAmount ?? 0.0,
+            default => 0.0,
+        };
+    }
+
+    private function toHalalas(float|int|string $amount): int
+    {
+        return (int) round((float) $amount * 100);
     }
 
     /**
@@ -439,7 +528,7 @@ class GroupedInvoiceExpenseService
         $expense->timelines()->create([
             'action' => $action,
             'performed_by' => auth()->id(),
-            'performed_by_type' => 'branch_manager',
+            'performed_by_type' => ExpenseActorContext::actorType(),
             'status' => $status ?? $action,
             'notes' => null,
         ]);

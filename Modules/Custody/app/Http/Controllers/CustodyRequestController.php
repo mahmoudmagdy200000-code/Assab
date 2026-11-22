@@ -247,6 +247,16 @@ class CustodyRequestController extends BaseController
                 }
             }
 
+            // The physical handover proof contract for a manager-raised request is
+            // unresolved (F7). Keep this method available only for direct
+            // owner-initiated transfers, which have a separate receipt path.
+            if (! $isBrandOwner && $normalizedMethod === 'Cash Handover') {
+                return $this->errorResponse(
+                    'Cash handover funding requests are unavailable until their evidence process is defined.',
+                    422
+                );
+            }
+
             $custodyRequest = $this->requestService->createRequest($data);
 
             return $this->createdResponse([

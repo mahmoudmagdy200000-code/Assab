@@ -137,6 +137,43 @@ class CustodyOwnerTransferReceiptTest extends TestCase
         $this->assertSame(1, CustodyTransaction::where('related_custody_request_id', $request->id)->count());
     }
 
+    public function test_direct_owner_bank_handover_is_credited_once_only_after_manager_receipt(): void
+    {
+        $this->actingAs($this->owner, 'sanctum')
+            ->postJson('/api/brand-owner/payment-form', [
+                'recipientEmployeeId' => $this->manager->id,
+                'amount' => 5000,
+                'purpose' => 'تشغيل',
+                'note' => 'تحويل بنكي من المالك للفرع',
+                'preferredReceiptMethod' => 'Bank Transfer',
+                'transferDate' => now()->toDateString(),
+            ])
+            ->assertSuccessful();
+        $request = CustodyRequest::where('created_by_brand_owner_id', $this->owner->id)->firstOrFail();
+
+        $this->actingAs($this->manager, 'sanctum')
+            ->getJson('/api/branch-manager/ledger/branch-custody-balance')
+            ->assertOk()->assertJsonPath('data.currentBalance', 0);
+
+        $this->actingAs($this->manager, 'sanctum')
+            ->postJson("/api/custody/requests/{$request->id}/confirm-receipt")
+            ->assertSuccessful()->assertJsonPath('data.status', 'completed');
+
+        $this->assertDatabaseHas('custody_transactions', [
+            'related_custody_request_id' => $request->id,
+            'branch_id' => $this->branch->id,
+            'type' => 'Bank Transfer',
+            'amount' => 5000,
+            'is_cash_in' => true,
+        ]);
+
+        $this->actingAs($this->manager, 'sanctum')
+            ->postJson("/api/custody/requests/{$request->id}/confirm-receipt")
+            ->assertStatus(422);
+
+        $this->assertSame(1, CustodyTransaction::where('related_custody_request_id', $request->id)->count());
+    }
+
     public function test_a_manager_cannot_receive_another_managers_custody(): void
     {
         $otherManager = BranchManager::factory()->create(['branch_id' => Branch::factory()->create()->id]);

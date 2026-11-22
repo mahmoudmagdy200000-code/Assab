@@ -34,8 +34,8 @@ class GroupedInvoiceExpenseController extends BaseController
     {
         $validator = Validator::make($request->all(), [
             'payment_type' => 'required|in:full,partial,deferred',
-            'payment_method' => 'required_if:payment_type,full|in:cash,supplier,custody',
-            'paid_amount' => 'nullable:payment_type,partial|numeric|min:0',
+            'payment_method' => 'required_if:payment_type,full,partial|in:cash,supplier,custody',
+            'paid_amount' => 'required_if:payment_type,partial|numeric|min:0.01',
             'due_date' => 'required_if:payment_type,deferred|date|after:today',
             'default_supplier_id' => 'nullable|exists:suppliers,id',
 
@@ -71,6 +71,17 @@ class GroupedInvoiceExpenseController extends BaseController
             'is_draft' => 'sometimes|boolean',
         ]);
 
+        $validator->after(function ($validator) use ($request): void {
+            if ($request->input('payment_type') !== 'partial' || ! is_array($request->input('invoices'))) {
+                return;
+            }
+
+            $invoiceTotal = $this->groupedInvoiceService->calculateTotalAmount($request->input('invoices'));
+            if ((float) $request->input('paid_amount', 0) > $invoiceTotal) {
+                $validator->errors()->add('paid_amount', 'The paid amount may not exceed the grouped invoice total.');
+            }
+        });
+
         if ($validator->fails()) {
             return $this->errorResponse(
                 'Validation failed',
@@ -91,7 +102,7 @@ class GroupedInvoiceExpenseController extends BaseController
 
         // F-04: refuse a submission (non-draft) whose immutable origin cannot be
         // fully/consistently resolved — before any write, event, or transaction.
-        ExpenseOriginGuard::assertResolvableForCreation(auth()->id(), $request->boolean('is_draft'));
+        ExpenseOriginGuard::assertResolvableForCreation(\Modules\Expense\Services\ExpenseActorContext::branchManagerId(), $request->boolean('is_draft'));
 
         DB::beginTransaction();
         try {
@@ -125,7 +136,7 @@ class GroupedInvoiceExpenseController extends BaseController
     public function update(Request $request, Expense $expense): JsonResponse
     {
         // Authorization check
-        if ($expense->branch_manager_id !== auth()->id()) {
+        if ($expense->branch_manager_id !== \Modules\Expense\Services\ExpenseActorContext::branchManagerId()) {
             return $this->errorResponse('Unauthorized access to this expense', 403);
         }
 
@@ -140,7 +151,7 @@ class GroupedInvoiceExpenseController extends BaseController
         $validator = Validator::make($request->all(), [
             'payment_type' => 'sometimes|in:full,partial,deferred',
             'payment_method' => 'sometimes|in:cash,supplier,custody',
-            'paid_amount' => 'sometimes|numeric|min:0',
+            'paid_amount' => 'sometimes|numeric|min:0.01',
             'due_date' => 'sometimes|date|after:today',
             'payment_supplier_id' => 'sometimes|exists:suppliers,id',
             'default_supplier_id' => 'sometimes|exists:suppliers,id',

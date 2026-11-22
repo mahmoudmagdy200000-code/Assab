@@ -3,6 +3,7 @@
 namespace Modules\Custody\Services;
 
 use Illuminate\Support\Facades\DB;
+use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Custody\Exceptions\InsufficientExpenseCustodyException;
 use Modules\Custody\Models\CustodyTransaction;
@@ -38,12 +39,18 @@ class ExpenseCustodyService
     /** Expenses paid from branch custody are the only ones that move it (EXP-01). */
     public function isCustodyPaid(Expense $expense): bool
     {
-        return $expense->payment_method === 'custody';
+        // EXP-10: a pre-approval is authority to purchase, not an actual payment.
+        // `cash` is the established client wire value for a cash expense paid
+        // from the branch expense custody; `custody` remains accepted for
+        // clients that already send the explicit source. Neither may spill to
+        // sales cash or the manager's personal ledger.
+        return $expense->expense_type !== 'pre_approval'
+            && in_array($expense->payment_method, ['cash', 'custody'], true);
     }
 
     /**
      * Charge the expense to the branch custody once, when it is submitted / resubmitted (EXP-02, EXP-08),
-     * or — for an expense submitted before the charge moved to submission — when it is approved.
+     * or when a draft is submitted (EXP-02, EXP-08).
      *
      * @throws InsufficientExpenseCustodyException when the custody does not cover it (EXP-05); nothing is written
      */
@@ -65,8 +72,11 @@ class ExpenseCustodyService
             }
 
             $branchId = $expense->origin_branch_id ?: $manager->branch_id;
-            $required = $this->halalas($expense->total_amount);
-            $available = $this->balanceHalalas($manager->id, $branchId);
+            if ($branchId === null || Branch::query()->whereKey($branchId)->lockForUpdate()->first() === null) {
+                throw new InsufficientExpenseCustodyException(0.0, (float) $expense->total_amount);
+            }
+            $required = $this->chargeAmountHalalas($expense);
+            $available = $this->balanceHalalas($branchId);
 
             if ($required <= 0) {
                 return;
@@ -85,6 +95,18 @@ class ExpenseCustodyService
                 'transaction_date' => now(),
             ]);
         });
+    }
+
+    /** Amount already paid from custody, never an invoice's unpaid remainder. */
+    private function chargeAmountHalalas(Expense $expense): int
+    {
+        $amount = match ($expense->expense_type) {
+            'single_invoice' => (float) ($expense->invoiceDetails()->value('paid_amount') ?? 0),
+            'grouped_invoice' => (float) ($expense->groupedInvoice()->value('paid_amount') ?? 0),
+            default => (float) $expense->total_amount,
+        };
+
+        return $this->halalas($amount);
     }
 
     /**
@@ -106,6 +128,10 @@ class ExpenseCustodyService
                 ->where('type', self::TYPE)->where('is_cash_in', false)
                 ->orderByDesc('created_at')->orderByDesc('id')->first();
 
+            if ($charge !== null && $charge->branch_id !== null) {
+                Branch::query()->whereKey($charge->branch_id)->lockForUpdate()->first();
+            }
+
             CustodyTransaction::create([
                 'branch_manager_id' => $charge->branch_manager_id,
                 'branch_id' => $charge->branch_id,
@@ -116,6 +142,20 @@ class ExpenseCustodyService
                 'transaction_date' => now(),
             ]);
         });
+    }
+
+    /** Fail closed if a legacy or stale pending row has no matching submission movement. */
+    public function assertCurrentChargeMatches(Expense $expense): void
+    {
+        if (! $this->isCustodyPaid($expense)) {
+            return;
+        }
+
+        $expected = $this->chargeAmountHalalas($expense);
+        $actual = $this->outstandingHalalas($expense->id);
+        if ($expected !== $actual) {
+            throw new \RuntimeException('The custody movement does not match the amount paid at submission; the expense cannot be approved.');
+        }
     }
 
     /** Net amount currently charged to custody for the expense (cash-out minus cash-in), in halalas. */
@@ -129,10 +169,20 @@ class ExpenseCustodyService
         return $this->halalas($net ?? 0);
     }
 
-    /** Branch expense custody of the manager at the branch, in halalas — sales cash is never part of it. */
-    private function balanceHalalas(string $managerId, string $branchId): int
+    /** Net custody charge currently posted for dashboard review, in halalas. */
+    public function postedCustodyChargeHalalas(Expense $expense): int
     {
-        return $this->halalas(app(CustodyBalanceService::class)->getCustodyBalance($managerId, $branchId));
+        if (! $this->isCustodyPaid($expense)) {
+            return 0;
+        }
+
+        return max(0, $this->outstandingHalalas($expense->id));
+    }
+
+    /** Branch-owned expense custody, independent of the current manager, in halalas. */
+    private function balanceHalalas(string $branchId): int
+    {
+        return $this->halalas(app(CustodyBalanceService::class)->getCustodyBalance('', $branchId));
     }
 
     private function lockManager(Expense $expense): ?BranchManager

@@ -28,11 +28,13 @@ class CustodyBalanceService
      */
     public function getCustodyBalance(string $branchManagerId, ?string $branchId = null): float
     {
-        // Pass the branch wherever the caller knows it: custody belongs to a
-        // BRANCH, so a manager who moved must not spend the balance they built
-        // up at their previous one (2026-08-03).
-        $balance = CustodyTransaction::where('branch_manager_id', $branchManagerId)
-            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId))
+        // When the caller is acting for a known branch, branch custody survives
+        // manager replacement. Each transaction still retains its original
+        // branch_manager_id for attribution; only the treasury balance is
+        // branch-owned. Without a branch coordinate, preserve the legacy
+        // manager-scoped read contract.
+        $balance = CustodyTransaction::query()
+            ->when($branchId, fn ($q) => $q->where('branch_id', $branchId), fn ($q) => $q->where('branch_manager_id', $branchManagerId))
             ->selectRaw(self::SQL_BALANCE_EXPRESSION)
             ->value('balance');
 
@@ -424,6 +426,7 @@ class CustodyBalanceService
     public function getBranchCustodyBalance(string $branchManagerId, array $filters = []): array
     {
         $branchId = auth()->user()->branch_id;
+        $branch = $branchId ? \Modules\Branch\Models\Branch::query()->select(['id', 'name'])->find($branchId) : null;
         $timePeriod = $filters['timePeriod'] ?? null;
 
         $transactionsQuery = CustodyTransaction::where('branch_manager_id', $branchManagerId)
@@ -473,6 +476,7 @@ class CustodyBalanceService
         })->values();
 
         return [
+            'branch' => $branch ? ['id' => $branch->id, 'name' => $branch->name] : null,
             'currentBalance' => round($currentBalance, 2),
             'recentActivity' => $recentActivity,
             'requests' => $formattedRequests,

@@ -70,6 +70,11 @@ class CustodyRequestService
      */
     public function createRequest(array $data): CustodyRequest
     {
+        if (empty($data['created_by_brand_owner_id'])
+            && strcasecmp((string) ($data['preferredReceiptMethod'] ?? ''), 'Bank Transfer') !== 0) {
+            throw new \RuntimeException('Physical handover evidence for manager-raised cash funding is not configured.');
+        }
+
         $request = DB::transaction(function () use ($data) {
             $isBrandOwner = ! empty($data['created_by_brand_owner_id']);
 
@@ -157,9 +162,17 @@ class CustodyRequestService
             'timelines' => $timeline,
             'timeline' => $timeline,
             'approval' => $approval,
-            'cancellation' => $this->buildCancellationBlock($request),
+            'rejection' => $this->buildRejectionBlock($request),
+            // Deprecated compatibility alias for existing app versions only.
+            'cancellation' => $this->buildLegacyRejectionAlias($request),
             'canConfirmReceipt' => $this->awaitsReceipt($request)
                 && ($request->created_by_brand_owner_id !== null || $request->executed_at !== null),
+            'canResubmit' => $this->canResubmit($request),
+            'resubmissionBlockReason' => $this->resubmissionBlockReason($request),
+            'cashHandoverAvailable' => ! $this->isManagerCashHandover($request),
+            'cashHandoverBlockReason' => $this->isManagerCashHandover($request)
+                ? 'cash_handover_evidence_unconfigured'
+                : null,
             'receivedAt' => $request->received_at?->toIso8601String(),
         ];
     }
@@ -177,7 +190,7 @@ class CustodyRequestService
         };
     }
 
-    private function buildCancellationBlock(CustodyRequest $request): ?array
+    private function buildRejectionBlock(CustodyRequest $request): ?array
     {
         if (strcasecmp((string) $request->status, 'Rejected') !== 0) {
             return null;
@@ -186,14 +199,50 @@ class CustodyRequestService
         $actor = $this->resolveActor($request->rejected_by, $request->rejected_by_type);
 
         return [
-            'cancellation_reason' => $request->rejection_reason,
-            'cancelled_at' => $request->rejected_at?->toIso8601String(),
-            'cancelled_by' => [
+            'reason' => $request->rejection_reason,
+            'rejected_at' => $request->rejected_at?->toIso8601String(),
+            'rejected_by' => [
                 'id' => $request->rejected_by,
                 'name' => $actor['name'] ?? null,
                 'type' => $request->rejected_by_type,
             ],
         ];
+    }
+
+    private function buildLegacyRejectionAlias(CustodyRequest $request): ?array
+    {
+        $rejection = $this->buildRejectionBlock($request);
+        if ($rejection === null) {
+            return null;
+        }
+
+        return [
+            'cancellation_reason' => $rejection['reason'],
+            'cancelled_at' => $rejection['rejected_at'],
+            'cancelled_by' => $rejection['rejected_by'],
+            'deprecated_alias_of' => 'rejection',
+        ];
+    }
+
+    private function isManagerCashHandover(CustodyRequest $request): bool
+    {
+        return $request->created_by_brand_owner_id === null
+            && strcasecmp((string) $request->preferred_receipt_method, 'Cash Handover') === 0;
+    }
+
+    private function canResubmit(CustodyRequest $request): bool
+    {
+        return $request->created_by_brand_owner_id === null
+            && strcasecmp((string) $request->status, 'Rejected') === 0
+            && ! $this->isManagerCashHandover($request);
+    }
+
+    private function resubmissionBlockReason(CustodyRequest $request): ?string
+    {
+        return strcasecmp((string) $request->status, 'Rejected') === 0
+            && $this->isManagerCashHandover($request)
+                ? 'cash_handover_evidence_unconfigured'
+                : null;
     }
 
     private function buildApprovalBlock(CustodyRequest $request): ?array
@@ -316,6 +365,7 @@ class CustodyRequestService
                 'purpose' => $request->purpose,
                 'canConfirmReceipt' => ! $isBrandOwner && $this->awaitsReceipt($request)
                     && ($request->created_by_brand_owner_id !== null || $request->executed_at !== null),
+                'canResubmit' => ! $isBrandOwner && $this->canResubmit($request),
                 'receivedAt' => $request->received_at?->toIso8601String(),
             ];
         })->toArray();
@@ -360,7 +410,11 @@ class CustodyRequestService
                 'receivedAt' => $request->received_at?->toIso8601String(),
                 'transferReference' => $request->transfer_reference,
                 'canExecute' => strcasecmp((string) $request->status, 'Approved') === 0
-                    && $request->executed_at === null && $request->received_at === null,
+                    && $request->executed_at === null && $request->received_at === null
+                    && ! $this->isManagerCashHandover($request),
+                'executionBlockReason' => $this->isManagerCashHandover($request)
+                    ? 'cash_handover_evidence_unconfigured'
+                    : null,
             ])->all();
     }
 
@@ -553,6 +607,9 @@ class CustodyRequestService
                 if ($request->created_by_brand_owner_id !== null) {
                     throw new \RuntimeException('This owner-initiated transfer does not use accountant execution.');
                 }
+                if ($this->isManagerCashHandover($request)) {
+                    throw new \RuntimeException('Physical handover evidence for manager-raised cash funding is not configured.');
+                }
                 if (strcasecmp((string) $request->status, 'Approved') !== 0) {
                     throw new \RuntimeException('Only an approved custody request can be executed.');
                 }
@@ -710,6 +767,9 @@ class CustodyRequestService
             }
             if (strcasecmp((string) $request->status, 'Rejected') !== 0) {
                 throw new \RuntimeException('Only rejected custody requests can be resubmitted.');
+            }
+            if ($this->isManagerCashHandover($request)) {
+                throw new \RuntimeException('Physical handover evidence for manager-raised cash funding is not configured.');
             }
 
             $answered = json_encode([

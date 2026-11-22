@@ -5,6 +5,7 @@ use Modules\Expense\Http\Controllers\CategoryController;
 use Modules\Expense\Http\Controllers\ExpenseApprovalController;
 use Modules\Expense\Http\Controllers\ExpenseAttachmentController;
 use Modules\Expense\Http\Controllers\ExpenseController;
+use Modules\Expense\Http\Controllers\ExpenseDelegationController;
 use Modules\Expense\Http\Controllers\GroupedInvoiceExpenseController;
 use Modules\Expense\Http\Controllers\PreApprovalRequestController;
 use Modules\Expense\Http\Controllers\QuickCashExpenseController;
@@ -45,6 +46,11 @@ Route::prefix('branch-manager/expenses')
     ->middleware(['auth:sanctum', 'branch.manager.or.cashier', 'log.throttle'])
     ->name('api.branch-manager.expenses.') // Add this line for route name prefix
     ->group(function () {
+        Route::prefix('delegations')->middleware('branch.manager')->group(function () {
+            Route::get('/cashiers', [ExpenseDelegationController::class, 'index']);
+            Route::put('/cashiers/{cashier}', [ExpenseDelegationController::class, 'grant']);
+            Route::delete('/cashiers/{cashier}', [ExpenseDelegationController::class, 'revoke']);
+        });
 
         /*
         |--------------------------------------------------------------------------
@@ -83,7 +89,7 @@ Route::prefix('branch-manager/expenses')
         */
         Route::prefix('quick-cash')->group(function () {
             Route::get('/', [ExpenseController::class, 'quickCashList']);
-            Route::post('/', [QuickCashExpenseController::class, 'store'])->middleware(['expense.write.delegated', 'throttle:expense-write']);
+            Route::post('/', [QuickCashExpenseController::class, 'store'])->middleware(['expense.write.delegated', 'throttle:expense-write', 'asab.idempotency:optional,transaction,legacy']);
             Route::put('/{expense}', [QuickCashExpenseController::class, 'update'])->middleware(['expense.write.delegated', 'throttle:expense-write']);
             Route::delete('/{expense}', [QuickCashExpenseController::class, 'destroy'])->middleware('expense.write.delegated');
 
@@ -99,7 +105,7 @@ Route::prefix('branch-manager/expenses')
         Route::prefix('single-invoice')->group(function () {
             Route::get('/', [ExpenseController::class, 'singleInvoiceList']);
             Route::get('/previous', [SingleInvoiceExpenseController::class, 'getPreviousInvoices']);
-            Route::post('/', [SingleInvoiceExpenseController::class, 'store'])->middleware(['expense.write.delegated', 'throttle:expense-write']);
+            Route::post('/', [SingleInvoiceExpenseController::class, 'store'])->middleware(['expense.write.delegated', 'throttle:expense-write', 'asab.idempotency:optional,transaction,legacy']);
             Route::put('/{expense}', [SingleInvoiceExpenseController::class, 'update'])->middleware(['expense.write.delegated', 'throttle:expense-write']);
 
             // duplicate
@@ -113,7 +119,7 @@ Route::prefix('branch-manager/expenses')
         */
         Route::prefix('pre-approval')->group(function () {
             Route::get('/', [ExpenseController::class, 'preApprovalList']);
-            Route::post('/', [PreApprovalRequestController::class, 'store'])->middleware(['expense.write.delegated', 'throttle:expense-write']);
+            Route::post('/', [PreApprovalRequestController::class, 'store'])->middleware(['expense.write.delegated', 'throttle:expense-write', 'asab.idempotency:optional,transaction,legacy']);
             Route::put('/{expense}', [PreApprovalRequestController::class, 'update'])->middleware(['expense.write.delegated', 'throttle:expense-write']);
             Route::get('/previous', [PreApprovalRequestController::class, 'getPreviousRequests']);
             Route::post('/{expense}/duplicate', [PreApprovalRequestController::class, 'duplicate'])->middleware('expense.write.delegated');
@@ -126,7 +132,7 @@ Route::prefix('branch-manager/expenses')
         */
         Route::prefix('grouped-invoice')->group(function () {
             Route::get('/', [ExpenseController::class, 'groupedInvoiceList']);
-            Route::post('/', [GroupedInvoiceExpenseController::class, 'store'])->middleware(['expense.write.delegated', 'throttle:expense-write']);
+            Route::post('/', [GroupedInvoiceExpenseController::class, 'store'])->middleware(['expense.write.delegated', 'throttle:expense-write', 'asab.idempotency:optional,transaction,legacy']);
             Route::put('/{expense}', [GroupedInvoiceExpenseController::class, 'update'])->middleware(['expense.write.delegated', 'throttle:expense-write']);
         });
 

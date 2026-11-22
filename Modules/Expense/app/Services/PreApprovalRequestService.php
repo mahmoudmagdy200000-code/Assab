@@ -35,7 +35,7 @@ class PreApprovalRequestService
         $totals = $this->calculateTotals($data);
 
         $expense = Expense::create([
-            'branch_manager_id' => auth()->id(),
+            'branch_manager_id' => \Modules\Expense\Services\ExpenseActorContext::branchManagerId(),
             'expense_type' => 'pre_approval',
             'status' => $data['is_draft'] ?? false ? 'draft' : 'pending',
             'submitted_at' => ($data['is_draft'] ?? false) ? null : now(),
@@ -273,7 +273,7 @@ class PreApprovalRequestService
         $expense->timelines()->create([
             'action' => $action,
             'performed_by' => auth()->id(),
-            'performed_by_type' => 'branch_manager',
+            'performed_by_type' => ExpenseActorContext::actorType(),
             'status' => $status ?? $action,
             'notes' => null,
         ]);

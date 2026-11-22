@@ -96,7 +96,7 @@ class CustodyFundingRequestLifecycleTest extends TestCase
     private function raise(float $amount = 800): string
     {
         $res = $this->actingAs($this->manager, 'sanctum')->postJson('/api/custody/request-cashin', [
-            'requestedAmount' => $amount, 'purpose' => 'branch float', 'preferredReceiptMethod' => 'cash_handover',
+            'requestedAmount' => $amount, 'purpose' => 'branch float', 'preferredReceiptMethod' => 'bank_transfer',
         ])->assertStatus(201);
 
         return $res->json('data.requestId');
@@ -442,7 +442,18 @@ class CustodyFundingRequestLifecycleTest extends TestCase
         $id = $this->raise(900);
         $this->reject($id, 'missing quotation')->assertOk();
 
+        $this->actingAs($this->manager, 'sanctum')->getJson('/api/custody/requests/'.$id)
+            ->assertOk()
+            ->assertJsonPath('data.canResubmit', true)
+            ->assertJsonPath('data.rejection.reason', 'missing quotation');
+
         $this->resubmit($id)->assertOk()->assertJsonPath('data.requestId', $id)->assertJsonPath('data.status', 'pending');
+
+        $this->actingAs($this->manager, 'sanctum')->getJson('/api/custody/requests/'.$id)
+            ->assertOk()
+            ->assertJsonPath('data.canResubmit', false)
+            ->assertJsonPath('data.rejection', null)
+            ->assertJsonPath('data.cancellation', null);
 
         $this->assertSame(1, CustodyRequest::count(), 'the SAME request, not a new one');
         $this->assertSame('Pending', CustodyRequest::find($id)->status);
@@ -462,6 +473,73 @@ class CustodyFundingRequestLifecycleTest extends TestCase
         $this->receive($id)->assertOk();
         $this->assertSame(900.0, $this->custodyBalance());
         $this->assertSame(1, $this->postedFor($id));
+    }
+
+    public function test_rejected_funding_request_detail_exposes_rejection_separately_and_has_no_financial_effect(): void
+    {
+        $id = $this->raise(350);
+        $this->reject($id, 'missing cash delivery proof')->assertOk();
+
+        $response = $this->actingAs($this->manager, 'sanctum')
+            ->getJson('/api/custody/requests/'.$id)
+            ->assertOk()
+            ->assertJsonPath('data.status', 'rejected')
+            ->assertJsonPath('data.rejection.reason', 'missing cash delivery proof')
+            ->assertJsonPath('data.cancellation.deprecated_alias_of', 'rejection')
+            ->assertJsonPath('data.cancellation.cancellation_reason', 'missing cash delivery proof')
+            ->assertJsonPath('data.canConfirmReceipt', false);
+
+        $this->assertNotEmpty($response->json('data.rejection.rejected_at'));
+        $this->assertSame($this->owner->id, $response->json('data.rejection.rejected_by.id'));
+        $this->assertSame('brand_owner', $response->json('data.rejection.rejected_by.type'));
+        $this->assertSame(0, $this->postedFor($id));
+        $this->assertSame(0.0, $this->custodyBalance());
+    }
+
+    public function test_manager_cannot_create_a_cash_handover_request_until_its_evidence_contract_is_defined(): void
+    {
+        $this->actingAs($this->manager, 'sanctum')->postJson('/api/custody/request-cashin', [
+            'requestedAmount' => 250,
+            'purpose' => 'branch float',
+            'preferredReceiptMethod' => 'cash_handover',
+        ])->assertStatus(422)->assertJsonPath(
+            'message',
+            'Cash handover funding requests are unavailable until their evidence process is defined.'
+        );
+
+        $this->assertSame(0, CustodyRequest::count());
+        $this->assertSame(0, CustodyTransaction::count());
+        $this->assertSame(0.0, $this->custodyBalance());
+    }
+
+    public function test_legacy_approved_manager_cash_request_is_not_executable_or_receivable_as_a_ready_flow(): void
+    {
+        $request = CustodyRequest::create([
+            'branch_manager_id' => $this->manager->id,
+            'branch_id' => $this->branch->id,
+            'requested_amount' => 250,
+            'purpose' => 'legacy physical handover',
+            'preferred_receipt_method' => 'Cash Handover',
+            'status' => 'Approved',
+        ]);
+
+        $this->actingAs($this->accountant(), 'sanctum')->getJson('/api/custody/requests')
+            ->assertOk()
+            ->assertJsonPath('data.requests.0.canExecute', false)
+            ->assertJsonPath('data.requests.0.executionBlockReason', 'cash_handover_evidence_unconfigured');
+
+        $this->execute($request->id)->assertStatus(422);
+        $this->actingAs($this->manager, 'sanctum')->getJson('/api/custody/requests/'.$request->id)
+            ->assertOk()
+            ->assertJsonPath('data.canConfirmReceipt', false)
+            ->assertJsonPath('data.canResubmit', false)
+            ->assertJsonPath('data.cashHandoverAvailable', false)
+            ->assertJsonPath('data.cashHandoverBlockReason', 'cash_handover_evidence_unconfigured');
+
+        $this->assertNull($request->fresh()->executed_at);
+        $this->assertNull($request->fresh()->received_at);
+        $this->assertSame(0, $this->postedFor($request->id));
+        $this->assertSame(0.0, $this->custodyBalance());
     }
 
     public function test_ac57_a_second_rejection_keeps_both_reasons_and_resubmission_can_repeat(): void
