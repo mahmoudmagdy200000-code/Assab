@@ -27,10 +27,7 @@ use Tests\TestCase;
  *   - cash-paid draft     -> 500 (FOREIGN KEY on expenses.branch_manager_id)
  *   - submission          -> 422 "unresolved ownership"
  *
- * This package makes the refusal explicit and uniform (403 EXPENSE_DELEGATION_REQUIRED, before any
- * validation, write, event or custody movement). The GRANT/WITHDRAW half of EXP-09 (AC-51/AC-52) needs a
- * persisted delegation flag, which cannot be added without a schema migration (not authorised) — it is
- * NOT IMPLEMENTED here, so in this build NO cashier holds the permission.
+ * Delegation is explicit, branch-scoped, and leaves custody ownership with the Branch Manager.
  */
 class CashierExpenseWriteDelegationTest extends TestCase
 {
@@ -157,10 +154,53 @@ class CashierExpenseWriteDelegationTest extends TestCase
         $this->assertFalse((bool) $rows->first()->is_cash_in);
     }
 
+    public function test_branch_manager_can_grant_and_revoke_scoped_expense_writes(): void
+    {
+        $base = '/api/branch-manager/expenses/delegations/cashiers/'.$this->cashier->id;
+
+        $this->actingAs($this->bmA1, 'sanctum')->putJson($base)->assertSuccessful()
+            ->assertJsonPath('data.can_write_expenses', true);
+        $this->actingAs($this->bmA1, 'sanctum')->putJson($base)->assertSuccessful();
+        $this->assertSame(1, DB::table('branch_manager_expense_delegations')->where('cashier_id', $this->cashier->id)->whereNull('revoked_at')->count());
+        $expenseId = (string) $this->quickCash($this->cashier, 150)->assertSuccessful()->json('data.id');
+
+        $expense = Expense::withoutGlobalScopes()->findOrFail($expenseId);
+        $this->assertSame($this->bmA1->id, $expense->branch_manager_id);
+        $this->assertSame($this->branchA1->id, $expense->origin_branch_id);
+        $this->assertDatabaseHas('expense_timelines', [
+            'expense_id' => $expenseId, 'performed_by' => $this->cashier->id, 'performed_by_type' => 'cashier',
+        ]);
+        $this->assertSame(1, CustodyTransaction::withoutGlobalScopes()->where('related_expense_id', $expenseId)->count());
+        $this->actingAs($this->cashier, 'sanctum')->getJson('/api/branch-manager/expenses')
+            ->assertOk()
+            ->assertJsonFragment(['id' => $expenseId]);
+        $this->actingAs($this->cashier, 'sanctum')->getJson('/api/branch-manager/expenses/custody-balance')
+            ->assertOk()
+            ->assertJsonPath('data.branch_custody_balance', 850);
+
+        $this->actingAs($this->bmA1, 'sanctum')->deleteJson($base)->assertSuccessful()
+            ->assertJsonPath('data.can_write_expenses', false);
+        $this->assertDelegationRequired($this->quickCash($this->cashier, 10));
+        $this->assertSame(1, DB::table('branch_manager_expense_delegations')->where('cashier_id', $this->cashier->id)->whereNotNull('revoked_at')->count());
+    }
+
+    public function test_branch_manager_cannot_manage_another_branches_cashier_delegation(): void
+    {
+        $other = Cashier::factory()->create(['branch_id' => $this->branchB1->id, 'created_by' => $this->bmB1->id]);
+        $this->actingAs($this->bmA1, 'sanctum')->putJson('/api/branch-manager/expenses/delegations/cashiers/'.$other->id)->assertNotFound();
+    }
+
     /** Compatibility guard: cashiers keep their existing READ access (no delegation is needed to look). */
     public function test_cashier_read_access_is_unchanged(): void
     {
-        $this->actingAs($this->cashier, 'sanctum')->getJson('/api/branch-manager/expenses')->assertOk();
+        $expenseId = (string) $this->quickCash($this->bmA1, 75)->assertSuccessful()->json('data.id');
+        $this->actingAs($this->cashier, 'sanctum')->getJson('/api/branch-manager/expenses')
+            ->assertOk()
+            ->assertJsonMissing(['id' => $expenseId]);
+
+        $this->actingAs($this->cashier, 'sanctum')->getJson('/api/branch-manager/expenses/custody-balance')
+            ->assertOk()
+            ->assertJsonPath('data.branch_custody_balance', 925);
     }
 
     /** The refusal also holds for a cashier of ANOTHER tenant (no cross-branch path around it). */

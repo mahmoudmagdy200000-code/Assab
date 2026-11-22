@@ -46,7 +46,7 @@ class ExpenseController extends BaseController
         if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
             $expenses = $this->expenseRepository->getSummaryInBrandScope($this->brandScope->brandIdsFor($user), $month, $year);
         } else {
-            $expenses = $this->expenseRepository->getSummaryForManager(auth()->id(), $month, $year);
+            $expenses = $this->expenseRepository->getSummaryForManager(\Modules\Expense\Services\ExpenseActorContext::branchManagerId(), $month, $year);
         }
 
         $summary = [
@@ -75,12 +75,11 @@ class ExpenseController extends BaseController
      */
     public function custodyBalance(): JsonResponse
     {
-        $managerId = (string) auth()->id();
+        $managerId = (string) \Modules\Expense\Services\ExpenseActorContext::branchManagerId();
         $branchId = auth()->user()->branch_id ?? null;
 
         return $this->successResponse([
-            // Spendable = branch custody (brand-owner granted) + personal
-            // ledger (sales cash in hand) — the payment sheet reads `balance`.
+            // `balance` is spendable branch custody only; sales cash stays separate.
             'balance' => $this->custodyBalanceService->getAvailableExpenseBalance($managerId, $branchId),
             'branch_custody_balance' => $this->custodyBalanceService->getCustodyBalance($managerId, $branchId),
             'personal_ledger_balance' => $this->custodyBalanceService->getPersonalLedgerBalance($managerId),
@@ -118,7 +117,7 @@ class ExpenseController extends BaseController
         if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
             $expenses = $this->expenseRepository->getRecentInBrandScope($this->brandScope->brandIdsFor($user), 10);
         } else {
-            $expenses = $this->expenseRepository->getRecentForManager(auth()->id(), 10);
+            $expenses = $this->expenseRepository->getRecentForManager(\Modules\Expense\Services\ExpenseActorContext::branchManagerId(), 10);
         }
 
         return $this->successResponse(
@@ -139,7 +138,7 @@ class ExpenseController extends BaseController
         if ($user instanceof \Modules\BrandOwner\Models\BrandOwner) {
             $expenses = $this->expenseRepository->getPaginatedForApprovalInBrandScope($request, $this->brandScope->brandIdsFor($user));
         } else {
-            $expenses = $this->expenseRepository->getPaginatedForManager(auth()->id(), $request);
+            $expenses = $this->expenseRepository->getPaginatedForManager(\Modules\Expense\Services\ExpenseActorContext::branchManagerId(), $request);
         }
 
         return $this->paginatedResponse(
@@ -171,7 +170,7 @@ class ExpenseController extends BaseController
         } else {
             $expenseModel = $this->expenseRepository->findForShow($expense);
 
-            if ($expenseModel->branch_manager_id !== auth()->id()) {
+            if ($expenseModel->branch_manager_id !== \Modules\Expense\Services\ExpenseActorContext::branchManagerId()) {
                 return $this->errorResponse('Unauthorized access', 403);
             }
         }
@@ -190,7 +189,7 @@ class ExpenseController extends BaseController
     {
         $expenseModel = $this->expenseRepository->findOrFail($expense);
 
-        if ($expenseModel->branch_manager_id !== auth()->id()) {
+        if ($expenseModel->branch_manager_id !== \Modules\Expense\Services\ExpenseActorContext::branchManagerId()) {
             return $this->errorResponse('Unauthorized access', 403);
         }
 
@@ -211,7 +210,7 @@ class ExpenseController extends BaseController
     public function drafts(Request $request): JsonResponse
     {
         $drafts = $this->expenseRepository->getDraftsPaginated(
-            auth()->id(),
+            \Modules\Expense\Services\ExpenseActorContext::branchManagerId(),
             (int) $request->input('per_page', 20)
         );
 
@@ -230,7 +229,7 @@ class ExpenseController extends BaseController
         try {
             $expenseModel = $this->expenseRepository->findOrFail($expense);
 
-            if ($expenseModel->branch_manager_id !== auth()->id()) {
+            if ($expenseModel->branch_manager_id !== \Modules\Expense\Services\ExpenseActorContext::branchManagerId()) {
                 return $this->errorResponse('Unauthorized', 403);
             }
 
@@ -254,7 +253,7 @@ class ExpenseController extends BaseController
         try {
             $expenseModel = $this->expenseRepository->findOrFail($expense);
 
-            if ($expenseModel->branch_manager_id !== auth()->id()) {
+            if ($expenseModel->branch_manager_id !== \Modules\Expense\Services\ExpenseActorContext::branchManagerId()) {
                 return $this->errorResponse('Unauthorized', 403);
             }
 
@@ -277,7 +276,7 @@ class ExpenseController extends BaseController
     {
         $expenseModel = $this->expenseRepository->findOrFail($expense);
 
-        if ($expenseModel->branch_manager_id !== auth()->id()) {
+        if ($expenseModel->branch_manager_id !== \Modules\Expense\Services\ExpenseActorContext::branchManagerId()) {
             return $this->errorResponse('Unauthorized', 403);
         }
 
@@ -304,7 +303,7 @@ class ExpenseController extends BaseController
     public function quickCashList(Request $request): JsonResponse
     {
         $expenses = $this->expenseRepository->getQuickCashPaginated(
-            auth()->id(),
+            \Modules\Expense\Services\ExpenseActorContext::branchManagerId(),
             (int) $request->input('per_page', 20)
         );
 
@@ -321,7 +320,7 @@ class ExpenseController extends BaseController
     public function singleInvoiceList(Request $request): JsonResponse
     {
         $expenses = $this->expenseRepository->getSingleInvoicePaginated(
-            auth()->id(),
+            \Modules\Expense\Services\ExpenseActorContext::branchManagerId(),
             (int) $request->input('per_page', 20)
         );
 
@@ -338,7 +337,7 @@ class ExpenseController extends BaseController
     public function preApprovalList(Request $request): JsonResponse
     {
         $expenses = $this->expenseRepository->getPreApprovalPaginated(
-            auth()->id(),
+            \Modules\Expense\Services\ExpenseActorContext::branchManagerId(),
             (int) $request->input('per_page', 20)
         );
 
@@ -355,7 +354,7 @@ class ExpenseController extends BaseController
     public function groupedInvoiceList(Request $request): JsonResponse
     {
         $expenses = $this->expenseRepository->getGroupedInvoicePaginated(
-            auth()->id(),
+            \Modules\Expense\Services\ExpenseActorContext::branchManagerId(),
             (int) $request->input('per_page', 20)
         );
 
@@ -421,7 +420,7 @@ class ExpenseController extends BaseController
      */
     public function search(Request $request): JsonResponse
     {
-        $expenses = $this->expenseRepository->getSearchPaginated(auth()->id(), $request);
+        $expenses = $this->expenseRepository->getSearchPaginated(\Modules\Expense\Services\ExpenseActorContext::branchManagerId(), $request);
 
         return $this->paginatedResponse(
             ExpenseResource::collection($expenses),

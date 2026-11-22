@@ -4,12 +4,12 @@ namespace Modules\Admin\Http\Controllers\Accountant;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\CashCustody;
 use Modules\Admin\Models\CashTransaction;
 use Modules\Admin\Models\SettlementRequest;
-use Modules\Admin\Services\BrandBranchResolver;
 use Modules\Admin\Services\CustodyService;
 use Modules\Admin\Support\CustodyStatus;
 use Modules\Branch\Models\Branch;
@@ -22,7 +22,6 @@ class CashCustodyController extends AsabController
 {
     public function __construct(
         private readonly CustodyService $custody,
-        private readonly BrandBranchResolver $brandBranches,
     ) {}
 
     /**
@@ -37,36 +36,35 @@ class CashCustodyController extends AsabController
                 'status' => 'sometimes|nullable|in:'.implode(',', CustodyStatus::keys()),
             ]);
 
-            // KPIs reflect the whole assigned scope (not the filtered view).
-            $scopeBase = $this->scopeCashCustodyToBrandRole(
-                $this->scopeToAssignedBranches(CashCustody::query()),
-                $request,
+            [$legacyScope, $branchScope] = $this->cashCustodyReadScopes($request);
+            $register = $this->custody->register($legacyScope, $branchScope, $request->only(['brandId', 'branchId', 'status', 'q']));
+            $q = $register['legacy'];
+            $ledgerCards = $register['ledger'];
+
+            // KPIs reflect the whole assigned scope, including historical settlement requests.
+            $kpis = $this->custody->kpis(
+                $legacyScope->get(['id', 'branch_id', 'amount', 'used']),
+                $register['ledgerScope'],
             );
-            $kpiSet = (clone $scopeBase)->get(['id', 'branch_id', 'amount', 'used', 'min_alert']);
-            $kpis = $this->custody->kpis($kpiSet);
 
-            $q = clone $scopeBase;
-            // Brand → branches resolves through the restaurant too (2026-08-03 rule).
-            $this->brandBranches->applyFilter($q, $request->query('brandId'));
-            if ($branch = $request->query('branchId')) {
-                $q->where('branch_id', $branch);
+            $size = max(1, min((int) $request->query('pageSize', 20), 100));
+            $page = max(1, (int) $request->query('page', 1));
+            $legacyTotal = $q->count();
+            $offset = ($page - 1) * $size;
+            $legacy = $offset < $legacyTotal
+                ? $q->with('transactions')->orderByDesc('created_at')->orderBy('id')->offset($offset)->limit($size)->get()
+                : collect();
+            $branchNames = $this->custody->branchNames($legacy->pluck('branch_id'));
+            $data = $legacy->map(fn (CashCustody $c) => $this->custody->present($c, $branchNames));
+            $remaining = $size - $data->count();
+            if ($remaining > 0) {
+                $ledgerPage = $ledgerCards->slice(max(0, $offset - $legacyTotal), $remaining);
+                $data = $data->concat($this->custody->withRecentBranchTransactions($ledgerPage));
             }
-            // Derived from the live balance, not the stored column (legacy rows).
-            $this->custody->applyStatusFilter($q, $request->query('status'));
-            if ($needle = trim((string) $request->query('q', ''))) {
-                $branchIds = Branch::where('name', 'like', '%'.$needle.'%')->pluck('id');
-                $q->where(fn ($sub) => $sub->where('custodian_name', 'like', '%'.$needle.'%')
-                    ->orWhereIn('branch_id', $branchIds));
-            }
 
-            $perPage = min((int) $request->query('pageSize', 20), 100);
-            $p = $q->with('transactions')->orderByDesc('created_at')
-                ->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
+            $paginator = new LengthAwarePaginator($data->values()->all(), $legacyTotal + $ledgerCards->count(), $size, $page);
 
-            $branchNames = $this->custody->branchNames(collect($p->items())->pluck('branch_id'));
-            $data = array_map(fn (CashCustody $c) => $this->custody->present($c, $branchNames), $p->items());
-
-            return $this->paginated($p, $data, ['kpis' => $kpis]);
+            return $this->paginated($paginator, extraMeta: ['kpis' => $kpis]);
         });
     }
 

@@ -19,6 +19,7 @@ class ExpenseResource extends JsonResource
                 'label' => $this->getExpenseTypeLabel(),
             ],
             'amount' => (float) $this->total_amount,
+            'review_revision' => (int) ($this->review_revision ?? 1),
             'date' => $this->getExpenseDate(),
             'time' => $this->getExpenseTime(),
             'status' => [

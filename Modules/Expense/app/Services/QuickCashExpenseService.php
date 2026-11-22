@@ -36,7 +36,7 @@ class QuickCashExpenseService
         }
 
         $expense = Expense::create([
-            'branch_manager_id' => auth()->id(),
+            'branch_manager_id' => \Modules\Expense\Services\ExpenseActorContext::branchManagerId(),
             'expense_type' => 'quick_cash',
             'status' => $data['is_draft'] ?? false ? 'draft' : 'pending',
             'submitted_at' => ($data['is_draft'] ?? false) ? null : now(),
@@ -102,6 +102,7 @@ class QuickCashExpenseService
         $this->supplierScope->assertPayloadVisible(auth()->user()?->branch_id, $data);
 
         $wasDraft = $expense->status === 'draft';
+        $wasRejected = $expense->status === 'rejected';
 
         // Prepare data for VAT calculation
         $calculationData = array_merge($expense->toArray(), $data);
@@ -134,7 +135,7 @@ class QuickCashExpenseService
             $expenseUpdateData['supplier_id'] = $data['supplier_id'];
         }
 
-        if (isset($data['is_draft'])) {
+        if (isset($data['is_draft']) && ! $wasRejected) {
 
             $expenseUpdateData['status'] = $data['is_draft'] ? 'draft' : 'pending';
 
@@ -187,6 +188,8 @@ class QuickCashExpenseService
 
         $this->createTimelineEntry($expense, 'updated');
 
+        // A rejected expense is edited in place, then explicitly resubmitted through
+        // ExpenseController::resubmit so custody is charged only after all edits persist.
         // Draft flipped to pending = a submission — bridge it (idempotent).
         if ($wasDraft && $expense->fresh()->status === 'pending') {
             // EXP-02 / EXP-05: the draft became a submission — charge the branch custody once, or refuse it.
@@ -308,7 +311,7 @@ class QuickCashExpenseService
         $expense->timelines()->create([
             'action' => $action,
             'performed_by' => auth()->id(),
-            'performed_by_type' => 'branch_manager',
+            'performed_by_type' => ExpenseActorContext::actorType(),
             'status' => $status ?? $action,
             'notes' => null,
         ]);

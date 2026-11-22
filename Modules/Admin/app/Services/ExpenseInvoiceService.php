@@ -110,6 +110,8 @@ class ExpenseInvoiceService
 
         return [
             'invoices' => $invoices,
+            'paymentMethod' => $op->payload['paymentMethod'] ?? null,
+            'custodyChargeHalalas' => (int) ($op->payload['custodyChargeHalalas'] ?? 0),
             'totals' => [
                 'invoiceCount' => count($invoices),
                 'preTaxHalalas' => array_sum(array_column($invoices, 'preTaxHalalas')),

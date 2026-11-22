@@ -344,14 +344,8 @@ class ExpenseTenantIsolationTest extends TestCase
         $this->assertSame('brand_owner', $a1->fresh()->decided_by_role);
     }
 
-    /**
-     * BRC v3.4 F-01 (EXP-01/02/05): this test used to pin the legacy rule "approval posts the deduction, and any
-     * shortfall spills into the sales-cash ledger". The deduction now belongs to SUBMISSION and only ever comes from
-     * the branch custody (full lifecycle: ExpenseCustodyLifecycleTest). What is left to prove here is the
-     * authorization boundary of the approval of an expense that was submitted BEFORE that change and so was never
-     * charged: an authorised actor's approval charges the branch custody exactly once, never the personal ledger.
-     */
-    public function test_authorized_approval_of_a_never_charged_custody_expense_charges_the_branch_custody_once(): void
+    /** A legacy pending row without its submission debit cannot be approved or charged during review. */
+    public function test_authorized_approval_of_a_never_submitted_custody_expense_is_refused_without_a_charge(): void
     {
         \Modules\Custody\Models\CustodyTransaction::create([
             'branch_manager_id' => $this->bmA1->id, 'branch_id' => $this->branchA1->id, 'type' => 'Cash Transfer',
@@ -359,13 +353,13 @@ class ExpenseTenantIsolationTest extends TestCase
         ]);
         $a1 = $this->pendingExpense($this->bmA1, ['payment_method' => 'custody', 'total_amount' => 250.00]);
 
-        $this->asActor($this->managerA1)->postJson("/api/brand-owner/expenses/{$a1->id}/approve")->assertOk();
+        $this->asActor($this->managerA1)->postJson("/api/brand-owner/expenses/{$a1->id}/approve")->assertStatus(400);
 
+        $this->assertSame('pending', $a1->fresh()->status);
         $deductions = DB::table('custody_transactions')->where('related_expense_id', $a1->id)->get();
-        $this->assertCount(1, $deductions, 'exactly one deduction row per expense');
-        $this->assertSame('Expenses Deduction', $deductions[0]->type);
-        $this->assertEquals(250.00, (float) $deductions[0]->amount);
-        $this->assertFalse((bool) $deductions[0]->is_cash_in, 'a cash-out movement');
+        $this->assertCount(0, $deductions, 'review must not silently create a missing submission movement');
+        $this->assertSame(1000.0, (float) app(\Modules\Custody\Services\CustodyBalanceService::class)
+            ->getCustodyBalance((string) $this->bmA1->id, (string) $this->branchA1->id));
         $this->assertSame(0, DB::table('personal_ledger_transactions')->where('related_expense_id', $a1->id)->count(), 'sales cash is never charged');
     }
 

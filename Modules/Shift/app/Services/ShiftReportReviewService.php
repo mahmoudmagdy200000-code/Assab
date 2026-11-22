@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use LogicException;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\Shift as AdminShift;
+use Modules\Branch\Models\Branch;
 use Modules\Shift\Models\BranchManagerShift;
 use Modules\Shift\Models\CashierShift;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
@@ -37,32 +38,48 @@ class ShiftReportReviewService
     }
 
     /**
-     * FUND-01 (BRC v3.4 F-04): is this manager workday FULLY approved — the accountant AND THEN the head of
-     * accounts — so that the sales cash it produced may be moved into the branch expense custody?
+     * FUND-01: is this manager workday's canonical SAL operation fully approved by
+     * the accountant and then the head of accounts, so its sales cash may fund
+     * branch expense custody? Member SHF approval alone is not the day approval.
      *
-     * Read-only. A workday qualifies only when it has at least one ACTIVE daily-lock member and every such member
-     * report's operation is `final-approved`. Anything else (no members yet, a member still at the accountant, a
-     * return/rejection cycle, an ambiguous or missing operation) is "not approved": the check fails closed.
-     * ASSUMPTION (for Mohamed): "the source day is approved" == every member report of that workday is head-final.
+     * Read-only and fail-closed: the workday must resolve to exactly one
+     * tenant/branch-scoped SAL operation, classified from its server-side day
+     * link, in final state with both approval actors and timestamps present.
      */
     public function dayFullyFinalApproved(string $dayId): bool
     {
-        $members = DB::table('shift_liability_daily_locks')
-            ->where('branch_manager_shift_id', $dayId)
-            ->whereNull('released_at')->whereNull('superseded_at')
-            ->pluck('cashier_shift_id');
-        if ($members->isEmpty()) {
+        $day = BranchManagerShift::withoutEagerLoads()->whereKey($dayId)->first();
+        if ($day === null || $day->branch_id === null || $day->branch_manager_id === null) {
             return false;
         }
 
-        foreach ($members->unique() as $cashierShiftId) {
-            $state = $this->reportState((string) $cashierShiftId);
-            if ($state === null || ($state['status'] ?? null) !== Operation::STATUS_FINAL) {
-                return false;
-            }
+        $companyId = Branch::query()->whereKey($day->branch_id)->value('asab_company_id');
+        if ($companyId === null) {
+            return false;
         }
 
-        return true;
+        $classifier = app(\Modules\Admin\Services\OperationWorkflowClassifier::class);
+        $salOperations = Operation::query()
+            ->where('module_key', 'sales')
+            ->where('company_id', $companyId)
+            ->where('branch_id', $day->branch_id)
+            ->where('payload->managerShiftId', (string) $day->id)
+            ->get()
+            ->filter(fn (Operation $operation): bool => $classifier->classify($operation) === \Modules\Admin\Services\OperationWorkflowClassifier::SAL
+                && $classifier->daySource($operation) === (string) $day->id);
+
+        if ($salOperations->count() !== 1) {
+            return false;
+        }
+
+        $sal = $salOperations->first();
+
+        return $sal->status === Operation::STATUS_FINAL
+            && $sal->approved_by_id !== null
+            && $sal->approved_at !== null
+            && $sal->final_approved_by_id !== null
+            && $sal->final_approved_at !== null
+            && $sal->approved_at->lte($sal->final_approved_at);
     }
 
     public function authorizeReview(Operation $operation, \Modules\Admin\Models\AsabUser $actor, string $role): void

@@ -15,6 +15,8 @@ use Modules\Expense\Services\ExpenseApprovalService;
 use Modules\Expense\Services\ExpenseBrandScopeService;
 use Modules\Expense\Transformers\ExpenseDetailResource;
 use Modules\Expense\Transformers\ExpenseResource;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 /**
  * Expense Approval Controller
@@ -113,7 +115,7 @@ class ExpenseApprovalController extends BaseController
      * POST /api/brand-owner/expenses/{expense}/approve
      * POST /api/branch-manager/expenses/{expense}/approve
      */
-    public function approve(string $expense): JsonResponse
+    public function approve(Request $request, string $expense): JsonResponse
     {
         if (! (auth()->user() instanceof \Modules\BrandOwner\Models\BrandOwner)) {
             return $this->errorResponse('Only brand owners can approve expenses', 403);
@@ -125,12 +127,18 @@ class ExpenseApprovalController extends BaseController
             return $this->expenseNotFound();
         }
 
+        $validator = Validator::make($request->all(), ['review_revision' => 'sometimes|integer|min:1']);
+        if ($validator->fails()) {
+            return $this->errorResponse('Validation failed', 422, $validator->errors()->toArray());
+        }
+
         try {
             $this->approvalService->approveExpense(
                 $expenseModel,
                 auth()->id(),
                 auth()->user()->name,
-                ExpenseDecisionRole::forActor(auth()->user())
+                ExpenseDecisionRole::forActor(auth()->user()),
+                $request->has('review_revision') ? (int) $request->input('review_revision') : null
             );
 
             return $this->successResponse(
@@ -138,10 +146,7 @@ class ExpenseApprovalController extends BaseController
                 'Expense approved successfully'
             );
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ], 400);
+            return $this->decisionError($request, $e);
         }
     }
 
@@ -157,6 +162,7 @@ class ExpenseApprovalController extends BaseController
 
         $validator = Validator::make($request->all(), [
             'reason' => 'required|string|min:10|max:500',
+            'review_revision' => 'sometimes|integer|min:1',
         ]);
 
         if ($validator->fails()) {
@@ -179,7 +185,8 @@ class ExpenseApprovalController extends BaseController
                 auth()->id(),
                 $request->reason,
                 auth()->user()->name,
-                ExpenseDecisionRole::forActor(auth()->user())
+                ExpenseDecisionRole::forActor(auth()->user()),
+                $request->has('review_revision') ? (int) $request->input('review_revision') : null
             );
 
             return $this->successResponse(
@@ -187,8 +194,31 @@ class ExpenseApprovalController extends BaseController
                 'Expense rejected successfully'
             );
         } catch (\Exception $e) {
-            return $this->errorResponse($e->getMessage());
+            return $this->decisionError($request, $e);
         }
+    }
+
+    private function decisionError(Request $request, \Exception $error): JsonResponse
+    {
+        $code = $error->getMessage();
+        if ($error instanceof ConflictHttpException) {
+            $arabic = $request->getPreferredLanguage(['en', 'ar']) === 'ar';
+            $message = match ($code) {
+                'EXPENSE_REVIEW_REVISION_REQUIRED' => $arabic
+                    ? 'حدّث التطبيق ثم افتح المصروف من جديد وراجعه قبل اتخاذ القرار.'
+                    : 'Update the app, then reopen and review the expense before making a decision.',
+                'STALE_EXPENSE_REVIEW_REVISION' => $arabic
+                    ? 'تم تعديل المصروف. افتحه من جديد وراجع النسخة الحالية قبل اتخاذ القرار.'
+                    : 'The expense changed. Reopen it and review the current version before making a decision.',
+                default => null,
+            };
+
+            if ($message !== null) {
+                return response()->json(['success' => false, 'message' => $message, 'code' => $code], 409);
+            }
+        }
+
+        return $this->errorResponse($code, $error instanceof HttpExceptionInterface ? $error->getStatusCode() : 400);
     }
 
     /**

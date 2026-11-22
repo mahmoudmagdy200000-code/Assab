@@ -74,7 +74,7 @@ class PreApprovalRequestController extends BaseController
 
         // F-04: refuse a submission (non-draft) whose immutable origin cannot be
         // fully/consistently resolved — before any write, event, or transaction.
-        ExpenseOriginGuard::assertResolvableForCreation(auth()->id(), $request->boolean('is_draft'));
+        ExpenseOriginGuard::assertResolvableForCreation(\Modules\Expense\Services\ExpenseActorContext::branchManagerId(), $request->boolean('is_draft'));
 
         DB::beginTransaction();
         try {
@@ -111,7 +111,7 @@ class PreApprovalRequestController extends BaseController
         $expenseModel = Expense::with(['preApprovalRequest', 'preApprovalRequest.paymentSupplier', 'items', 'expenseLines', 'attachments'])
             ->findOrFail($expense);
 
-        if ($expenseModel->branch_manager_id !== auth()->id()) {
+        if ($expenseModel->branch_manager_id !== \Modules\Expense\Services\ExpenseActorContext::branchManagerId()) {
             return $this->errorResponse('Unauthorized to update this pre-approval request', 403);
         }
 
@@ -209,7 +209,7 @@ class PreApprovalRequestController extends BaseController
         try {
             $query = Expense::query()
                 ->where('expense_type', 'pre_approval')
-                ->where('branch_manager_id', auth()->id())
+                ->where('branch_manager_id', \Modules\Expense\Services\ExpenseActorContext::branchManagerId())
                 ->with(['preApprovalRequest', 'supplier'])
                 ->orderBy('submitted_at', 'desc');
 
@@ -257,7 +257,7 @@ class PreApprovalRequestController extends BaseController
                 ->where('expense_type', 'pre_approval')
                 ->findOrFail($expense);
 
-            if ($originalExpense->branch_manager_id !== auth()->id()) {
+            if ($originalExpense->branch_manager_id !== \Modules\Expense\Services\ExpenseActorContext::branchManagerId()) {
                 return $this->errorResponse(
                     'Unauthorized to duplicate this pre-approval request',
                     403

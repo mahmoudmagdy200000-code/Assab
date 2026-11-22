@@ -39,15 +39,15 @@ class ExpenseAttachmentController extends BaseController
         $expenseModel = $this->expenseRepository->findWithAttachmentsAndInvoiceDetails($expense);
 
         // Authorization check
-        if ($expenseModel->branch_manager_id !== auth()->id()) {
+        if ($expenseModel->branch_manager_id !== \Modules\Expense\Services\ExpenseActorContext::branchManagerId()) {
             return $this->errorResponse(
                 'Unauthorized access to this expense',
                 403
             );
         }
 
-        // Only allow adding attachments to draft or pending expenses
-        if (! in_array($expenseModel->status, ['draft', 'pending'])) {
+        // A rejected expense may receive corrected evidence before its explicit resubmission.
+        if (! in_array($expenseModel->status, ['draft', 'pending', 'rejected'], true)) {
             return $this->errorResponse(
                 'Cannot add attachments to expenses with status: '.$expenseModel->status,
                 400
@@ -304,7 +304,7 @@ class ExpenseAttachmentController extends BaseController
         $expenseModel = $this->expenseRepository->findWithAttachmentsAndInvoiceDetails($expense);
 
         // Authorization check
-        if ($expenseModel->branch_manager_id !== auth()->id()) {
+        if ($expenseModel->branch_manager_id !== \Modules\Expense\Services\ExpenseActorContext::branchManagerId()) {
             return $this->errorResponse(
                 'Unauthorized access to this expense',
                 403
@@ -400,7 +400,7 @@ class ExpenseAttachmentController extends BaseController
             $expenseModel = $this->expenseRepository->findWithAttachmentsForIndex($expense);
 
             // Authorization check
-            if ($expenseModel->branch_manager_id !== auth()->id()) {
+            if ($expenseModel->branch_manager_id !== \Modules\Expense\Services\ExpenseActorContext::branchManagerId()) {
                 return $this->errorResponse(
                     'Unauthorized access to this expense',
                     403
@@ -511,7 +511,7 @@ class ExpenseAttachmentController extends BaseController
         $expense->timelines()->create([
             'action' => $action,
             'performed_by' => auth()->id(),
-            'performed_by_type' => 'branch_manager',
+            'performed_by_type' => \Modules\Expense\Services\ExpenseActorContext::actorType(),
             'status' => $action,
             'notes' => $notes,
         ]);

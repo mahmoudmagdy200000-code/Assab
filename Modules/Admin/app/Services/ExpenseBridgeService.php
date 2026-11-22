@@ -109,6 +109,11 @@ class ExpenseBridgeService
             'legacyStatus' => $expense->status,
             'expenseType' => $expense->expense_type,
             'paymentMethod' => $expense->payment_method,
+            // Source the dashboard value from the posted branch-custody ledger,
+            // so a partial invoice shows its actual paid amount and a rejection
+            // shows zero after the reversal.
+            'custodyChargeHalalas' => app(\Modules\Custody\Services\ExpenseCustodyService::class)
+                ->postedCustodyChargeHalalas($expense),
             // Meeting 2026-07-29: the accountant saw ops with no supplier and a
             // bare UID — carry the mobile-side identity so the dashboard can
             // label the record instead of showing an unlinked row.
@@ -197,6 +202,8 @@ class ExpenseBridgeService
         DB::transaction(function () use ($op, $expense, $stage, $approved, $by, $role) {
             $payload = $op->payload ?? [];
             $payload['legacyStatus'] = $expense->status;
+            $payload['custodyChargeHalalas'] = app(\Modules\Custody\Services\ExpenseCustodyService::class)
+                ->postedCustodyChargeHalalas($expense);
             $payload['legacyDecision'] = [
                 'stage' => $stage->value,
                 'stageLabelAr' => $stage->labelAr(),

@@ -88,11 +88,13 @@ class ExpenseApprovalService
         Expense $expense,
         string $brandOwnerId,
         ?string $brandOwnerName = null,
-        ExpenseDecisionRole $role = ExpenseDecisionRole::BRAND_OWNER
+        ExpenseDecisionRole $role = ExpenseDecisionRole::BRAND_OWNER,
+        ?int $expectedReviewRevision = null
     ): void {
-        DB::transaction(function () use ($expense, $brandOwnerId, $brandOwnerName, $role): void {
+        DB::transaction(function () use ($expense, $brandOwnerId, $brandOwnerName, $role, $expectedReviewRevision): void {
             // EXP-07: the first valid decision on the CURRENT version wins — decide on the locked, fresh row.
             $current = $this->lockFresh($expense);
+            $this->assertCurrentReviewRevision($current, $expectedReviewRevision);
             $this->assertBrandOwnerMayDecide($current, 'approved');
 
             // F-04: never commit (approve) an expense whose immutable origin is
@@ -101,11 +103,9 @@ class ExpenseApprovalService
             // so the record can be sent back and fixed rather than stranded.
             ExpenseOriginGuard::assertStoredOriginUsable($current, 'approved');
 
-            // EXP-02: approval CONFIRMS the charge taken at submission and never repeats it. Only an expense
-            // submitted before the charge moved to submission has none yet; it is charged here, once, and an
-            // uncovered one is refused (EXP-05) rather than spilled into sales cash.
-            app(ExpenseCustodyService::class)->reserve($current);
-
+            // EXP-02 / EXP-10: approval records a decision only. Financial movement belongs
+            // to the actual expense submission, and pre-approval requests never move custody.
+            app(ExpenseCustodyService::class)->assertCurrentChargeMatches($current);
             $current->update([
                 'status' => 'approved',
                 'approved_by' => $brandOwnerId,
@@ -133,11 +133,13 @@ class ExpenseApprovalService
         string $brandOwnerId,
         string $reason,
         ?string $brandOwnerName = null,
-        ExpenseDecisionRole $role = ExpenseDecisionRole::BRAND_OWNER
+        ExpenseDecisionRole $role = ExpenseDecisionRole::BRAND_OWNER,
+        ?int $expectedReviewRevision = null
     ): void {
-        DB::transaction(function () use ($expense, $brandOwnerId, $reason, $brandOwnerName, $role): void {
+        DB::transaction(function () use ($expense, $brandOwnerId, $reason, $brandOwnerName, $role, $expectedReviewRevision): void {
             // EXP-07: decide on the locked, fresh row so a simultaneous approval / second rejection cannot also run.
             $current = $this->lockFresh($expense);
+            $this->assertCurrentReviewRevision($current, $expectedReviewRevision);
             $this->assertBrandOwnerMayDecide($current, 'rejected');
 
             // EXP-03: the charge taken at submission is reversed exactly once, in the same unit of work as the
@@ -182,6 +184,20 @@ class ExpenseApprovalService
         }
     }
 
+    /** A resubmitted request requires the exact review revision returned by its detail endpoint. */
+    private function assertCurrentReviewRevision(Expense $expense, ?int $expectedReviewRevision): void
+    {
+        $currentRevision = (int) ($expense->review_revision ?? 1);
+
+        if ($expectedReviewRevision === null && $currentRevision > 1) {
+            throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('EXPENSE_REVIEW_REVISION_REQUIRED');
+        }
+
+        if ($expectedReviewRevision !== null && $expectedReviewRevision !== $currentRevision) {
+            throw new \Symfony\Component\HttpKernel\Exception\ConflictHttpException('STALE_EXPENSE_REVIEW_REVISION');
+        }
+    }
+
     /**
      * Re-submit rejected expense — a fresh cycle, so the previous decision is
      * cleared. Without this the record kept its «مرفوض من المحاسب» stage and
@@ -206,6 +222,7 @@ class ExpenseApprovalService
             $current->update([
                 'status' => 'pending',
                 'submitted_at' => now(),
+                'review_revision' => (int) ($current->review_revision ?? 1) + 1,
                 'rejection_reason' => null,
                 'approval_stage' => null,
                 'decided_by_name' => null,

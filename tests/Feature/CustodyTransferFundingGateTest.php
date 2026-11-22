@@ -12,6 +12,7 @@ use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\OperationService;
+use Modules\Admin\Services\OperationSequence;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
@@ -151,6 +152,34 @@ class CustodyTransferFundingGateTest extends TestCase
         return $this->ops()->finalApprove($op->fresh(), $this->head);
     }
 
+    /** Canonical manager-day SAL state; member SHF status alone is not FUND-01 approval. */
+    private function salOperation(BranchManagerShift $day, string $stage): Operation
+    {
+        $isAccountantApproved = in_array($stage, ['accountant', 'final'], true);
+        $isHeadApproved = $stage === 'final';
+
+        return Operation::create([
+            'public_id' => OperationSequence::next('OPS'),
+            'company_id' => $this->company->id,
+            'branch_id' => $day->branch_id,
+            'module_key' => 'sales',
+            'source_module' => 'shifts',
+            'source_id' => $day->id,
+            'payload' => ['managerShiftId' => (string) $day->id, 'pkg6Review' => ['phase' => $isAccountantApproved ? 'head_review' : 'accountant_review']],
+            'amount' => 50000,
+            'match' => 'exact',
+            'origin' => 'mobile',
+            'status' => $isHeadApproved ? Operation::STATUS_FINAL : ($isAccountantApproved ? Operation::STATUS_APPROVED : Operation::STATUS_PENDING),
+            'submitted_by_id' => $this->accountant->id,
+            'submitted_at' => now(),
+            'approved_by_id' => $isAccountantApproved ? $this->accountant->id : null,
+            'approved_at' => $isAccountantApproved ? now()->subMinute() : null,
+            'final_approved_by_id' => $isHeadApproved ? $this->head->id : null,
+            'final_approved_at' => $isHeadApproved ? now() : null,
+            'operation_date' => now(),
+        ]);
+    }
+
     /** A day whose only member report is at the requested stage: 'pending' | 'accountant' | 'final'. */
     private function dayAt(string $stage, ?string $date = null, ?BranchManager $manager = null, ?Branch $branch = null): BranchManagerShift
     {
@@ -162,6 +191,7 @@ class CustodyTransferFundingGateTest extends TestCase
         if ($stage === 'final') {
             $this->headFinalApprove($op);
         }
+        $this->salOperation($day, $stage);
 
         return $day;
     }
@@ -253,14 +283,27 @@ class CustodyTransferFundingGateTest extends TestCase
         $this->assertSame($before, $this->writes());
     }
 
-    public function test_ac53_a_day_with_one_unapproved_member_report_is_not_fully_approved(): void
+    public function test_ac53_final_member_reports_do_not_release_cash_while_the_sal_day_is_open(): void
     {
         $day = $this->day();
         $this->headFinalApprove($this->accountantApprove($this->memberReport($day)));
-        $this->accountantApprove($this->memberReport($day)); // second member stops at the accountant
+        $this->salOperation($day, 'accountant'); // accountant approval is not final SAL approval
         $this->salesCash($day, '100.00');
 
         $this->transfer(['transferAmount' => 10])->assertStatus(400)->assertJsonPath('errors.reason', 'SOURCE_DAY_NOT_FULLY_APPROVED');
+    }
+
+    public function test_ac53_final_member_reports_without_a_canonical_sal_operation_remain_held(): void
+    {
+        $day = $this->day();
+        $this->headFinalApprove($this->accountantApprove($this->memberReport($day)));
+        $this->salesCash($day, '100.00');
+        $before = $this->writes();
+
+        $this->transfer(['transferAmount' => 10])->assertStatus(400)
+            ->assertJsonPath('errors.reason', 'SOURCE_DAY_NOT_FULLY_APPROVED');
+
+        $this->assertSame($before, $this->writes());
     }
 
     // ── AC-54 / FUND-01 + FUND-02 ───────────────────────────────────────────

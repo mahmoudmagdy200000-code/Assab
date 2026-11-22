@@ -63,15 +63,24 @@ class SingleInvoiceExpenseController extends BaseController
 
             // Payment method
             'payment_type' => 'required|in:full,partial,deferred',
-            'payment_method' => 'required_if:payment_type,full|in:cash,supplier,custody',
+            'payment_method' => 'required_if:payment_type,full,partial|in:cash,supplier,custody',
             'payment_supplier_id' => 'required_if:payment_method,supplier|exists:suppliers,id',
-            'paid_amount' => 'required_if:payment_type,partial|numeric|min:0',
+            'paid_amount' => 'required_if:payment_type,partial|numeric|min:0.01',
             'due_date' => 'required_if:payment_type,partial,deferred|date|after:today',
 
             'invoice_receipt' => 'sometimes|array|max:5',
             'invoice_receipt.*' => 'file|mimes:jpg,jpeg,png,pdf|max:5120',
             'is_draft' => 'sometimes|boolean',
         ]);
+
+        $validator->after(function ($validator) use ($request): void {
+            if ($request->input('payment_type') === 'partial'
+                && is_numeric($request->input('paid_amount'))
+                && is_numeric($request->input('total_amount'))
+                && (float) $request->input('paid_amount') > (float) $request->input('total_amount')) {
+                $validator->errors()->add('paid_amount', 'The paid amount may not exceed the invoice total.');
+            }
+        });
 
         if ($validator->fails()) {
             return $this->errorResponse(
@@ -83,7 +92,7 @@ class SingleInvoiceExpenseController extends BaseController
 
         // F-04: refuse a submission (non-draft) whose immutable origin cannot be
         // fully/consistently resolved — before any write, event, or transaction.
-        ExpenseOriginGuard::assertResolvableForCreation(auth()->id(), $request->boolean('is_draft'));
+        ExpenseOriginGuard::assertResolvableForCreation(\Modules\Expense\Services\ExpenseActorContext::branchManagerId(), $request->boolean('is_draft'));
 
         // Validate total amount > 500
         $totalAmount = $this->singleInvoiceService->calculateTotalAmount($request->all());
@@ -95,14 +104,21 @@ class SingleInvoiceExpenseController extends BaseController
             );
         }
 
-        // Check custody balance if payment method is custody
-        if ($request->payment_method === 'custody') {
-            $custodyBalance = $this->singleInvoiceService->getCustodyBalance(auth()->id());
-            if ($custodyBalance < $totalAmount) {
+        // A partial invoice debits only the amount actually paid now, not the invoice total.
+        $paidNow = match ($request->payment_type) {
+            'full' => $totalAmount,
+            'partial' => (float) $request->input('paid_amount', 0),
+            default => 0.0,
+        };
+
+        // Drafts do not move money; the service rechecks under the custody lock at submission.
+        if (! $request->boolean('is_draft') && in_array($request->payment_method, ['cash', 'custody'], true) && $paidNow > 0) {
+            $custodyBalance = $this->singleInvoiceService->getCustodyBalance(\Modules\Expense\Services\ExpenseActorContext::branchManagerId());
+            if ($custodyBalance < $paidNow) {
                 return $this->errorResponse(
                     'Insufficient custody balance',
                     400,
-                    ['custody_balance' => $custodyBalance]
+                    ['custody_balance' => $custodyBalance, 'required_amount' => $paidNow]
                 );
             }
         }
@@ -142,7 +158,7 @@ class SingleInvoiceExpenseController extends BaseController
             ->findOrFail($expense);
 
         // Check authorization
-        if ($expenseModel->branch_manager_id !== auth()->id()) {
+        if ($expenseModel->branch_manager_id !== \Modules\Expense\Services\ExpenseActorContext::branchManagerId()) {
             return $this->errorResponse(
                 'Unauthorized access to this expense',
                 403
@@ -182,7 +198,7 @@ class SingleInvoiceExpenseController extends BaseController
             'payment_type' => 'sometimes|in:full,partial,deferred',
             'payment_method' => 'sometimes|in:cash,supplier,custody',
             'payment_supplier_id' => 'sometimes|exists:suppliers,id',
-            'paid_amount' => 'sometimes|numeric|min:0',
+            'paid_amount' => 'sometimes|numeric|min:0.01',
             'due_date' => 'sometimes|date|after:today',
 
             // New attachments (don't delete old ones)
@@ -257,7 +273,7 @@ class SingleInvoiceExpenseController extends BaseController
         try {
             $query = Expense::query()
                 ->where('expense_type', 'single_invoice')
-                ->where('branch_manager_id', auth()->id())
+                ->where('branch_manager_id', \Modules\Expense\Services\ExpenseActorContext::branchManagerId())
                 ->with(['supplier', 'invoiceDetails'])
                 ->orderBy('submitted_at', 'desc');
 
@@ -306,7 +322,7 @@ class SingleInvoiceExpenseController extends BaseController
                 ->where('expense_type', 'single_invoice')
                 ->findOrFail($expense);
 
-            if ($originalExpense->branch_manager_id !== auth()->id()) {
+            if ($originalExpense->branch_manager_id !== \Modules\Expense\Services\ExpenseActorContext::branchManagerId()) {
                 return $this->errorResponse(
                     'Unauthorized to duplicate this expense',
                     403

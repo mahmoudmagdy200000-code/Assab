@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Modules\Cashier\Models\Cashier;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -23,7 +24,20 @@ class RequireExpenseWriteDelegationMiddleware
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if (auth()->user() instanceof Cashier) {
+        $actor = auth()->user();
+        if ($actor instanceof Cashier) {
+            $delegation = DB::table('branch_manager_expense_delegations')
+                ->where('cashier_id', $actor->id)
+                ->where('branch_id', $actor->branch_id)
+                ->whereNull('revoked_at')
+                ->first();
+
+            if ($actor->status === 'active' && $actor->branch_id !== null && $delegation !== null) {
+                $request->attributes->set('expense_branch_manager_id', $delegation->branch_manager_id);
+
+                return $next($request);
+            }
+
             return response()->json([
                 'success' => false,
                 'message' => 'Expense creation and submission have not been delegated to cashiers. Ask your Branch Manager.',

@@ -70,7 +70,7 @@ class QuickCashExpenseController extends BaseController
 
         // F-04: refuse a submission (non-draft) whose immutable origin cannot be
         // fully/consistently resolved — before any write, event, or transaction.
-        ExpenseOriginGuard::assertResolvableForCreation(auth()->id(), $request->boolean('is_draft'));
+        ExpenseOriginGuard::assertResolvableForCreation(\Modules\Expense\Services\ExpenseActorContext::branchManagerId(), $request->boolean('is_draft'));
 
         // Validate items total equals total_amount
         $itemsTotal = collect($request->items ?? [])->sum('amount');
@@ -81,9 +81,11 @@ class QuickCashExpenseController extends BaseController
             );
         }
 
-        // Check custody balance if payment method is custody
-        if ($request->payment_method === 'custody') {
-            $custodyBalance = $this->quickCashService->getCustodyBalance(auth()->id());
+        // Drafts remain saveable without cash; paid cash aliases are checked
+        // only when the request is actually submitted. The service rechecks
+        // under the custody lock before posting.
+        if (! $request->boolean('is_draft') && in_array($request->payment_method, ['cash', 'custody'], true)) {
+            $custodyBalance = $this->quickCashService->getCustodyBalance(\Modules\Expense\Services\ExpenseActorContext::branchManagerId());
             if ($custodyBalance < $request->total_amount) {
                 return $this->errorResponse(
                     'Insufficient custody balance',
@@ -126,16 +128,16 @@ class QuickCashExpenseController extends BaseController
         $expenseModel = Expense::with(['quickCashExpense', 'quickCashExpense.items', 'quickCashExpense.paymentSupplier', 'attachments'])
             ->findOrFail($expense);
 
-        if ($expenseModel->branch_manager_id !== auth()->id()) {
+        if ($expenseModel->branch_manager_id !== \Modules\Expense\Services\ExpenseActorContext::branchManagerId()) {
             return $this->errorResponse(
                 'Unauthorized access to this expense',
                 403
             );
         }
 
-        if ($expenseModel->status !== 'draft') {
+        if (! in_array($expenseModel->status, ['draft', 'rejected'], true)) {
             return $this->errorResponse(
-                'Only draft expenses can be updated',
+                'Only draft or rejected expenses can be updated',
                 400
             );
         }
@@ -192,9 +194,9 @@ class QuickCashExpenseController extends BaseController
         }
 
         // Check custody balance if payment method changed to custody
-        if ($request->payment_method === 'custody') {
+        if (! $request->boolean('is_draft') && in_array($request->payment_method, ['cash', 'custody'], true)) {
             $totalAmount = $request->total_amount ?? $expenseModel->total_amount;
-            $custodyBalance = $this->quickCashService->getCustodyBalance(auth()->id());
+            $custodyBalance = $this->quickCashService->getCustodyBalance(\Modules\Expense\Services\ExpenseActorContext::branchManagerId());
             if ($custodyBalance < $totalAmount) {
                 return $this->errorResponse(
                     'Insufficient custody balance',

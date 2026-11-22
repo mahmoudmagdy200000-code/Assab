@@ -755,6 +755,27 @@ class AccountantCompanyController extends AsabController
     public function cashTransactions(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
+            if (str_starts_with($id, 'branch-custody-')) {
+                $branchId = substr($id, strlen('branch-custody-'));
+                $branchQ = \Modules\Branch\Models\Branch::query()
+                    ->whereIn('asab_company_id', $this->tenantCompanyIdsFor($request->user()))
+                    ->whereKey($branchId);
+                if (($assigned = $this->assignedBranchIds()) !== null) {
+                    $branchQ->whereIn('id', $assigned);
+                }
+                if (($roleBranches = $this->cashCustodyBrandBranchIds($request)) !== null) {
+                    $branchQ->whereIn('id', $roleBranches);
+                }
+                $branch = $branchQ->firstOrFail();
+
+                return $this->ok($this->custody->branchLedgerFromTransactions(
+                    $branch,
+                    $request->query('month'),
+                    (int) $request->query('page', 1),
+                    (int) $request->query('pageSize', 50),
+                ));
+            }
+
             $custody = $this->scopeCashCustodyToBrandRole(
                 $this->scopeToAssignedBranches(CashCustody::whereIn('company_id', $this->tenantCompanyIdsFor($request->user()))),
                 $request,
