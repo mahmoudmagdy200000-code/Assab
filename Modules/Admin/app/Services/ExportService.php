@@ -373,6 +373,8 @@ class ExportService
             $this->sar($t['runningBalanceHalalas']),
         ], $ledger['transactions']);
 
+        array_unshift($rows, ['', 'الرصيد الافتتاحي للفترة', '', '', '', $this->sar($ledger['custody']['openingBalanceHalalas'])]);
+        $rows[] = ['', 'الرصيد الختامي للفترة', '', '', '', $this->sar($ledger['custody']['closingBalanceHalalas'])];
         $rows[] = ['', 'الرصيد الحالي', '', '', '', $this->sar($ledger['custody']['currentBalanceHalalas'])];
         $label = 'custody-ledger-'.substr($ledger['custody']['id'], 0, 8).'-'.$ledger['period']['month'];
 
@@ -454,39 +456,23 @@ class ExportService
         return $this->renderPdf($html, 'statement-'.($emp['empNumber'] ?? $emp['id']).'-'.$period['month']);
     }
 
-    /**
-     * ACC-8 «ملخص عهد Excel». Honours the same filters as the list screen so the
-     * sheet matches what the accountant is looking at.
-     *
-     * @param  array{brandId?:?string, status?:?string}  $filters
-     */
-    public function cashCustody(string $format, ?string $branchId, ?array $branchIds = null, array $filters = []): BinaryFileResponse
+    /** ACC-8 custody summary, using the same selection and balance source as the register. */
+    public function cashCustody(string $format, array $register): BinaryFileResponse
     {
-        $q = CashCustody::query();
-        // Zero-trust: a branch-scoped accountant exports only their branches.
-        if ($branchIds !== null) {
-            $q->whereIn('branch_id', $branchIds);
-        }
-        $this->brandBranches->applyFilter($q, $filters['brandId'] ?? null);
-        $this->custody->applyStatusFilter($q, $filters['status'] ?? null);
-        if ($branchId) {
-            $q->where('branch_id', $branchId);
-        }
-        $rowsM = $q->orderByDesc('created_at')->limit(5000)->get();
-        $branchNames = $this->branchNames($rowsM->pluck('branch_id'));
-
+        $legacy = $register['legacy']->orderByDesc('created_at')->orderBy('id')->get();
+        $branchNames = $this->branchNames($legacy->pluck('branch_id'))->all();
+        $cards = $legacy->map(fn (CashCustody $custody) => $this->custody->present($custody, $branchNames, collect()))
+            ->concat($register['ledger']);
         $headings = ['الفرع', 'أمين العهدة', 'العهدة (ر.س)', 'المصروف (ر.س)', 'المتبقي (ر.س)', 'حد التنبيه (ر.س)', 'أيام منذ التسوية', 'الحالة'];
-        $rows = $rowsM->map(fn (CashCustody $c) => [
-            $branchNames[$c->branch_id] ?? '—',
-            $c->custodian_name ?? '—',
-            $this->sar($c->amount),
-            $this->sar($c->used),
-            $this->sar((int) $c->amount - (int) $c->used),
-            $this->sar($c->min_alert),
-            (string) $c->days_since_settlement,
-            \Modules\Admin\Support\CustodyStatus::labelAr(
-                \Modules\Admin\Support\CustodyStatus::derive((int) $c->amount - (int) $c->used, $c->min_alert)
-            ),
+        $rows = $cards->map(fn (array $card) => [
+            $card['branchName'] ?? '—',
+            $card['custodianName'] ?? '—',
+            $this->sar($card['amountHalalas']),
+            $this->sar($card['usedHalalas']),
+            $this->sar($card['remainingHalalas']),
+            $this->sar($card['minAlertHalalas']),
+            (string) $card['daysSinceSettlement'],
+            $card['statusLabelAr'],
         ])->all();
 
         return $this->make($format, 'cash-custody', $headings, $rows);

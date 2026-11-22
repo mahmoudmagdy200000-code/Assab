@@ -97,21 +97,10 @@ class ExportController extends AsabController
     /** GET /cash-custody/export?brandId=&branchId=&status= */
     public function cashCustody(Request $request): BinaryFileResponse
     {
-        $branchIds = $this->assignedBranchIds();
-        $brandRoleBranchIds = $this->cashCustodyBrandBranchIds($request);
-        if ($brandRoleBranchIds !== null) {
-            $branchIds = $branchIds === null
-                ? $brandRoleBranchIds
-                : array_values(array_intersect($branchIds, $brandRoleBranchIds));
-        }
+        [$legacy, $branches] = $this->cashCustodyReadScopes($request);
+        $register = $this->custody->register($legacy, $branches, $request->only(['brandId', 'branchId', 'status', 'q']));
 
-        // Zero-trust: a branch-scoped accountant exports only their branches.
-        return $this->exports->cashCustody(
-            $this->format($request),
-            $request->query('branchId'),
-            $branchIds,
-            ['brandId' => $request->query('brandId'), 'status' => $request->query('status')],
-        );
+        return $this->exports->cashCustody($this->format($request), $register);
     }
 
     /** GET /cash-custody/{id}/transactions/export?month=YYYY-MM — HEAD-4 monthly ledger. */
@@ -129,7 +118,7 @@ class ExportController extends AsabController
                 $branchQ->whereIn('id', $roleBranches);
             }
             $branch = $branchQ->firstOrFail();
-            $ledger = $this->custody->branchLedgerFromTransactions($branch, $request->query('month'), 1, 2000);
+            $ledger = $this->custody->branchLedgerFromTransactions($branch, $request->query('month'), pageSize: null);
 
             return $this->exports->custodyLedger($this->format($request), $ledger);
         }
@@ -141,7 +130,7 @@ class ExportController extends AsabController
             ),
             $request,
         )->findOrFail($id);
-        $ledger = $this->custody->ledger($custody, $request->query('month'), 1, 2000);
+        $ledger = $this->custody->ledger($custody, $request->query('month'), pageSize: null);
 
         return $this->exports->custodyLedger($this->format($request), $ledger);
     }

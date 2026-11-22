@@ -15,6 +15,8 @@ use Modules\Expense\Services\ExpenseApprovalService;
 use Modules\Expense\Services\ExpenseBrandScopeService;
 use Modules\Expense\Transformers\ExpenseDetailResource;
 use Modules\Expense\Transformers\ExpenseResource;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 /**
  * Expense Approval Controller
@@ -144,11 +146,7 @@ class ExpenseApprovalController extends BaseController
                 'Expense approved successfully'
             );
         } catch (\Exception $e) {
-            $status = $e instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface ? $e->getStatusCode() : 400;
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage(),
-            ], $status);
+            return $this->decisionError($request, $e);
         }
     }
 
@@ -196,9 +194,31 @@ class ExpenseApprovalController extends BaseController
                 'Expense rejected successfully'
             );
         } catch (\Exception $e) {
-            $status = $e instanceof \Symfony\Component\HttpKernel\Exception\HttpExceptionInterface ? $e->getStatusCode() : 400;
-            return $this->errorResponse($e->getMessage(), $status);
+            return $this->decisionError($request, $e);
         }
+    }
+
+    private function decisionError(Request $request, \Exception $error): JsonResponse
+    {
+        $code = $error->getMessage();
+        if ($error instanceof ConflictHttpException) {
+            $arabic = $request->getPreferredLanguage(['en', 'ar']) === 'ar';
+            $message = match ($code) {
+                'EXPENSE_REVIEW_REVISION_REQUIRED' => $arabic
+                    ? 'حدّث التطبيق ثم افتح المصروف من جديد وراجعه قبل اتخاذ القرار.'
+                    : 'Update the app, then reopen and review the expense before making a decision.',
+                'STALE_EXPENSE_REVIEW_REVISION' => $arabic
+                    ? 'تم تعديل المصروف. افتحه من جديد وراجع النسخة الحالية قبل اتخاذ القرار.'
+                    : 'The expense changed. Reopen it and review the current version before making a decision.',
+                default => null,
+            };
+
+            if ($message !== null) {
+                return response()->json(['success' => false, 'message' => $message, 'code' => $code], 409);
+            }
+        }
+
+        return $this->errorResponse($code, $error instanceof HttpExceptionInterface ? $error->getStatusCode() : 400);
     }
 
     /**

@@ -416,7 +416,7 @@ class ExpenseCustodyLifecycleTest extends TestCase
         $this->assertEqualsWithDelta(1000.0, $this->custody($this->bmA1), 0.001);
         $this->actor($this->bmA1)->postJson("/api/branch-manager/expenses/{$id}/resubmit")->assertOk();
         $this->assertEqualsWithDelta(1000.0, $this->custody($this->bmA1), 0.001);
-        $this->approve($id)->assertOk();
+        $this->actor($this->ownerA1)->postJson("/api/brand-owner/expenses/{$id}/approve", ['review_revision' => 2])->assertOk();
 
         $this->assertSame($before, $this->ledgerSnapshot(), 'pre-approval lifecycle has no custody or personal cash effect');
         $this->assertCount(0, $this->movements($id));
@@ -436,13 +436,15 @@ class ExpenseCustodyLifecycleTest extends TestCase
         $before = $this->ledgerSnapshot();
 
         $this->actor($this->ownerA1)->postJson("/api/brand-owner/expenses/{$id}/approve", ['review_revision' => 1])
-            ->assertStatus(409)->assertJsonPath('message', 'STALE_EXPENSE_REVIEW_REVISION');
-        $this->actor($this->ownerA1)->postJson("/api/brand-owner/expenses/{$id}/reject", ['reason' => self::REASON])
-            ->assertStatus(409)->assertJsonPath('message', 'EXPENSE_REVIEW_REVISION_REQUIRED');
+            ->assertConflict()->assertJsonPath('code', 'STALE_EXPENSE_REVIEW_REVISION')
+            ->assertJsonPath('message', 'The expense changed. Reopen it and review the current version before making a decision.');
+        $this->actor($this->ownerA1)->postJson("/api/brand-owner/expenses/{$id}/reject", ['reason' => self::REASON], ['Accept-Language' => 'ar'])
+            ->assertConflict()->assertJsonPath('code', 'EXPENSE_REVIEW_REVISION_REQUIRED')
+            ->assertJsonPath('message', 'حدّث التطبيق ثم افتح المصروف من جديد وراجعه قبل اتخاذ القرار.');
 
         $this->assertSame('pending', Expense::findOrFail($id)->status);
         $this->assertSame($before, $this->ledgerSnapshot(), 'stale decisions have no state or ledger effect');
-        $this->approve($id)->assertOk();
+        $this->actor($this->ownerA1)->postJson("/api/brand-owner/expenses/{$id}/approve", ['review_revision' => 2])->assertOk();
         $this->assertSame('approved', Expense::findOrFail($id)->status);
         $this->assertEqualsWithDelta(470.0, $this->custody($this->bmA1), 0.001);
     }

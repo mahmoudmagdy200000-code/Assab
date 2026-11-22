@@ -189,6 +189,22 @@ abstract class AsabController extends Controller
         return $branchIds === null ? $query : $query->whereIn('branch_id', $branchIds);
     }
 
+    /** Scope both sources of the cash custody register to the same authorized audience. */
+    protected function cashCustodyReadScopes(Request $request): array
+    {
+        $legacy = \Modules\Admin\Models\CashCustody::query();
+        $branches = \Modules\Branch\Models\Branch::query()
+            ->whereIn('asab_company_id', $this->tenantCompanyIdsFor($request->user()));
+        foreach ([$this->assignedBranchIds(), $this->cashCustodyBrandBranchIds($request)] as $ids) {
+            if ($ids !== null) {
+                $legacy->whereIn('branch_id', $ids);
+                $branches->whereKey($ids);
+            }
+        }
+
+        return [$legacy, $branches];
+    }
+
     /** Constrain a company_id-keyed query to tenantCompanyIds(). */
     protected function scopeToTenantCompanies($query, string $column = 'company_id')
     {

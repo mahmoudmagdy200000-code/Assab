@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Services;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Modules\Admin\Models\CashCustody;
 use Modules\Admin\Models\CashTransaction;
@@ -19,7 +20,15 @@ use Modules\Custody\Models\CustodyTransaction;
  */
 class CustodyService
 {
-    public function __construct(private readonly RealtimeBroadcaster $rt) {}
+    private const BRANCH_AMOUNT = 'ROUND(amount * 100)';
+
+    private const BRANCH_FLOW = 'CASE WHEN is_cash_in = 1 THEN '.self::BRANCH_AMOUNT.' ELSE -'.self::BRANCH_AMOUNT.' END';
+
+    private const BRANCH_FUNDING = 'CASE WHEN is_cash_in = 1 AND related_expense_id IS NULL THEN '.self::BRANCH_AMOUNT.' ELSE 0 END';
+    public function __construct(
+        private readonly RealtimeBroadcaster $rt,
+        private readonly BrandBranchResolver $brandBranches,
+    ) {}
 
     /**
      * Recompute the derived status from the live balance and persist it. Emits a
@@ -108,23 +117,21 @@ class CustodyService
         ];
     }
 
-    /**
-     * ACC-8.1 KPI block over a scoped custody set.
-     *
-     * @param  Collection<int,CashCustody>  $custodies
-     * @return array{activeCustodies:int, pendingRequests:int, nearDepletion:int}
-     */
-    public function kpis(Collection $custodies): array
+    /** @return array{activeCustodies:int, pendingRequests:int, nearDepletion:int} */
+    public function kpis(Collection $custodies, Collection $ledgerCards): array
     {
+        $legacy = $custodies->whereNotIn('branch_id', $ledgerCards->pluck('branchId'));
         $ids = $custodies->pluck('id');
         $pendingSettlements = $ids->isEmpty() ? 0 : SettlementRequest::whereIn('custody_id', $ids)->where('status', 'pending')->count();
         $pendingTxns = $ids->isEmpty() ? 0 : CashTransaction::whereIn('custody_id', $ids)->where('status', 'pending')->count();
 
         return [
-            'activeCustodies' => $custodies->count(),
+            'activeCustodies' => $legacy->count() + $ledgerCards->count(),
             'pendingRequests' => $pendingSettlements + $pendingTxns,
-            'nearDepletion' => $custodies->filter(
+            'nearDepletion' => $legacy->filter(
                 fn (CashCustody $c) => CustodyStatus::isNearDepletion((int) $c->amount - (int) $c->used)
+            )->count() + $ledgerCards->filter(
+                fn (array $card) => CustodyStatus::isNearDepletion($card['remainingHalalas'])
             )->count(),
         ];
     }
@@ -183,64 +190,32 @@ class CustodyService
      *
      * @return array<string,mixed>
      */
-    public function ledger(CashCustody $custody, ?string $month, int $page = 1, int $pageSize = 50): array
+    public function ledger(CashCustody $custody, ?string $month, int $page = 1, ?int $pageSize = 50): array
     {
-        $pageSize = max(1, min($pageSize, 200));
         [$start, $end, $monthKey] = $this->period($month);
-
         $base = CashTransaction::where('custody_id', $custody->id);
+        $signed = "CASE WHEN status <> 'approved' THEN 0 WHEN txn_type = 'credit' THEN amount ELSE -amount END";
         $approvedCredits = (int) (clone $base)->where('status', 'approved')->where('txn_type', 'credit')->sum('amount');
-        $initialAmount = (int) $custody->amount - $approvedCredits;
-
-        // Opening = initial amount + net flow of approved txns before the window.
-        $opening = $initialAmount;
+        $opening = (int) $custody->amount - $approvedCredits;
         if ($month) {
-            $priorCredit = (int) (clone $base)->where('status', 'approved')->where('txn_type', 'credit')->where('txn_date', '<', $start)->sum('amount');
-            $priorDebit = (int) (clone $base)->where('status', 'approved')->where('txn_type', 'debit')->where('txn_date', '<', $start)->sum('amount');
-            $opening = $initialAmount + $priorCredit - $priorDebit;
+            $prior = (clone $base)->where('txn_date', '<', $start)->selectRaw("SUM({$signed}) as net")->first();
+            $opening += (int) $prior->net;
         }
 
-        $asc = (clone $base)
-            ->when($month, fn ($q) => $q->whereBetween('txn_date', [$start, $end]))
-            ->orderBy('txn_date')->orderBy('id')->limit(2000)->get();
-        $total = $asc->count();
-
-        $running = $opening;
-        $all = [];
-        foreach ($asc as $t) {
-            if ($t->status === 'approved') {
-                $running += $t->txn_type === 'credit' ? (int) $t->amount : -(int) $t->amount;
-            }
-            $type = self::typeLabel($t->txn_type);
-            $all[] = [
-                'id' => $t->id,
-                'txnDate' => optional($t->txn_date)->toIso8601String(),
-                'description' => $t->description,
-                'txnType' => $t->txn_type,
-                'typeLabel' => $type,
-                'typeLabelAr' => $type['labelAr'],
-                'amountHalalas' => (int) $t->amount,
-                'amount' => (int) $t->amount,
-                'status' => $t->status,
-                'source' => $t->source,
-                'runningBalanceHalalas' => $running,
-            ];
-        }
-        $rows = array_slice(array_reverse($all), ($page - 1) * $pageSize, $pageSize);
-        $remaining = (int) $custody->amount - (int) $custody->used;
+        $period = (clone $base)->when($month, fn ($q) => $q->whereBetween('txn_date', [$start, $end]));
+        $ledger = $this->ledgerPage($period, 'txn_date', $signed, $opening, $page, $pageSize);
 
         return [
             'custody' => [
                 'id' => $custody->id, 'custodianName' => $custody->custodian_name,
                 'amountHalalas' => (int) $custody->amount, 'usedHalalas' => (int) $custody->used,
-                'currentBalanceHalalas' => $remaining,
+                'currentBalanceHalalas' => (int) $custody->amount - (int) $custody->used,
+                'openingBalanceHalalas' => $opening,
+                'closingBalanceHalalas' => $ledger['closingBalanceHalalas'],
             ],
             'period' => ['month' => $monthKey, 'from' => $start->toDateString(), 'to' => $end->toDateString()],
-            'transactions' => $rows,
-            'meta' => [
-                'page' => $page, 'pageSize' => $pageSize, 'total' => $total,
-                'totalPages' => (int) ceil($total / max(1, $pageSize)),
-            ],
+            'transactions' => $ledger['transactions'],
+            'meta' => $ledger['meta'],
         ];
     }
 
@@ -280,184 +255,201 @@ class CustodyService
     }
 
     /**
-     * Present branch-level custodies backed by `custody_transactions` for
-     * branches that do not already have an `asab_cash_custodies` row.
-     *
-     * @param  Collection<int,string>  $scopedBranchIds
-     * @param  string[]  $coveredBranchIds
-     * @param  array{status?:?string, q?:?string}  $filters
-     * @return array{items:array<int,array<string,mixed>>, kpis:array{activeCustodies:int, nearDepletion:int}}
+     * Shared selection for the JSON register and its spreadsheet. Live ledger
+     * precedence is decided within the authorized scope, before display filters.
      */
-    public function branchCustodiesFromLedger(Collection $scopedBranchIds, array $coveredBranchIds, array $filters = []): array
+    public function register(Builder $legacyScope, Builder $branchScope, array $filters): array
     {
-        $candidateBranchIds = $scopedBranchIds->diff($coveredBranchIds)->values();
-        if ($candidateBranchIds->isEmpty()) {
-            return ['items' => [], 'kpis' => ['activeCustodies' => 0, 'nearDepletion' => 0]];
+        $ledgerScope = $this->branchCustodiesFromLedger((clone $branchScope)->pluck('id'));
+        $legacy = (clone $legacyScope)->where(fn ($q) => $q
+            ->whereNull('branch_id')->orWhereNotIn('branch_id', $ledgerScope->pluck('branchId')));
+        $branches = clone $branchScope;
+        $this->brandBranches->applyFilter($legacy, $filters['brandId'] ?? null);
+        $this->brandBranches->applyFilter($branches, $filters['brandId'] ?? null, 'id');
+        if ($branch = $filters['branchId'] ?? null) {
+            $legacy->where('branch_id', $branch);
+            $branches->whereKey($branch);
+        }
+        $status = $filters['status'] ?? null;
+        $this->applyStatusFilter($legacy, $status);
+        $needle = trim((string) ($filters['q'] ?? ''));
+        if ($needle !== '') {
+            $branchIds = (clone $branches)->where('name', 'like', '%'.$needle.'%')->pluck('id');
+            $legacy->where(fn ($q) => $q->where('custodian_name', 'like', '%'.$needle.'%')
+                ->orWhereIn('branch_id', $branchIds));
         }
 
-        $txnsByBranch = CustodyTransaction::query()
-            ->whereIn('branch_id', $candidateBranchIds)
-            ->orderByDesc('transaction_date')
-            ->orderByDesc('id')
-            ->get()
-            ->groupBy('branch_id');
+        $visibleIds = $branches->pluck('id')->flip();
+        $search = mb_strtolower($needle);
+        $ledger = $ledgerScope->filter(fn (array $card) => $visibleIds->has($card['branchId'])
+            && (! $status || $card['status'] === $status)
+            && ($search === ''
+                || str_contains(mb_strtolower((string) $card['branchName']), $search)
+                || str_contains(mb_strtolower($card['custodianName']), $search)))->values();
 
-        if ($txnsByBranch->isEmpty()) {
-            return ['items' => [], 'kpis' => ['activeCustodies' => 0, 'nearDepletion' => 0]];
-        }
-
-        $activeBranchIds = $txnsByBranch->keys()->values();
-        $branchNames = Branch::whereIn('id', $activeBranchIds)->pluck('name', 'id')->all();
-        $managerNames = BranchManager::query()
-            ->whereIn('branch_id', $activeBranchIds)
-            ->where('is_active', true)
-            ->pluck('name', 'branch_id')
-            ->all();
-
-        $allItems = [];
-        $activeCount = 0;
-        $nearDepletion = 0;
-        $statusFilter = $filters['status'] ?? null;
-        $needle = mb_strtolower(trim((string) ($filters['q'] ?? '')));
-
-        foreach ($txnsByBranch as $branchId => $txns) {
-            $remainingHalalas = 0;
-            $fundingInHalalas = 0;
-            foreach ($txns as $txn) {
-                $amtH = (int) round(((float) $txn->amount) * 100);
-                if ($txn->is_cash_in) {
-                    $remainingHalalas += $amtH;
-                    if ($txn->related_expense_id === null) {
-                        $fundingInHalalas += $amtH;
-                    }
-                } else {
-                    $remainingHalalas -= $amtH;
-                }
-            }
-            $amountHalalas = $fundingInHalalas > 0 ? $fundingInHalalas : max(0, $remainingHalalas);
-            $usedHalalas = max(0, $amountHalalas - $remainingHalalas);
-            $status = CustodyStatus::derive($remainingHalalas, 0);
-
-            $activeCount++;
-            if ($remainingHalalas < CustodyStatus::NEAR_DEPLETION_HALALAS) {
-                $nearDepletion++;
-            }
-
-            if ($statusFilter && $status !== $statusFilter) {
-                continue;
-            }
-
-            $branchName = $branchNames[$branchId] ?? null;
-            $custodianName = $managerNames[$branchId] ?? 'عُهدة الفرع';
-            if ($needle !== ''
-                && ! str_contains(mb_strtolower((string) $branchName), $needle)
-                && ! str_contains(mb_strtolower((string) $custodianName), $needle)) {
-                continue;
-            }
-
-            $allItems[] = [
-                'id' => 'branch-custody-'.$branchId,
-                'branchId' => $branchId,
-                'branchName' => $branchName,
-                'custodianName' => $custodianName,
-                'amountHalalas' => $amountHalalas,
-                'usedHalalas' => $usedHalalas,
-                'remainingHalalas' => $remainingHalalas,
-                'minAlertHalalas' => 0,
-                'usagePct' => $amountHalalas > 0 ? round($usedHalalas / $amountHalalas * 100, 1) : 0.0,
-                'status' => $status,
-                'statusLabelAr' => CustodyStatus::labelAr($status),
-                'daysSinceSettlement' => 0,
-                'amount' => $amountHalalas,
-                'used' => $usedHalalas,
-                'remaining' => $remainingHalalas,
-                'source' => 'branch_custody_ledger',
-                'transactions' => $txns->take(20)->map(fn (CustodyTransaction $t) => [
-                    'id' => $t->id,
-                    'txnDate' => optional($t->transaction_date)->toIso8601String(),
-                    'description' => $t->notes ?: $t->type,
-                    'txnType' => $t->is_cash_in ? 'credit' : 'debit',
-                    'amountHalalas' => (int) round(((float) $t->amount) * 100),
-                    'amount' => (int) round(((float) $t->amount) * 100),
-                    'status' => 'approved',
-                    'source' => 'branch_custody_ledger',
-                ])->values()->all(),
-            ];
-        }
-
-        return [
-            'items' => $allItems,
-            'kpis' => ['activeCustodies' => $activeCount, 'nearDepletion' => $nearDepletion],
-        ];
+        return compact('ledgerScope', 'legacy', 'ledger');
     }
 
     /**
-     * Monthly/paginated ledger directly from `custody_transactions` for a branch.
+     * A branch with posted movements reads from the same ledger as the mobile
+     * balance. Keep the legacy register as the fallback for branches without
+     * ledger movements and for direct lookups by historical custody ID.
      *
-     * @return array<string,mixed>
+     * @return Collection<int, array<string, mixed>>
      */
-    public function branchLedgerFromTransactions(Branch $branch, ?string $month, int $page = 1, int $pageSize = 50): array
+    private function branchCustodiesFromLedger(Collection $branchIds): Collection
     {
-        $pageSize = max(1, min($pageSize, 200));
-        [$start, $end, $monthKey] = $this->period($month);
+        $totals = CustodyTransaction::query()
+            ->whereIn('branch_id', $branchIds)
+            ->select('branch_id')
+            ->selectRaw('SUM('.self::BRANCH_FLOW.') as balance, SUM('.self::BRANCH_FUNDING.') as funding')
+            ->groupBy('branch_id')->orderBy('branch_id')->get();
+        $branchNames = $this->branchNames($totals->pluck('branch_id'));
+        $managerNames = BranchManager::query()
+            ->whereIn('branch_id', $totals->pluck('branch_id'))
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->pluck('name', 'branch_id');
 
-        $base = CustodyTransaction::query()->where('branch_id', $branch->id);
-        $opening = 0;
-        if ($month) {
-            $prior = (clone $base)->where('transaction_date', '<', $start)->get(['amount', 'is_cash_in']);
-            foreach ($prior as $p) {
-                $amtH = (int) round(((float) $p->amount) * 100);
-                $opening += $p->is_cash_in ? $amtH : -$amtH;
-            }
-        }
+        return $totals->map(function (CustodyTransaction $total) use ($branchNames, $managerNames) {
+            $balance = (int) $total->balance;
+            $amount = max(0, (int) $total->funding ?: $balance);
+            $used = max(0, $amount - $balance);
+            $status = CustodyStatus::derive($balance, 0);
 
-        $asc = (clone $base)
-            ->when($month, fn ($q) => $q->whereBetween('transaction_date', [$start, $end]))
-            ->orderBy('transaction_date')->orderBy('id')->limit(2000)->get();
-        $total = $asc->count();
-
-        $running = $opening;
-        $all = [];
-        $fundingInHalalas = 0;
-        foreach ($asc as $t) {
-            $amtH = (int) round(((float) $t->amount) * 100);
-            $txnType = $t->is_cash_in ? 'credit' : 'debit';
-            $running += $t->is_cash_in ? $amtH : -$amtH;
-            if ($t->is_cash_in && $t->related_expense_id === null) {
-                $fundingInHalalas += $amtH;
-            }
-            $type = self::typeLabel($txnType);
-            $all[] = [
-                'id' => $t->id,
-                'txnDate' => optional($t->transaction_date)->toIso8601String(),
-                'description' => $t->notes ?: $t->type,
-                'txnType' => $txnType,
-                'typeLabel' => $type,
-                'typeLabelAr' => $type['labelAr'],
-                'amountHalalas' => $amtH,
-                'amount' => $amtH,
-                'status' => 'approved',
+            return [
+                'id' => 'branch-custody-'.$total->branch_id,
+                'branchId' => $total->branch_id,
+                'branchName' => $branchNames[$total->branch_id] ?? null,
+                'custodianName' => $managerNames[$total->branch_id] ?? 'عُهدة الفرع',
+                'amountHalalas' => (int) $amount,
+                'usedHalalas' => $used,
+                'remainingHalalas' => $balance,
+                'minAlertHalalas' => 0,
+                'usagePct' => $amount > 0 ? round($used / $amount * 100, 1) : 0.0,
+                'status' => $status,
+                'statusLabelAr' => CustodyStatus::labelAr($status),
+                'daysSinceSettlement' => 0,
+                'amount' => (int) $amount,
+                'used' => $used,
+                'remaining' => $balance,
                 'source' => 'branch_custody_ledger',
-                'runningBalanceHalalas' => $running,
             ];
+        });
+    }
+
+    /** Add recent activity only for the ledger-backed cards on the requested page. */
+    public function withRecentBranchTransactions(Collection $cards): Collection
+    {
+        if ($cards->isEmpty()) {
+            return $cards;
         }
-        $rows = array_slice(array_reverse($all), ($page - 1) * $pageSize, $pageSize);
-        $custodianName = BranchManager::where('branch_id', $branch->id)->where('is_active', true)->value('name') ?? 'عُهدة الفرع';
+
+        $byBranch = CustodyTransaction::query()->whereIn('branch_id', $cards->pluck('branchId'))
+            ->orderByDesc('transaction_date')->orderByDesc('id')
+            ->groupLimit(20, 'branch_id')->get()->groupBy('branch_id');
+
+        return $cards->map(function (array $card) use ($byBranch) {
+            $card['transactions'] = $byBranch->get($card['branchId'], collect())
+                ->map(fn (CustodyTransaction $t) => $this->branchTransaction($t))->values()->all();
+
+            return $card;
+        });
+    }
+
+    /** Monthly/paginated display, or the complete requested period for export. */
+    public function branchLedgerFromTransactions(Branch $branch, ?string $month, int $page = 1, ?int $pageSize = 50): array
+    {
+        [$start, $end, $monthKey] = $this->period($month);
+        $base = CustodyTransaction::query()->where('branch_id', $branch->id);
+        $prior = $month ? "SUM(CASE WHEN transaction_date < ? THEN ".self::BRANCH_FLOW." ELSE 0 END)" : '0';
+        $balances = (clone $base)
+            ->selectRaw('SUM('.self::BRANCH_FLOW.') as balance, SUM('.self::BRANCH_FUNDING.') as funding')
+            ->selectRaw("{$prior} as opening", $month ? [$start] : [])
+            ->first();
+        $opening = (int) $balances->opening;
+        $current = (int) $balances->balance;
+        $amount = max(0, (int) $balances->funding ?: $current);
+
+        $period = (clone $base)->when($month, fn ($q) => $q->whereBetween('transaction_date', [$start, $end]));
+        $ledger = $this->ledgerPage($period, 'transaction_date', self::BRANCH_FLOW, $opening, $page, $pageSize);
+        $custodian = BranchManager::where('branch_id', $branch->id)->where('is_active', true)->orderByDesc('id')->value('name');
 
         return [
             'custody' => [
                 'id' => 'branch-custody-'.$branch->id,
-                'custodianName' => $custodianName,
-                'amountHalalas' => $fundingInHalalas > 0 ? $fundingInHalalas : max(0, $running),
-                'usedHalalas' => max(0, ($fundingInHalalas > 0 ? $fundingInHalalas : max(0, $running)) - $running),
-                'currentBalanceHalalas' => $running,
+                'custodianName' => $custodian ?? 'عُهدة الفرع',
+                'amountHalalas' => $amount,
+                'usedHalalas' => max(0, $amount - $current),
+                'currentBalanceHalalas' => $current,
+                'openingBalanceHalalas' => $opening,
+                'closingBalanceHalalas' => $ledger['closingBalanceHalalas'],
             ],
             'period' => ['month' => $monthKey, 'from' => $start->toDateString(), 'to' => $end->toDateString()],
-            'transactions' => $rows,
-            'meta' => [
-                'page' => $page, 'pageSize' => $pageSize, 'total' => $total,
-                'totalPages' => (int) ceil($total / max(1, $pageSize)),
-            ],
+            'transactions' => $ledger['transactions'],
+            'meta' => $ledger['meta'],
+        ];
+    }
+
+    /**
+     * Compute running balances over the full window before limiting the page.
+     * A null page size is internal to export, which includes every matching row.
+     */
+    private function ledgerPage(Builder $period, string $date, string $signed, int $opening, int $page, ?int $pageSize): array
+    {
+        $summary = (clone $period)->selectRaw("COUNT(*) as total, SUM({$signed}) as net")->first();
+        $total = (int) $summary->total;
+        $size = $pageSize === null ? max(1, $total) : max(1, min($pageSize, 200));
+        $page = max(1, $page);
+        $query = $period->select('*')
+            ->selectRaw("SUM({$signed}) OVER (ORDER BY {$date}, id ROWS UNBOUNDED PRECEDING) as running_net")
+            ->orderByDesc($date)->orderByDesc('id');
+        if ($pageSize !== null) {
+            $query->forPage($page, $size);
+        }
+
+        $rows = $query->get()->map(function (CashTransaction|CustodyTransaction $t) use ($opening) {
+            $row = $t instanceof CustodyTransaction
+                ? $this->branchTransaction($t)
+                : [
+                    'id' => $t->id,
+                    'txnDate' => $t->txn_date?->toIso8601String(),
+                    'description' => $t->description,
+                    'txnType' => $t->txn_type,
+                    'amountHalalas' => $t->amount,
+                    'amount' => $t->amount,
+                    'status' => $t->status,
+                    'source' => $t->source,
+                ];
+            $type = self::typeLabel($row['txnType']);
+
+            return $row + [
+                'typeLabel' => $type,
+                'typeLabelAr' => $type['labelAr'],
+                'runningBalanceHalalas' => $opening + (int) $t->running_net,
+            ];
+        });
+
+        return [
+            'closingBalanceHalalas' => $opening + (int) $summary->net,
+            'transactions' => $rows->all(),
+            'meta' => ['page' => $page, 'pageSize' => $size, 'total' => $total, 'totalPages' => (int) ceil($total / $size)],
+        ];
+    }
+
+    private function branchTransaction(CustodyTransaction $t): array
+    {
+        $amount = (int) round((float) $t->amount * 100);
+
+        return [
+            'id' => $t->id,
+            'txnDate' => $t->transaction_date?->toIso8601String(),
+            'description' => $t->notes ?: $t->type,
+            'txnType' => $t->is_cash_in ? 'credit' : 'debit',
+            'amountHalalas' => $amount,
+            'amount' => $amount,
+            'status' => 'approved',
+            'source' => 'branch_custody_ledger',
         ];
     }
 }
