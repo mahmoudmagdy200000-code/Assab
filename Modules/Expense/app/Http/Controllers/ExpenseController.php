@@ -239,6 +239,8 @@ class ExpenseController extends BaseController
                 new ExpenseDetailResource($expenseModel->fresh()),
                 'Expense submitted for approval successfully'
             );
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage());
         }
@@ -263,6 +265,8 @@ class ExpenseController extends BaseController
                 new ExpenseDetailResource($expenseModel->fresh()),
                 'Expense resubmitted for approval successfully'
             );
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage());
         }
@@ -291,6 +295,8 @@ class ExpenseController extends BaseController
                 null,
                 'Expense deleted successfully'
             );
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage());
         }
@@ -381,6 +387,8 @@ class ExpenseController extends BaseController
                 $data,
                 'QR code parsed successfully'
             );
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->errorResponse(
                 'Failed to parse QR code: '.$e->getMessage(),
@@ -406,6 +414,8 @@ class ExpenseController extends BaseController
                 $data,
                 'Invoice code parsed successfully'
             );
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->errorResponse(
                 'Failed to parse Invoice code: '.$e->getMessage(),

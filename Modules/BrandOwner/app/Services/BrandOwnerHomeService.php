@@ -88,13 +88,23 @@ class BrandOwnerHomeService
 
         $invoices = $this->statusSummary(self::INVOICE_TYPES, $originScope, $periodStart, $periodEnd);
         $expenses = $this->statusSummary(self::EXPENSE_TYPES, $originScope, $periodStart, $periodEnd);
+        $previousStart = $periodStart->copy()->subMonth();
+        $previousEnd = $previousStart->copy()->endOfMonth();
+        $previousInvoices = $this->statusSummary(self::INVOICE_TYPES, $originScope, $previousStart, $previousEnd);
+        $previousExpenses = $this->statusSummary(self::EXPENSE_TYPES, $originScope, $previousStart, $previousEnd);
 
         return [
             'approved_invoices' => $invoices['approved_count'],
             'total_invoice_amount' => $invoices['approved_amount'],
+            'invoice_month_over_month_percent' => $previousInvoices['approved_amount'] > 0
+                ? $this->percentageChange($invoices['approved_amount'], $previousInvoices['approved_amount'])
+                : null,
             'pending_invoices' => $invoices['pending_count'],
             'approved_expenses' => $expenses['approved_count'],
             'total_expense_amount' => $expenses['approved_amount'],
+            'expense_month_over_month_percent' => $previousExpenses['approved_amount'] > 0
+                ? $this->percentageChange($expenses['approved_amount'], $previousExpenses['approved_amount'])
+                : null,
             'pending_expenses' => $expenses['pending_count'],
             'granularity_chart_data' => [
                 'daily' => $this->dailyTrend($originScope, $month, $year),

@@ -180,6 +180,8 @@ class ExpenseAttachmentController extends BaseController
                 ],
                 'Attachments uploaded successfully to grouped invoices'
             );
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Failed to upload grouped invoice attachments: '.$e->getMessage());
@@ -283,6 +285,8 @@ class ExpenseAttachmentController extends BaseController
                 ],
                 'Attachments uploaded successfully'
             );
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Failed to upload attachments: '.$e->getMessage());
@@ -378,6 +382,8 @@ class ExpenseAttachmentController extends BaseController
                 ],
                 'Attachments deleted successfully'
             );
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Failed to delete attachments: '.$e->getMessage());
@@ -458,6 +464,8 @@ class ExpenseAttachmentController extends BaseController
                 ],
                 'Attachments retrieved successfully'
             );
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->errorResponse(
                 'Failed to retrieve attachments',

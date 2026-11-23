@@ -108,6 +108,8 @@ class QuickCashExpenseController extends BaseController
             DB::rollBack();
 
             return $this->insufficientCustodyResponse($e);
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -224,6 +226,8 @@ class QuickCashExpenseController extends BaseController
             DB::rollBack();
 
             return $this->insufficientCustodyResponse($e);
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
 
