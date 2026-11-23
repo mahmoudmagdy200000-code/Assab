@@ -8,7 +8,10 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use Modules\Admin\Services\MobileBranchScopeService;
+use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\BrandOwner\Models\BrandOwner;
 use Modules\BrandOwner\Models\CashSalesTransferRequest;
 use Modules\Cashier\Models\Cashier;
 use Modules\Custody\Exceptions\SalesCashTransferRefusedException;
@@ -150,6 +153,26 @@ class CustodyHandoverController extends BaseController
                 }
 
                 $recipientType = $request->input('recipientType');
+
+                if ($recipientType === 'Brand Owner') {
+                    $recipientOwner = BrandOwner::query()
+                        ->where('is_active', true)
+                        ->where('status', 'active')
+                        ->find($request->input('recipientId'));
+
+                    if ($recipientOwner === null) {
+                        return $this->validationErrorResponse([
+                            'recipientId' => ['The selected brand owner is invalid or inactive.'],
+                        ]);
+                    }
+
+                    if ($this->branchHasDashboardBrand($branchManager->branch_id)
+                        && ! app(MobileBranchScopeService::class)->canSee($recipientOwner, $branchManager->branch_id)) {
+                        return $this->validationErrorResponse([
+                            'recipientId' => ['The selected brand owner is not assigned to this branch.'],
+                        ]);
+                    }
+                }
 
                 if ($recipientType === 'Custody') {
                     $this->transactionService->createCashTransferTransaction([
@@ -485,9 +508,9 @@ class CustodyHandoverController extends BaseController
                 }
             }
 
-            // Branch Manager: Brand Owners FIRST, then other Branch Managers in same branch
+            // Brand Manager: Brand Owners FIRST, then other Branch Managers in same branch
             if ($user instanceof BranchManager) {
-                foreach ($this->getBrandOwnerRecipients() as $bo) {
+                foreach ($this->getBrandOwnerRecipients($user) as $bo) {
                     $recipients[] = $bo;
                 }
 
@@ -519,22 +542,48 @@ class CustodyHandoverController extends BaseController
     }
 
     /**
-     * Brand owner recipients (active brand owners).
+     * Brand owner recipients (active brand owners, scoped to the manager's brand when linked).
      */
-    protected function getBrandOwnerRecipients(): array
+    protected function getBrandOwnerRecipients(?BranchManager $manager = null): array
     {
-        return \Modules\BrandOwner\Models\BrandOwner::query()
+        $owners = BrandOwner::query()
             ->where('is_active', true)
             ->where('status', 'active')
             ->orderBy('name')
-            ->get(['id', 'name', 'email'])
-            ->map(fn ($bo) => [
+            ->get(['id', 'name', 'email']);
+
+        if ($manager !== null && $this->branchHasDashboardBrand($manager->branch_id)) {
+            $scope = app(MobileBranchScopeService::class);
+            $owners = $owners->filter(
+                fn (BrandOwner $bo) => $scope->canSee($bo, $manager->branch_id)
+            );
+        }
+
+        return $owners
+            ->map(fn (BrandOwner $bo) => [
                 'id' => $bo->id,
                 'type' => 'Brand Owner',
                 'name' => $bo->name,
                 'email' => $bo->email,
             ])
+            ->values()
             ->all();
+    }
+
+    /**
+     * Legacy test/unlinked branches carry neither asab_brand_id nor asab_restaurant_id;
+     * SaaS-linked branches enforce fail-closed MobileBranchScopeService filtering.
+     */
+    private function branchHasDashboardBrand(?string $branchId): bool
+    {
+        if (! $branchId) {
+            return false;
+        }
+
+        $branch = Branch::query()->find($branchId, ['id', 'asab_brand_id', 'asab_restaurant_id']);
+
+        return $branch !== null
+            && ($branch->asab_brand_id !== null || $branch->asab_restaurant_id !== null);
     }
 
     private function normalizeHandoverMethod(?string $value): ?string
@@ -568,7 +617,7 @@ class CustodyHandoverController extends BaseController
         }
 
         if ($recipientType === 'Brand Owner') {
-            return null;
+            return BrandOwner::query()->find($recipientId)?->name;
         }
 
         return null;

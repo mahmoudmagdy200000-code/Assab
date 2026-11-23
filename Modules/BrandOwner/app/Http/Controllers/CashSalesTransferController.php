@@ -34,7 +34,7 @@ class CashSalesTransferController extends BaseController
             return $this->errorResponse('Invalid status. Must be: pending, approved, or rejected', 400);
         }
 
-        $payload = $this->service->listForBrandOwner($actor->id, [
+        $payload = $this->service->listForBrandOwner($actor, [
             'fromDate' => $request->input('fromDate'),
             'toDate' => $request->input('toDate'),
             'storeId' => $request->input('storeId'),
@@ -49,8 +49,13 @@ class CashSalesTransferController extends BaseController
      */
     public function show(string $id): JsonResponse
     {
+        $actor = auth()->user();
+        if (! ($actor instanceof BrandOwner)) {
+            return $this->errorResponse('Only brand owners can view cash sales transfers', 403);
+        }
+
         try {
-            $payload = $this->service->getDetails($id);
+            $payload = $this->service->getDetails($id, $actor);
 
             return $this->successResponse($payload, 'Cash sales transfer details retrieved successfully');
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {

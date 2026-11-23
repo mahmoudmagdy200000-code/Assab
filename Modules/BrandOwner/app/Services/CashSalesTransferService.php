@@ -2,7 +2,9 @@
 
 namespace Modules\BrandOwner\Services;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use Modules\Admin\Services\MobileBranchScopeService;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\BrandOwner\Models\BrandOwner;
 use Modules\BrandOwner\Models\CashSalesTransferRequest;
@@ -10,14 +12,33 @@ use Modules\Cashier\Models\Cashier;
 
 class CashSalesTransferService
 {
+    public function __construct(
+        private readonly MobileBranchScopeService $branchScope,
+    ) {}
+
+    /**
+     * Scope cash sales transfer requests to branches of brands the BrandOwner
+     * is authorized to access, addressed to the actor (or unaddressed within branch).
+     */
+    private function scopedForOwner(BrandOwner $actor): Builder
+    {
+        $branchIds = $this->branchScope->visibleBranchIds($actor);
+
+        return CashSalesTransferRequest::query()
+            ->whereIn('branch_id', $branchIds)
+            ->where(function (Builder $q) use ($actor) {
+                $q->where('brand_owner_id', $actor->id)
+                    ->orWhereNull('brand_owner_id');
+            });
+    }
+
     /**
      * Paginated list for /brand-owner/cash-sales-transfers.
      * Filters: fromDate, toDate, storeId (branch id), status.
      */
-    public function listForBrandOwner(string $brandOwnerId, array $filters, int $page, int $pageSize): array
+    public function listForBrandOwner(BrandOwner $actor, array $filters, int $page, int $pageSize): array
     {
-        $query = CashSalesTransferRequest::query()
-            ->where('brand_owner_id', $brandOwnerId);
+        $query = $this->scopedForOwner($actor);
 
         if (! empty($filters['status'])) {
             $query->where('status', $filters['status']);
@@ -60,9 +81,9 @@ class CashSalesTransferService
     /**
      * Get details payload for the brand-owner cash sales transfer details screen.
      */
-    public function getDetails(string $id): array
+    public function getDetails(string $id, BrandOwner $actor): array
     {
-        $request = CashSalesTransferRequest::with(['branch', 'brandOwner'])->findOrFail($id);
+        $request = $this->scopedForOwner($actor)->with(['branch', 'brandOwner'])->findOrFail($id);
 
         $sender = $this->resolveSender($request->sender_id, $request->sender_type);
 
@@ -109,7 +130,7 @@ class CashSalesTransferService
     public function approve(string $id, BrandOwner $actor): CashSalesTransferRequest
     {
         return DB::transaction(function () use ($id, $actor) {
-            $request = CashSalesTransferRequest::lockForUpdate()->findOrFail($id);
+            $request = $this->scopedForOwner($actor)->lockForUpdate()->findOrFail($id);
 
             if (! $request->isPending()) {
                 throw new \RuntimeException('Only pending cash sales transfer requests can be approved.');
@@ -128,7 +149,7 @@ class CashSalesTransferService
     public function reject(string $id, BrandOwner $actor, string $reason): CashSalesTransferRequest
     {
         return DB::transaction(function () use ($id, $actor, $reason) {
-            $request = CashSalesTransferRequest::lockForUpdate()->findOrFail($id);
+            $request = $this->scopedForOwner($actor)->lockForUpdate()->findOrFail($id);
 
             if (! $request->isPending()) {
                 throw new \RuntimeException('Only pending cash sales transfer requests can be rejected.');
