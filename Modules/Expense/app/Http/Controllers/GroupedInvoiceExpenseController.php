@@ -118,6 +118,8 @@ class GroupedInvoiceExpenseController extends BaseController
             DB::rollBack();
 
             return $this->insufficientCustodyResponse($e);
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -211,6 +213,8 @@ class GroupedInvoiceExpenseController extends BaseController
         } catch (InsufficientExpenseCustodyException $e) {
             // The service already rolled its own transaction back; the draft is untouched.
             return $this->insufficientCustodyResponse($e);
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->errorResponse(
                 'Failed to update grouped invoice expense',

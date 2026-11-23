@@ -50,6 +50,8 @@ class CategoryController extends BaseController
                 $parentCategories,
                 'Parent categories retrieved successfully',
             );
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->errorResponse(
                 'Failed to retrieve parent categories: '.$e->getMessage(),

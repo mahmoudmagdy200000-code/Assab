@@ -145,6 +145,17 @@ return Application::configure(basePath: dirname(__DIR__))
                 || $request->expectsJson()
         );
 
+        $exceptions->render(function (\PDOException $exception, \Illuminate\Http\Request $request) {
+            if ($request->is('api/*') && ! $request->is('api/v1/*')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Internal server error',
+                ], 500);
+            }
+
+            return null;
+        });
+
         // AsabController::run() only translates domain/validation/not-found
         // errors; anything else — a QueryException above all — escaped to
         // Laravel's default 500. Because no CORS headers ride on that response,
@@ -171,7 +182,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     'messageAr' => 'حدث خطأ غير متوقع في الخادم',
                     // Never leak the message in production: a QueryException
                     // carries the SQL, the table names and the bound values.
-                    'details' => config('app.debug')
+                    'details' => config('app.debug') && ! ($e instanceof \PDOException)
                         ? ['exception' => $e::class, 'message' => $e->getMessage()]
                         : [],
                 ],

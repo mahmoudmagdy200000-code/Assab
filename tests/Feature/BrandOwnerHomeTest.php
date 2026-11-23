@@ -71,9 +71,11 @@ class BrandOwnerHomeTest extends TestCase
                 'data' => [
                     'approved_invoices',
                     'total_invoice_amount',
+                    'invoice_month_over_month_percent',
                     'pending_invoices',
                     'approved_expenses',
                     'total_expense_amount',
+                    'expense_month_over_month_percent',
                     'pending_expenses',
                     'granularity_chart_data' => [
                         'daily' => ['trend_period', 'approved', 'total_amount', 'increase_percentage', 'chart_data'],
@@ -135,6 +137,39 @@ class BrandOwnerHomeTest extends TestCase
 
         // The trend chart covers every approved expense row (invoices + quick cash).
         $this->assertEquals(2600.0, $response->json('data.granularity_chart_data.monthly.total_amount'));
+    }
+
+    public function test_dashboard_compares_approved_amounts_with_the_previous_calendar_month(): void
+    {
+        $otherBranch = Branch::factory()->create();
+        $this->tagBranchesWithBrand($this->brand, $otherBranch);
+        $otherManager = BranchManager::factory()->create(['branch_id' => $otherBranch->id]);
+
+        foreach ([
+            ['single_invoice', 100, 'approved', '2025-12-30', $this->manager],
+            ['grouped_invoice', 125, 'approved', '2026-01-15', $this->manager],
+            ['single_invoice', 900, 'rejected', '2026-01-17', $this->manager],
+            ['quick_cash', 200, 'approved', '2025-12-30', $this->manager],
+            ['quick_cash', 100, 'approved', '2026-01-15', $this->manager],
+            ['quick_cash', 500, 'approved', '2025-12-29', $otherManager],
+        ] as [$type, $amount, $status, $day, $manager]) {
+            Expense::factory()->create([
+                'branch_manager_id' => $manager->id,
+                'expense_type' => $type,
+                'total_amount' => $amount,
+                'status' => $status,
+                'created_at' => $day,
+            ]);
+        }
+
+        $path = '/api/brand-owner/dashboard?branch_id='.$this->branch->id.'&year=2026';
+        $response = $this->actingAs($this->owner, 'sanctum')->getJson($path.'&month=1')->assertOk();
+        $this->assertEquals(25.0, $response->json('data.invoice_month_over_month_percent'));
+        $this->assertEquals(-50.0, $response->json('data.expense_month_over_month_percent'));
+
+        $this->getJson($path.'&month=3')->assertOk()
+            ->assertJsonPath('data.invoice_month_over_month_percent', null)
+            ->assertJsonPath('data.expense_month_over_month_percent', null);
     }
 
     public function test_dashboard_filters_by_branch(): void

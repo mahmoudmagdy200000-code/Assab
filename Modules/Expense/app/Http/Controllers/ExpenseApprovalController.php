@@ -105,6 +105,8 @@ class ExpenseApprovalController extends BaseController
                 'success' => true,
                 'message' => 'Expense marked as viewed',
             ]);
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage());
         }
@@ -145,6 +147,8 @@ class ExpenseApprovalController extends BaseController
                 new ExpenseDetailResource($expenseModel->fresh()),
                 'Expense approved successfully'
             );
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->decisionError($request, $e);
         }
@@ -193,6 +197,8 @@ class ExpenseApprovalController extends BaseController
                 new ExpenseDetailResource($expenseModel->fresh()),
                 'Expense rejected successfully'
             );
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->decisionError($request, $e);
         }
@@ -244,6 +250,8 @@ class ExpenseApprovalController extends BaseController
                 new ExpenseDetailResource($expenseModel->fresh()),
                 'Expense edited successfully'
             );
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->errorResponse($e->getMessage());
         }

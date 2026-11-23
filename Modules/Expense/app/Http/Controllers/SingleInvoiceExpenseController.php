@@ -137,6 +137,8 @@ class SingleInvoiceExpenseController extends BaseController
             DB::rollBack();
 
             return $this->insufficientCustodyResponse($e);
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -253,6 +255,8 @@ class SingleInvoiceExpenseController extends BaseController
             DB::rollBack();
 
             return $this->insufficientCustodyResponse($e);
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -295,6 +299,8 @@ class SingleInvoiceExpenseController extends BaseController
                 ExpenseDetailWithoutTimelinesResource::collection($invoices),
                 'Previous invoices retrieved successfully'
             );
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->errorResponse(
                 'Failed to retrieve previous invoices',
@@ -421,6 +427,8 @@ class SingleInvoiceExpenseController extends BaseController
             DB::rollBack();
 
             return $this->insufficientCustodyResponse($e);
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
 

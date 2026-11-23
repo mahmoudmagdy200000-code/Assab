@@ -92,6 +92,8 @@ class PreApprovalRequestController extends BaseController
             DB::rollBack();
 
             return $this->insufficientCustodyResponse($e);
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -190,6 +192,8 @@ class PreApprovalRequestController extends BaseController
             DB::rollBack();
 
             return $this->insufficientCustodyResponse($e);
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
 
@@ -230,6 +234,8 @@ class PreApprovalRequestController extends BaseController
                 ExpenseDetailWithoutTimelinesResource::collection($requests),
                 'Previous pre-approval requests retrieved successfully'
             );
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             return $this->errorResponse(
                 'Failed to retrieve previous pre-approval requests',
@@ -353,6 +359,8 @@ class PreApprovalRequestController extends BaseController
             DB::rollBack();
 
             return $this->insufficientCustodyResponse($e);
+        } catch (\PDOException $e) {
+            throw $e;
         } catch (\Exception $e) {
             DB::rollBack();
 

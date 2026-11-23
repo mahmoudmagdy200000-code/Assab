@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
@@ -115,6 +116,22 @@ class ExpenseApprovalChainTest extends TestCase
         $this->assertNotNull($op, 'the expense must bridge into an operation');
 
         return [$expense->fresh(), $op->fresh()];
+    }
+
+    public function test_resubmission_sanitizes_unexpected_database_errors(): void
+    {
+        [$expense] = $this->submitted(['status' => 'rejected']);
+        config()->set('app.debug', true);
+        $this->mock(ExpenseApprovalService::class)
+            ->shouldReceive('resubmitExpense')
+            ->once()
+            ->andThrow(new QueryException('sqlite', 'select private_value from example', [], new \PDOException('driver detail')));
+
+        $this->actingAs($this->manager, 'sanctum')
+            ->postJson('/api/branch-manager/expenses/'.$expense->id.'/resubmit')
+            ->assertStatus(500)
+            ->assertExactJson(['success' => false, 'message' => 'Internal server error']);
+        $this->assertSame('rejected', $expense->fresh()->status);
     }
 
     // ── Cycle 2 (accountant → head) — RETIRED by BRC-03 / EXP-06 (TD-2) ───────
