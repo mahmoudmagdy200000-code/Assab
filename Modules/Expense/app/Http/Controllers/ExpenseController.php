@@ -73,8 +73,20 @@ class ExpenseController extends BaseController
      */
     public function custodyBalance(): JsonResponse
     {
+        $user = auth()->user();
+        $branchId = $user->branch_id ?? null;
+
+        // Cashiers do not hold a personal branch_manager_id custody account;
+        // resolve the branch's active manager ID when a cashier queries custody.
         $managerId = (string) auth()->id();
-        $branchId = auth()->user()->branch_id ?? null;
+        if ($user instanceof \Modules\Cashier\Models\Cashier && $branchId) {
+            $branchManager = \Modules\BranchManagers\Models\BranchManager::where('branch_id', $branchId)
+                ->where('is_active', true)
+                ->first();
+            if ($branchManager) {
+                $managerId = (string) $branchManager->id;
+            }
+        }
 
         return $this->successResponse([
             // Spendable = branch custody (brand-owner granted) + personal
