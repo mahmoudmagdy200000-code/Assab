@@ -87,7 +87,9 @@ class HeadMetricsService
         $monthStart = now()->startOfMonth();
         $monthEnd = now()->endOfMonth();
         $sumByBranch = fn (string $module) => $this->scoped($companyId)
-            ->where('module_key', $module)->whereBetween('operation_date', [$monthStart, $monthEnd])
+            ->where('module_key', $module)
+            ->where('status', '!=', Operation::STATUS_REJECTED)
+            ->whereBetween('operation_date', [$monthStart, $monthEnd])
             ->selectRaw('branch_id, sum(amount) as a')->groupBy('branch_id')->pluck('a', 'branch_id');
         $salesByBranch = $sumByBranch('sales');
         $expensesByBranch = $sumByBranch('expenses');
