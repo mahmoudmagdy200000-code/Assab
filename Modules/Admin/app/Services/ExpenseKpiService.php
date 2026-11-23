@@ -49,8 +49,10 @@ class ExpenseKpiService
             $block = $this->invoices->present(
                 $op, $this->invoices->attachmentRows($op, $attachments->get($op->id, collect())),
             );
-            foreach ($totals as $key => $value) {
-                $totals[$key] = $value + $block['totals'][$key];
+            if ($op->status !== Operation::STATUS_REJECTED) {
+                foreach ($totals as $key => $value) {
+                    $totals[$key] = $value + $block['totals'][$key];
+                }
             }
             $invoiceCount += $block['totals']['invoiceCount'];
             $verified += $block['verifiedCount'];

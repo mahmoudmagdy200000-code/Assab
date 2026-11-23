@@ -292,6 +292,25 @@ class ExpenseInvoicesTest extends TestCase
         $this->assertSame(0, $kpis['verifiedInvoiceCount']);
     }
 
+    public function test_rejected_expenses_are_counted_for_audit_without_inflating_kpi_amounts(): void
+    {
+        $this->statement([$this->invoice()]);
+        $this->statement([$this->invoice(['amountHalalas' => 23000])], [
+            'status' => Operation::STATUS_APPROVED,
+        ]);
+        $this->statement([$this->invoice(['amountHalalas' => 46000])], [
+            'status' => Operation::STATUS_REJECTED,
+        ]);
+
+        $this->acc()->getJson('/api/v1/company/me/expenses/kpis')
+            ->assertOk()
+            ->assertJsonPath('statementCount', 3)
+            ->assertJsonPath('invoiceCount', 3)
+            ->assertJsonPath('preTaxHalalas', 30000)
+            ->assertJsonPath('vat15Halalas', 4500)
+            ->assertJsonPath('totalHalalas', 34500);
+    }
+
     // ── Attachments panel ────────────────────────────────────────────────────
 
     public function test_attachments_are_grouped_per_invoice(): void
