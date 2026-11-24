@@ -293,7 +293,15 @@ try {
         $date = getenv('ELM_DATE');
         $userId = getenv('ELM_USER_ID');
         $allocations = json_decode(getenv('ELM_ALLOCATIONS_JSON'), true) ?: [];
-        $res = app(Modules\Admin\Services\InventoryReconciliationService::class)->allocate($companyId, $branchId, $date, $allocations, $userId);
+        $svc = app(Modules\Admin\Services\InventoryReconciliationService::class);
+        $res = $svc->allocate($companyId, $branchId, $date, $allocations, $userId);
+        $op = Modules\Admin\Models\Operation::where('company_id', $companyId)
+            ->where('branch_id', $branchId)
+            ->where('module_key', 'inventory')
+            ->whereDate('operation_date', $date)
+            ->firstOrFail();
+        $actor = Modules\Admin\Models\AsabUser::findOrFail($userId);
+        $svc->postOnFinalApproval($op, $actor);
         file_put_contents($barrierDir . '/' . $workerId . '.result', json_encode(['status' => 'OK', 'res' => $res, 'conn' => $connId]));
     } elseif ($action === 'shortage_reconcile') {
         $shiftId = getenv('ELM_SHIFT_ID');
