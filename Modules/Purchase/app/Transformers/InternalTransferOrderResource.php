@@ -87,8 +87,8 @@ class InternalTransferOrderResource extends JsonResource
             ],
 
             // Priority
-            'priority' => $this->priority ?? 'normal',
-            'priority_label' => $this->priority ? ucfirst($this->priority) : 'Normal',
+            'priority' => $this->priority instanceof \BackedEnum ? $this->priority->value : ($this->priority ?? 'normal'),
+            'priority_label' => ucfirst($this->priority instanceof \BackedEnum ? (string) $this->priority->value : (string) ($this->priority ?? 'normal')),
 
             // Current Branch Information
             'branch' => $this->whenLoaded('branch', function () {

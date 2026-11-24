@@ -183,6 +183,11 @@ class InventoryV35ClosureTest extends TestCase
             ])
             ->assertOk();
 
+        // Receiver branch views internal transfer details (must return 200, never 500)
+        $this->actingAs($this->managerA, 'sanctum')
+            ->getJson("/api/v1/purchase/pending/internal-transfer/{$order->id}")
+            ->assertOk();
+
         $this->assertEquals(40.0, (float) BranchInventory::where('branch_id', $this->branchB->id)->where('item_id', $this->flour->id)->value('available_quantity'));
         $variance = InternalTransferVariance::where('purchase_order_id', $order->id)->sole();
         $this->assertSame('IN_TRANSIT', $variance->status);
