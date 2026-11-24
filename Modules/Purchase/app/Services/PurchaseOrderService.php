@@ -1251,7 +1251,7 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
         DB::transaction(function () use ($order, $actorId) {
             $order->loadMissing(['items', 'branch']);
-            $companyId = (string) ($order->branch?->company_id ?? \Modules\Branch\Models\Branch::whereKey($order->from_branch_id)->value('company_id') ?? '');
+            $companyId = (string) ($order->branch?->asab_company_id ?? \Modules\Branch\Models\Branch::whereKey($order->from_branch_id)->value('asab_company_id') ?? '');
             $now = now();
 
             foreach ($order->items as $item) {

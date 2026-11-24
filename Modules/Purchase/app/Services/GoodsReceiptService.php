@@ -1016,7 +1016,7 @@ class GoodsReceiptService
                     return $existing;
                 }
             }
-            $companyId = (string) ($order->branch?->company_id ?? \Modules\Branch\Models\Branch::whereKey($order->branch_id)->value('company_id') ?? '');
+            $companyId = (string) ($order->branch?->asab_company_id ?? \Modules\Branch\Models\Branch::whereKey($order->branch_id)->value('asab_company_id') ?? '');
             $now = now();
 
             $receivedByOrderItem = [];
@@ -1204,7 +1204,7 @@ class GoodsReceiptService
         return DB::transaction(function () use ($order, $actorId, $resolution, $reason, $evidencePath, $idempotencyKey) {
             $order = PurchaseOrder::withoutGlobalScopes()->whereKey($order->id)->lockForUpdate()->firstOrFail();
             $order->loadMissing('branch');
-            $companyId = (string) ($order->branch?->company_id ?? \Modules\Branch\Models\Branch::whereKey($order->branch_id)->value('company_id') ?? '');
+            $companyId = (string) ($order->branch?->asab_company_id ?? \Modules\Branch\Models\Branch::whereKey($order->branch_id)->value('asab_company_id') ?? '');
             $now = now();
 
             if ($idempotencyKey) {
