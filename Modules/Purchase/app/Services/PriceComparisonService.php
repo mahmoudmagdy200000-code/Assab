@@ -1215,12 +1215,13 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
 
         // If no results found by item_id, return branches that have this item in their BranchItem list
         if ($inventories->isEmpty() && $inventoryBranches->isEmpty()) {
-            // Get all branches that have this item (by Item.id)
-            $stockBalances = \Modules\Inventory\Models\InventoryStockBalance::where('item_id', $item->id)
+            // Get all branches that have this item (by Item.id) or positive v3.5 stock movements
+            $stockBalances = \Modules\Inventory\Models\InventoryStockMovement::where('item_id', $item->id)
                 ->where('branch_id', '!=', $excludeBranchId)
-                ->where('qty_on_hand', '>', 0)
-                ->get()
-                ->keyBy('branch_id');
+                ->selectRaw('branch_id, SUM(qty_delta) as qty_on_hand')
+                ->groupBy('branch_id')
+                ->havingRaw('SUM(qty_delta) > 0')
+                ->pluck('qty_on_hand', 'branch_id');
 
             $otherBranchesItems = BranchItem::with(['branch.branchManager', 'item'])
                 ->where('item_id', $item->id)
@@ -1251,11 +1252,11 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                 // Try to get inventory data for this branch and item
                 $inventoryKey = $branchId.'_'.$branchItem->item_id;
                 $inventory = $inventoriesByBranch[$inventoryKey] ?? null;
-                $stockBal = $stockBalances->get($branchId);
+                $stockQty = $stockBalances->get($branchId);
 
-                // Use v3.5 stock balance if available, then BranchInventory, otherwise BranchItem quantity
-                $availableQty = $stockBal
-                    ? (float) $stockBal->qty_on_hand
+                // Use v3.5 stock movement balance if available, then BranchInventory, otherwise BranchItem quantity
+                $availableQty = $stockQty !== null
+                    ? (float) $stockQty
                     : ($inventory ? (float) $inventory->actual_available : (float) $branchItem->quantity);
 
                 // Calculate distance

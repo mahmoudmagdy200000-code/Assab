@@ -21,6 +21,8 @@ final class WasteEnums
     /** Responsibility that charges the employee ledger. */
     public const RESP_EMPLOYEE = 'موظف';
 
+    public const RESP_RESTAURANT = 'مطعم';
+
     public const CATEGORY = 'waste_charge';
 
     public const CATEGORY_LABEL_AR = 'خصم هدر';
