@@ -94,7 +94,16 @@ class GoodsReceivingController extends BaseController
     {
         try {
             // Security: Pass branch_id to service for authorization check
-            $userBranchId = auth()->user()->branch_id;
+            $user = auth()->user();
+            $roleBranchIds = $user
+                ? \Modules\Admin\Models\AsabUserRole::where('user_id', $user->id)
+                    ->pluck('branch_ids')
+                    ->flatten()
+                    ->filter()
+                    ->values()
+                    ->all()
+                : [];
+            $userBranchId = $user?->branch_id ?? ($roleBranchIds[0] ?? null);
             $order = $this->orderService->getOrderDetails($orderId, $userBranchId);
 
             if (! $order) {
@@ -899,7 +908,16 @@ class GoodsReceivingController extends BaseController
     public function receiveInternalTransfer(Request $request, string $orderId): JsonResponse
     {
         try {
-            $userBranchId = auth()->user()->branch_id;
+            $user = auth()->user();
+            $roleBranchIds = $user
+                ? \Modules\Admin\Models\AsabUserRole::where('user_id', $user->id)
+                    ->pluck('branch_ids')
+                    ->flatten()
+                    ->filter()
+                    ->values()
+                    ->all()
+                : [];
+            $userBranchId = $user?->branch_id ?? ($roleBranchIds[0] ?? null);
             $order = $this->orderService->getOrderDetails($orderId, $userBranchId);
 
             if (! $order) {
@@ -926,21 +944,84 @@ class GoodsReceivingController extends BaseController
                 );
             }
 
+            if ($userBranchId && (string) $userBranchId !== (string) $order->branch_id) {
+                return $this->errorResponse('Only the receiving branch manager can receive this internal transfer.', 403);
+            }
+
+            $deliveryDetails = $request->only(['driver_name', 'driver_contact', 'vehicle_number', 'arrival_time', 'delivery_address', 'items']);
+            $deliveryDetails['idempotency_key'] = $request->input('idempotency_key') ?? $request->header('Idempotency-Key');
+
             $receipt = $this->receiptService->receiveInternalTransfer(
                 $order,
                 auth()->id(),
-                $request->only(['driver_name', 'driver_contact', 'vehicle_number', 'arrival_time', 'delivery_address'])
+                $deliveryDetails
             );
 
-            // Order status is automatically updated to CLOSED in service
+            // Order status is automatically updated to CLOSED or VARIANCE in service
             // This moves the order to Purchase History and Complete Order pages
 
             return $this->createdResponse(
                 new GoodsReceiptResource($receipt->load(['purchaseOrder.fromBranch', 'purchaseOrder.requestedBy'])),
-                'Internal transfer received successfully. Order moved to Purchase History.'
+                'Internal transfer received successfully.'
             );
         } catch (\Exception $e) {
             return $this->handleException($e, 'receiving internal transfer');
+        }
+    }
+
+    /**
+     * Close open internal transfer variance (receiving branch manager ONLY).
+     *
+     * @group Goods Receiving
+     */
+    public function closeTransferVariance(Request $request, string $orderId): JsonResponse
+    {
+        try {
+            $data = $request->validate([
+                'resolution' => ['required', 'in:late_receipt,returned_to_sender,standing_variance'],
+                'reason' => ['nullable', 'string', 'max:500'],
+                'evidence_path' => ['nullable', 'string', 'max:500'],
+                'idempotency_key' => ['nullable', 'string', 'max:120'],
+            ]);
+
+            $user = auth()->user();
+            $roleBranchIds = $user
+                ? \Modules\Admin\Models\AsabUserRole::where('user_id', $user->id)
+                    ->pluck('branch_ids')
+                    ->flatten()
+                    ->filter()
+                    ->values()
+                    ->all()
+                : [];
+            $userBranchId = $user?->branch_id ?? ($roleBranchIds[0] ?? null);
+            $order = \Modules\Purchase\Models\PurchaseOrder::withoutGlobalScopes()->find($orderId);
+
+            if (! $order) {
+                return $this->notFoundResponse('Order not found');
+            }
+
+            if ($order->order_type !== OrderType::INTERNAL_TRANSFER) {
+                return $this->errorResponse('This endpoint is only for internal transfer orders', 400);
+            }
+
+            $result = $this->receiptService->closeTransferVariance(
+                $order,
+                (string) auth()->id(),
+                $userBranchId ? (string) $userBranchId : null,
+                $data['resolution'],
+                $data['reason'] ?? null,
+                $data['evidence_path'] ?? null,
+                $data['idempotency_key'] ?? $request->header('Idempotency-Key'),
+            );
+
+            return $this->successResponse($result, 'Internal transfer variance closed successfully.');
+        } catch (\Modules\Admin\Exceptions\AsabException $e) {
+            return response()->json([
+                'success' => false,
+                'error' => ['code' => $e->errorCode, 'message' => $e->getMessage(), 'messageAr' => $e->messageAr],
+            ], $e->status);
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'closing internal transfer variance');
         }
     }
 

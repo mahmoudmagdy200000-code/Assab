@@ -29,11 +29,17 @@ class InventoryReviewService
      */
     public function overview(string|array $companyId, ?array $branchIds, string $type = 'monthly'): array
     {
-        $ops = Operation::whereIn('company_id', (array) $companyId)
+        $allOps = Operation::whereIn('company_id', (array) $companyId)
             ->where('module_key', 'inventory')
             ->when($branchIds !== null, fn ($q) => $q->whereIn('branch_id', $branchIds))
             ->orderByDesc('operation_date')
             ->limit(5000)->get();
+
+        $ops = $allOps->filter(function (Operation $op) use ($type) {
+            $opType = $op->payload['countType'] ?? 'monthly';
+
+            return $type === 'daily' ? $opType === 'daily' : $opType === 'monthly';
+        })->values();
 
         $curMonth = now()->format('Y-m');
         $prevMonth = now()->subMonthNoOverflow()->format('Y-m');
@@ -43,6 +49,10 @@ class InventoryReviewService
         // The row carried the branch UUID only, so the screen printed
         // «019fc7b0-b0c1-…» where the branch name belongs (2026-08-09). One
         // query for the whole page — never a lookup inside the loop.
+        $totalBranchesInScope = \Modules\Branch\Models\Branch::whereIn('asab_company_id', (array) $companyId)
+            ->when($branchIds !== null, fn ($q) => $q->whereIn('id', $branchIds))
+            ->count();
+
         $branchNames = \Modules\Branch\Models\Branch::whereIn('id', $byBranch->keys()->filter()->all())
             ->pluck('name', 'id');
 
@@ -66,10 +76,18 @@ class InventoryReviewService
                 // Never null: a row whose branch was deleted still has to render.
                 'branchName' => (string) ($branchNames[$branchId] ?? ''),
                 'operationId' => $currentOp->id,
+                'publicId' => $currentOp->public_id,
+                'operationDate' => optional($currentOp->operation_date)->toDateString(),
+                'countType' => $currentOp->payload['countType'] ?? $type,
+                'revision' => (int) ($currentOp->payload['revision'] ?? 1),
+                'delegatedBy' => $currentOp->payload['delegatedBy'] ?? null,
+                'executedBy' => $currentOp->payload['executedBy'] ?? null,
                 'status' => $currentOp->status,
                 'items' => $items,
                 'anomalyCount' => $branchAnomalies,
                 'isFlagged' => (bool) ($currentOp->payload['isFlagged'] ?? false),
+                'sentToConfirm' => (bool) ($currentOp->payload['sentToConfirm'] ?? false),
+                'confirmationReason' => $currentOp->payload['confirmationReason'] ?? ($currentOp->payload['flagNote'] ?? null),
                 'branchConfirmed' => (bool) ($currentOp->payload['branchReconfirmedAt'] ?? ($currentOp->payload['isConfirmed'] ?? false)),
                 'flaggedItemIndices' => $currentOp->payload['flaggedItemIndices'] ?? [],
             ];
@@ -77,7 +95,7 @@ class InventoryReviewService
 
         return [
             'branches' => $branches,
-            'summary' => $this->summary($companyId, $branchIds, $ops, $branches, $lowItems, $normalItems, $anomalyAlerts),
+            'summary' => $this->summary($companyId, $branchIds, $ops, $branches, $lowItems, $normalItems, $anomalyAlerts, $totalBranchesInScope),
         ];
     }
 
@@ -116,10 +134,13 @@ class InventoryReviewService
             $rows[] = [
                 'itemId' => $itemId,
                 'itemName' => $it['name'] ?? ($it['itemName'] ?? '—'),
+                'category' => $it['category'] ?? ($it['cat'] ?? ''),
                 'unit' => $it['unit'] ?? null,
                 'prevQty' => $prevQty,
                 'currQty' => $curQty,
                 'changePct' => $changePct,
+                'comparisonAvailable' => $prevQty !== null,
+                'unavailableReason' => $prevQty === null ? 'بيانات الشهر السابق غير متاحة' : null,
                 'chip' => $this->chip($changePct),
                 'isAnomaly' => $isAnomaly,
                 'isLow' => $minLevel !== null && $curQty <= $minLevel,
@@ -130,7 +151,7 @@ class InventoryReviewService
     }
 
     /** ACC-4.2 KPI block. */
-    private function summary(string|array $companyId, ?array $branchIds, Collection $ops, array $branches, int $lowItems, int $normalItems, int $anomalyAlerts): array
+    private function summary(string|array $companyId, ?array $branchIds, Collection $ops, array $branches, int $lowItems, int $normalItems, int $anomalyAlerts, int $totalBranchesInScope = 0): array
     {
         $today = now()->toDateString();
         $wasteToday = (int) Operation::whereIn('company_id', (array) $companyId)
@@ -147,6 +168,7 @@ class InventoryReviewService
             'uploadedCount' => count($branches),
             'pendingCount' => $ops->where('status', 'pending')->count(),
             'completedBranches' => collect($branches)->where('status', 'final-approved')->count(),
+            'totalBranches' => max($totalBranchesInScope, count($branches)),
             'anomalyAlerts' => $anomalyAlerts,
             'lowItems' => $lowItems,
             'normalItems' => $normalItems,

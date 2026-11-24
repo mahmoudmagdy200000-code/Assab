@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use Modules\Admin\Http\Controllers\Accountant\AccountantController;
 use Modules\Admin\Http\Controllers\Accountant\AssetController;
 use Modules\Admin\Http\Controllers\Accountant\CashCustodyController;
+use Modules\Admin\Http\Controllers\Accountant\ConsumptionImportController;
 use Modules\Admin\Http\Controllers\Accountant\EmployeeController;
 use Modules\Admin\Http\Controllers\Accountant\InventoryController;
 use Modules\Admin\Http\Controllers\Accountant\PurchaseBoardController;
@@ -472,6 +473,11 @@ Route::prefix('v1')->group(function () {
                 // Waste (§6.3.7)
                 Route::get('waste', [WasteController::class, 'index']);
                 Route::get('waste/export', [CompanyExportController::class, 'waste']);
+                Route::get('waste/kpi-references', [ConsumptionImportController::class, 'wasteKpiReferences']);
+                Route::post('consumption-imports/preview', [ConsumptionImportController::class, 'preview']);
+                Route::post('consumption-imports/{batchId}/confirm', [ConsumptionImportController::class, 'confirm']);
+                Route::post('inventory/monthly-costs/recalculate', [ConsumptionImportController::class, 'recalculateMonthlyCost']);
+                Route::post('inventory/monthly-costs/approve', [ConsumptionImportController::class, 'approveMonthlyCost']);
                 Route::patch('waste/{entryId}/products/{productIdx}', [WasteController::class, 'classifyProduct']);
                 Route::put('waste/{entryId}/products/{productIdx}/allocations', [WasteController::class, 'allocations']);
                 Route::post('waste/{entryId}/approve', [WasteController::class, 'approve']);
@@ -847,9 +853,14 @@ Route::prefix('v1')->group(function () {
                     Route::put('inventory/catalog', [InventoryController::class, 'storeCatalog']);
                     Route::post('inventory/branches/{branchId}/confirm', [AccountantCompanyController::class, 'inventoryMarkConfirmed']);
                     Route::post('inventory/branches/{branchId}/flagged-items', [InventoryController::class, 'flagItems']);
+                    Route::post('inventory/monthly-costs/recalculate', [ConsumptionImportController::class, 'recalculateMonthlyCost']);
+                    Route::post('inventory/monthly-costs/approve', [ConsumptionImportController::class, 'approveMonthlyCost']);
 
                     Route::get('waste/export', [CompanyExportController::class, 'waste']);
+                    Route::get('waste/kpi-references', [ConsumptionImportController::class, 'wasteKpiReferences']);
                     Route::get('waste', [WasteController::class, 'index']);
+                    Route::post('consumption-imports/preview', [ConsumptionImportController::class, 'preview']);
+                    Route::post('consumption-imports/{batchId}/confirm', [ConsumptionImportController::class, 'confirm']);
                     Route::post('waste/bulk-approve', [WasteController::class, 'bulkApprove']);
                     Route::patch('waste/{id}/products/{idx}', [WasteController::class, 'classifyProduct']);
                     Route::put('waste/{id}/products/{idx}/allocations', [WasteController::class, 'allocations']);

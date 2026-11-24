@@ -4,11 +4,22 @@ namespace Modules\Admin\Services;
 
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Exceptions\AsabException;
+use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\EmployeeMovement;
 use Modules\Admin\Models\InventoryCatalogItem;
 use Modules\Admin\Models\Operation;
 use Modules\Branch\Models\Branch;
+use Modules\Inventory\Enums\InventorySessionStatus;
+use Modules\Inventory\Enums\MonthlyInventoryStatus;
+use Modules\Inventory\Models\ConsumptionDailyCoverage;
+use Modules\Inventory\Models\ConsumptionDailyLine;
+use Modules\Inventory\Models\InventoryMonthlyCost;
+use Modules\Inventory\Models\InventorySession;
+use Modules\Inventory\Models\InventoryStockMovement;
+use Modules\Inventory\Models\MonthlyInventory;
+use Modules\Purchase\Models\BranchInventory;
+use Modules\Purchase\Models\BranchItem;
 
 /**
  * Daily inventory reconciliation snapshot + variance allocation
@@ -39,8 +50,27 @@ class InventoryReconciliationService
         $rawItems = is_array($payload['items'] ?? null) ? $payload['items'] : [];
         $storedAllocations = $payload['varianceAllocations'][$date] ?? [];
 
-        $prices = $this->unitPrices($rawItems);
+        $prices = $this->unitPrices($rawItems, $branchId, $date);
         $employeeNames = $this->employeeNamesFor($storedAllocations);
+
+        $confirmedCoverageIds = ConsumptionDailyCoverage::where('branch_id', $branchId)
+            ->whereDate('business_date', $date)
+            ->where('status', 'CONFIRMED')
+            ->pluck('id');
+        $importedConsumptionByItem = $confirmedCoverageIds->isNotEmpty()
+            ? ConsumptionDailyLine::whereIn('coverage_id', $confirmedCoverageIds)
+                ->get()
+                ->groupBy('item_id')
+                ->map(fn ($rows) => round((float) $rows->sum('normal_consumed_qty'), 3))
+                ->all()
+            : [];
+        $postedWasteByItem = InventoryStockMovement::where('branch_id', $branchId)
+            ->where('movement_type', 'waste_out')
+            ->whereDate('posted_at', $date)
+            ->get()
+            ->groupBy('item_id')
+            ->map(fn ($rows) => round(abs((float) $rows->sum('qty_delta')), 3))
+            ->all();
 
         $items = [];
         $totalVariance = 0;
@@ -51,8 +81,8 @@ class InventoryReconciliationService
             // ACC-4.3 equation فتح + مشتريات − استهلاك − هدر ± تحويلات = إغلاق متوقّع.
             $opening = (float) ($it['opening'] ?? $it['openingQty'] ?? 0);
             $received = (float) ($it['received'] ?? $it['purchases'] ?? $it['purchasesQty'] ?? 0);
-            $consumed = (float) ($it['consumed'] ?? $it['sales'] ?? $it['consumedQty'] ?? 0);
-            $waste = (float) ($it['waste'] ?? $it['wasteQty'] ?? 0);
+            $consumed = (float) ($it['consumed'] ?? $it['sales'] ?? $it['consumedQty'] ?? ($importedConsumptionByItem[$itemId] ?? 0));
+            $waste = (float) ($it['waste'] ?? $it['wasteQty'] ?? ($postedWasteByItem[$itemId] ?? 0));
             $transfers = (float) ($it['transfers'] ?? $it['transfersQty'] ?? 0);
             $hasEquation = isset($it['opening']) || isset($it['openingQty']);
             $expectedClosing = round($opening + $received - $consumed - $waste + $transfers, 3);
@@ -148,32 +178,38 @@ class InventoryReconciliationService
                 throw new AsabException('NOT_FOUND', 'No inventory submission for that date', 'لا يوجد جرد لهذا التاريخ', 404);
             }
 
+            if (in_array($op->status, [Operation::STATUS_FINAL, Operation::STATUS_REJECTED], true)) {
+                throw new AsabException('OP_ALREADY_FINAL', 'Operation is locked and can no longer be modified', 'لا يمكن تعديل جرد مُغلق', 409);
+            }
+
             $payload = $op->payload ?? [];
             $rawItems = is_array($payload['items'] ?? null) ? $payload['items'] : [];
-            $prices = $this->unitPrices($rawItems);
-            $stored = $payload['varianceAllocations'][$date] ?? [];
+            $prices = $this->unitPrices($rawItems, $branchId, $date);
+            $shortagesByItem = [];
+            foreach ($rawItems as $idx => $it) {
+                $id = $this->itemId($it, $idx);
+                $opening = (float) ($it['opening'] ?? $it['openingQty'] ?? 0);
+                $received = (float) ($it['received'] ?? $it['purchases'] ?? $it['purchasesQty'] ?? 0);
+                $consumed = (float) ($it['consumed'] ?? $it['sales'] ?? $it['consumedQty'] ?? 0);
+                $waste = (float) ($it['waste'] ?? $it['wasteQty'] ?? 0);
+                $transfers = (float) ($it['transfers'] ?? $it['transfersQty'] ?? 0);
+                $hasEq = isset($it['opening']) || isset($it['openingQty']);
+                $expected = $hasEq
+                    ? round($opening + $received - $consumed - $waste + $transfers, 3)
+                    : (float) ($it['expectedQty'] ?? $it['expected'] ?? $it['systemQty'] ?? 0);
+                $actual = (float) ($it['actualQty'] ?? $it['actual'] ?? $it['countedQty'] ?? 0);
+                $shortagesByItem[$id] = max(0.0, round($expected - $actual, 3));
+            }
             $total = 0;
 
-            // Resolve every new allocation before deleting/replacing any posted
-            // movement. Keep the employee row locks in stable ID order so this
-            // writer serializes with other employee-ledger writers.
             $resolvedAllocations = [];
-            $priorMovements = EmployeeMovement::where('ref_operation_id', $op->id)
-                ->where('category', self::CATEGORY)
-                ->whereDate('movement_date', $date)
-                ->whereNull('reversal_of_movement_id')
-                ->whereDoesntHave('reversal')
-                ->orderBy('id')
-                ->get();
-            $employeeIds = EmployeeMovement::where('ref_operation_id', $op->id)
-                ->where('category', self::CATEGORY)
-                ->whereDate('movement_date', $date)
-                ->distinct()->pluck('employee_id')->map(fn ($id) => (string) $id)->all();
+            $employeeIds = [];
 
             foreach ($itemsAllocations as $ia) {
                 $itemId = (string) $ia['itemId'];
                 $unitPrice = (int) ($prices[$itemId] ?? 0);
                 $rows = [];
+                $allocatedQtySum = 0.0;
                 foreach (($ia['allocations'] ?? []) as $a) {
                     $needle = (string) $a['employeeId'];
                     $emp = Employee::whereIn('company_id', $companyIds)
@@ -188,9 +224,17 @@ class InventoryReconciliationService
 
                     $employeeIds[] = (string) $emp->id;
                     $qty = (float) $a['qty'];
+                    $allocatedQtySum += $qty;
                     $value = (int) round($qty * $unitPrice);
                     $rows[] = ['employee' => $emp, 'itemId' => $itemId, 'qty' => $qty, 'valueHalalas' => $value];
                 }
+
+                if (isset($shortagesByItem[$itemId]) && $shortagesByItem[$itemId] > 0 && ($allocatedQtySum - $shortagesByItem[$itemId]) > self::EPSILON) {
+                    throw new AsabException('VALIDATION_ERROR', 'Allocated quantity exceeds item shortage', 'الكمية المحمّلة تتجاوز مقدار العجز الفعلي للصنف', 422, [
+                        'allocations' => ['allocated qty exceeds shortage for '.$itemId],
+                    ]);
+                }
+
                 $resolvedAllocations[] = ['itemId' => $itemId, 'rows' => $rows];
             }
 
@@ -201,10 +245,6 @@ class InventoryReconciliationService
                 ->lockForUpdate()
                 ->get()
                 ->keyBy(fn (Employee $employee) => (string) $employee->id);
-
-            if ($lockedEmployees->count() !== count($employeeIds)) {
-                throw new \RuntimeException('Cannot replace inventory allocation: an existing ledger employee is missing.');
-            }
 
             foreach ($resolvedAllocations as $allocation) {
                 foreach ($allocation['rows'] as $row) {
@@ -219,50 +259,10 @@ class InventoryReconciliationService
                 }
             }
 
-            // Repeating the same allocation is a true no-op. A changed allocation
-            // reverses each active debit, preserving the original ledger evidence.
-            $desired = [];
+            // Stage proposed allocations on the operation payload; employee debits
+            // and inventory stock adjustments post once upon Head final approval (INV-04B/C).
+            $stored = [];
             foreach ($resolvedAllocations as $allocation) {
-                foreach ($allocation['rows'] as $row) {
-                    $desired[] = [
-                        'item' => (string) $allocation['itemId'],
-                        'employee' => (string) $row['employee']->id,
-                        'amount' => (int) $row['valueHalalas'],
-                    ];
-                }
-            }
-            $current = $priorMovements->map(fn (EmployeeMovement $movement) => [
-                'item' => explode('— ', (string) $movement->description, 2)[1] ?? '',
-                'employee' => (string) $movement->employee_id,
-                'amount' => (int) $movement->amount,
-            ])->all();
-            $sortRows = static function (array &$rows): void {
-                usort($rows, static fn ($a, $b) => [$a['item'], $a['employee'], $a['amount']] <=> [$b['item'], $b['employee'], $b['amount']]);
-            };
-            $sortRows($desired);
-            $sortRows($current);
-            $sameAllocation = $desired === $current;
-
-            if (! $sameAllocation) {
-                foreach ($priorMovements as $original) {
-                    EmployeeMovement::create([
-                        'employee_id' => $original->employee_id,
-                        'movement_date' => $original->movement_date,
-                        'description' => 'عكس تخصيص فرق جرد — '.$original->id,
-                        'movement_type' => $original->movement_type === 'debit' ? 'credit' : 'debit',
-                        'category' => self::CATEGORY.'_reversal',
-                        'amount' => $original->amount,
-                        'ref_operation_id' => $op->id,
-                        'created_by_id' => $userId,
-                        'reversal_of_movement_id' => $original->id,
-                    ]);
-                }
-            }
-
-            if (! $sameAllocation) {
-                $stored = [];
-            }
-            foreach ($sameAllocation ? [] : $resolvedAllocations as $allocation) {
                 $itemId = $allocation['itemId'];
                 $rows = [];
                 foreach ($allocation['rows'] as $row) {
@@ -271,17 +271,6 @@ class InventoryReconciliationService
                     $value = $row['valueHalalas'];
                     $total += $value;
                     $rows[] = ['employeeId' => $emp->id, 'qty' => $qty, 'valueHalalas' => $value];
-
-                    EmployeeMovement::create([
-                        'employee_id' => $emp->id,
-                        'movement_date' => $date,
-                        'description' => 'تحميل فرق جرد يومي — '.($itemId),
-                        'movement_type' => 'debit',
-                        'category' => self::CATEGORY,
-                        'amount' => $value,
-                        'ref_operation_id' => $op->id,
-                        'created_by_id' => $userId,
-                    ]);
                 }
                 $stored[$itemId] = $rows;
             }
@@ -297,6 +286,119 @@ class InventoryReconciliationService
         return $this->snapshot($companyId, $branchId, $date);
     }
 
+    /**
+     * INV-04B/C: Upon Head Accountant final approval, adjust branch stock once and
+     * post approved employee variance debits once (atomic + idempotent).
+     */
+    public function postOnFinalApproval(Operation $op, AsabUser $actor): void
+    {
+        $payload = $op->payload ?? [];
+        $rawItems = is_array($payload['items'] ?? null) ? $payload['items'] : [];
+        $revision = (int) ($payload['revision'] ?? 1);
+        $postedAt = now();
+        $date = optional($op->operation_date)->toDateString() ?? $postedAt->toDateString();
+
+        $prices = $this->unitPrices($rawItems, $op->branch_id, $date);
+
+        // 1. Adjust branch inventory & record one stock movement per counted item.
+        foreach ($rawItems as $idx => $it) {
+            $itemId = $this->itemId($it, $idx);
+            $actual = (float) ($it['actualQty'] ?? $it['actual'] ?? $it['countedQty'] ?? 0);
+            $unitCost = (int) ($prices[$itemId] ?? $it['unitPriceHalalas'] ?? $it['priceHalalas'] ?? 0);
+            $idempotencyKey = "inv_adj:{$op->id}:{$itemId}:rev{$revision}";
+
+            if (InventoryStockMovement::where('idempotency_key', $idempotencyKey)->exists()) {
+                continue;
+            }
+
+            $branchItem = BranchItem::where('branch_id', $op->branch_id)->where('item_id', $itemId)->lockForUpdate()->first();
+            $branchInv = BranchInventory::where('branch_id', $op->branch_id)->where('item_id', $itemId)->lockForUpdate()->first();
+            $currentStock = (float) ($branchInv?->available_quantity ?? $branchItem?->quantity ?? 0);
+            $delta = round($actual - $currentStock, 3);
+
+            if ($branchInv) {
+                $branchInv->update([
+                    'available_quantity' => $actual,
+                    'last_inventory_update' => $postedAt,
+                ]);
+            }
+            if ($branchItem) {
+                $branchItem->update(['quantity' => $actual]);
+            }
+
+            InventoryStockMovement::create([
+                'idempotency_key' => $idempotencyKey,
+                'company_id' => $op->company_id,
+                'branch_id' => $op->branch_id,
+                'item_id' => $itemId,
+                'movement_type' => 'stocktake_adjustment',
+                'qty_delta' => $delta,
+                'unit_cost_halalas' => $unitCost,
+                'total_cost_halalas' => (int) round(abs($delta) * $unitCost),
+                'source_type' => $op->source_module ?? 'inventory',
+                'source_id' => $op->source_id,
+                'operation_id' => $op->id,
+                'revision' => $revision,
+                'posted_at' => $postedAt,
+                'created_by_id' => $actor->id,
+                'notes' => 'تعديل رصيد الجرد عند الاعتماد النهائي — '.$op->public_id,
+            ]);
+        }
+
+        // 2. Post staged employee variance allocations once upon final approval.
+        $allocationsByDate = $payload['varianceAllocations'] ?? [];
+        if (! empty($allocationsByDate)) {
+            $alreadyPosted = EmployeeMovement::where('ref_operation_id', $op->id)
+                ->where('category', self::CATEGORY)
+                ->whereNull('reversal_of_movement_id')
+                ->whereDoesntHave('reversal')
+                ->exists();
+
+            if (! $alreadyPosted) {
+                foreach ($allocationsByDate as $allocDate => $byItem) {
+                    if (! is_array($byItem)) {
+                        continue;
+                    }
+                    foreach ($byItem as $itemId => $rows) {
+                        $unitPrice = (int) ($prices[$itemId] ?? 0);
+                        foreach ((array) $rows as $row) {
+                            $empId = (string) ($row['employeeId'] ?? '');
+                            $qty = (float) ($row['qty'] ?? 0);
+                            $value = (int) ($row['valueHalalas'] ?? round($qty * $unitPrice));
+                            if ($empId === '' || $value <= 0) {
+                                continue;
+                            }
+                            EmployeeMovement::create([
+                                'employee_id' => $empId,
+                                'movement_date' => $allocDate ?: $date,
+                                'description' => 'تحميل فرق جرد — '.$op->public_id.' — '.$itemId,
+                                'movement_type' => 'debit',
+                                'category' => self::CATEGORY,
+                                'amount' => $value,
+                                'ref_operation_id' => $op->id,
+                                'created_by_id' => $actor->id,
+                            ]);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Mark source mobile inventory record as finalized.
+        if ($op->source_module === InventoryBridgeService::SOURCE && $op->source_id) {
+            InventorySession::whereKey($op->source_id)->update([
+                'status' => InventorySessionStatus::APPROVED->value,
+                'approved_at' => $postedAt,
+                'approved_by' => $actor->id,
+            ]);
+        } elseif ($op->source_module === InventoryBridgeService::SOURCE_MONTHLY && $op->source_id) {
+            MonthlyInventory::whereKey($op->source_id)->update([
+                'status' => MonthlyInventoryStatus::APPROVED->value,
+                'approved_at' => $postedAt,
+            ]);
+        }
+    }
+
     private function inventoryOp(string|array $companyId, string $branchId, string $date): ?Operation
     {
         return Operation::whereIn('company_id', (array) $companyId)
@@ -307,19 +409,34 @@ class InventoryReconciliationService
             ->first();
     }
 
-    /** @return array<string,int> itemId → unit price (halalas) from inline payload or catalog */
-    private function unitPrices(array $rawItems): array
+    /** @return array<string,int> itemId → unit price (halalas) from approved monthly weighted cost, inline payload, or catalog */
+    private function unitPrices(array $rawItems, ?string $branchId = null, ?string $date = null): array
     {
         $ids = [];
         foreach ($rawItems as $idx => $it) {
             $ids[] = $this->itemId($it, $idx);
         }
-        $catalog = InventoryCatalogItem::whereIn('id', array_filter($ids))->pluck('unit_price', 'id');
+        $cleanIds = array_values(array_filter($ids));
+        $catalog = InventoryCatalogItem::whereIn('id', $cleanIds)->pluck('unit_price', 'id');
+
+        $monthlyCosts = [];
+        if ($branchId && $cleanIds !== []) {
+            $ym = $date ? substr($date, 0, 7) : null;
+            $monthlyCosts = InventoryMonthlyCost::where('branch_id', $branchId)
+                ->whereIn('item_id', $cleanIds)
+                ->where('status', InventoryMonthlyCost::STATUS_APPROVED)
+                ->when($ym, fn ($q) => $q->where('year_month', '<=', $ym))
+                ->orderByDesc('year_month')
+                ->get()
+                ->groupBy('item_id')
+                ->map(fn ($rows) => (int) $rows->first()->unit_cost_halalas)
+                ->all();
+        }
 
         $prices = [];
         foreach ($rawItems as $idx => $it) {
             $id = $this->itemId($it, $idx);
-            $prices[$id] = (int) ($it['unitPriceHalalas'] ?? $it['priceHalalas'] ?? ($catalog[$id] ?? 0));
+            $prices[$id] = (int) ($monthlyCosts[$id] ?? $it['unitPriceHalalas'] ?? $it['priceHalalas'] ?? ($catalog[$id] ?? 0));
         }
 
         return $prices;

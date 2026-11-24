@@ -6,12 +6,16 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Modules\Inventory\Models\InternalTransferVariance;
+use Modules\Inventory\Models\InventoryMonthlyCost;
+use Modules\Inventory\Models\InventoryStockMovement;
 use Modules\Purchase\Constants\PurchaseConstants;
 use Modules\Purchase\Enums\OrderItemStatus;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Enums\QualityLevel;
 use Modules\Purchase\Exceptions\PurchaseOrderException;
+use Modules\Purchase\Models\BranchInventory;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\OrderTimeline;
 use Modules\Purchase\Models\PriceHistory;
@@ -1233,5 +1237,103 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             $deliveryDays,
             $rating
         );
+    }
+
+    /**
+     * Deduct sender branch stock at sender cost (no internal markup) and open
+     * IN_TRANSIT variance records when an internal transfer is approved.
+     */
+    public function dispatchInternalTransferStock(PurchaseOrder $order, ?string $actorId = null): void
+    {
+        if ($order->order_type !== OrderType::INTERNAL_TRANSFER || ! $order->from_branch_id) {
+            return;
+        }
+
+        DB::transaction(function () use ($order, $actorId) {
+            $order->loadMissing(['items', 'branch']);
+            $companyId = (string) ($order->branch?->company_id ?? \Modules\Branch\Models\Branch::whereKey($order->from_branch_id)->value('company_id') ?? '');
+            $now = now();
+
+            foreach ($order->items as $item) {
+                $dispatchedQty = round((float) ($item->quantity_confirmed ?? $item->quantity_ordered), 3);
+                if ($dispatchedQty <= 0.0 || $item->status === OrderItemStatus::REJECTED) {
+                    continue;
+                }
+
+                $idemKey = 'transfer-dispatch:'.$order->id.':'.$item->id;
+                if (InventoryStockMovement::where('idempotency_key', $idemKey)->exists()) {
+                    continue;
+                }
+
+                $itemId = (string) ($item->item_id ?? '');
+                $costRow = $itemId !== ''
+                    ? InventoryMonthlyCost::where('branch_id', $order->from_branch_id)
+                        ->where('item_id', $itemId)
+                        ->orderByDesc('year_month')
+                        ->first()
+                    : null;
+
+                $senderUnitCostHalalas = $costRow ? (int) $costRow->unit_cost_halalas : (int) round(((float) $item->unit_price) * 100);
+                $totalCostHalalas = (int) round($dispatchedQty * $senderUnitCostHalalas);
+
+                if ($itemId !== '') {
+                    $branchInv = BranchInventory::where('branch_id', $order->from_branch_id)
+                        ->where('item_id', $itemId)
+                        ->lockForUpdate()
+                        ->first();
+                    if ($branchInv) {
+                        $branchInv->update([
+                            'available_quantity' => max(0.0, round((float) $branchInv->available_quantity - $dispatchedQty, 3)),
+                            'last_inventory_update' => $now,
+                        ]);
+                    }
+
+                    $branchItem = BranchItem::where('branch_id', $order->from_branch_id)
+                        ->where('item_id', $itemId)
+                        ->lockForUpdate()
+                        ->first();
+                    if ($branchItem) {
+                        $branchItem->update([
+                            'quantity' => max(0.0, round((float) $branchItem->quantity - $dispatchedQty, 3)),
+                        ]);
+                    }
+                }
+
+                InventoryStockMovement::create([
+                    'idempotency_key' => $idemKey,
+                    'company_id' => $companyId,
+                    'branch_id' => $order->from_branch_id,
+                    'item_id' => $itemId !== '' ? $itemId : $item->id,
+                    'movement_type' => 'transfer_out',
+                    'qty_delta' => -1 * $dispatchedQty,
+                    'unit_cost_halalas' => $senderUnitCostHalalas,
+                    'total_cost_halalas' => $totalCostHalalas,
+                    'source_type' => 'purchase_order',
+                    'source_id' => $order->id,
+                    'revision' => 1,
+                    'cost_source' => $costRow?->status ?? 'ORDER_FALLBACK',
+                    'cost_revision' => $costRow?->revision,
+                    'posted_at' => $now,
+                    'created_by_id' => $actorId,
+                    'notes' => 'خصم تحويل داخلي صادر — '.$order->order_number,
+                ]);
+
+                InternalTransferVariance::firstOrCreate(
+                    ['purchase_order_item_id' => $item->id],
+                    [
+                        'purchase_order_id' => $order->id,
+                        'from_branch_id' => $order->from_branch_id,
+                        'to_branch_id' => $order->branch_id,
+                        'item_id' => $itemId !== '' ? $itemId : $item->id,
+                        'dispatched_qty' => $dispatchedQty,
+                        'received_qty' => 0,
+                        'in_transit_qty' => $dispatchedQty,
+                        'variance_qty' => 0,
+                        'sender_unit_cost_halalas' => $senderUnitCostHalalas,
+                        'status' => 'IN_TRANSIT',
+                    ]
+                );
+            }
+        });
     }
 }

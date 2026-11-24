@@ -370,7 +370,7 @@ class WasteDamageReportService
      */
     public function confirmStaffSubmission(string $reportId, string $branchId, array $itemOverrides = []): \Illuminate\Support\Collection
     {
-        return DB::transaction(function () use ($reportId, $branchId, $itemOverrides) {
+        $confirmedReport = DB::transaction(function () use ($reportId, $branchId, $itemOverrides) {
             $report = $this->reportRepository->findByBranch($reportId, $branchId, ['items']);
             if (! $report) {
                 throw ValidationException::withMessages(['report' => ['Report not found.']]);
@@ -400,61 +400,27 @@ class WasteDamageReportService
                 }
             }
 
-            $items = $report->items()->get();
-            if ($items->isEmpty()) {
+            if ($report->items()->count() === 0) {
                 throw ValidationException::withMessages(['report' => ['Report has no items to confirm.']]);
             }
 
             $relations = ['items.item', 'items.responsibleEmployees.cashier.branch', 'items.responsibleEmployees.branchManager', 'assignedTo', 'createdBy'];
-            $confirmed = collect();
-            $confirmedAt = now();
-
-            // First item stays in the original report.
-            $items->shift();
             $this->reportRepository->update($report, [
-                'manager_confirmed_at' => $confirmedAt,
+                'manager_confirmed_at' => now(),
             ]);
             WasteDamageReportTimeline::log(
                 $report->fresh(),
                 WasteDamageReportTimelineEventType::APPROVED,
                 'Confirmed by Branch Manager',
-                'Branch Manager confirmed staff submission. Sent to Brand Owner for approval.'
+                'Branch Manager confirmed staff submission. Sent to Accountant and Brand Owner for review.'
             );
-            $confirmed->push($report->fresh($relations));
 
-            // Remaining items each get their own cloned report.
-            foreach ($items as $item) {
-                $clone = $this->reportRepository->create([
-                    'branch_id' => $report->branch_id,
-                    'created_by' => $report->created_by,
-                    'created_by_type' => $report->created_by_type,
-                    'assigned_to_type' => $report->assigned_to_type,
-                    'assigned_to_id' => $report->assigned_to_id,
-                    'status' => WasteDamageReportStatus::PENDING,
-                    'submitted_at' => $report->submitted_at,
-                    'manager_confirmed_at' => $confirmedAt,
-                ]);
-
-                $item->waste_damage_report_id = $clone->id;
-                $item->save();
-
-                WasteDamageReportTimeline::log(
-                    $clone->fresh(),
-                    WasteDamageReportTimelineEventType::CREATED,
-                    WasteDamageReportTimelineEventType::CREATED->label()
-                );
-                WasteDamageReportTimeline::log(
-                    $clone->fresh(),
-                    WasteDamageReportTimelineEventType::APPROVED,
-                    'Confirmed by Branch Manager',
-                    'Branch Manager confirmed staff submission. Sent to Brand Owner for approval.'
-                );
-
-                $confirmed->push($clone->fresh($relations));
-            }
-
-            return $confirmed;
+            return $report->fresh($relations);
         });
+
+        app(\Modules\Admin\Services\WasteBridgeService::class)->sync($confirmedReport);
+
+        return collect([$confirmedReport]);
     }
 
     /**
@@ -504,7 +470,13 @@ class WasteDamageReportService
             $newStatus->value
         );
 
-        return $report->fresh();
+        $freshReport = $report->fresh();
+
+        if ($freshReport->assigned_to_type !== 'staff' || $freshReport->manager_confirmed_at !== null) {
+            app(\Modules\Admin\Services\WasteBridgeService::class)->sync($freshReport);
+        }
+
+        return $freshReport;
     }
 
     private function resolvePricePerUnit(string $itemId, string $branchId): float

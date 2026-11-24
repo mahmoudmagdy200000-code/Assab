@@ -214,58 +214,68 @@ class WasteDamageReportController extends BaseController
                 );
             }
 
-            // One report per item. Each pair in its own transaction.
-            $createdReports = [];
-            foreach ($items as $index => $itemData) {
-                $report = \Illuminate\Support\Facades\DB::transaction(function () use (
+            // Create a single unified report for all submitted items (WASTE-01A: no split/duplication).
+            $report = \Illuminate\Support\Facades\DB::transaction(function () use (
+                $branchId,
+                $createdById,
+                $assignedToType,
+                $assignedToId,
+                $createdByType,
+                $items,
+                $request,
+                $actorBranchManagerId,
+                $actorCashierId
+            ) {
+                $report = $this->reportService->createReport(
                     $branchId,
                     $createdById,
                     $assignedToType,
                     $assignedToId,
-                    $createdByType,
-                    $itemData,
-                    $index,
-                    $request,
-                    $actorBranchManagerId,
-                    $actorCashierId
-                ) {
-                    $report = $this->reportService->createReport(
-                        $branchId,
-                        $createdById,
-                        $assignedToType,
-                        $assignedToId,
-                        $createdByType
-                    );
+                    $createdByType
+                );
 
+                $preparedItems = [];
+                foreach ($items as $index => $itemData) {
                     if ($request->hasFile("items.{$index}.photo")) {
                         $itemData['photo_path'] = $request->file("items.{$index}.photo")->store(
                             sprintf('waste-damage/reports/%s', $report->id),
                             'public'
                         );
                     }
+                    $preparedItems[] = $itemData;
+                }
 
-                    $this->reportService->addItemsToReport(
-                        $report,
-                        [$itemData],
-                        $actorBranchManagerId,
-                        $actorCashierId,
-                    );
+                $this->reportService->addItemsToReport(
+                    $report,
+                    $preparedItems,
+                    $actorBranchManagerId,
+                    $actorCashierId,
+                );
 
-                    return $report;
-                });
+                if ($assignedToType === 'personal') {
+                    $report->forceFill([
+                        'status' => WasteDamageReportStatus::PENDING,
+                        'submitted_at' => now(),
+                    ])->save();
+                }
 
-                $report->loadMissing([
-                    'assignedTo',
-                    'items.item',
-                    'items.responsibleEmployees.cashier.branch',
-                    'items.responsibleEmployees.branchManager',
-                ]);
-                $createdReports[] = $report;
+                return $report;
+            });
+
+            $report->loadMissing([
+                'assignedTo',
+                'items.item',
+                'items.responsibleEmployees.cashier.branch',
+                'items.responsibleEmployees.branchManager',
+            ]);
+
+            if ($assignedToType === 'personal') {
+                app(\Modules\Admin\Services\WasteBridgeService::class)->sync($report);
             }
 
             return $this->createdResponse(
-                WasteDamageReportResource::collection(collect($createdReports)),
-                count($createdReports).' waste & damage report(s) created successfully'
+                WasteDamageReportResource::collection(collect([$report])),
+                'Waste & damage report created successfully'
             );
         } catch (ValidationException $e) {
             return $this->validationErrorResponse($e->errors(), $e->getMessage());

@@ -166,6 +166,26 @@ class OperationService
                 'details' => $notes,
             ]);
 
+            if ($op->source_module === InventoryBridgeService::SOURCE && $op->source_id) {
+                \Modules\Inventory\Models\InventorySession::whereKey($op->source_id)->update([
+                    'status' => \Modules\Inventory\Enums\InventorySessionStatus::REJECTED->value,
+                    'rejected_at' => now(),
+                    'rejected_by' => $actor->id,
+                    'rejection_comment' => $notes ?: $label,
+                ]);
+            } elseif ($op->source_module === InventoryBridgeService::SOURCE_MONTHLY && $op->source_id) {
+                \Modules\Inventory\Models\MonthlyInventory::whereKey($op->source_id)->update([
+                    'status' => \Modules\Inventory\Enums\MonthlyInventoryStatus::REJECTED->value,
+                ]);
+            } elseif ($op->source_module === WasteBridgeService::SOURCE && $op->source_id) {
+                \Modules\Inventory\Models\WasteDamageReport::whereKey($op->source_id)->update([
+                    'status' => \Modules\Inventory\Enums\WasteDamageReportStatus::REJECTED->value,
+                    'rejected_at' => now(),
+                    'rejected_by' => $actor->id,
+                    'rejection_comment' => $notes ?: $label,
+                ]);
+            }
+
             return [$op->fresh(), $prev, $label];
         });
 
@@ -252,6 +272,10 @@ class OperationService
             // a failed ledger write must not leave a final-approved operation.
             if ($op->module_key === 'shifts') {
                 $this->shiftClose->onFinalApproved($op, $actor);
+            } elseif ($op->module_key === 'inventory') {
+                app(InventoryReconciliationService::class)->postOnFinalApproval($op, $actor);
+            } elseif ($op->module_key === 'waste') {
+                app(WasteApprovalService::class)->postOnFinalApproval($op, $actor);
             }
 
             return $op->fresh();

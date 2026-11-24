@@ -376,6 +376,7 @@ class PendingOrderController extends BaseController
             $order->refresh();
             // Force update to fully_approved status regardless of transition rules
             $order->update(['status' => OrderStatus::FULLY_APPROVED]);
+            $this->orderService->dispatchInternalTransferStock($order->fresh(['items', 'branch']), auth()->id());
         }
 
         return $success;
@@ -394,6 +395,7 @@ class PendingOrderController extends BaseController
             $order->refresh();
             // Force update to partial_approved status regardless of transition rules
             $order->update(['status' => OrderStatus::PARTIAL_APPROVED]);
+            $this->orderService->dispatchInternalTransferStock($order->fresh(['items', 'branch']), auth()->id());
         }
 
         return $success;

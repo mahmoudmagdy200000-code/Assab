@@ -55,13 +55,14 @@ class DailyQuickInventoryController extends BaseController
     public function dashboard(): JsonResponse
     {
         try {
-            $manager = $this->resolveInventoryActor()->requireManager();
-            if (! $manager->branch_id) {
+            $actor = $this->resolveInventoryActor();
+            $branchId = $actor->getBranchId();
+            if (! $branchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
             $schedule = app(\Modules\Inventory\Services\DailyInventoryScheduleService::class)
-                ->getForBranch($manager->branch_id);
+                ->getForBranch($branchId);
 
             $dailyItemsCount = 0;
             $dailyItems = [];
@@ -76,7 +77,7 @@ class DailyQuickInventoryController extends BaseController
                 $dailyItemsCount = $schedule->scheduleItems->count();
             }
 
-            $todaySession = InventorySession::where('branch_id', $manager->branch_id)
+            $todaySession = InventorySession::where('branch_id', $branchId)
                 ->whereDate('inventory_date', now()->toDateString())
                 ->first();
             $totalItemsAdded = $todaySession ? $todaySession->items()->count() : $dailyItemsCount;
@@ -93,25 +94,27 @@ class DailyQuickInventoryController extends BaseController
 
     /**
      * Get branch items for daily inventory (from branch purchase configuration).
-     * Branch is taken from the authenticated Branch Manager. Optional: ?branch_id=uuid (must match manager's branch), ?include_all=1 (return all items, do not exclude those already in sessions).
+     * Branch is taken from the authenticated Branch Manager or delegated Cashier.
+     * Optional: ?branch_id=uuid (must match actor's branch), ?include_all=1 (return all items, do not exclude those already in sessions).
      *
      * @group Daily Quick Inventory
      */
     public function getBranchItems(): JsonResponse
     {
         try {
-            $manager = $this->resolveInventoryActor()->requireManager();
-            if (! $manager->branch_id) {
+            $actor = $this->resolveInventoryActor();
+            $actorBranchId = $actor->getBranchId();
+            if (! $actorBranchId) {
                 return $this->errorResponse(self::BRANCH_NOT_ASSIGNED_MESSAGE, 400);
             }
 
             $branchId = request()->query('branch_id');
             if ($branchId !== null && $branchId !== '') {
-                if ((string) $branchId !== (string) $manager->branch_id) {
+                if ((string) $branchId !== (string) $actorBranchId) {
                     return $this->errorResponse('Branch ID does not match your assigned branch.', 403);
                 }
             } else {
-                $branchId = $manager->branch_id;
+                $branchId = $actorBranchId;
             }
 
             $includeAll = filter_var(request()->query('include_all'), FILTER_VALIDATE_BOOLEAN);
@@ -217,6 +220,8 @@ class DailyQuickInventoryController extends BaseController
                 new InventorySessionResource($session->load(['items', 'assignedTo'])),
                 'Inventory session updated successfully'
             );
+        } catch (\Modules\Admin\Exceptions\AsabException $e) {
+            return $this->errorResponse($e->getMessage(), $e->status);
         } catch (\Exception $e) {
             return $this->handleException($e, 'updating inventory session');
         }
@@ -463,6 +468,8 @@ class DailyQuickInventoryController extends BaseController
                 new InventorySessionResource($session),
                 'Inventory session resubmitted successfully'
             );
+        } catch (\Modules\Admin\Exceptions\AsabException $e) {
+            return $this->errorResponse($e->getMessage(), $e->status);
         } catch (\InvalidArgumentException $e) {
             return $this->errorResponse($e->getMessage(), 400);
         } catch (\Exception $e) {

@@ -84,36 +84,6 @@ Route::middleware(['auth:sanctum', 'log.throttle'])->prefix('v1/purchase')->grou
     */
     Route::prefix('pending')->group(function () {
         Route::get('/', [PendingOrderController::class, 'index'])->name('purchase.pending.index');
-        Route::get('/{id}', [PendingOrderController::class, 'show'])->name('purchase.pending.show');
-        Route::get('/{id}/timeline', [PendingOrderController::class, 'timeline'])->name('purchase.pending.timeline');
-
-        // Order actions
-        Route::post('/{id}/approve', [PendingOrderController::class, 'approve'])->middleware('throttle:purchase-write')->name('purchase.pending.approve');
-        Route::post('/{id}/partial-approve', [PendingOrderController::class, 'partialApprove'])->name('purchase.pending.partial-approve');
-        Route::post('/{id}/reject', [PendingOrderController::class, 'reject'])->name('purchase.pending.reject');
-        Route::post('/{id}/cancel', [PendingOrderController::class, 'cancel'])->name('purchase.pending.cancel');
-
-        // Transfer-specific actions
-        Route::post('/{id}/approve-transfer', [PendingOrderController::class, 'approveTransfer'])->name('purchase.pending.approve-transfer');
-
-        // Modification handling
-        Route::post('/{id}/approve-modifications', [PendingOrderController::class, 'approveModifications'])->name('purchase.pending.approve-modifications');
-        Route::post('/{id}/reject-modifications', [PendingOrderController::class, 'rejectModifications'])->name('purchase.pending.reject-modifications');
-
-        // Item-level approval requests
-        Route::post('/{id}/items/{itemId}/approve', [PendingOrderController::class, 'approveItemRequest'])->name('purchase.pending.approve-item');
-        Route::post('/{id}/items/{itemId}/reject', [PendingOrderController::class, 'rejectItemRequest'])->name('purchase.pending.reject-item');
-        Route::post('/{id}/items/{itemId}/cancel', [PendingOrderController::class, 'cancelItem'])->name('purchase.pending.cancel-item');
-
-        // Modification details and actions
-        Route::get('/{id}/items/{itemId}/modification', [PendingOrderController::class, 'getModificationDetails'])->name('purchase.pending.get-modification');
-        Route::post('/{id}/items/{itemId}/modification/approve', [PendingOrderController::class, 'approveModification'])->name('purchase.pending.approve-modification');
-        Route::post('/{id}/items/{itemId}/modification/reject', [PendingOrderController::class, 'rejectModification'])->name('purchase.pending.reject-modification');
-        Route::get('/{id}/items/{itemId}/cancellation-reason', [PendingOrderController::class, 'getCancellationReason'])->name('purchase.pending.get-cancellation-reason');
-
-        // Delay handling for orders
-        Route::post('/{id}/delay/approve', [PendingOrderController::class, 'approveOrderDelay'])->name('purchase.pending.approve-order-delay');
-        Route::post('/{id}/delay/reject', [PendingOrderController::class, 'rejectOrderDelay'])->name('purchase.pending.reject-order-delay');
 
         /*
         |--------------------------------------------------------------------------
@@ -148,6 +118,37 @@ Route::middleware(['auth:sanctum', 'log.throttle'])->prefix('v1/purchase')->grou
             Route::get('/', [PendingOrderController::class, 'internalTransferOrders'])->name('purchase.pending.internal-transfer.index');
             Route::get('/{id}', [PendingOrderController::class, 'internalTransferOrderDetails'])->name('purchase.pending.internal-transfer.show');
         });
+
+        Route::get('/{id}', [PendingOrderController::class, 'show'])->name('purchase.pending.show');
+        Route::get('/{id}/timeline', [PendingOrderController::class, 'timeline'])->name('purchase.pending.timeline');
+
+        // Order actions
+        Route::post('/{id}/approve', [PendingOrderController::class, 'approve'])->middleware('throttle:purchase-write')->name('purchase.pending.approve');
+        Route::post('/{id}/partial-approve', [PendingOrderController::class, 'partialApprove'])->name('purchase.pending.partial-approve');
+        Route::post('/{id}/reject', [PendingOrderController::class, 'reject'])->name('purchase.pending.reject');
+        Route::post('/{id}/cancel', [PendingOrderController::class, 'cancel'])->name('purchase.pending.cancel');
+
+        // Transfer-specific actions
+        Route::post('/{id}/approve-transfer', [PendingOrderController::class, 'approveTransfer'])->name('purchase.pending.approve-transfer');
+
+        // Modification handling
+        Route::post('/{id}/approve-modifications', [PendingOrderController::class, 'approveModifications'])->name('purchase.pending.approve-modifications');
+        Route::post('/{id}/reject-modifications', [PendingOrderController::class, 'rejectModifications'])->name('purchase.pending.reject-modifications');
+
+        // Item-level approval requests
+        Route::post('/{id}/items/{itemId}/approve', [PendingOrderController::class, 'approveItemRequest'])->name('purchase.pending.approve-item');
+        Route::post('/{id}/items/{itemId}/reject', [PendingOrderController::class, 'rejectItemRequest'])->name('purchase.pending.reject-item');
+        Route::post('/{id}/items/{itemId}/cancel', [PendingOrderController::class, 'cancelItem'])->name('purchase.pending.cancel-item');
+
+        // Modification details and actions
+        Route::get('/{id}/items/{itemId}/modification', [PendingOrderController::class, 'getModificationDetails'])->name('purchase.pending.get-modification');
+        Route::post('/{id}/items/{itemId}/modification/approve', [PendingOrderController::class, 'approveModification'])->name('purchase.pending.approve-modification');
+        Route::post('/{id}/items/{itemId}/modification/reject', [PendingOrderController::class, 'rejectModification'])->name('purchase.pending.reject-modification');
+        Route::get('/{id}/items/{itemId}/cancellation-reason', [PendingOrderController::class, 'getCancellationReason'])->name('purchase.pending.get-cancellation-reason');
+
+        // Delay handling for orders
+        Route::post('/{id}/delay/approve', [PendingOrderController::class, 'approveOrderDelay'])->name('purchase.pending.approve-order-delay');
+        Route::post('/{id}/delay/reject', [PendingOrderController::class, 'rejectOrderDelay'])->name('purchase.pending.reject-order-delay');
     });
 
     /*
@@ -171,6 +172,7 @@ Route::middleware(['auth:sanctum', 'log.throttle'])->prefix('v1/purchase')->grou
 
         // Receive internal transfer
         Route::post('/orders/{orderId}/receive-internal-transfer', [GoodsReceivingController::class, 'receiveInternalTransfer'])->name('purchase.receiving.receive-internal-transfer');
+        Route::post('/orders/{orderId}/close-transfer-variance', [GoodsReceivingController::class, 'closeTransferVariance'])->name('purchase.receiving.close-transfer-variance');
 
         // Receipt management
         Route::get('/{id}', [GoodsReceivingController::class, 'show'])->name('purchase.receiving.show');

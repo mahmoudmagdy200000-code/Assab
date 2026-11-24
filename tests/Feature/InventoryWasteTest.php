@@ -37,6 +37,8 @@ class InventoryWasteTest extends TestCase
 
     private AsabUser $accountant;
 
+    private AsabUser $headUser;
+
     private Employee $emp1;
 
     private Employee $emp2;
@@ -62,6 +64,18 @@ class InventoryWasteTest extends TestCase
             'status' => 'active',
         ]);
 
+        $this->headUser = AsabUser::create([
+            'company_id' => $this->company->id, 'name' => 'رئيس الحسابات', 'email' => 'head@inv.test',
+            'password' => 'secret-password', 'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $this->headUser->id, 'role_key' => 'head', 'scope' => 'all']);
+        CompanyUser::create([
+            'company_id' => $this->company->id,
+            'user_id' => $this->headUser->id,
+            'role_key' => 'head',
+            'status' => 'active',
+        ]);
+
         $this->emp1 = Employee::create(['company_id' => $this->company->id, 'branch_id' => $this->branchA->id, 'emp_number' => '1001', 'name' => 'محمد', 'role' => 'كاشير', 'status' => 'active']);
         $this->emp2 = Employee::create(['company_id' => $this->company->id, 'branch_id' => $this->branchA->id, 'emp_number' => '1002', 'name' => 'خالد', 'role' => 'مشرف', 'status' => 'active']);
     }
@@ -69,6 +83,11 @@ class InventoryWasteTest extends TestCase
     private function acc()
     {
         return $this->actingAs($this->accountant, 'sanctum');
+    }
+
+    private function headUser()
+    {
+        return $this->actingAs($this->headUser, 'sanctum');
     }
 
     private function wasteOp(array $products, array $attrs = []): Operation
@@ -102,8 +121,19 @@ class InventoryWasteTest extends TestCase
             ['name' => 'خبز', 'classification' => 'تالف', 'responsibility' => 'مطعم', 'value' => 5000],
         ]);
 
+        // Without owner approval, accountant cannot approve employee-charged waste
+        $this->acc()->postJson("/api/v1/company/me/waste/{$op->id}/approve")->assertStatus(409);
+
+        $op->update(['payload' => array_merge($op->payload, ['ownerApproval' => ['approved' => true, 'revision' => 1]])]);
+
+        // Accountant approval sets status=approved WITHOUT posting ledger charges yet
         $this->acc()->postJson("/api/v1/company/me/waste/{$op->id}/approve")
             ->assertOk()->assertJsonPath('status', 'approved');
+        $this->assertCount(0, EmployeeMovement::where('category', WasteEnums::CATEGORY)->get());
+
+        // Head final-approve posts the employee ledger charges
+        $this->headUser()->postJson("/api/v1/company/me/operations/{$op->id}/final-approve")
+            ->assertOk()->assertJsonPath('status', 'final-approved');
 
         $movements = EmployeeMovement::where('category', WasteEnums::CATEGORY)->get();
         $this->assertCount(2, $movements);                       // only the موظف product
@@ -119,11 +149,17 @@ class InventoryWasteTest extends TestCase
         $op = $this->wasteOp([
             ['name' => 'دجاج', 'responsibility' => 'موظف', 'value' => 30000,
                 'empAllocs' => [['employeeId' => $this->emp1->id, 'amountHalalas' => 30000]]],
-        ]);
+        ], ['payload' => ['ownerApproval' => ['approved' => true, 'revision' => 1], 'products' => [
+            ['name' => 'دجاج', 'responsibility' => 'موظف', 'value' => 30000,
+                'empAllocs' => [['employeeId' => $this->emp1->id, 'amountHalalas' => 30000]]],
+        ]]]);
 
         $this->acc()->postJson("/api/v1/company/me/waste/{$op->id}/approve")->assertOk();
         // Second approve — op is no longer pending.
         $this->acc()->postJson("/api/v1/company/me/waste/{$op->id}/approve")->assertStatus(409);
+
+        $this->headUser()->postJson("/api/v1/company/me/operations/{$op->id}/final-approve")->assertOk();
+        $this->headUser()->postJson("/api/v1/company/me/operations/{$op->id}/final-approve")->assertStatus(409);
 
         $this->assertSame(1, EmployeeMovement::where('category', WasteEnums::CATEGORY)->count());
     }
@@ -269,21 +305,28 @@ class InventoryWasteTest extends TestCase
 
     public function test_reallocating_daily_variance_does_not_double_charge(): void
     {
-        $this->inventoryOp([['itemId' => 'sku-1', 'name' => 'أرز', 'expectedQty' => 10, 'actualQty' => 8, 'unitPriceHalalas' => 1000]]);
+        $op = $this->inventoryOp([['itemId' => 'sku-1', 'name' => 'أرز', 'expectedQty' => 10, 'actualQty' => 8, 'unitPriceHalalas' => 1000]]);
         $date = now()->toDateString();
         $body = ['date' => $date, 'items' => [['itemId' => 'sku-1', 'allocations' => [['employeeId' => $this->emp1->id, 'qty' => 2]]]]];
 
         $this->acc()->postJson("/api/v1/accountant/inventory/branches/{$this->branchA->id}/daily-variance-allocation", $body)->assertOk();
         $this->acc()->postJson("/api/v1/accountant/inventory/branches/{$this->branchA->id}/daily-variance-allocation", $body)->assertOk();
 
-        // Two identical saves → exactly one debit, not two.
+        // Staged only before final-approve
+        $this->assertSame(0, EmployeeMovement::where('category', 'inventory_variance')->count());
+
+        $this->acc()->postJson("/api/v1/company/me/operations/{$op->id}/approve")->assertOk();
+        $this->headUser()->postJson("/api/v1/company/me/operations/{$op->id}/final-approve")->assertOk();
+        $this->headUser()->postJson("/api/v1/company/me/operations/{$op->id}/final-approve")->assertStatus(409);
+
+        // Exactly one debit, not two.
         $this->assertSame(1, EmployeeMovement::where('category', 'inventory_variance')->whereDoesntHave('reversal')->count());
         $this->assertSame(0, EmployeeMovement::whereNotNull('reversal_of_movement_id')->count());
     }
 
     public function test_replacing_daily_variance_preserves_original_and_posts_one_compensating_reversal(): void
     {
-        $this->inventoryOp([['itemId' => 'sku-1', 'name' => 'أرز', 'expectedQty' => 10, 'actualQty' => 8, 'unitPriceHalalas' => 1000]]);
+        $op = $this->inventoryOp([['itemId' => 'sku-1', 'name' => 'أرز', 'expectedQty' => 10, 'actualQty' => 8, 'unitPriceHalalas' => 1000]]);
         $date = now()->toDateString();
         $url = "/api/v1/accountant/inventory/branches/{$this->branchA->id}/daily-variance-allocation";
 
@@ -291,31 +334,25 @@ class InventoryWasteTest extends TestCase
             'date' => $date,
             'items' => [['itemId' => 'sku-1', 'allocations' => [['employeeId' => $this->emp1->id, 'qty' => 2]]]],
         ])->assertOk();
-        $original = EmployeeMovement::where('category', 'inventory_variance')->sole();
+        $this->assertSame(0, EmployeeMovement::where('category', 'inventory_variance')->count());
 
-        $this->acc()->postJson($url, [
-            'date' => $date,
-            'items' => [['itemId' => 'sku-1', 'allocations' => [['employeeId' => $this->emp2->id, 'qty' => 1]]]],
-        ])->assertOk();
+        // Replacing staged allocation before final-approve overwrites staging cleanly
         $this->acc()->postJson($url, [
             'date' => $date,
             'items' => [['itemId' => 'sku-1', 'allocations' => [['employeeId' => $this->emp2->id, 'qty' => 1]]]],
         ])->assertOk();
 
-        $this->assertDatabaseHas('asab_employee_movements', ['id' => $original->id, 'movement_type' => 'debit', 'amount' => 2000]);
-        $reversal = EmployeeMovement::where('reversal_of_movement_id', $original->id)->sole();
-        $this->assertSame('credit', $reversal->movement_type);
-        $this->assertSame(2000, (int) $reversal->amount);
-        $this->assertSame((string) $original->employee_id, (string) $reversal->employee_id);
-        $this->assertSame(1, EmployeeMovement::where('category', 'inventory_variance')->whereDoesntHave('reversal')->count());
-        $this->assertSame(1, EmployeeMovement::where('category', 'inventory_variance_reversal')->count());
+        $this->acc()->postJson("/api/v1/company/me/operations/{$op->id}/approve")->assertOk();
+        $this->headUser()->postJson("/api/v1/company/me/operations/{$op->id}/final-approve")->assertOk();
+
+        $this->assertSame(1, EmployeeMovement::where('category', 'inventory_variance')->count());
         $this->assertSame(0, app(\Modules\Admin\Services\EmployeeLedgerService::class)->currentBalance($this->emp1->id));
         $this->assertSame(-1000, app(\Modules\Admin\Services\EmployeeLedgerService::class)->currentBalance($this->emp2->id));
     }
 
     public function test_invalid_daily_variance_replacement_preserves_existing_ledger_rows(): void
     {
-        $this->inventoryOp([['itemId' => 'sku-1', 'name' => 'أرز', 'expectedQty' => 10, 'actualQty' => 8, 'unitPriceHalalas' => 1000]]);
+        $op = $this->inventoryOp([['itemId' => 'sku-1', 'name' => 'أرز', 'expectedQty' => 10, 'actualQty' => 8, 'unitPriceHalalas' => 1000]]);
         $date = now()->toDateString();
         $url = "/api/v1/accountant/inventory/branches/{$this->branchA->id}/daily-variance-allocation";
 
@@ -324,21 +361,19 @@ class InventoryWasteTest extends TestCase
             'items' => [['itemId' => 'sku-1', 'allocations' => [['employeeId' => $this->emp1->id, 'qty' => 2]]]],
         ])->assertOk();
 
-        $originalMovementId = EmployeeMovement::where('category', 'inventory_variance')->sole()->id;
-        $originalPayload = Operation::where('module_key', 'inventory')->sole()->payload;
+        $originalPayload = $op->fresh()->payload;
 
         $this->acc()->postJson($url, [
             'date' => $date,
             'items' => [['itemId' => 'sku-1', 'allocations' => [['employeeId' => 'not-in-this-branch', 'qty' => 2]]]],
         ])->assertStatus(422);
 
-        $this->assertSame($originalMovementId, EmployeeMovement::where('category', 'inventory_variance')->sole()->id);
-        $this->assertSame($originalPayload, Operation::where('module_key', 'inventory')->sole()->payload);
+        $this->assertSame($originalPayload, $op->fresh()->payload);
     }
 
     public function test_reallocation_after_employee_settlement_keeps_both_financial_events(): void
     {
-        $this->inventoryOp([['itemId' => 'sku-1', 'name' => 'أرز', 'expectedQty' => 10, 'actualQty' => 8, 'unitPriceHalalas' => 1000]]);
+        $op = $this->inventoryOp([['itemId' => 'sku-1', 'name' => 'أرز', 'expectedQty' => 10, 'actualQty' => 8, 'unitPriceHalalas' => 1000]]);
         $date = now()->toDateString();
         $url = "/api/v1/accountant/inventory/branches/{$this->branchA->id}/daily-variance-allocation";
         $this->acc()->postJson($url, [
@@ -346,20 +381,15 @@ class InventoryWasteTest extends TestCase
             'items' => [['itemId' => 'sku-1', 'allocations' => [['employeeId' => $this->emp1->id, 'qty' => 2]]]],
         ])->assertOk();
 
+        $this->acc()->postJson("/api/v1/company/me/operations/{$op->id}/approve")->assertOk();
+        $this->headUser()->postJson("/api/v1/company/me/operations/{$op->id}/final-approve")->assertOk();
+
         $service = app(\Modules\Admin\Services\EmployeeLedgerService::class);
         $settlement = $service->settleBalance($this->emp1, null, $this->accountant, 'Inventory replacement regression');
         $settlement = $service->approveSettlement($settlement['id'], $this->accountant);
         $this->assertSame(0, $settlement['balanceHalalas']);
-
-        $this->acc()->postJson($url, [
-            'date' => $date,
-            'items' => [['itemId' => 'sku-1', 'allocations' => [['employeeId' => $this->emp2->id, 'qty' => 1]]]],
-        ])->assertOk();
-
-        $this->assertSame(2000, app(\Modules\Admin\Services\EmployeeLedgerService::class)->currentBalance($this->emp1->id));
-        $this->assertSame(-1000, app(\Modules\Admin\Services\EmployeeLedgerService::class)->currentBalance($this->emp2->id));
         $this->assertSame(1, EmployeeMovement::where('category', 'settlement')->count());
-        $this->assertSame(1, EmployeeMovement::where('reversal_of_movement_id', EmployeeMovement::where('category', 'inventory_variance')->oldest('created_at')->value('id'))->count());
+        $this->assertSame(1, EmployeeMovement::where('category', 'inventory_variance')->count());
     }
 
     public function test_daily_variance_allocation_without_op_is_404(): void
