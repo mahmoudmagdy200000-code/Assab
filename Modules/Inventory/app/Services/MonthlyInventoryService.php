@@ -601,7 +601,7 @@ class MonthlyInventoryService
             }
 
             $old = $inventory->status->value;
-            $newStatus = MonthlyInventoryStatus::COMPLETED;
+            $newStatus = MonthlyInventoryStatus::SUBMITTED;
 
             $inventory->update([
                 'status' => $newStatus,
@@ -612,13 +612,15 @@ class MonthlyInventoryService
                 $inventory,
                 MonthlyInventoryTimelineEventType::SUBMITTED,
                 'Submitted',
-                'Monthly inventory completed.',
+                'Monthly inventory submitted for accountant review.',
                 $old,
                 $newStatus->value
             );
 
             return $inventory->fresh();
         });
+
+        app(\Modules\Admin\Services\InventoryBridgeService::class)->syncMonthly($inventory);
 
         $this->broadcastInventoryEvent($inventoryId, 'inventory.submitted', [
             'status' => $inventory->status->value,
@@ -662,6 +664,8 @@ class MonthlyInventoryService
 
             return $inventory->fresh();
         });
+
+        app(\Modules\Admin\Services\InventoryBridgeService::class)->syncMonthly($inventory);
 
         $this->broadcastInventoryEvent($inventoryId, 'inventory.submitted', [
             'status' => MonthlyInventoryStatus::SUBMITTED->value,

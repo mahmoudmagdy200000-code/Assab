@@ -27,11 +27,11 @@ class BmDailyInventoryDetailsResource extends JsonResource
 
         return [
             'id' => $this->id,
-            'branch_name' => $branch?->name,
-            'branch_open_hours' => $this->formatBranchHours($branch),
-            'inventory_date' => ($this->inventory_date ?? $this->submitted_at ?? $this->created_at)?->toIso8601String(),
-            'branch_image_url' => $this->resolveImage($branch?->image),
-            'reporter_name' => $reporter?->name,
+            'branch_name' => $branch?->name ?? '',
+            'branch_open_hours' => $this->formatBranchHours($branch) ?? '-',
+            'inventory_date' => ($this->inventory_date ?? $this->submitted_at ?? $this->created_at)?->toDateString() ?? '',
+            'branch_image_url' => $this->resolveImage($branch?->image) ?? '',
+            'reporter_name' => $reporter?->name ?? '',
             'reporter_image_url' => $this->resolveImage($reporter?->image ?? null),
             'status' => $this->mapStatus($status),
             'summary' => [

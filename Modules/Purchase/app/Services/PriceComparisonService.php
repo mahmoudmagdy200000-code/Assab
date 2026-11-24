@@ -977,8 +977,25 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
      * @param  string  $excludeBranchId  Branch to exclude (current branch)
      * @param  array  $filters  Additional filters
      */
-    public function getBranchesWithStock(string $itemId, float $quantity, string $excludeBranchId, array $filters = []): Collection
+    public function getBranchesWithStock(?string $itemId, float $quantity, ?string $excludeBranchId, array $filters = []): Collection
     {
+        if (! $itemId) {
+            $currentBranch = $excludeBranchId ? \Modules\Branch\Models\Branch::find($excludeBranchId) : null;
+
+            return \Modules\Branch\Models\Branch::query()
+                ->when($currentBranch?->asab_company_id, fn ($q, $cid) => $q->where('asab_company_id', $cid))
+                ->when($excludeBranchId, fn ($q, $bid) => $q->where('id', '!=', $bid))
+                ->orderBy('name')
+                ->get()
+                ->map(fn ($b) => [
+                    'id' => $b->id,
+                    'branch_id' => $b->id,
+                    'branch_name' => $b->name,
+                    'name' => $b->name,
+                    'available_quantity' => null,
+                ]);
+        }
+
         // itemId can be either BranchItem.id (legacy) or Item.id (new structure)
         // Try to find the Item model
         $item = null;
@@ -1130,8 +1147,14 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             // Get branch manager info
             $manager = $branch->branchManager ?? $branch->managers()->active()->first();
 
-            // Calculate total amount
-            $totalAmount = $avgUnitPrice * $quantity;
+            // Calculate total amount using sender branch weighted cost when available
+            $senderCostHalalas = \Modules\Inventory\Models\InventoryMonthlyCost::where('branch_id', $branchId)
+                ->where('item_id', $item->id)
+                ->orderByDesc('year_month')
+                ->value('unit_cost_halalas');
+            $unitCostSar = $senderCostHalalas !== null ? ((int) $senderCostHalalas) / 100 : (float) $avgUnitPrice;
+            $resolvedCostHalalas = $senderCostHalalas !== null ? (int) $senderCostHalalas : (int) round($unitCostSar * 100);
+            $totalAmount = $unitCostSar * $quantity;
 
             // Get response rate with default value
             $responseRate = $branchStats[$branchId]['response_rate']
@@ -1171,6 +1194,8 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                 'item_code' => $item->code,
                 'item_logo' => $item->logo_url,
                 'quantity' => $quantity,
+                'sender_unit_cost_halalas' => $resolvedCostHalalas,
+                'sender_unit_cost_sar' => round($unitCostSar, 2),
                 'total_amount' => round($totalAmount, 2),
                 // Available Quantity (from daily inventory)
                 'available_quantity' => $availableQty,
@@ -1319,8 +1344,14 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             // Get branch manager info
             $manager = $branch->branchManager ?? $branch->managers()->active()->first();
 
-            // Calculate total amount
-            $totalAmount = $avgUnitPrice * $quantity;
+            // Calculate total amount using sender branch weighted cost when available
+            $senderCostHalalas = \Modules\Inventory\Models\InventoryMonthlyCost::where('branch_id', $branchId)
+                ->where('item_id', $item->id)
+                ->orderByDesc('year_month')
+                ->value('unit_cost_halalas');
+            $unitCostSar = $senderCostHalalas !== null ? ((int) $senderCostHalalas) / 100 : (float) $avgUnitPrice;
+            $resolvedCostHalalas = $senderCostHalalas !== null ? (int) $senderCostHalalas : (int) round($unitCostSar * 100);
+            $totalAmount = $unitCostSar * $quantity;
 
             // Get response rate with default value
             $responseRate = $branchStats[$branchId]['response_rate']
@@ -1360,6 +1391,8 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                 'item_code' => $inventoryItem->code ?? $item->code,
                 'item_logo' => $inventoryItem->logo_url ?? $item->logo_url,
                 'quantity' => $quantity,
+                'sender_unit_cost_halalas' => $resolvedCostHalalas,
+                'sender_unit_cost_sar' => round($unitCostSar, 2),
                 'total_amount' => round($totalAmount, 2),
                 // Available Quantity
                 'available_quantity' => $availableQty,

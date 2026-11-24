@@ -23,11 +23,12 @@ class BrandOwnerInventoryController extends BaseController
 
     public function dailyIndex(Request $request): JsonResponse
     {
-        if (! $this->resolveBrandOwner()) {
+        $owner = $this->resolveBrandOwner();
+        if (! $owner) {
             return $this->forbiddenResponse('Only brand owners can access this resource.');
         }
 
-        $paginator = $this->service->listDailyInventoryRequests(self::PER_PAGE);
+        $paginator = $this->service->listDailyInventoryRequests(self::PER_PAGE, $owner);
 
         return $this->paginatedResponse(
             BmDailyInventoryListResource::collection($paginator),
@@ -37,11 +38,12 @@ class BrandOwnerInventoryController extends BaseController
 
     public function wasteDamageIndex(Request $request): JsonResponse
     {
-        if (! $this->resolveBrandOwner()) {
+        $owner = $this->resolveBrandOwner();
+        if (! $owner) {
             return $this->forbiddenResponse('Only brand owners can access this resource.');
         }
 
-        $paginator = $this->service->listWasteDamageRequests(self::PER_PAGE);
+        $paginator = $this->service->listWasteDamageRequests(self::PER_PAGE, $owner);
 
         return $this->paginatedResponse(
             BmWasteDamageListResource::collection($paginator),
@@ -51,12 +53,13 @@ class BrandOwnerInventoryController extends BaseController
 
     public function dailyShow(string $requestId): JsonResponse
     {
-        if (! $this->resolveBrandOwner()) {
+        $owner = $this->resolveBrandOwner();
+        if (! $owner) {
             return $this->forbiddenResponse('Only brand owners can access this resource.');
         }
 
         try {
-            $session = $this->service->getDailyInventoryDetails($requestId);
+            $session = $this->service->getDailyInventoryDetails($requestId, $owner);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return $this->notFoundResponse('Daily inventory request not found.');
         }
@@ -69,12 +72,13 @@ class BrandOwnerInventoryController extends BaseController
 
     public function wasteDamageShow(string $requestId): JsonResponse
     {
-        if (! $this->resolveBrandOwner()) {
+        $owner = $this->resolveBrandOwner();
+        if (! $owner) {
             return $this->forbiddenResponse('Only brand owners can access this resource.');
         }
 
         try {
-            $report = $this->service->getWasteDamageDetails($requestId);
+            $report = $this->service->getWasteDamageDetails($requestId, $owner);
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             return $this->notFoundResponse('Waste & damage request not found.');
         }

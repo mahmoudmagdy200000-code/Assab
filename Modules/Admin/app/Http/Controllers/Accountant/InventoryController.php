@@ -86,11 +86,24 @@ class InventoryController extends AsabController
     public function sendConfirmation(Request $request, RealtimeBroadcaster $rt, NotificationService $notifications, string $branchId): JsonResponse
     {
         return $this->run(function () use ($request, $rt, $notifications, $branchId) {
+            $data = $request->validate([
+                'reason' => 'sometimes|nullable|string|max:500',
+                'message' => 'sometimes|nullable|string|max:500',
+                'operationId' => 'sometimes|nullable|string',
+            ]);
             $this->assertBranchAssigned($branchId);
-            $op = Operation::where('module_key', 'inventory')->where('branch_id', $branchId)->latest('operation_date')->firstOrFail();
+            $op = Operation::where('module_key', 'inventory')
+                ->where('branch_id', $branchId)
+                ->when($data['operationId'] ?? null, fn ($q, $id) => $q->where('id', $id))
+                ->latest('operation_date')
+                ->firstOrFail();
+            $reason = $data['reason'] ?? $data['message'] ?? null;
             $payload = $op->payload ?? [];
             $payload['sentToConfirm'] = true;
             $payload['sentToConfirmAt'] = now()->toIso8601String();
+            if ($reason !== null && trim($reason) !== '') {
+                $payload['confirmationReason'] = trim($reason);
+            }
             $op->update(['payload' => $payload]);
 
             // T07.9 — the accountant «إرسال» must actually reach the branch: a
@@ -99,11 +112,18 @@ class InventoryController extends AsabController
             $rt->inventoryFlagSent($branchId, $payload['flaggedItemIndices'] ?? []);
             $notifications->pushToBranch(
                 $request->user()->company_id, $branchId, 'branch', 'inventory.flagged',
-                'أصناف بحاجة إلى مراجعة الجرد', 'راجع الأصناف المُعلَّمة وأكِّد الجرد',
+                'أصناف بحاجة إلى مراجعة الجرد',
+                $reason ? 'طلب تأكيد الجرد: '.$reason : 'راجع الأصناف المُعلَّمة وأكِّد الجرد',
                 null, ['type' => 'operation', 'id' => $op->id],
             );
 
-            return $this->ok(['branchId' => $branchId, 'sentToConfirm' => true, 'notifiedBranch' => true]);
+            return $this->ok([
+                'branchId' => $branchId,
+                'operationId' => $op->id,
+                'sentToConfirm' => true,
+                'confirmationReason' => $payload['confirmationReason'] ?? null,
+                'notifiedBranch' => true,
+            ]);
         });
     }
 

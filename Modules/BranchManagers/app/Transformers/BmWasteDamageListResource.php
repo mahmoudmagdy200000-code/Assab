@@ -19,8 +19,8 @@ class BmWasteDamageListResource extends JsonResource
             'id' => $this->id,
             'report_type' => $this->resolveReportType(),
             'status' => $this->mapStatus($status),
-            'submission_date' => $this->submitted_at?->toIso8601String()
-                ?? $this->created_at?->toIso8601String(),
+            'submission_date' => $this->submitted_at?->toDateString()
+                ?? $this->created_at?->toDateString(),
             'items_count' => (int) ($this->items_count
                 ?? ($this->relationLoaded('items') ? $this->items->count() : 0)),
             'branch' => $this->whenLoaded('branch', fn () => [

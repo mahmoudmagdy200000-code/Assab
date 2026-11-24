@@ -65,12 +65,19 @@ class WasteController extends AsabController
             if (! isset($payload['products'][$productIdx])) {
                 return $this->fail('NOT_FOUND', 'Product not found in waste entry', 'المنتج غير موجود', [], 404);
             }
+            $changed = false;
             foreach ($data as $k => $v) {
+                if (($payload['products'][$productIdx][$k] ?? null) !== $v) {
+                    $changed = true;
+                }
                 $payload['products'][$productIdx][$k] = $v;
+            }
+            if ($changed) {
+                $payload['revision'] = ((int) ($payload['revision'] ?? 1)) + 1;
             }
             $op->update(['payload' => $payload]);
 
-            return $this->ok(['id' => $op->id, 'product' => $payload['products'][$productIdx]]);
+            return $this->ok(['id' => $op->id, 'revision' => $payload['revision'] ?? 1, 'product' => $payload['products'][$productIdx]]);
         });
     }
 
@@ -96,12 +103,17 @@ class WasteController extends AsabController
             }
 
             $rows = $this->waste->normaliseAllocations($op, $payload['products'][$productIdx], $data['empAllocs']);
-            $payload['products'][$productIdx]['empAllocs'] = array_map(
+            $nextAllocs = array_map(
                 fn ($r) => ['employeeId' => $r['employeeId'], 'amountHalalas' => $r['amountHalalas']], $rows,
             );
+            $prevAllocs = $payload['products'][$productIdx]['empAllocs'] ?? [];
+            $payload['products'][$productIdx]['empAllocs'] = $nextAllocs;
+            if ($prevAllocs !== $nextAllocs) {
+                $payload['revision'] = ((int) ($payload['revision'] ?? 1)) + 1;
+            }
             $op->update(['payload' => $payload]);
 
-            return $this->ok(['id' => $op->id, 'empAllocs' => $rows]);
+            return $this->ok(['id' => $op->id, 'revision' => $payload['revision'] ?? 1, 'empAllocs' => $rows]);
         });
     }
 
@@ -156,6 +168,10 @@ class WasteController extends AsabController
             'brandId' => $brandNames[$o->branch_id]['brandId'] ?? null,
             'brandName' => $brandNames[$o->branch_id]['brandName'] ?? null,
             'date' => optional($o->operation_date)->toIso8601String(),
+            'incidentDate' => $o->payload['incidentDate'] ?? optional($o->operation_date)->toDateString(),
+            'postedAt' => $o->payload['postedAt'] ?? optional($o->final_approved_at)->toIso8601String(),
+            'revision' => (int) ($o->payload['revision'] ?? 1),
+            'ownerApproval' => $o->payload['ownerApproval'] ?? null,
             'status' => $o->status,
             'amount' => $o->amount,
             'amountHalalas' => (int) $o->amount,
@@ -187,15 +203,17 @@ class WasteController extends AsabController
         $monthStart = now()->startOfMonth()->toDateString();
 
         $charged = 0;
-        foreach ((clone $base)->where('status', 'approved')->limit(5000)->get(['payload']) as $o) {
+        foreach ((clone $base)->where('status', 'final-approved')->limit(5000)->get(['payload']) as $o) {
             $charged += $this->employeeCharged($o->payload['products'] ?? []);
         }
 
         return [
             'total' => (clone $base)->count(),
             'pendingReview' => (clone $base)->where('status', 'pending')->count(),
-            'approvedThisMonth' => (clone $base)->where('status', 'approved')->whereDate('operation_date', '>=', $monthStart)->count(),
-            'totalLossesHalalas' => (int) (clone $base)->sum('amount'),
+            'pendingHeadReview' => (clone $base)->where('status', 'approved')->count(),
+            'approvedThisMonth' => (clone $base)->whereIn('status', ['approved', 'final-approved'])->whereDate('operation_date', '>=', $monthStart)->count(),
+            'finalApprovedThisMonth' => (clone $base)->where('status', 'final-approved')->whereDate('operation_date', '>=', $monthStart)->count(),
+            'totalLossesHalalas' => (int) (clone $base)->where('status', '!=', 'rejected')->sum('amount'),
             'chargedToEmployeesHalalas' => $charged,
         ];
     }

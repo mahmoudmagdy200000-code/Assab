@@ -4,9 +4,14 @@ namespace Modules\Purchase\Services;
 
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Modules\Admin\Exceptions\AsabException;
+use Modules\Inventory\Models\InternalTransferVariance;
+use Modules\Inventory\Models\InventoryStockMovement;
 use Modules\Purchase\Enums\DocumentType;
 use Modules\Purchase\Enums\OrderItemStatus;
 use Modules\Purchase\Enums\OrderStatus;
+use Modules\Purchase\Models\BranchInventory;
+use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\CompensatoryOrder;
 use Modules\Purchase\Models\GoodsReceipt;
 use Modules\Purchase\Models\GoodsReceiptItem;
@@ -998,6 +1003,36 @@ class GoodsReceiptService
     public function receiveInternalTransfer(PurchaseOrder $order, string $receivedBy, array $deliveryDetails = []): GoodsReceipt
     {
         return DB::transaction(function () use ($order, $receivedBy, $deliveryDetails) {
+            $order = PurchaseOrder::withoutGlobalScopes()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $order->loadMissing(['items', 'branch']);
+
+            $reqIdemKey = isset($deliveryDetails['idempotency_key']) && $deliveryDetails['idempotency_key'] !== ''
+                ? (string) $deliveryDetails['idempotency_key']
+                : null;
+            if ($reqIdemKey) {
+                $existingReceiptId = InventoryStockMovement::where('idempotency_key', 'like', 'transfer-req:'.$reqIdemKey.':%')
+                    ->value('source_id');
+                if ($existingReceiptId && ($existing = GoodsReceipt::with(['items', 'purchaseOrder'])->find($existingReceiptId))) {
+                    return $existing;
+                }
+            }
+            $companyId = (string) ($order->branch?->company_id ?? \Modules\Branch\Models\Branch::whereKey($order->branch_id)->value('company_id') ?? '');
+            $now = now();
+
+            $receivedByOrderItem = [];
+            $receivedByItemId = [];
+            foreach ((array) ($deliveryDetails['items'] ?? []) as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                if (isset($row['purchase_order_item_id'])) {
+                    $receivedByOrderItem[(string) $row['purchase_order_item_id']] = max(0.0, round((float) ($row['quantity_received'] ?? 0), 3));
+                }
+                if (isset($row['item_id'])) {
+                    $receivedByItemId[(string) $row['item_id']] = max(0.0, round((float) ($row['quantity_received'] ?? 0), 3));
+                }
+            }
+
             $receipt = GoodsReceipt::create([
                 'purchase_order_id' => $order->id,
                 'branch_id' => $order->branch_id,
@@ -1006,18 +1041,23 @@ class GoodsReceiptService
                 'driver_name' => $deliveryDetails['driver_name'] ?? null,
                 'driver_contact' => $deliveryDetails['driver_contact'] ?? null,
                 'vehicle_number' => $deliveryDetails['vehicle_number'] ?? null,
-                'arrival_time' => $deliveryDetails['arrival_time'] ?? now(),
+                'arrival_time' => $deliveryDetails['arrival_time'] ?? $now,
                 'delivery_address' => $deliveryDetails['delivery_address'] ?? null,
                 'total_items_expected' => $order->items->count(),
                 'expected_amount' => $order->total_amount,
-                'inspection_started_at' => now(),
+                'inspection_started_at' => $now,
             ]);
 
-            // Create receipt items from order items (internal transfer has different structure)
+            $hasOpenTransit = false;
+
             foreach ($order->items as $orderItem) {
-                // Use quantity_confirmed if available (for partial confirmation), otherwise use quantity_ordered
-                $expectedQuantity = $orderItem->quantity_confirmed ?? $orderItem->quantity_ordered;
-                $expectedTotal = $expectedQuantity * $orderItem->unit_price;
+                $expectedQuantity = round((float) ($orderItem->quantity_confirmed ?? $orderItem->quantity_ordered), 3);
+                $actualReceived = $receivedByOrderItem[$orderItem->id]
+                    ?? ($orderItem->item_id ? ($receivedByItemId[(string) $orderItem->item_id] ?? $expectedQuantity) : $expectedQuantity);
+                $actualReceived = min($expectedQuantity, max(0.0, round((float) $actualReceived, 3)));
+
+                $expectedTotal = $expectedQuantity * (float) $orderItem->unit_price;
+                $receivedTotal = $actualReceived * (float) $orderItem->unit_price;
 
                 GoodsReceiptItem::create([
                     'goods_receipt_id' => $receipt->id,
@@ -1026,30 +1066,276 @@ class GoodsReceiptService
                     'item_name' => $orderItem->item_name,
                     'item_logo' => $orderItem->item_logo,
                     'unit_of_measurement' => $orderItem->unit_of_measurement,
-                    'quantity_ordered' => $expectedQuantity, // Use confirmed quantity if available
-                    'quantity_received' => $expectedQuantity, // For internal transfer, received equals expected
+                    'quantity_ordered' => $expectedQuantity,
+                    'quantity_received' => $actualReceived,
                     'quality_ordered' => $orderItem->quality_ordered,
                     'unit_price' => $orderItem->unit_price,
-                    'expected_total' => $expectedTotal, // Calculate based on confirmed quantity
-                    'received_total' => $expectedTotal,
+                    'expected_total' => $expectedTotal,
+                    'received_total' => $receivedTotal,
                 ]);
+
+                $variance = InternalTransferVariance::where('purchase_order_item_id', $orderItem->id)
+                    ->lockForUpdate()
+                    ->first();
+
+                $senderUnitCostHalalas = $variance
+                    ? (int) $variance->sender_unit_cost_halalas
+                    : (int) round(((float) $orderItem->unit_price) * 100);
+
+                if ($actualReceived > 0.0) {
+                    $itemId = (string) ($orderItem->item_id ?? '');
+                    if ($itemId !== '') {
+                        $this->adjustBranchStock($order->branch_id, $itemId, $actualReceived, $now);
+                    }
+
+                    $idemKey = $reqIdemKey
+                        ? 'transfer-req:'.$reqIdemKey.':'.$orderItem->id
+                        : 'transfer-receive:'.$receipt->id.':'.$orderItem->id;
+                    if (! InventoryStockMovement::where('idempotency_key', $idemKey)->exists()) {
+                        InventoryStockMovement::create([
+                            'idempotency_key' => $idemKey,
+                            'company_id' => $companyId,
+                            'branch_id' => $order->branch_id,
+                            'item_id' => $itemId !== '' ? $itemId : $orderItem->id,
+                            'movement_type' => 'transfer_in',
+                            'qty_delta' => $actualReceived,
+                            'unit_cost_halalas' => $senderUnitCostHalalas,
+                            'total_cost_halalas' => (int) round($actualReceived * $senderUnitCostHalalas),
+                            'source_type' => 'goods_receipt',
+                            'source_id' => $receipt->id,
+                            'revision' => 1,
+                            'cost_source' => 'SENDER_TRANSFER_COST',
+                            'posted_at' => $now,
+                            'created_by_id' => $receivedBy,
+                            'notes' => 'استلام تحويل داخلي وارد — '.$order->order_number,
+                        ]);
+                    }
+                }
+
+                if ($variance) {
+                    $newReceived = round((float) $variance->received_qty + $actualReceived, 3);
+                    $inTransit = max(0.0, round((float) $variance->dispatched_qty - $newReceived, 3));
+                    $updates = [
+                        'goods_receipt_id' => $receipt->id,
+                        'received_qty' => $newReceived,
+                        'in_transit_qty' => $inTransit,
+                        'variance_qty' => $inTransit,
+                    ];
+                    if ($inTransit <= 0.0) {
+                        $updates['status'] = 'CLOSED';
+                        $updates['resolution'] = 'full_receipt';
+                        $updates['closed_by_id'] = $receivedBy;
+                        $updates['closed_at'] = $now;
+                    } else {
+                        $updates['status'] = 'IN_TRANSIT';
+                        $hasOpenTransit = true;
+                    }
+                    $variance->update($updates);
+                } elseif ($actualReceived < $expectedQuantity) {
+                    $inTransit = round($expectedQuantity - $actualReceived, 3);
+                    InternalTransferVariance::create([
+                        'purchase_order_id' => $order->id,
+                        'purchase_order_item_id' => $orderItem->id,
+                        'goods_receipt_id' => $receipt->id,
+                        'from_branch_id' => $order->from_branch_id ?? $order->branch_id,
+                        'to_branch_id' => $order->branch_id,
+                        'item_id' => (string) ($orderItem->item_id ?? $orderItem->id),
+                        'dispatched_qty' => $expectedQuantity,
+                        'received_qty' => $actualReceived,
+                        'in_transit_qty' => $inTransit,
+                        'variance_qty' => $inTransit,
+                        'sender_unit_cost_halalas' => $senderUnitCostHalalas,
+                        'status' => 'IN_TRANSIT',
+                    ]);
+                    $hasOpenTransit = true;
+                }
             }
 
-            // Auto-complete and move to history
             $receipt->completeInspection();
 
-            // For internal transfer, directly update status to CLOSED (bypass transition rules)
-            $order->update([
-                'status' => OrderStatus::CLOSED->value,
-                'closed_at' => now(),
-            ]);
-            $order->items()->update(['status' => OrderItemStatus::CLOSED->value]);
+            if ($hasOpenTransit) {
+                $order->update(['status' => OrderStatus::VARIANCE->value]);
+            } else {
+                $order->update([
+                    'status' => OrderStatus::CLOSED->value,
+                    'closed_at' => $now,
+                ]);
+                $order->items()->update(['status' => OrderItemStatus::CLOSED->value]);
+                $this->timelineService->logOrderClosed($order);
+            }
 
             $this->timelineService->logInspectionCompleted($receipt);
-            $this->timelineService->logOrderClosed($order);
 
             return $receipt->fresh(['items', 'purchaseOrder']);
         });
+    }
+
+    /**
+     * Close open internal-transfer variance (IN_TRANSIT) — receiving branch manager ONLY.
+     * Supports: late_receipt | returned_to_sender | standing_variance.
+     */
+    public function closeTransferVariance(
+        PurchaseOrder $order,
+        string $actorId,
+        ?string $actorBranchId,
+        string $resolution,
+        ?string $reason = null,
+        ?string $evidencePath = null,
+        ?string $idempotencyKey = null
+    ): array {
+        if ($actorBranchId !== $order->branch_id) {
+            throw new AsabException(
+                'FORBIDDEN_TRANSFER_CLOSURE',
+                'Only the receiving branch manager can close internal transfer variance.',
+                'إغلاق فروق التحويل الداخلي مسموح لمدير الفرع المستلم فقط',
+                403
+            );
+        }
+
+        if (! in_array($resolution, ['late_receipt', 'returned_to_sender', 'standing_variance'], true)) {
+            throw new AsabException(
+                'INVALID_VARIANCE_RESOLUTION',
+                'Invalid variance resolution type.',
+                'نوع تسوية الفرق غير صالح',
+                422
+            );
+        }
+
+        return DB::transaction(function () use ($order, $actorId, $resolution, $reason, $evidencePath, $idempotencyKey) {
+            $order = PurchaseOrder::withoutGlobalScopes()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+            $order->loadMissing('branch');
+            $companyId = (string) ($order->branch?->company_id ?? \Modules\Branch\Models\Branch::whereKey($order->branch_id)->value('company_id') ?? '');
+            $now = now();
+
+            if ($idempotencyKey) {
+                $replayed = InternalTransferVariance::where('purchase_order_id', $order->id)
+                    ->where('idempotency_key', $idempotencyKey)
+                    ->where('status', 'CLOSED')
+                    ->get();
+                if ($replayed->isNotEmpty()) {
+                    return [
+                        'order_id' => $order->id,
+                        'order_status' => OrderStatus::CLOSED->value,
+                        'resolution' => $replayed->first()->resolution,
+                        'closed_variance_ids' => $replayed->pluck('id')->all(),
+                        'idempotent_replay' => true,
+                    ];
+                }
+            }
+
+            $openVariances = InternalTransferVariance::where('purchase_order_id', $order->id)
+                ->where('status', 'IN_TRANSIT')
+                ->lockForUpdate()
+                ->get();
+
+            if ($openVariances->isEmpty()) {
+                throw new AsabException(
+                    'NO_OPEN_TRANSFER_VARIANCE',
+                    'No open IN_TRANSIT variance exists for this transfer order.',
+                    'لا توجد فروق تحويل قيد النقل مفتوحة لهذا الطلب',
+                    409
+                );
+            }
+
+            $closedIds = [];
+            foreach ($openVariances as $variance) {
+                $qty = round((float) $variance->in_transit_qty, 3);
+                $unitCost = (int) $variance->sender_unit_cost_halalas;
+                $totalCost = (int) round($qty * $unitCost);
+                $idemKey = $idempotencyKey
+                    ? 'transfer-close:'.$idempotencyKey.':'.$variance->id
+                    : 'transfer-close:'.$variance->id.':'.$resolution;
+
+                if ($qty > 0.0 && ! InventoryStockMovement::where('idempotency_key', $idemKey)->exists()) {
+                    if ($resolution === 'late_receipt') {
+                        $this->adjustBranchStock($variance->to_branch_id, $variance->item_id, $qty, $now);
+                        $movementBranch = $variance->to_branch_id;
+                        $movementType = 'transfer_in';
+                        $qtyDelta = $qty;
+                    } elseif ($resolution === 'returned_to_sender') {
+                        $this->adjustBranchStock($variance->from_branch_id, $variance->item_id, $qty, $now);
+                        $movementBranch = $variance->from_branch_id;
+                        $movementType = 'transfer_return_in';
+                        $qtyDelta = $qty;
+                    } else {
+                        $movementBranch = $variance->to_branch_id;
+                        $movementType = 'transfer_variance_loss';
+                        $qtyDelta = 0.0;
+                    }
+
+                    InventoryStockMovement::create([
+                        'idempotency_key' => $idemKey,
+                        'company_id' => $companyId,
+                        'branch_id' => $movementBranch,
+                        'item_id' => $variance->item_id,
+                        'movement_type' => $movementType,
+                        'qty_delta' => $qtyDelta,
+                        'unit_cost_halalas' => $unitCost,
+                        'total_cost_halalas' => $totalCost,
+                        'source_type' => 'internal_transfer_variance',
+                        'source_id' => $variance->id,
+                        'revision' => 1,
+                        'cost_source' => 'SENDER_TRANSFER_COST',
+                        'posted_at' => $now,
+                        'created_by_id' => $actorId,
+                        'notes' => 'إغلاق فرق تحويل داخلي ('.$resolution.') — '.$order->order_number,
+                    ]);
+                }
+
+                $variance->update([
+                    'received_qty' => $resolution === 'late_receipt'
+                        ? round((float) $variance->received_qty + $qty, 3)
+                        : $variance->received_qty,
+                    'in_transit_qty' => 0,
+                    'variance_qty' => $resolution === 'standing_variance' ? $qty : 0,
+                    'resolution' => $resolution,
+                    'status' => 'CLOSED',
+                    'reason' => $reason,
+                    'evidence_path' => $evidencePath,
+                    'idempotency_key' => $idempotencyKey,
+                    'closed_by_id' => $actorId,
+                    'closed_at' => $now,
+                ]);
+                $closedIds[] = $variance->id;
+            }
+
+            $order->update([
+                'status' => OrderStatus::CLOSED->value,
+                'closed_at' => $now,
+            ]);
+            $this->timelineService->logOrderClosed($order);
+
+            return [
+                'order_id' => $order->id,
+                'order_status' => OrderStatus::CLOSED->value,
+                'resolution' => $resolution,
+                'closed_variance_ids' => $closedIds,
+            ];
+        });
+    }
+
+    private function adjustBranchStock(string $branchId, string $itemId, float $deltaQty, \Carbon\CarbonInterface $now): void
+    {
+        $branchInv = BranchInventory::where('branch_id', $branchId)
+            ->where('item_id', $itemId)
+            ->lockForUpdate()
+            ->first();
+        if ($branchInv) {
+            $branchInv->update([
+                'available_quantity' => max(0.0, round((float) $branchInv->available_quantity + $deltaQty, 3)),
+                'last_inventory_update' => $now,
+            ]);
+        }
+
+        $branchItem = BranchItem::where('branch_id', $branchId)
+            ->where('item_id', $itemId)
+            ->lockForUpdate()
+            ->first();
+        if ($branchItem) {
+            $branchItem->update([
+                'quantity' => max(0.0, round((float) $branchItem->quantity + $deltaQty, 3)),
+            ]);
+        }
     }
 
     /**
