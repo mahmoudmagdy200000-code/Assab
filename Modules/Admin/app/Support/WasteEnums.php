@@ -10,7 +10,11 @@ namespace Modules\Admin\Support;
  */
 final class WasteEnums
 {
-    public const CLASSIFICATION = ['هدر', 'تالف'];
+    public const CLASS_WASTE = 'هدر';
+
+    public const CLASS_DAMAGE = 'تالف';
+
+    public const CLASSIFICATION = [self::CLASS_WASTE, self::CLASS_DAMAGE];
 
     public const RESPONSIBILITY = ['موظف', 'مطعم'];
 

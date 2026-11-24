@@ -95,7 +95,8 @@ class InventoryReconciliationService
                 : ($consumptionComplete ? (float) ($importedConsumptionByItem[$itemId] ?? 0) : null);
             $waste = (float) ($it['waste'] ?? $it['wasteQty'] ?? ($postedWasteByItem[$itemId] ?? 0));
             $transfers = (float) ($it['transfers'] ?? $it['transfersQty'] ?? 0);
-            $hasEquation = isset($it['opening']) || isset($it['openingQty']);
+            $hasEquation = isset($it['opening']) || isset($it['openingQty'])
+                || $received != 0.0 || $consumed !== null || $waste != 0.0 || $transfers != 0.0;
             $expectedClosing = $itemAwaitingConsumption
                 ? null
                 : round($opening + $received - (float) $consumed - $waste + $transfers, 3);
@@ -212,7 +213,8 @@ class InventoryReconciliationService
                 $consumed = (float) ($it['consumed'] ?? $it['sales'] ?? $it['consumedQty'] ?? 0);
                 $waste = (float) ($it['waste'] ?? $it['wasteQty'] ?? 0);
                 $transfers = (float) ($it['transfers'] ?? $it['transfersQty'] ?? 0);
-                $hasEq = isset($it['opening']) || isset($it['openingQty']);
+                $hasEq = isset($it['opening']) || isset($it['openingQty'])
+                    || $received != 0.0 || $consumed != 0.0 || $waste != 0.0 || $transfers != 0.0;
                 $expected = $hasEq
                     ? round($opening + $received - $consumed - $waste + $transfers, 3)
                     : (float) ($it['expectedQty'] ?? $it['expected'] ?? $it['systemQty'] ?? 0);

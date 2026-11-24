@@ -1216,10 +1216,21 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         // If no results found by item_id, return branches that have this item in their BranchItem list
         if ($inventories->isEmpty() && $inventoryBranches->isEmpty()) {
             // Get all branches that have this item (by Item.id)
+            $stockBalances = \Modules\Inventory\Models\InventoryStockBalance::where('item_id', $item->id)
+                ->where('branch_id', '!=', $excludeBranchId)
+                ->where('qty_on_hand', '>', 0)
+                ->get()
+                ->keyBy('branch_id');
+
             $otherBranchesItems = BranchItem::with(['branch.branchManager', 'item'])
                 ->where('item_id', $item->id)
                 ->where('branch_id', '!=', $excludeBranchId)
-                ->where('quantity', '>', 0)
+                ->where(function ($q) use ($stockBalances) {
+                    $q->where('quantity', '>', 0);
+                    if ($stockBalances->isNotEmpty()) {
+                        $q->orWhereIn('branch_id', $stockBalances->keys()->all());
+                    }
+                })
                 ->get();
 
             // Get all BranchInventory records for these branches and items (by Item.id)
@@ -1233,18 +1244,19 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
                     return $inv->branch_id.'_'.$inv->item_id;
                 });
 
-            return $otherBranchesItems->map(function ($branchItem) use ($quantity, $currentCoordinates, $branchStats, $item, $avgUnitPrice, $filters, $inventoriesByBranch) {
+            return $otherBranchesItems->map(function ($branchItem) use ($quantity, $currentCoordinates, $branchStats, $item, $avgUnitPrice, $filters, $inventoriesByBranch, $stockBalances) {
                 $branch = $branchItem->branch;
                 $branchId = $branchItem->branch_id;
 
                 // Try to get inventory data for this branch and item
                 $inventoryKey = $branchId.'_'.$branchItem->item_id;
                 $inventory = $inventoriesByBranch[$inventoryKey] ?? null;
+                $stockBal = $stockBalances->get($branchId);
 
-                // Use inventory data if available, otherwise use BranchItem quantity
-                $availableQty = $inventory
-                    ? (float) $inventory->actual_available
-                    : (float) $branchItem->quantity;
+                // Use v3.5 stock balance if available, then BranchInventory, otherwise BranchItem quantity
+                $availableQty = $stockBal
+                    ? (float) $stockBal->qty_on_hand
+                    : ($inventory ? (float) $inventory->actual_available : (float) $branchItem->quantity);
 
                 // Calculate distance
                 $targetCoordinates = $this->parseCoordinates($branch->map_coordinates ?? null);
