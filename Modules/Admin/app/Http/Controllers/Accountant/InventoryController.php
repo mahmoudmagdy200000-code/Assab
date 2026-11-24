@@ -30,7 +30,8 @@ class InventoryController extends AsabController
     public function index(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $type = in_array($request->query('type'), ['daily', 'monthly'], true) ? $request->query('type') : 'monthly';
+            $rawType = $request->query('type') ?? $request->query('countType');
+            $type = in_array($rawType, ['daily', 'monthly'], true) ? $rawType : 'monthly';
             $companyIds = $this->tenantCompanyIdsFor($request->user());
             $branchIds = $this->assignedBranchIds();
             if ($branch = $request->query('branchId')) {
