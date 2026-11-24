@@ -6,6 +6,7 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Validation\ValidationException;
 use Modules\Admin\Models\Operation;
+use Modules\Admin\Services\MobileBranchScopeService;
 use Modules\Admin\Services\WasteBridgeService;
 use Modules\BrandOwner\Models\BrandOwner;
 use Modules\Inventory\Enums\DailyInventoryTimelineEventType;
@@ -25,7 +26,7 @@ class BrandOwnerInventoryService
             return $query;
         }
 
-        $branchIds = app(BrandScopeService::class)->visibleBranchIds($actor);
+        $branchIds = app(MobileBranchScopeService::class)->visibleBranchIds($actor);
         if ($branchIds === []) {
             return $query->whereRaw('1 = 0');
         }
