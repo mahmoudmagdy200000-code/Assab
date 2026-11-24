@@ -87,7 +87,7 @@ class PipelineService
                 'moduleKey' => $key,
                 'moduleLabelAr' => $labelAr,
                 'totalCount' => (int) $scope()->count(),
-                'totalAmountHalalas' => (int) $scope()->sum('amount'),
+                'totalAmountHalalas' => (int) $scope()->where('status', '!=', Operation::STATUS_REJECTED)->sum('amount'),
                 'pendingCount' => (int) ($byStatus['pending'] ?? 0),
                 'approvedCount' => (int) ($byStatus['approved'] ?? 0),
                 'rejectedCount' => (int) ($byStatus['rejected'] ?? 0),

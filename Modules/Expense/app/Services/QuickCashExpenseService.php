@@ -26,11 +26,13 @@ class QuickCashExpenseService
             throw new \Exception('Total amount must equal net + VAT');
         }
 
+        $isDraft = filter_var($data['is_draft'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
         $expense = Expense::create([
             'branch_manager_id' => auth()->id(),
             'expense_type' => 'quick_cash',
-            'status' => $data['is_draft'] ?? false ? 'draft' : 'pending',
-            'submitted_at' => ($data['is_draft'] ?? false) ? null : now(),
+            'status' => $isDraft ? 'draft' : 'pending',
+            'submitted_at' => $isDraft ? null : now(),
             'total_amount' => round($data['total_amount'], 2),
             'net_amount' => round($netAmount, 2),
             'vat_amount' => round($data['vat_amount'] ?? $vatCalculation['vat_amount'], 2),
@@ -64,11 +66,11 @@ class QuickCashExpenseService
             }
         }
 
-        $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
+        $this->createTimelineEntry($expense, 'created', $isDraft ? 'saved_as_draft' : 'submitted');
 
         // Non-draft create = submission — fire after all children persist so
         // the ASAB bridge mirrors the complete record.
-        if (! ($data['is_draft'] ?? false)) {
+        if (! $isDraft) {
             event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense->fresh()));
         }
 
