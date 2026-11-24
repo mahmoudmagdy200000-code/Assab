@@ -120,14 +120,22 @@ class WasteApprovalService
                 continue;
             }
 
-            // Resolve monthly approved weighted cost if available (INV-02 / WASTE-01)
+            // Resolve effective weighted cost at approval time (prefer current/latest APPROVED,
+            // then PROVISIONAL, then payload price) and freeze it on the waste record & employee charges.
             $costRow = $itemId !== ''
-                ? InventoryMonthlyCost::where('company_id', $op->company_id)
+                ? (InventoryMonthlyCost::where('company_id', $op->company_id)
                     ->where('branch_id', $op->branch_id)
                     ->where('item_id', $itemId)
-                    ->where('year_month', $yearMonth)
+                    ->where('year_month', '<=', $yearMonth)
                     ->where('status', InventoryMonthlyCost::STATUS_APPROVED)
+                    ->orderByDesc('year_month')
                     ->first()
+                    ?? InventoryMonthlyCost::where('company_id', $op->company_id)
+                        ->where('branch_id', $op->branch_id)
+                        ->where('item_id', $itemId)
+                        ->where('year_month', '<=', $yearMonth)
+                        ->orderByDesc('year_month')
+                        ->first())
                 : null;
 
             $unitCostHalalas = $costRow
@@ -140,8 +148,38 @@ class WasteApprovalService
 
             $product['postedUnitCostHalalas'] = $unitCostHalalas;
             $product['postedTotalCostHalalas'] = $totalCostHalalas;
-            $product['costSource'] = $costRow ? 'monthly_approved' : 'operation_payload';
+            $product['costSource'] = $costRow
+                ? ($costRow->status === InventoryMonthlyCost::STATUS_APPROVED ? 'monthly_approved' : 'monthly_provisional')
+                : 'operation_payload';
             $product['costRevision'] = $costRow?->revision;
+            $product['costFrozenAt'] = $postedAt->toIso8601String();
+
+            if (($product['responsibility'] ?? null) === WasteEnums::RESP_EMPLOYEE && ! empty($product['empAllocs']) && $totalCostHalalas > 0) {
+                $origAllocs = $product['empAllocs'];
+                if (! isset($product['originalEmpAllocs'])) {
+                    $product['originalEmpAllocs'] = $origAllocs;
+                    $product['originalValue'] = (int) ($product['value'] ?? 0);
+                }
+                $origSum = array_sum(array_map(fn ($a) => max(0, (int) ($a['amountHalalas'] ?? 0)), $origAllocs));
+                $countAllocs = count($origAllocs);
+                $running = 0;
+                $recomputed = [];
+                foreach ($origAllocs as $aIdx => $allocRow) {
+                    if ($aIdx === $countAllocs - 1) {
+                        $newAmt = max(1, $totalCostHalalas - $running);
+                    } else {
+                        $share = $origSum > 0
+                            ? (int) round($totalCostHalalas * (((int) ($allocRow['amountHalalas'] ?? 0)) / $origSum))
+                            : (int) floor($totalCostHalalas / $countAllocs);
+                        $newAmt = max(1, $share);
+                        $running += $newAmt;
+                    }
+                    $allocRow['amountHalalas'] = $newAmt;
+                    $recomputed[] = $allocRow;
+                }
+                $product['empAllocs'] = $recomputed;
+                $product['value'] = $totalCostHalalas;
+            }
 
             if ($itemId !== '' && $qty > 0) {
                 $branchInv = BranchInventory::where('branch_id', $op->branch_id)

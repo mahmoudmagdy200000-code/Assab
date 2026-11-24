@@ -1209,7 +1209,10 @@ class GoodsReceiptService
 
             if ($idempotencyKey) {
                 $replayed = InternalTransferVariance::where('purchase_order_id', $order->id)
-                    ->where('idempotency_key', $idempotencyKey)
+                    ->where(function ($q) use ($idempotencyKey) {
+                        $q->where('idempotency_key', $idempotencyKey)
+                            ->orWhere('idempotency_key', 'like', $idempotencyKey.':%');
+                    })
                     ->where('status', 'CLOSED')
                     ->get();
                 if ($replayed->isNotEmpty()) {
@@ -1292,7 +1295,7 @@ class GoodsReceiptService
                     'status' => 'CLOSED',
                     'reason' => $reason,
                     'evidence_path' => $evidencePath,
-                    'idempotency_key' => $idempotencyKey,
+                    'idempotency_key' => $idempotencyKey ? $idempotencyKey.':'.$variance->id : null,
                     'closed_by_id' => $actorId,
                     'closed_at' => $now,
                 ]);

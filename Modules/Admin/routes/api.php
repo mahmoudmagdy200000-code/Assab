@@ -467,6 +467,7 @@ Route::prefix('v1')->group(function () {
                 Route::put('inventory/branches/{branchId}/daily-list', [InventoryController::class, 'saveDailyList']);
                 Route::get('inventory/branches/{branchId}/daily-reconciliation', [InventoryController::class, 'dailyReconciliation']);
                 Route::post('inventory/branches/{branchId}/daily-variance-allocation', [InventoryController::class, 'saveDailyVarianceAllocation']);
+                Route::post('inventory/operations/{id}/correct', [InventoryController::class, 'correct'])->middleware('asab.role:accountant');
                 // ACC-4.6 accountant-surface Excel/CSV exports (scoped to assigned branches).
                 Route::get('inventory/export', [CompanyExportController::class, 'inventoryExport']);
 
@@ -855,6 +856,7 @@ Route::prefix('v1')->group(function () {
                     Route::post('inventory/branches/{branchId}/flagged-items', [InventoryController::class, 'flagItems']);
                     Route::post('inventory/monthly-costs/recalculate', [ConsumptionImportController::class, 'recalculateMonthlyCost']);
                     Route::post('inventory/monthly-costs/approve', [ConsumptionImportController::class, 'approveMonthlyCost']);
+                    Route::post('inventory/operations/{id}/correct', [InventoryController::class, 'correct']);
 
                     Route::get('waste/export', [CompanyExportController::class, 'waste']);
                     Route::get('waste/kpi-references', [ConsumptionImportController::class, 'wasteKpiReferences']);

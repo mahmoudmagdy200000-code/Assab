@@ -53,12 +53,15 @@ class InventoryReconciliationService
         $prices = $this->unitPrices($rawItems, $branchId, $date);
         $employeeNames = $this->employeeNamesFor($storedAllocations);
 
-        $confirmedCoverageIds = ConsumptionDailyCoverage::where('branch_id', $branchId)
+        $coverage = ConsumptionDailyCoverage::where('branch_id', $branchId)
             ->whereDate('business_date', $date)
             ->where('status', 'CONFIRMED')
-            ->pluck('id');
-        $importedConsumptionByItem = $confirmedCoverageIds->isNotEmpty()
-            ? ConsumptionDailyLine::whereIn('coverage_id', $confirmedCoverageIds)
+            ->orderByDesc('revision')
+            ->orderByDesc('confirmed_at')
+            ->first();
+        $consumptionComplete = $coverage !== null && $coverage->day_status === 'COMPLETE';
+        $importedConsumptionByItem = $coverage
+            ? ConsumptionDailyLine::where('coverage_id', $coverage->id)
                 ->get()
                 ->groupBy('item_id')
                 ->map(fn ($rows) => round((float) $rows->sum('normal_consumed_qty'), 3))
@@ -75,26 +78,38 @@ class InventoryReconciliationService
         $items = [];
         $totalVariance = 0;
         $unassigned = 0;
+        $awaitingConsumption = false;
 
         foreach ($rawItems as $idx => $it) {
             $itemId = $this->itemId($it, $idx);
             // ACC-4.3 equation فتح + مشتريات − استهلاك − هدر ± تحويلات = إغلاق متوقّع.
             $opening = (float) ($it['opening'] ?? $it['openingQty'] ?? 0);
             $received = (float) ($it['received'] ?? $it['purchases'] ?? $it['purchasesQty'] ?? 0);
-            $consumed = (float) ($it['consumed'] ?? $it['sales'] ?? $it['consumedQty'] ?? ($importedConsumptionByItem[$itemId] ?? 0));
+            $hasInlineConsumed = array_key_exists('consumed', $it) || array_key_exists('sales', $it) || array_key_exists('consumedQty', $it);
+            $itemAwaitingConsumption = ! $hasInlineConsumed && ! $consumptionComplete;
+            if ($itemAwaitingConsumption) {
+                $awaitingConsumption = true;
+            }
+            $consumed = $hasInlineConsumed
+                ? (float) ($it['consumed'] ?? $it['sales'] ?? $it['consumedQty'] ?? 0)
+                : ($consumptionComplete ? (float) ($importedConsumptionByItem[$itemId] ?? 0) : null);
             $waste = (float) ($it['waste'] ?? $it['wasteQty'] ?? ($postedWasteByItem[$itemId] ?? 0));
             $transfers = (float) ($it['transfers'] ?? $it['transfersQty'] ?? 0);
             $hasEquation = isset($it['opening']) || isset($it['openingQty']);
-            $expectedClosing = round($opening + $received - $consumed - $waste + $transfers, 3);
+            $expectedClosing = $itemAwaitingConsumption
+                ? null
+                : round($opening + $received - (float) $consumed - $waste + $transfers, 3);
 
             $actual = (float) ($it['actualQty'] ?? $it['actual'] ?? $it['countedQty'] ?? 0);
             // Expected closing drives the variance when the equation terms exist;
             // otherwise fall back to the branch-supplied expected/system figure.
-            $expected = $hasEquation ? $expectedClosing : (float) ($it['expectedQty'] ?? $it['expected'] ?? $it['systemQty'] ?? 0);
-            $varianceQty = round($expected - $actual, 3);
-            $variancePct = $expected != 0.0 ? round($varianceQty / $expected * 100, 2) : 0.0;
+            $expected = $itemAwaitingConsumption
+                ? null
+                : ($hasEquation ? $expectedClosing : (float) ($it['expectedQty'] ?? $it['expected'] ?? $it['systemQty'] ?? 0));
+            $varianceQty = $expected === null ? null : round($expected - $actual, 3);
+            $variancePct = ($expected !== null && $expected != 0.0) ? round($varianceQty / $expected * 100, 2) : ($expected === null ? null : 0.0);
             $unitPrice = (int) ($it['unitPriceHalalas'] ?? $it['priceHalalas'] ?? ($prices[$itemId] ?? 0));
-            $varianceValue = (int) round(abs($varianceQty) * $unitPrice);
+            $varianceValue = $varianceQty === null ? null : (int) round(abs($varianceQty) * $unitPrice);
 
             $minLevel = isset($it['minLevel']) ? (float) $it['minLevel'] : (isset($it['minQty']) ? (float) $it['minQty'] : null);
             $stockStatus = $this->stockStatus($actual, $minLevel);
@@ -107,8 +122,10 @@ class InventoryReconciliationService
             ], $storedAllocations[$itemId] ?? []);
 
             $allocatedValue = array_sum(array_column($allocatedTo, 'valueHalalas'));
-            $totalVariance += $varianceValue;
-            $unassigned += max(0, $varianceValue - $allocatedValue);
+            if ($varianceValue !== null) {
+                $totalVariance += $varianceValue;
+                $unassigned += max(0, $varianceValue - $allocatedValue);
+            }
 
             $items[] = [
                 'itemId' => $itemId,
@@ -120,15 +137,9 @@ class InventoryReconciliationService
                 'consumed' => $consumed,
                 'waste' => $waste,
                 'transfers' => $transfers,
-                // Only when the equation terms are real. Emitting the computed
-                // closing for a payload that carries no opening balance put a
-                // second, different «متوقع» on the same row as the one the
-                // variance was calculated from — the row visibly failed to add
-                // up (prod E2E 2026-07-31: expectedClosing −0.5 beside
-                // expectedQty −1.5 and varianceQty −4.5).
                 'expectedClosing' => $hasEquation ? $expectedClosing : null,
                 'actualClosing' => $actual,
-                'equationMatch' => $hasEquation ? abs($expectedClosing - $actual) < self::EPSILON : null,
+                'equationMatch' => ($hasEquation && $expectedClosing !== null) ? abs($expectedClosing - $actual) < self::EPSILON : null,
                 'minLevel' => $minLevel,
                 'stockStatus' => $stockStatus,
                 'expectedQty' => $expected,
@@ -136,7 +147,9 @@ class InventoryReconciliationService
                 'varianceQty' => $varianceQty,
                 'variancePct' => $variancePct,
                 'varianceValueHalalas' => $varianceValue,
-                'status' => (abs($variancePct) >= self::FLAG_PCT || ! empty($it['isAnomaly'])) ? 'flagged' : 'ok',
+                'status' => $itemAwaitingConsumption
+                    ? 'awaiting_consumption'
+                    : ((abs((float) $variancePct) >= self::FLAG_PCT || ! empty($it['isAnomaly'])) ? 'flagged' : 'ok'),
                 'allocatedTo' => $allocatedTo,
             ];
         }
@@ -145,9 +158,15 @@ class InventoryReconciliationService
             'branchId' => $branchId,
             'branchName' => Branch::where('id', $branchId)->value('name'),
             'date' => $date,
+            'consumptionStatus' => $awaitingConsumption ? 'awaiting_consumption' : ($consumptionComplete ? 'complete' : 'inline'),
+            'consumptionStatusAr' => $awaitingConsumption ? 'بانتظار اكتمال الاستهلاك' : 'مكتمل',
+            'awaitingConsumption' => $awaitingConsumption,
+            'consumptionSourceRef' => $coverage?->source_ref,
+            'consumptionRevision' => $coverage?->revision,
+            'correctionHistory' => $payload['correctionHistory'] ?? [],
             'items' => $items,
-            'totalVarianceValueHalalas' => $totalVariance,
-            'unassignedVarianceValueHalalas' => $unassigned,
+            'totalVarianceValueHalalas' => $awaitingConsumption ? null : $totalVariance,
+            'unassignedVarianceValueHalalas' => $awaitingConsumption ? null : $unassigned,
         ];
     }
 
@@ -302,6 +321,13 @@ class InventoryReconciliationService
             $prices = $this->unitPrices($rawItems, $op->branch_id, $date);
 
             // 1. Adjust branch inventory & record one stock movement per counted item.
+            // Preserve any waste_out movements posted after the branch count timestamp
+            // so independent waste deductions (e.g. 10 counted, 2 wasted -> 8 remaining)
+            // are never overwritten back to the pre-waste count.
+            $countedAt = ! empty($payload['countedAt'])
+                ? \Carbon\Carbon::parse($payload['countedAt'])
+                : ($op->created_at ?? $postedAt);
+
             foreach ($rawItems as $idx => $it) {
                 $itemId = $this->itemId($it, $idx);
                 $actual = (float) ($it['actualQty'] ?? $it['actual'] ?? $it['countedQty'] ?? 0);
@@ -312,19 +338,27 @@ class InventoryReconciliationService
                     continue;
                 }
 
+                $postCountWasteQty = round(abs((float) InventoryStockMovement::where('branch_id', $op->branch_id)
+                    ->where('item_id', $itemId)
+                    ->where('movement_type', 'waste_out')
+                    ->where('posted_at', '>', $countedAt)
+                    ->where('posted_at', '<=', $postedAt)
+                    ->sum('qty_delta')), 3);
+                $targetStock = max(0.0, round($actual - $postCountWasteQty, 3));
+
                 $branchItem = BranchItem::where('branch_id', $op->branch_id)->where('item_id', $itemId)->lockForUpdate()->first();
                 $branchInv = BranchInventory::where('branch_id', $op->branch_id)->where('item_id', $itemId)->lockForUpdate()->first();
                 $currentStock = (float) ($branchInv?->available_quantity ?? $branchItem?->quantity ?? 0);
-                $delta = round($actual - $currentStock, 3);
+                $delta = round($targetStock - $currentStock, 3);
 
                 if ($branchInv) {
                     $branchInv->update([
-                        'available_quantity' => $actual,
+                        'available_quantity' => $targetStock,
                         'last_inventory_update' => $postedAt,
                     ]);
                 }
                 if ($branchItem) {
-                    $branchItem->update(['quantity' => $actual]);
+                    $branchItem->update(['quantity' => $targetStock]);
                 }
 
                 InventoryStockMovement::create([
@@ -422,6 +456,141 @@ class InventoryReconciliationService
                 ]);
             }
         });
+    }
+
+    /**
+     * Post-approval inventory correction by an authorized Branch Accountant ONLY.
+     * Records before/after audit trail, updates same-day reconciliation, and posts
+     * any stock delta once via stocktake_correction movement.
+     *
+     * @param  array<int, array{itemId:string, actualQty:float|int, reason?:string|null}>  $correctedItems
+     */
+    public function correctApprovedInventory(
+        string|array $companyId,
+        Operation $op,
+        array $correctedItems,
+        AsabUser $actor,
+        ?string $reason = null,
+    ): array {
+        $companyIds = array_values(array_unique(array_map('strval', (array) $companyId)));
+
+        $result = DB::transaction(function () use ($companyIds, $op, $correctedItems, $actor, $reason) {
+            $op = Operation::whereKey($op->id)
+                ->whereIn('company_id', $companyIds)
+                ->where('module_key', 'inventory')
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($op->status !== Operation::STATUS_FINAL) {
+                throw new AsabException(
+                    'INVENTORY_NOT_FINAL_APPROVED',
+                    'Post-approval correction applies only to final-approved inventory operations',
+                    'تصحيح الجرد بعد الاعتماد متاح للبيانات المعتمدة نهائياً فقط',
+                    409
+                );
+            }
+
+            $payload = $op->payload ?? [];
+            $rawItems = is_array($payload['items'] ?? null) ? $payload['items'] : [];
+            $history = is_array($payload['correctionHistory'] ?? null) ? $payload['correctionHistory'] : [];
+            $date = optional($op->operation_date)->toDateString() ?? now()->toDateString();
+            $prices = $this->unitPrices($rawItems, $op->branch_id, $date);
+            $now = now();
+            $seqBase = count($history);
+
+            $byId = [];
+            foreach ($correctedItems as $row) {
+                $byId[(string) $row['itemId']] = $row;
+            }
+
+            $matched = 0;
+            foreach ($rawItems as $idx => &$it) {
+                $itemId = $this->itemId($it, $idx);
+                if (! isset($byId[$itemId])) {
+                    continue;
+                }
+                $matched++;
+                $oldQty = round((float) ($it['actualQty'] ?? $it['actual'] ?? $it['countedQty'] ?? 0), 3);
+                $newQty = round((float) $byId[$itemId]['actualQty'], 3);
+                $delta = round($newQty - $oldQty, 3);
+                $itemReason = $byId[$itemId]['reason'] ?? $reason;
+
+                $it['actualQty'] = $newQty;
+                if (array_key_exists('actual', $it)) {
+                    $it['actual'] = $newQty;
+                }
+                if (array_key_exists('countedQty', $it)) {
+                    $it['countedQty'] = $newQty;
+                }
+
+                $seq = ++$seqBase;
+                $history[] = [
+                    'seq' => $seq,
+                    'itemId' => $itemId,
+                    'oldQty' => $oldQty,
+                    'newQty' => $newQty,
+                    'delta' => $delta,
+                    'reason' => $itemReason,
+                    'correctedById' => (string) $actor->id,
+                    'correctedByName' => $actor->name,
+                    'correctedAt' => $now->toIso8601String(),
+                ];
+
+                if ($delta != 0.0) {
+                    $idemKey = "inv_corr:{$op->id}:{$itemId}:seq{$seq}";
+                    if (! InventoryStockMovement::where('idempotency_key', $idemKey)->exists()) {
+                        $branchInv = BranchInventory::where('branch_id', $op->branch_id)->where('item_id', $itemId)->lockForUpdate()->first();
+                        if ($branchInv) {
+                            $branchInv->update([
+                                'available_quantity' => max(0.0, round((float) $branchInv->available_quantity + $delta, 3)),
+                                'last_inventory_update' => $now,
+                            ]);
+                        }
+                        $branchItem = BranchItem::where('branch_id', $op->branch_id)->where('item_id', $itemId)->lockForUpdate()->first();
+                        if ($branchItem) {
+                            $branchItem->update([
+                                'quantity' => max(0.0, round((float) $branchItem->quantity + $delta, 3)),
+                            ]);
+                        }
+
+                        $unitCost = (int) ($prices[$itemId] ?? $it['unitPriceHalalas'] ?? $it['priceHalalas'] ?? 0);
+                        InventoryStockMovement::create([
+                            'idempotency_key' => $idemKey,
+                            'company_id' => $op->company_id,
+                            'branch_id' => $op->branch_id,
+                            'item_id' => $itemId,
+                            'movement_type' => 'stocktake_correction',
+                            'qty_delta' => $delta,
+                            'unit_cost_halalas' => $unitCost,
+                            'total_cost_halalas' => (int) round(abs($delta) * $unitCost),
+                            'source_type' => $op->source_module ?? 'inventory',
+                            'source_id' => $op->source_id,
+                            'operation_id' => $op->id,
+                            'revision' => (int) ($payload['revision'] ?? 1),
+                            'posted_at' => $now,
+                            'created_by_id' => $actor->id,
+                            'notes' => 'تصحيح جرد معتمد — '.$op->public_id.($itemReason ? ' — '.$itemReason : ''),
+                        ]);
+                    }
+                }
+            }
+            unset($it);
+
+            if ($matched === 0) {
+                throw new AsabException('VALIDATION_ERROR', 'No matching inventory items found to correct', 'لم يتم العثور على أصناف مطابقة للتصحيح', 422);
+            }
+
+            $payload['items'] = $rawItems;
+            $payload['correctionHistory'] = $history;
+            $op->update(['payload' => $payload]);
+
+            return ['branchId' => $op->branch_id, 'date' => $date, 'correctionHistory' => $history];
+        });
+
+        $snapshot = $this->snapshot($companyId, $result['branchId'], $result['date']);
+        $snapshot['correctionHistory'] = $result['correctionHistory'];
+
+        return $snapshot;
     }
 
     private function inventoryOp(string|array $companyId, string $branchId, string $date): ?Operation
