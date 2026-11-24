@@ -1004,6 +1004,22 @@ class GoodsReceivingController extends BaseController
                 return $this->errorResponse('This endpoint is only for internal transfer orders', 400);
             }
 
+            $isBranchManagerActor = $user instanceof \Modules\BranchManagers\Models\BranchManager
+                || ($user && \Modules\Admin\Models\AsabUserRole::where('user_id', $user->id)
+                    ->whereIn('role_key', ['branch', 'branch_manager', 'branch-manager'])
+                    ->exists());
+
+            if (! $isBranchManagerActor) {
+                return response()->json([
+                    'success' => false,
+                    'error' => [
+                        'code' => 'FORBIDDEN_TRANSFER_CLOSURE',
+                        'message' => 'Only the receiving branch manager can close internal transfer variance.',
+                        'messageAr' => 'إغلاق فروق التحويل الداخلي مسموح لمدير الفرع المستلم فقط',
+                    ],
+                ], 403);
+            }
+
             $result = $this->receiptService->closeTransferVariance(
                 $order,
                 (string) auth()->id(),

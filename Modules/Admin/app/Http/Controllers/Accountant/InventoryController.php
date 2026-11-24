@@ -43,6 +43,34 @@ class InventoryController extends AsabController
         });
     }
 
+    public function correct(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $data = $request->validate([
+                'items' => 'required|array|min:1',
+                'items.*.itemId' => 'required|string',
+                'items.*.actualQty' => 'required|numeric|min:0',
+                'items.*.reason' => 'sometimes|nullable|string|max:500',
+                'reason' => 'sometimes|nullable|string|max:500',
+            ]);
+
+            $companyIds = $this->tenantCompanyIdsFor($request->user());
+            $op = Operation::whereIn('company_id', $companyIds)
+                ->where('module_key', 'inventory')
+                ->findOrFail($id);
+
+            $this->assertBranchAssigned($op->branch_id);
+
+            return $this->ok($this->reconciliation->correctApprovedInventory(
+                $companyIds,
+                $op,
+                $data['items'],
+                $request->user(),
+                $data['reason'] ?? null,
+            ));
+        });
+    }
+
     public function flagBranch(Request $request, string $branchId): JsonResponse
     {
         return $this->run(function () use ($request, $branchId) {
