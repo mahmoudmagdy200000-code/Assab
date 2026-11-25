@@ -1240,6 +1240,145 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
     }
 
     /**
+     * Atomically approve (all items) and dispatch stock for an Internal Transfer order.
+     */
+    public function approveInternalTransfer(PurchaseOrder $order, ?array $itemConfirmations = null, ?string $readyTime = null, ?string $actorId = null): PurchaseOrder
+    {
+        return DB::transaction(function () use ($order, $itemConfirmations, $readyTime, $actorId) {
+            $locked = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
+
+            if ($locked->order_type !== OrderType::INTERNAL_TRANSFER) {
+                throw new \InvalidArgumentException('This endpoint is only for Internal Transfer orders');
+            }
+
+            if (! $locked->status || ! $locked->status->canDecideInternalTransfer()) {
+                throw new \InvalidArgumentException(
+                    'Internal transfer cannot be decided in current status: '.($locked->status?->value ?? 'unknown')
+                );
+            }
+
+            if ($itemConfirmations !== null) {
+                $itemConfirmations = $this->normalizeTransferConfirmations($locked, $itemConfirmations, false);
+            }
+
+            $this->confirmOrder($locked, $itemConfirmations, $readyTime);
+
+            $locked->refresh();
+            $locked->update(['status' => OrderStatus::FULLY_APPROVED]);
+
+            $this->dispatchInternalTransferStock($locked->fresh(['items', 'branch']), $actorId);
+
+            return $locked->fresh(['items', 'fromBranch', 'requestedBy']);
+        });
+    }
+
+    /**
+     * Atomically partially approve and dispatch stock for an Internal Transfer order.
+     */
+    public function partialApproveInternalTransfer(PurchaseOrder $order, array $itemConfirmations, ?string $readyTime = null, ?string $actorId = null): PurchaseOrder
+    {
+        return DB::transaction(function () use ($order, $itemConfirmations, $readyTime, $actorId) {
+            $locked = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
+
+            if ($locked->order_type !== OrderType::INTERNAL_TRANSFER) {
+                throw new \InvalidArgumentException('This endpoint is only for Internal Transfer orders');
+            }
+
+            if (! $locked->status || ! $locked->status->canDecideInternalTransfer()) {
+                throw new \InvalidArgumentException(
+                    'Internal transfer cannot be decided in current status: '.($locked->status?->value ?? 'unknown')
+                );
+            }
+
+            $itemConfirmations = $this->normalizeTransferConfirmations($locked, $itemConfirmations, true);
+
+            $this->partialConfirmOrder($locked, $itemConfirmations, $readyTime);
+
+            $locked->refresh();
+            $locked->update(['status' => OrderStatus::PARTIAL_APPROVED]);
+
+            $this->dispatchInternalTransferStock($locked->fresh(['items', 'branch']), $actorId);
+
+            return $locked->fresh(['items', 'fromBranch', 'requestedBy']);
+        });
+    }
+
+    /**
+     * Atomically reject an Internal Transfer order.
+     */
+    public function rejectInternalTransfer(PurchaseOrder $order, string $reason): PurchaseOrder
+    {
+        return DB::transaction(function () use ($order, $reason) {
+            $locked = PurchaseOrder::whereKey($order->id)->lockForUpdate()->firstOrFail();
+
+            if ($locked->order_type !== OrderType::INTERNAL_TRANSFER) {
+                throw new \InvalidArgumentException('This endpoint is only for Internal Transfer orders');
+            }
+
+            if (! $locked->status || ! $locked->status->canDecideInternalTransfer()) {
+                throw new \InvalidArgumentException(
+                    'Internal transfer cannot be decided in current status: '.($locked->status?->value ?? 'unknown')
+                );
+            }
+
+            if (! $this->rejectOrder($locked, $reason)) {
+                throw new \InvalidArgumentException('Cannot reject order in current status');
+            }
+
+            $locked->refresh();
+            $locked->update(['status' => OrderStatus::REJECTED]);
+
+            return $locked->fresh(['items', 'fromBranch', 'requestedBy']);
+        });
+    }
+
+    /**
+     * Normalize and validate transfer item confirmations under the order lock.
+     * Accepts `new_quantity` (preferred) or `quantity`; rejects foreign, duplicate,
+     * negative, excess, or mismatched quantities.
+     *
+     * @return array<int, array{item_id: string, quantity: float}>
+     */
+    private function normalizeTransferConfirmations(PurchaseOrder $order, array $rows, bool $requireQuantity): array
+    {
+        $orderItems = $order->items()->get()->keyBy(fn ($i) => (string) $i->id);
+        $seen = [];
+        $normalized = [];
+
+        foreach ($rows as $row) {
+            $itemId = isset($row['item_id']) ? (string) $row['item_id'] : '';
+            $line = $orderItems->get($itemId);
+            if ($itemId === '' || $line === null) {
+                throw new \InvalidArgumentException('Some items do not belong to this order');
+            }
+            if (isset($seen[$itemId])) {
+                throw new \InvalidArgumentException('Duplicate item in confirmation list');
+            }
+            $seen[$itemId] = true;
+
+            $new = $row['new_quantity'] ?? null;
+            $qty = $row['quantity'] ?? null;
+            if ($new !== null && $qty !== null && abs((float) $new - (float) $qty) > 0.0005) {
+                throw new \InvalidArgumentException('Conflicting quantity and new_quantity for item');
+            }
+            $value = $new ?? $qty;
+            if ($value === null) {
+                if ($requireQuantity) {
+                    throw new \InvalidArgumentException('Approved quantity is required for each item');
+                }
+                $value = $line->quantity_ordered;
+            }
+            if (! is_numeric($value) || (float) $value < 0 || (float) $value > (float) $line->quantity_ordered + 0.0005) {
+                throw new \InvalidArgumentException('Approved quantity must be between 0 and the ordered quantity');
+            }
+
+            $normalized[] = ['item_id' => $itemId, 'quantity' => round((float) $value, 3)];
+        }
+
+        return $normalized;
+    }
+
+    /**
      * Deduct sender branch stock at sender cost (no internal markup) and open
      * IN_TRANSIT variance records when an internal transfer is approved.
      */
@@ -1254,7 +1393,12 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
             $companyId = (string) ($order->branch?->asab_company_id ?? \Modules\Branch\Models\Branch::whereKey($order->from_branch_id)->value('asab_company_id') ?? '');
             $now = now();
 
-            foreach ($order->items as $item) {
+            // Every competing transfer must acquire inventory locks in the same global item order.
+            $itemsInLockOrder = $order->items
+                ->sortBy(static fn (PurchaseOrderItem $item): string => (string) $item->item_id.':'.(string) $item->id)
+                ->values();
+
+            foreach ($itemsInLockOrder as $item) {
                 $dispatchedQty = round((float) ($item->quantity_confirmed ?? $item->quantity_ordered), 3);
                 if ($dispatchedQty <= 0.0 || $item->status === OrderItemStatus::REJECTED) {
                     continue;
@@ -1282,6 +1426,9 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
                         ->lockForUpdate()
                         ->first();
                     if ($branchInv) {
+                        if ((float) $branchInv->available_quantity + 0.0005 < $dispatchedQty) {
+                            throw new \InvalidArgumentException('Insufficient available stock to dispatch this transfer');
+                        }
                         $branchInv->update([
                             'available_quantity' => max(0.0, round((float) $branchInv->available_quantity - $dispatchedQty, 3)),
                             'last_inventory_update' => $now,

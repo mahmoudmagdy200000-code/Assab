@@ -134,7 +134,7 @@ Route::prefix('brand-owner')
 */
 
 Route::prefix('brand-owner/purchase/returns')
-    ->middleware(['auth:sanctum', 'brand.owner', 'log.throttle'])
+    ->middleware(['auth:sanctum', 'brand.owner', 'log.throttle', 'purchase.replay.auth', 'asab.idempotency:optional,after-commit,legacy'])
     ->name('api.brand-owner.purchase.returns.')
     ->group(function () {
         Route::post('/{returnId}/approve-escalation', [BrandOwnerReturnController::class, 'approveEscalation'])

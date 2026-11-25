@@ -25,7 +25,7 @@ Route::middleware(['auth:sanctum', 'log.throttle'])->prefix('v1/purchase')->grou
     | Purchase History (3.1.2.4.1)
     |--------------------------------------------------------------------------
     */
-    Route::prefix('history')->group(function () {
+    Route::middleware('purchase.chain.branch')->prefix('history')->group(function () {
         Route::get('/', [PurchaseHistoryController::class, 'index'])->name('purchase.history.index');
         Route::get('/{id}', [PurchaseHistoryController::class, 'show'])->name('purchase.history.show');
         Route::get('/{id}/timeline', [PurchaseHistoryController::class, 'timeline'])->name('purchase.history.timeline');
@@ -36,7 +36,7 @@ Route::middleware(['auth:sanctum', 'log.throttle'])->prefix('v1/purchase')->grou
     | New Order (3.1.2.4.2)
     |--------------------------------------------------------------------------
     */
-    Route::prefix('orders')->middleware('overload.shed:utility')->group(function () {
+    Route::prefix('orders')->middleware(['purchase.chain.branch', 'overload.shed:utility'])->group(function () {
 
         // get branch items
         Route::get('/branch-items', [NewOrderController::class, 'getBranchItems'])->name('purchase.orders.branch-items');
@@ -82,7 +82,7 @@ Route::middleware(['auth:sanctum', 'log.throttle'])->prefix('v1/purchase')->grou
     | Pending Orders (3.1.2.4.3)
     |--------------------------------------------------------------------------
     */
-    Route::prefix('pending')->group(function () {
+    Route::middleware('purchase.chain.branch')->prefix('pending')->group(function () {
         Route::get('/', [PendingOrderController::class, 'index'])->name('purchase.pending.index');
 
         /*
@@ -158,57 +158,57 @@ Route::middleware(['auth:sanctum', 'log.throttle'])->prefix('v1/purchase')->grou
     */
     Route::prefix('receiving')->group(function () {
         // Lists
-        Route::get('/in-progress', [GoodsReceivingController::class, 'inProgress'])->name('purchase.receiving.in-progress');
-        Route::get('/orders', [GoodsReceivingController::class, 'ordersForReceiving'])->name('purchase.receiving.orders');
-        Route::get('/drafts', [GoodsReceivingController::class, 'drafts'])->name('purchase.receiving.drafts');
-        Route::get('/missing', [GoodsReceivingController::class, 'missingGoods'])->name('purchase.receiving.missing');
-        Route::get('/completed', [GoodsReceivingController::class, 'completed'])->name('purchase.receiving.completed');
+        Route::get('/in-progress', [GoodsReceivingController::class, 'inProgress'])->middleware('purchase.chain.branch')->name('purchase.receiving.in-progress');
+        Route::get('/orders', [GoodsReceivingController::class, 'ordersForReceiving'])->middleware('purchase.chain.branch')->name('purchase.receiving.orders');
+        Route::get('/drafts', [GoodsReceivingController::class, 'drafts'])->middleware('purchase.chain.branch')->name('purchase.receiving.drafts');
+        Route::get('/missing', [GoodsReceivingController::class, 'missingGoods'])->middleware('purchase.chain.branch')->name('purchase.receiving.missing');
+        Route::get('/completed', [GoodsReceivingController::class, 'completed'])->middleware('purchase.chain.branch')->name('purchase.receiving.completed');
 
         // Receive without prior order
-        Route::post('/without-order', [GoodsReceivingController::class, 'receiveWithoutOrder'])->name('purchase.receiving.without-order');
+        Route::post('/without-order', [GoodsReceivingController::class, 'receiveWithoutOrder'])->middleware('purchase.chain.branch')->name('purchase.receiving.without-order');
 
         // Start receiving
-        Route::post('/orders/{orderId}/start', [GoodsReceivingController::class, 'startReceiving'])->name('purchase.receiving.start');
+        Route::post('/orders/{orderId}/start', [GoodsReceivingController::class, 'startReceiving'])->middleware('purchase.chain.receiving_asab')->name('purchase.receiving.start');
 
         // Receive internal transfer
-        Route::post('/orders/{orderId}/receive-internal-transfer', [GoodsReceivingController::class, 'receiveInternalTransfer'])->name('purchase.receiving.receive-internal-transfer');
-        Route::post('/orders/{orderId}/close-transfer-variance', [GoodsReceivingController::class, 'closeTransferVariance'])->name('purchase.receiving.close-transfer-variance');
+        Route::post('/orders/{orderId}/receive-internal-transfer', [GoodsReceivingController::class, 'receiveInternalTransfer'])->middleware('purchase.chain.receiving_asab')->name('purchase.receiving.receive-internal-transfer');
+        Route::post('/orders/{orderId}/close-transfer-variance', [GoodsReceivingController::class, 'closeTransferVariance'])->middleware(['purchase.actor:receiving_asab', 'purchase.replay.auth'])->name('purchase.receiving.close-transfer-variance');
 
         // Receipt management
-        Route::get('/{id}', [GoodsReceivingController::class, 'show'])->name('purchase.receiving.show');
-        Route::get('/{id}/summary', [GoodsReceivingController::class, 'getReceiptSummary'])->name('purchase.receiving.summary');
-        Route::put('/{id}/delivery-details', [GoodsReceivingController::class, 'updateDeliveryDetails'])->name('purchase.receiving.delivery-details');
-        Route::post('/{id}/items/{itemId}/inspect', [GoodsReceivingController::class, 'inspectItem'])->name('purchase.receiving.inspect-item');
-        Route::post('/{id}/unlisted-item', [GoodsReceivingController::class, 'addUnlistedItem'])->name('purchase.receiving.add-unlisted');
-        Route::put('/{id}/document-type', [GoodsReceivingController::class, 'setDocumentType'])->name('purchase.receiving.document-type');
-        Route::post('/{id}/invoice', [GoodsReceivingController::class, 'createInvoice'])->name('purchase.receiving.invoice');
-        Route::post('/{id}/delivery-note', [GoodsReceivingController::class, 'createDeliveryNote'])->name('purchase.receiving.delivery-note');
-        Route::post('/{id}/receipt-without-document', [GoodsReceivingController::class, 'createReceiptWithoutDocument'])->name('purchase.receiving.receipt-without-document');
-        Route::post('/{id}/complete', [GoodsReceivingController::class, 'completeInspection'])->name('purchase.receiving.complete');
-        Route::post('/{id}/save-draft', [GoodsReceivingController::class, 'saveDraft'])->name('purchase.receiving.save-draft');
-        Route::delete('/{id}/draft', [GoodsReceivingController::class, 'deleteDraft'])->name('purchase.receiving.delete-draft');
+        Route::get('/{id}', [GoodsReceivingController::class, 'show'])->middleware('purchase.chain.branch')->name('purchase.receiving.show');
+        Route::get('/{id}/summary', [GoodsReceivingController::class, 'getReceiptSummary'])->middleware('purchase.chain.branch')->name('purchase.receiving.summary');
+        Route::put('/{id}/delivery-details', [GoodsReceivingController::class, 'updateDeliveryDetails'])->middleware('purchase.chain.branch')->name('purchase.receiving.delivery-details');
+        Route::post('/{id}/items/{itemId}/inspect', [GoodsReceivingController::class, 'inspectItem'])->middleware('purchase.chain.branch')->name('purchase.receiving.inspect-item');
+        Route::post('/{id}/unlisted-item', [GoodsReceivingController::class, 'addUnlistedItem'])->middleware('purchase.chain.branch')->name('purchase.receiving.add-unlisted');
+        Route::put('/{id}/document-type', [GoodsReceivingController::class, 'setDocumentType'])->middleware('purchase.chain.branch')->name('purchase.receiving.document-type');
+        Route::post('/{id}/invoice', [GoodsReceivingController::class, 'createInvoice'])->middleware('purchase.chain.branch')->name('purchase.receiving.invoice');
+        Route::post('/{id}/delivery-note', [GoodsReceivingController::class, 'createDeliveryNote'])->middleware('purchase.chain.branch')->name('purchase.receiving.delivery-note');
+        Route::post('/{id}/receipt-without-document', [GoodsReceivingController::class, 'createReceiptWithoutDocument'])->middleware('purchase.chain.branch')->name('purchase.receiving.receipt-without-document');
+        Route::post('/{id}/complete', [GoodsReceivingController::class, 'completeInspection'])->middleware('purchase.chain.branch')->name('purchase.receiving.complete');
+        Route::post('/{id}/save-draft', [GoodsReceivingController::class, 'saveDraft'])->middleware('purchase.chain.branch')->name('purchase.receiving.save-draft');
+        Route::delete('/{id}/draft', [GoodsReceivingController::class, 'deleteDraft'])->middleware('purchase.chain.branch')->name('purchase.receiving.delete-draft');
 
         // Draft details
-        Route::get('/drafts/{id}', [GoodsReceivingController::class, 'getDraftDetails'])->name('purchase.receiving.draft-details');
+        Route::get('/drafts/{id}', [GoodsReceivingController::class, 'getDraftDetails'])->middleware('purchase.chain.branch')->name('purchase.receiving.draft-details');
 
         // Missing goods details
-        Route::get('/missing/{id}', [GoodsReceivingController::class, 'getMissingGoodsDetails'])->name('purchase.receiving.missing-details');
+        Route::get('/missing/{id}', [GoodsReceivingController::class, 'getMissingGoodsDetails'])->middleware('purchase.chain.branch')->name('purchase.receiving.missing-details');
 
         // Complete goods details
-        Route::get('/completed/{id}', [GoodsReceivingController::class, 'getCompleteGoodsDetails'])->name('purchase.receiving.completed-details');
+        Route::get('/completed/{id}', [GoodsReceivingController::class, 'getCompleteGoodsDetails'])->middleware('purchase.chain.branch')->name('purchase.receiving.completed-details');
 
         // Order tracking
-        Route::get('/orders/{orderId}/tracking', [GoodsReceivingController::class, 'getOrderTracking'])->name('purchase.receiving.tracking');
+        Route::get('/orders/{orderId}/tracking', [GoodsReceivingController::class, 'getOrderTracking'])->middleware('purchase.chain.branch')->name('purchase.receiving.tracking');
 
         // Get inspection details by order ID
-        Route::get('/orders/{orderId}/inspection', [GoodsReceivingController::class, 'getInspectionDetailsByOrderId'])->name('purchase.receiving.inspection-by-order');
+        Route::get('/orders/{orderId}/inspection', [GoodsReceivingController::class, 'getInspectionDetailsByOrderId'])->middleware('purchase.chain.branch')->name('purchase.receiving.inspection-by-order');
 
         // Variance handling
-        Route::get('/receipts/{receiptId}/variance-summary', [GoodsReceivingController::class, 'getVarianceSummary'])->name('purchase.receiving.variance-summary');
-        Route::post('/variances/{varianceId}/action', [GoodsReceivingController::class, 'handleVariance'])->name('purchase.receiving.variance-action');
-        Route::post('/variances/{varianceId}/supplier-response', [GoodsReceivingController::class, 'handleSupplierResponse'])->name('purchase.receiving.supplier-response');
-        Route::post('/variances/{varianceId}/accept-rejection', [GoodsReceivingController::class, 'acceptRejection'])->name('purchase.receiving.accept-rejection');
-        Route::post('/variances/{varianceId}/escalate', [GoodsReceivingController::class, 'escalateRejection'])->name('purchase.receiving.escalate-rejection');
+        Route::get('/receipts/{receiptId}/variance-summary', [GoodsReceivingController::class, 'getVarianceSummary'])->middleware('purchase.chain.branch')->name('purchase.receiving.variance-summary');
+        Route::post('/variances/{varianceId}/action', [GoodsReceivingController::class, 'handleVariance'])->middleware('purchase.chain.branch')->name('purchase.receiving.variance-action');
+        Route::post('/variances/{varianceId}/supplier-response', [GoodsReceivingController::class, 'handleSupplierResponse'])->middleware('purchase.chain.supplier_response')->name('purchase.receiving.supplier-response');
+        Route::post('/variances/{varianceId}/accept-rejection', [GoodsReceivingController::class, 'acceptRejection'])->middleware('purchase.chain.branch')->name('purchase.receiving.accept-rejection');
+        Route::post('/variances/{varianceId}/escalate', [GoodsReceivingController::class, 'escalateRejection'])->middleware('purchase.chain.branch')->name('purchase.receiving.escalate-rejection');
     });
 
     /*
@@ -218,25 +218,25 @@ Route::middleware(['auth:sanctum', 'log.throttle'])->prefix('v1/purchase')->grou
     */
     Route::prefix('returns')->group(function () {
         // Lists
-        Route::get('/in-progress', [ReturnManagementController::class, 'inProgress'])->name('purchase.returns.in-progress');
-        Route::get('/drafts', [ReturnManagementController::class, 'drafts'])->name('purchase.returns.drafts');
-        Route::get('/completed', [ReturnManagementController::class, 'completed'])->name('purchase.returns.completed');
+        Route::get('/in-progress', [ReturnManagementController::class, 'inProgress'])->middleware('purchase.chain.return_view')->name('purchase.returns.in-progress');
+        Route::get('/drafts', [ReturnManagementController::class, 'drafts'])->middleware('purchase.chain.branch')->name('purchase.returns.drafts');
+        Route::get('/completed', [ReturnManagementController::class, 'completed'])->middleware('purchase.chain.return_view')->name('purchase.returns.completed');
 
         // CRUD
-        Route::post('/', [ReturnManagementController::class, 'store'])->name('purchase.returns.store');
-        Route::get('/{id}', [ReturnManagementController::class, 'show'])->name('purchase.returns.show');
-        Route::get('/{id}/supplier-info', [SupplierInfoController::class, 'byReturn'])->name('purchase.returns.supplier-info');
-        Route::put('/{id}', [ReturnManagementController::class, 'update'])->name('purchase.returns.update');
-        Route::get('/{id}/timeline', [ReturnManagementController::class, 'timeline'])->name('purchase.returns.timeline');
+        Route::post('/', [ReturnManagementController::class, 'store'])->middleware('purchase.chain.branch')->name('purchase.returns.store');
+        Route::get('/{id}', [ReturnManagementController::class, 'show'])->middleware('purchase.chain.return_view')->name('purchase.returns.show');
+        Route::get('/{id}/supplier-info', [SupplierInfoController::class, 'byReturn'])->middleware('purchase.chain.branch')->name('purchase.returns.supplier-info');
+        Route::put('/{id}', [ReturnManagementController::class, 'update'])->middleware('purchase.chain.branch')->name('purchase.returns.update');
+        Route::get('/{id}/timeline', [ReturnManagementController::class, 'timeline'])->middleware('purchase.chain.return_view')->name('purchase.returns.timeline');
 
         // Actions
-        Route::post('/{id}/submit', [ReturnManagementController::class, 'submit'])->name('purchase.returns.submit');
-        Route::post('/{id}/accept-rejection', [ReturnManagementController::class, 'acceptRejection'])->name('purchase.returns.accept-rejection');
-        Route::post('/{id}/escalate', [ReturnManagementController::class, 'escalate'])->name('purchase.returns.escalate');
+        Route::post('/{id}/submit', [ReturnManagementController::class, 'submit'])->middleware('purchase.chain.branch')->name('purchase.returns.submit');
+        Route::post('/{id}/accept-rejection', [ReturnManagementController::class, 'acceptRejection'])->middleware('purchase.chain.branch')->name('purchase.returns.accept-rejection');
+        Route::post('/{id}/escalate', [ReturnManagementController::class, 'escalate'])->middleware('purchase.chain.branch')->name('purchase.returns.escalate');
 
         // Draft management
-        Route::post('/draft', [ReturnManagementController::class, 'saveDraft'])->name('purchase.returns.save-draft');
-        Route::delete('/{id}/draft', [ReturnManagementController::class, 'deleteDraft'])->name('purchase.returns.delete-draft');
+        Route::post('/draft', [ReturnManagementController::class, 'saveDraft'])->middleware('purchase.chain.branch')->name('purchase.returns.save-draft');
+        Route::delete('/{id}/draft', [ReturnManagementController::class, 'deleteDraft'])->middleware('purchase.chain.branch')->name('purchase.returns.delete-draft');
     });
 
     /*
@@ -244,7 +244,7 @@ Route::middleware(['auth:sanctum', 'log.throttle'])->prefix('v1/purchase')->grou
     | Suppliers
     |--------------------------------------------------------------------------
     */
-    Route::prefix('suppliers')->group(function () {
+    Route::middleware('purchase.chain.branch')->prefix('suppliers')->group(function () {
         Route::get('/', [SupplierController::class, 'index'])->name('purchase.suppliers.index');
         Route::get('/{id}', [SupplierController::class, 'show'])->name('purchase.suppliers.show');
         Route::get('/{id}/items', [SupplierController::class, 'items'])->name('purchase.suppliers.items');

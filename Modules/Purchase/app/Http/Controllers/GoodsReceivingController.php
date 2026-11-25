@@ -19,8 +19,10 @@ use Modules\Purchase\Http\Requests\UpdateDeliveryDetailsRequest;
 use Modules\Purchase\Http\Requests\VarianceActionRequest;
 use Modules\Purchase\Models\GoodsReceipt;
 use Modules\Purchase\Models\GoodsReceiptItem;
+use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Repositories\PurchaseOrderRepository;
 use Modules\Purchase\Services\GoodsReceiptService;
+use Modules\Purchase\Services\PurchaseAuthorizationService;
 use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\Purchase\Services\SupplierCommunicationService;
 use Modules\Purchase\Services\VarianceService;
@@ -37,7 +39,8 @@ class GoodsReceivingController extends BaseController
         private readonly VarianceService $varianceService,
         private readonly SupplierCommunicationService $communicationService,
         private readonly PurchaseOrderRepository $purchaseOrderRepository,
-        private readonly StreamUploadService $streamUpload
+        private readonly StreamUploadService $streamUpload,
+        private readonly PurchaseAuthorizationService $authService
     ) {}
 
     /**
@@ -93,21 +96,21 @@ class GoodsReceivingController extends BaseController
     public function startReceiving(StartReceivingRequest $request, string $orderId): JsonResponse
     {
         try {
-            // Security: Pass branch_id to service for authorization check
             $user = auth()->user();
-            $roleBranchIds = $user
-                ? \Modules\Admin\Models\AsabUserRole::where('user_id', $user->id)
-                    ->pluck('branch_ids')
-                    ->flatten()
-                    ->filter()
-                    ->values()
-                    ->all()
-                : [];
-            $userBranchId = $user?->branch_id ?? ($roleBranchIds[0] ?? null);
-            $order = $this->orderService->getOrderDetails($orderId, $userBranchId);
+            if ($this->authService->resolveActingBranchIds($user, true) === []) {
+                return $this->forbiddenResponse('Unauthorized for goods receiving');
+            }
+
+            $order = PurchaseOrder::with([
+                'branch', 'fromBranch', 'toBranch', 'supplier', 'requestedBy', 'items.item', 'goodsReceipts', 'timelines',
+            ])->find($orderId);
 
             if (! $order) {
                 return $this->notFoundResponse('Order not found');
+            }
+
+            if (! $this->authService->canReceivePurchaseOrder($user, $order, true)) {
+                return $this->forbiddenResponse('Unauthorized access to this purchase order');
             }
 
             if (! $order->can_receive) {
@@ -200,6 +203,17 @@ class GoodsReceivingController extends BaseController
             $unlistedItems = [];
             if (isset($validated['unlisted_items']) && is_array($validated['unlisted_items'])) {
                 foreach ($validated['unlisted_items'] as $index => $unlistedItem) {
+                    if (! empty($unlistedItem['supplier_id'])
+                        && ! $this->authService->canAccessVisibleSupplier($user, (string) $unlistedItem['supplier_id'])) {
+                        return $this->forbiddenResponse('Unauthorized supplier for unlisted item');
+                    }
+                    if (! empty($unlistedItem['item_id'])) {
+                        $this->authService->assertItemsAllowedForWrite(
+                            (string) $order->branch_id,
+                            [(string) $unlistedItem['item_id']],
+                            ! empty($unlistedItem['supplier_id']) ? (string) $unlistedItem['supplier_id'] : null
+                        );
+                    }
                     $itemData = $unlistedItem;
 
                     // Handle photo upload for unlisted item
@@ -272,12 +286,17 @@ class GoodsReceivingController extends BaseController
     public function inspectItem(InspectItemRequest $request, string $receiptId, string $itemId): JsonResponse
     {
         try {
-            $item = GoodsReceiptItem::where('goods_receipt_id', $receiptId)
+            $item = GoodsReceiptItem::with('goodsReceipt')
+                ->where('goods_receipt_id', $receiptId)
                 ->where('id', $itemId)
                 ->first();
 
             if (! $item) {
                 return $this->notFoundResponse('Item not found');
+            }
+
+            if (! $item->goodsReceipt || ! $this->authService->canAccessGoodsReceipt(auth()->user(), $item->goodsReceipt)) {
+                return $this->forbiddenResponse('Unauthorized access to this receipt');
             }
 
             $data = $request->validated();
@@ -472,6 +491,10 @@ class GoodsReceivingController extends BaseController
                 return $this->notFoundResponse('Draft receipt not found');
             }
 
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('view', $receipt)) {
+                return $this->forbiddenResponse('Unauthorized access to this draft receipt');
+            }
+
             // Ensure all required relationships are loaded for Internal Transfer
             if ($receipt->purchaseOrder && $receipt->purchaseOrder->order_type === OrderType::INTERNAL_TRANSFER) {
                 $receipt->purchaseOrder->loadMissing(['fromBranch', 'requestedBy', 'items']);
@@ -545,6 +568,10 @@ class GoodsReceivingController extends BaseController
 
             if (! $receipt) {
                 return $this->notFoundResponse('Missing goods receipt not found');
+            }
+
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('view', $receipt)) {
+                return $this->forbiddenResponse('Unauthorized access to this receipt');
             }
 
             $order = $receipt->purchaseOrder;
@@ -628,6 +655,10 @@ class GoodsReceivingController extends BaseController
                 return $this->notFoundResponse('Complete goods receipt not found');
             }
 
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('view', $receipt)) {
+                return $this->forbiddenResponse('Unauthorized access to this receipt');
+            }
+
             $order = $receipt->purchaseOrder;
             $supplierInfo = $this->communicationService->getSupplierInfo(
                 $order->supplier_id,
@@ -688,6 +719,10 @@ class GoodsReceivingController extends BaseController
                 return $this->notFoundResponse('Variance not found');
             }
 
+            if (! $this->authService->canAccessVariance(auth()->user(), $variance)) {
+                return $this->forbiddenResponse('Unauthorized access to this variance');
+            }
+
             $action = $request->action;
 
             match ($action) {
@@ -718,9 +753,19 @@ class GoodsReceivingController extends BaseController
     public function receiveWithoutOrder(ReceiveWithoutOrderRequest $request): JsonResponse
     {
         try {
+            $user = auth()->user();
             $data = $request->validated();
-            $data['branch_id'] = auth()->user()->branch_id;
+            $data['branch_id'] = $user->branch_id;
             $data['received_by'] = auth()->id();
+
+            if (! empty($data['supplier_id']) && ! $this->authService->canAccessVisibleSupplier($user, (string) $data['supplier_id'])) {
+                return $this->forbiddenResponse('Unauthorized supplier for this branch');
+            }
+            $this->authService->assertItemsAllowedForWrite(
+                (string) $data['branch_id'],
+                collect($data['items'] ?? [])->pluck('item_id')->all(),
+                ! empty($data['supplier_id']) ? (string) $data['supplier_id'] : null
+            );
 
             $receipt = $this->receiptService->receiveWithoutOrder($data);
 
@@ -728,6 +773,8 @@ class GoodsReceivingController extends BaseController
                 new GoodsReceiptResource($receipt),
                 'Goods received successfully'
             );
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return $this->validationErrorResponse($e->errors());
         } catch (\Exception $e) {
             return $this->handleException($e, 'receiving goods without order');
         }
@@ -747,6 +794,10 @@ class GoodsReceivingController extends BaseController
                 return $this->notFoundResponse('Receipt not found');
             }
 
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('view', $receipt)) {
+                return $this->forbiddenResponse('Unauthorized access to this receipt');
+            }
+
             return $this->successResponse(
                 new GoodsReceiptResource($receipt),
                 'Receipt details retrieved successfully'
@@ -764,6 +815,16 @@ class GoodsReceivingController extends BaseController
     public function getReceiptSummary(string $id): JsonResponse
     {
         try {
+            $receipt = GoodsReceipt::find($id);
+
+            if (! $receipt) {
+                return $this->notFoundResponse('Receipt not found');
+            }
+
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('view', $receipt)) {
+                return $this->forbiddenResponse('Unauthorized access to this receipt');
+            }
+
             $summary = $this->receiptService->getReceiptSummary($id);
 
             if (empty($summary)) {
@@ -787,6 +848,16 @@ class GoodsReceivingController extends BaseController
     public function getVarianceSummary(string $receiptId): JsonResponse
     {
         try {
+            $receipt = GoodsReceipt::find($receiptId);
+
+            if (! $receipt) {
+                return $this->notFoundResponse('Receipt not found');
+            }
+
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('view', $receipt)) {
+                return $this->forbiddenResponse('Unauthorized access to this receipt');
+            }
+
             $summary = $this->varianceService->getVarianceSummary($receiptId);
 
             return $this->successResponse(
@@ -812,6 +883,10 @@ class GoodsReceivingController extends BaseController
                 return $this->notFoundResponse('Order not found');
             }
 
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('view', $order)) {
+                return $this->forbiddenResponse('Unauthorized access to this purchase order');
+            }
+
             $tracking = $this->receiptService->getOrderTracking($orderId);
 
             return $this->successResponse(
@@ -831,6 +906,16 @@ class GoodsReceivingController extends BaseController
     public function getInspectionDetailsByOrderId(Request $request, string $orderId): JsonResponse
     {
         try {
+            $order = PurchaseOrder::find($orderId);
+
+            if (! $order) {
+                return $this->notFoundResponse('Order or receipt not found');
+            }
+
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('view', $order)) {
+                return $this->forbiddenResponse('Unauthorized access to this purchase order');
+            }
+
             $details = $this->receiptService->getInspectionDetailsByOrderId($orderId, $request->all());
 
             if (! $details) {
@@ -909,23 +994,28 @@ class GoodsReceivingController extends BaseController
     {
         try {
             $user = auth()->user();
-            $roleBranchIds = $user
-                ? \Modules\Admin\Models\AsabUserRole::where('user_id', $user->id)
-                    ->pluck('branch_ids')
-                    ->flatten()
-                    ->filter()
-                    ->values()
-                    ->all()
-                : [];
-            $userBranchId = $user?->branch_id ?? ($roleBranchIds[0] ?? null);
-            $order = $this->orderService->getOrderDetails($orderId, $userBranchId);
+            if ($this->authService->resolveActingBranchIds($user, true) === []) {
+                return $this->forbiddenResponse('Only the receiving branch manager can receive this internal transfer.');
+            }
+
+            $order = PurchaseOrder::with([
+                'branch', 'fromBranch', 'toBranch', 'supplier', 'requestedBy', 'items.item', 'goodsReceipts', 'timelines',
+            ])->find($orderId);
 
             if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
             if ($order->order_type !== OrderType::INTERNAL_TRANSFER) {
+                if (! $this->authService->canAccessPurchaseOrder($user, $order, true)) {
+                    return $this->forbiddenResponse('Unauthorized access to this purchase order.');
+                }
+
                 return $this->errorResponse('This endpoint is only for internal transfer orders', 400);
+            }
+
+            if (! $this->authService->canReceiveInternalTransfer($user, $order, true)) {
+                return $this->errorResponse('Only the receiving branch manager can receive this internal transfer.', 403);
             }
 
             // Validate order status - must be in a receivable status
@@ -942,10 +1032,6 @@ class GoodsReceivingController extends BaseController
                     'Order must be approved (fully or partially) or confirmed before receiving. Current status: '.($order->status?->value ?? 'unknown'),
                     400
                 );
-            }
-
-            if ($userBranchId && (string) $userBranchId !== (string) $order->branch_id) {
-                return $this->errorResponse('Only the receiving branch manager can receive this internal transfer.', 403);
             }
 
             $deliveryDetails = $request->only(['driver_name', 'driver_contact', 'vehicle_number', 'arrival_time', 'delivery_address', 'items']);
@@ -985,31 +1071,22 @@ class GoodsReceivingController extends BaseController
             ]);
 
             $user = auth()->user();
-            $roleBranchIds = $user
-                ? \Modules\Admin\Models\AsabUserRole::where('user_id', $user->id)
-                    ->pluck('branch_ids')
-                    ->flatten()
-                    ->filter()
-                    ->values()
-                    ->all()
-                : [];
-            $userBranchId = $user?->branch_id ?? ($roleBranchIds[0] ?? null);
-            $order = \Modules\Purchase\Models\PurchaseOrder::withoutGlobalScopes()->find($orderId);
+            $userBranchId = $this->authService->resolvePrimaryBranchId($user, true);
+            $order = PurchaseOrder::withoutGlobalScopes()->find($orderId);
 
             if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
             if ($order->order_type !== OrderType::INTERNAL_TRANSFER) {
+                if (! $this->authService->canAccessPurchaseOrder($user, $order, true)) {
+                    return $this->forbiddenResponse('Unauthorized access to this purchase order.');
+                }
+
                 return $this->errorResponse('This endpoint is only for internal transfer orders', 400);
             }
 
-            $isBranchManagerActor = $user instanceof \Modules\BranchManagers\Models\BranchManager
-                || ($user && \Modules\Admin\Models\AsabUserRole::where('user_id', $user->id)
-                    ->whereIn('role_key', ['branch', 'branch_manager', 'branch-manager'])
-                    ->exists());
-
-            if (! $isBranchManagerActor) {
+            if (! $this->authService->canReceiveInternalTransfer($user, $order, true)) {
                 return response()->json([
                     'success' => false,
                     'error' => [
@@ -1019,6 +1096,9 @@ class GoodsReceivingController extends BaseController
                     ],
                 ], 403);
             }
+
+            // Multi-branch actors: use the authorized receiving branch, not the first one.
+            $userBranchId = (string) $order->branch_id;
 
             $result = $this->receiptService->closeTransferVariance(
                 $order,
@@ -1053,6 +1133,10 @@ class GoodsReceivingController extends BaseController
 
             if (! $variance) {
                 return $this->notFoundResponse('Variance not found');
+            }
+
+            if (! $this->authService->canRespondToVariance(auth()->user(), $variance)) {
+                return $this->forbiddenResponse('Only the owning supplier can respond to this variance');
             }
 
             $action = $request->action;
@@ -1094,6 +1178,10 @@ class GoodsReceivingController extends BaseController
                 return $this->notFoundResponse('Variance not found');
             }
 
+            if (! $this->authService->canAccessVariance(auth()->user(), $variance)) {
+                return $this->forbiddenResponse('Unauthorized access to this variance');
+            }
+
             if ($variance->status !== 'supplier_rejected') {
                 return $this->errorResponse('Variance is not in rejected status', 400);
             }
@@ -1121,6 +1209,10 @@ class GoodsReceivingController extends BaseController
 
             if (! $variance) {
                 return $this->notFoundResponse('Variance not found');
+            }
+
+            if (! $this->authService->canAccessVariance(auth()->user(), $variance)) {
+                return $this->forbiddenResponse('Unauthorized access to this variance');
             }
 
             if ($variance->status !== 'supplier_rejected') {

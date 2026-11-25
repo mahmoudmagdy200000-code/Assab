@@ -13,6 +13,7 @@ use Modules\Purchase\Http\Requests\FilterPendingOrdersRequest;
 use Modules\Purchase\Http\Requests\RejectOrderRequest;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
+use Modules\Purchase\Services\PurchaseAuthorizationService;
 use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\Purchase\Services\TimelineService;
 use Modules\Purchase\Transformers\DirectSupplierOrderResource;
@@ -26,7 +27,8 @@ class PendingOrderController extends BaseController
 {
     public function __construct(
         private readonly PurchaseOrderService $orderService,
-        private readonly TimelineService $timelineService
+        private readonly TimelineService $timelineService,
+        private readonly PurchaseAuthorizationService $authService
     ) {}
 
     /**
@@ -147,39 +149,39 @@ class PendingOrderController extends BaseController
     public function approve(ApproveOrderRequest $request, string $id): JsonResponse
     {
         try {
-            // Security: Pass branch_id to service for authorization check
-            $userBranchId = auth()->user()->branch_id;
-            $order = $this->orderService->getOrderDetails($id, $userBranchId);
+            $order = PurchaseOrder::find($id);
 
             if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
-            // Only work on Internal Transfer orders
             if ($order->order_type !== OrderType::INTERNAL_TRANSFER) {
+                if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('view', $order)) {
+                    return $this->forbiddenResponse('Unauthorized access to this purchase order');
+                }
+
                 return $this->errorResponse('This endpoint is only for Internal Transfer orders', 400);
+            }
+
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('approve', $order)) {
+                return $this->forbiddenResponse('Only the sending branch manager can approve this internal transfer order');
             }
 
             $readyTime = $request->validated()['ready_time'] ?? null;
 
             try {
-                $success = $this->orderService->confirmOrder($order, $request->get('items'), $readyTime);
-
-                if (! $success) {
-                    return $this->errorResponse('Cannot approve order in current status', 400);
-                }
-
-                // For Internal Transfer: update status to fully_approved
-                if ($order->order_type === OrderType::INTERNAL_TRANSFER) {
-                    $order->refresh();
-                    $order->update(['status' => OrderStatus::FULLY_APPROVED]);
-                }
+                $updated = $this->orderService->approveInternalTransfer(
+                    $order,
+                    $request->get('items'),
+                    $readyTime,
+                    auth()->id() ? (string) auth()->id() : null
+                );
             } catch (\InvalidArgumentException $e) {
                 return $this->errorResponse($e->getMessage(), 400);
             }
 
             return $this->successResponse(
-                new PurchaseOrderResource($order->fresh(['items'])),
+                new PurchaseOrderResource($updated),
                 'Order approved successfully'
             );
         } catch (\Exception $e) {
@@ -198,39 +200,39 @@ class PendingOrderController extends BaseController
     public function partialApprove(ApproveOrderRequest $request, string $id): JsonResponse
     {
         try {
-            // Security: Pass branch_id to service for authorization check
-            $userBranchId = auth()->user()->branch_id;
-            $order = $this->orderService->getOrderDetails($id, $userBranchId);
+            $order = PurchaseOrder::find($id);
 
             if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
-            // Only work on Internal Transfer orders
             if ($order->order_type !== OrderType::INTERNAL_TRANSFER) {
+                if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('view', $order)) {
+                    return $this->forbiddenResponse('Unauthorized access to this purchase order');
+                }
+
                 return $this->errorResponse('This endpoint is only for Internal Transfer orders', 400);
+            }
+
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('approve', $order)) {
+                return $this->forbiddenResponse('Only the sending branch manager can partially approve this internal transfer order');
             }
 
             $readyTime = $request->validated()['ready_time'] ?? null;
 
             try {
-                $success = $this->orderService->partialConfirmOrder($order, $request->get('items'), $readyTime);
-
-                if (! $success) {
-                    return $this->errorResponse('Cannot partially approve order', 400);
-                }
-
-                // For Internal Transfer: update status to partial_approved
-                if ($order->order_type === OrderType::INTERNAL_TRANSFER) {
-                    $order->refresh();
-                    $order->update(['status' => OrderStatus::PARTIAL_APPROVED]);
-                }
+                $updated = $this->orderService->partialApproveInternalTransfer(
+                    $order,
+                    $request->get('items') ?? [],
+                    $readyTime,
+                    auth()->id() ? (string) auth()->id() : null
+                );
             } catch (\InvalidArgumentException $e) {
                 return $this->errorResponse($e->getMessage(), 400);
             }
 
             return $this->successResponse(
-                new PurchaseOrderResource($order->fresh(['items'])),
+                new PurchaseOrderResource($updated),
                 'Order partially approved successfully'
             );
         } catch (\Exception $e) {
@@ -249,33 +251,32 @@ class PendingOrderController extends BaseController
     public function reject(RejectOrderRequest $request, string $id): JsonResponse
     {
         try {
-            // Security: Pass branch_id to service for authorization check
-            $userBranchId = auth()->user()->branch_id;
-            $order = $this->orderService->getOrderDetails($id, $userBranchId);
+            $order = PurchaseOrder::find($id);
 
             if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
-            // Only work on Internal Transfer orders
             if ($order->order_type !== OrderType::INTERNAL_TRANSFER) {
+                if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('view', $order)) {
+                    return $this->forbiddenResponse('Unauthorized access to this purchase order');
+                }
+
                 return $this->errorResponse('This endpoint is only for Internal Transfer orders', 400);
             }
 
-            $success = $this->orderService->rejectOrder($order, $request->reason);
-
-            if (! $success) {
-                return $this->errorResponse('Cannot reject order in current status', 400);
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('approve', $order)) {
+                return $this->forbiddenResponse('Only the sending branch manager can reject this internal transfer order');
             }
 
-            // For Internal Transfer: ensure status is rejected
-            if ($order->order_type === OrderType::INTERNAL_TRANSFER) {
-                $order->refresh();
-                $order->update(['status' => OrderStatus::REJECTED]);
+            try {
+                $updated = $this->orderService->rejectInternalTransfer($order, $request->reason);
+            } catch (\InvalidArgumentException $e) {
+                return $this->errorResponse($e->getMessage(), 400);
             }
 
             return $this->successResponse(
-                new PurchaseOrderResource($order->fresh()),
+                new PurchaseOrderResource($updated),
                 'Order rejected successfully'
             );
         } catch (\Exception $e) {
@@ -328,95 +329,49 @@ class PendingOrderController extends BaseController
     public function approveTransfer(ApproveTransferRequest $request, string $id): JsonResponse
     {
         try {
-            // Security: Pass branch_id to service for authorization check
-            $userBranchId = auth()->user()->branch_id;
-            $order = $this->orderService->getOrderDetails($id, $userBranchId);
+            $order = PurchaseOrder::find($id);
 
             if (! $order) {
                 return $this->notFoundResponse('Order not found');
             }
 
+            if ($order->order_type !== OrderType::INTERNAL_TRANSFER) {
+                if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('view', $order)) {
+                    return $this->forbiddenResponse('Unauthorized access to this purchase order');
+                }
+
+                return $this->errorResponse('This endpoint is only for Internal Transfer orders', 400);
+            }
+
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('approve', $order)) {
+                return $this->forbiddenResponse('Only the sending branch manager can process this internal transfer request');
+            }
+
             $action = $request->action;
+            $actorId = auth()->id() ? (string) auth()->id() : null;
 
-            // Process the action and update order status directly based on action
-            $success = match ($action) {
-                'approve_all' => $this->processApproveAll($order, $request->ready_time),
-                'partial_approve' => $this->processPartialApprove($order, $request->get('items'), $request->ready_time),
-                'reject_all' => $this->processRejectAll($order, $request->reason),
-                default => false,
-            };
+            try {
+                $updated = match ($action) {
+                    'approve_all' => $this->orderService->approveInternalTransfer($order, null, $request->ready_time, $actorId),
+                    'partial_approve' => $this->orderService->partialApproveInternalTransfer($order, $request->get('items') ?? [], $request->ready_time, $actorId),
+                    'reject_all' => $this->orderService->rejectInternalTransfer($order, (string) $request->reason),
+                    default => null,
+                };
+            } catch (\InvalidArgumentException $e) {
+                return $this->errorResponse($e->getMessage(), 400);
+            }
 
-            if (! $success) {
+            if (! $updated) {
                 return $this->errorResponse('Cannot process transfer request', 400);
             }
 
-            // Refresh order to get latest status and relationships
-            $order->refresh();
-            $order->load(['items', 'fromBranch', 'requestedBy']);
-
             return $this->successResponse(
-                new PurchaseOrderResource($order),
+                new PurchaseOrderResource($updated),
                 'Transfer request processed successfully'
             );
         } catch (\Exception $e) {
             return $this->handleException($e, 'processing transfer request');
         }
-    }
-
-    /**
-     * Process approve all action - sets status to fully_approved
-     */
-    private function processApproveAll(PurchaseOrder $order, ?string $readyTime): bool
-    {
-        // Confirm all items
-        $success = $this->orderService->confirmOrder($order, null, $readyTime);
-
-        if ($success) {
-            // Update order status to fully_approved directly
-            $order->refresh();
-            // Force update to fully_approved status regardless of transition rules
-            $order->update(['status' => OrderStatus::FULLY_APPROVED]);
-            $this->orderService->dispatchInternalTransferStock($order->fresh(['items', 'branch']), auth()->id());
-        }
-
-        return $success;
-    }
-
-    /**
-     * Process partial approve action - sets status to partial_approved
-     */
-    private function processPartialApprove(PurchaseOrder $order, array $items, ?string $readyTime): bool
-    {
-        // Confirm specified items
-        $success = $this->orderService->partialConfirmOrder($order, $items, $readyTime);
-
-        if ($success) {
-            // Update order status to partial_approved directly
-            $order->refresh();
-            // Force update to partial_approved status regardless of transition rules
-            $order->update(['status' => OrderStatus::PARTIAL_APPROVED]);
-            $this->orderService->dispatchInternalTransferStock($order->fresh(['items', 'branch']), auth()->id());
-        }
-
-        return $success;
-    }
-
-    /**
-     * Process reject all action - sets status to rejected
-     */
-    private function processRejectAll(PurchaseOrder $order, string $reason): bool
-    {
-        // Reject order (this already sets status to rejected)
-        $success = $this->orderService->rejectOrder($order, $reason);
-
-        if ($success) {
-            // Ensure status is rejected
-            $order->refresh();
-            // Force update to rejected status
-            $order->update(['status' => OrderStatus::REJECTED]);
-        }
-
-        return $success;
     }
 
     /**
@@ -427,6 +382,16 @@ class PendingOrderController extends BaseController
     public function timeline(string $id): JsonResponse
     {
         try {
+            $order = PurchaseOrder::find($id);
+
+            if (! $order) {
+                return $this->notFoundResponse('Order not found');
+            }
+
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('view', $order)) {
+                return $this->forbiddenResponse('Unauthorized access to this purchase order');
+            }
+
             $timeline = $this->orderService->getOrderTimeline($id);
 
             return $this->successResponse(

@@ -6,12 +6,16 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Modules\Purchase\Enums\SupplierStatus;
+use Modules\Purchase\Services\PurchaseAuthorizationService;
 use Modules\Purchase\Transformers\SupplierItemResource;
 use Modules\Purchase\Transformers\SupplierResource;
 use Modules\Supplier\Models\Supplier;
 
 class SupplierController extends BaseController
 {
+    public function __construct(
+        private readonly PurchaseAuthorizationService $authService
+    ) {}
     /**
      * Get suppliers list
      *
@@ -87,11 +91,18 @@ class SupplierController extends BaseController
     public function show(string $id): JsonResponse
     {
         try {
-            $supplier = Supplier::with(['supplierItems', 'purchaseOrders'])
-                ->find($id);
+            $branchId = auth()->user()?->branch_id;
+            $supplier = Supplier::with([
+                'supplierItems',
+                'purchaseOrders' => fn ($q) => $q->where('branch_id', $branchId),
+            ])->find($id);
 
             if (! $supplier) {
                 return $this->notFoundResponse('Supplier not found');
+            }
+
+            if (! $this->authService->canAccessSupplier(auth()->user(), (string) $supplier->id)) {
+                return $this->forbiddenResponse('Unauthorized access to supplier');
             }
 
             return $this->successResponse(
@@ -115,6 +126,10 @@ class SupplierController extends BaseController
 
             if (! $supplier) {
                 return $this->notFoundResponse('Supplier not found');
+            }
+
+            if (! $this->authService->canAccessSupplier(auth()->user(), (string) $supplier->id)) {
+                return $this->forbiddenResponse('Unauthorized access to supplier');
             }
 
             $items = $supplier->supplierItems()
@@ -157,7 +172,12 @@ class SupplierController extends BaseController
                 return $this->notFoundResponse('Supplier not found');
             }
 
+            if (! $this->authService->canAccessSupplier(auth()->user(), (string) $supplier->id)) {
+                return $this->forbiddenResponse('Unauthorized access to supplier');
+            }
+
             $orders = $supplier->purchaseOrders()
+                ->where('branch_id', auth()->user()->branch_id)
                 ->with(['items', 'branch'])
                 ->orderBy('created_at', 'desc')
                 ->paginate($request->get('per_page', 15));
@@ -183,6 +203,10 @@ class SupplierController extends BaseController
 
             if (! $supplier) {
                 return $this->notFoundResponse('Supplier not found');
+            }
+
+            if (! $this->authService->canAccessSupplier(auth()->user(), (string) $supplier->id)) {
+                return $this->forbiddenResponse('Unauthorized access to supplier');
             }
 
             $stats = [

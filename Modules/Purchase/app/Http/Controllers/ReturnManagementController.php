@@ -6,12 +6,14 @@ use App\Http\Controllers\BaseController;
 use App\Http\Resources\UnifiedTimelineResource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Modules\Admin\Services\MobileBranchScopeService;
 use Modules\BrandOwner\Models\BrandOwner;
 use Modules\Purchase\Enums\ReturnStatus;
 use Modules\Purchase\Http\Requests\CreateReturnRequest;
 use Modules\Purchase\Http\Requests\EscalateRequest;
 use Modules\Purchase\Models\ReturnOrder;
 use Modules\Purchase\Repositories\PurchaseOrderRepository;
+use Modules\Purchase\Services\PurchaseAuthorizationService;
 use Modules\Purchase\Services\ReturnManagementService;
 use Modules\Purchase\Transformers\ReturnOrderListResource;
 use Modules\Purchase\Transformers\ReturnOrderResource;
@@ -20,7 +22,9 @@ class ReturnManagementController extends BaseController
 {
     public function __construct(
         private readonly ReturnManagementService $returnService,
-        private readonly PurchaseOrderRepository $purchaseOrderRepository
+        private readonly PurchaseOrderRepository $purchaseOrderRepository,
+        private readonly MobileBranchScopeService $branchScope,
+        private readonly PurchaseAuthorizationService $authService
     ) {}
 
     /**
@@ -35,7 +39,10 @@ class ReturnManagementController extends BaseController
             $user = auth()->user();
 
             if ($user instanceof BrandOwner) {
-                $returns = $this->returnService->getBrandOwnerInProgressReturns($perPage);
+                $returns = $this->returnService->getBrandOwnerInProgressReturns(
+                    $this->branchScope->visibleBranchIds($user),
+                    $perPage
+                );
             } else {
                 $returns = $this->returnService->getInProgressReturns($user->branch_id, $perPage);
             }
@@ -81,7 +88,10 @@ class ReturnManagementController extends BaseController
             $user = auth()->user();
 
             if ($user instanceof BrandOwner) {
-                $returns = $this->returnService->getBrandOwnerCompletedReturns($perPage);
+                $returns = $this->returnService->getBrandOwnerCompletedReturns(
+                    $this->branchScope->visibleBranchIds($user),
+                    $perPage
+                );
             } else {
                 $returns = $this->returnService->getCompletedReturns($user->branch_id, $perPage);
             }
@@ -181,6 +191,10 @@ class ReturnManagementController extends BaseController
                 return $this->notFoundResponse('Return order not found');
             }
 
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('mutate', $return)) {
+                return $this->forbiddenResponse('Unauthorized access to this return order');
+            }
+
             $success = $this->returnService->submitReturn($return);
 
             if (! $success) {
@@ -210,6 +224,10 @@ class ReturnManagementController extends BaseController
                 return $this->notFoundResponse('Return order not found');
             }
 
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('mutate', $return)) {
+                return $this->forbiddenResponse('Unauthorized access to this return order');
+            }
+
             $this->returnService->acceptRejection($return);
 
             return $this->successResponse(
@@ -235,9 +253,18 @@ class ReturnManagementController extends BaseController
                 return $this->notFoundResponse('Return order not found');
             }
 
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('mutate', $return)) {
+                return $this->forbiddenResponse('Unauthorized access to this return order');
+            }
+
             // Get brand owner ID from request, config, or use default
             // Priority: request > config > default
             $escalatedTo = $request->input('escalated_to');
+
+            if (! empty($escalatedTo)
+                && ! $this->authService->isValidEscalationRecipient((string) $escalatedTo, (string) $return->branch_id)) {
+                return $this->forbiddenResponse('Escalation recipient is not an authorized brand owner for this branch');
+            }
 
             if (empty($escalatedTo)) {
                 $escalatedTo = config('purchase.brand_owner_id') ?? 'brand-owner-uuid';
@@ -312,6 +339,10 @@ class ReturnManagementController extends BaseController
                 return $this->notFoundResponse('Return order not found');
             }
 
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('mutate', $return)) {
+                return $this->forbiddenResponse('Unauthorized access to this return order');
+            }
+
             $success = $this->returnService->deleteDraft($return);
 
             if (! $success) {
@@ -338,21 +369,8 @@ class ReturnManagementController extends BaseController
                 return $this->notFoundResponse('Return order not found');
             }
 
-            $user = auth()->user();
-
-            if ($user instanceof BrandOwner) {
-                $allowed = [
-                    ReturnStatus::ESCALATED,
-                    ReturnStatus::ESCALATED_RESOLVED,
-                    ReturnStatus::ESCALATED_REJECTED,
-                ];
-                if (! in_array($return->status, $allowed, true)) {
-                    return $this->errorResponse('Unauthorized access to this return order', 403);
-                }
-            } else {
-                if ($return->branch_id !== $user->branch_id) {
-                    return $this->errorResponse('Unauthorized access to this return order', 403);
-                }
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('view', $return)) {
+                return $this->forbiddenResponse('Unauthorized access to this return order');
             }
 
             return $this->successResponse(
@@ -372,6 +390,16 @@ class ReturnManagementController extends BaseController
     public function timeline(string $id): JsonResponse
     {
         try {
+            $return = ReturnOrder::find($id);
+
+            if (! $return) {
+                return $this->notFoundResponse('Return order not found');
+            }
+
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('view', $return)) {
+                return $this->forbiddenResponse('Unauthorized access to this return order');
+            }
+
             $timeline = $this->returnService->getReturnTimeline($id);
 
             return $this->successResponse(

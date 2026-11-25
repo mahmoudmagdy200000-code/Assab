@@ -5,7 +5,10 @@ namespace Modules\RecurringOrder\Http\Controllers;
 use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Modules\Admin\Services\MobileBranchScopeService;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Expense\Services\SupplierBrandScopeService;
+use Modules\Purchase\Services\PurchaseAuthorizationService;
 use Modules\RecurringOrder\Http\Requests\StoreRecurringOrderRequest;
 use Modules\RecurringOrder\Http\Requests\UpdateRecurringOrderRequest;
 use Modules\RecurringOrder\Models\RecurringOrder;
@@ -17,7 +20,10 @@ use Modules\RecurringOrder\Transformers\RecurringOrderListResource;
 class RecurringOrderController extends BaseController
 {
     public function __construct(
-        private readonly RecurringOrderService $service
+        private readonly RecurringOrderService $service,
+        private readonly MobileBranchScopeService $branchScope,
+        private readonly SupplierBrandScopeService $supplierScope,
+        private readonly PurchaseAuthorizationService $authService
     ) {}
 
     /**
@@ -87,12 +93,18 @@ class RecurringOrderController extends BaseController
     {
         try {
             $branchManager = $this->branchManager();
-            $order = $this->service->create($branchManager, $request->validated());
+            $validated = $request->validated();
+            if ($denied = $this->validateRecurringSources($branchManager, $validated)) {
+                return $denied;
+            }
+            $order = $this->service->create($branchManager, $validated);
 
             return $this->createdResponse(
                 new RecurringOrderDetailResource($order),
                 'Recurring order created and activated successfully'
             );
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return $this->validationErrorResponse($e->errors());
         } catch (\Exception $e) {
             return $this->handleException($e, 'creating recurring order');
         }
@@ -178,12 +190,18 @@ class RecurringOrderController extends BaseController
             if (! $order) {
                 return $this->notFoundResponse('Recurring order not found');
             }
-            $updated = $this->service->update($order, $request->validated());
+            $validated = $request->validated();
+            if ($denied = $this->validateRecurringSources($this->branchManager(), $validated)) {
+                return $denied;
+            }
+            $updated = $this->service->update($order, $validated);
 
             return $this->successResponse(
                 new RecurringOrderDetailResource($updated),
                 'Recurring order updated successfully'
             );
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return $this->validationErrorResponse($e->errors());
         } catch (\Exception $e) {
             return $this->handleException($e, 'updating recurring order');
         }
@@ -213,10 +231,18 @@ class RecurringOrderController extends BaseController
     public function suppliers(Request $request): JsonResponse
     {
         try {
-            $query = \Modules\Supplier\Models\Supplier::query()->active();
+            $branchManager = $this->branchManager();
+            $orderableIds = $this->supplierScope->orderableSupplierIds((string) $branchManager->branch_id);
+
+            $query = \Modules\Supplier\Models\Supplier::query()
+                ->active()
+                ->whereIn('id', $orderableIds);
             if ($request->filled('search')) {
-                $query->where('name', 'like', '%'.$request->search.'%')
-                    ->orWhere('company_name', 'like', '%'.$request->search.'%');
+                $search = $request->search;
+                $query->where(function ($q) use ($search) {
+                    $q->where('name', 'like', '%'.$search.'%')
+                        ->orWhere('company_name', 'like', '%'.$search.'%');
+                });
             }
             if ($request->filled('status')) {
                 $query->where('status', $request->status);
@@ -254,12 +280,17 @@ class RecurringOrderController extends BaseController
     {
         try {
             $branchManager = $this->branchManager();
+            $visibleBranchIds = $this->branchScope->visibleBranchIds($branchManager);
             $query = BranchManager::query()
+                ->whereIn('branch_id', $visibleBranchIds)
                 ->where('id', '!=', $branchManager->id)
                 ->active();
             if ($request->filled('search')) {
-                $query->where('name', 'like', '%'.$request->search.'%')
-                    ->orWhere('email', 'like', '%'.$request->search.'%');
+                $search = $request->search;
+                $query->where(function ($q) use ($search) {
+                    $q->where('name', 'like', '%'.$search.'%')
+                        ->orWhere('email', 'like', '%'.$search.'%');
+                });
             }
             $perPage = $request->get('per_page', 20);
             $officers = $query->orderBy('name')->paginate($perPage);
@@ -287,14 +318,42 @@ class RecurringOrderController extends BaseController
         }
     }
 
+    private function validateRecurringSources(BranchManager $branchManager, array $data): ?JsonResponse
+    {
+        if (! empty($data['direct_supplier']['supplier_id'])) {
+            $supplierId = (string) $data['direct_supplier']['supplier_id'];
+            if (! $this->authService->canAccessSupplier($branchManager, $supplierId)) {
+                return $this->forbiddenResponse('Unauthorized supplier for this branch');
+            }
+            $this->authService->assertItemsAllowedForWrite(
+                (string) $branchManager->branch_id,
+                collect($data['direct_supplier']['items'] ?? [])->pluck('item_id')->all(),
+                $supplierId
+            );
+        }
+
+        if (! empty($data['purchase_officer']['purchasing_officer_id'])) {
+            $officerId = (string) $data['purchase_officer']['purchasing_officer_id'];
+            if (! $this->authService->canUsePurchasingOfficer((string) $branchManager->branch_id, $officerId)) {
+                return $this->forbiddenResponse('Unauthorized purchasing officer for this branch');
+            }
+            $this->authService->assertItemsAllowedForWrite(
+                (string) $branchManager->branch_id,
+                collect($data['purchase_officer']['items'] ?? [])->pluck('item_id')->all()
+            );
+        }
+
+        return null;
+    }
+
     private function branchManager(): BranchManager
     {
-        $user = auth()->user();
-        if (! $user instanceof BranchManager) {
+        $manager = $this->authService->ensureActiveBranchManager(auth()->user());
+        if ($manager === null) {
             throw new \Illuminate\Auth\Access\AuthorizationException('Branch Manager authentication required.');
         }
 
-        return $user;
+        return $manager;
     }
 
     private function findForBranch(string $id): ?RecurringOrder

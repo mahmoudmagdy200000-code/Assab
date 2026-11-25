@@ -15,6 +15,7 @@ class BrandOwnerReturnController extends BaseController
 {
     public function __construct(
         private readonly ReturnManagementService $returnService,
+        private readonly \Modules\Purchase\Services\PurchaseAuthorizationService $authService,
     ) {}
 
     public function approveEscalation(Request $request, string $returnId): JsonResponse
@@ -35,6 +36,10 @@ class BrandOwnerReturnController extends BaseController
         $return = ReturnOrder::find($returnId);
         if (! $return) {
             return $this->notFoundResponse('Return order not found');
+        }
+
+        if (\Illuminate\Support\Facades\Gate::forUser($owner)->denies('decideEscalation', $return)) {
+            return $this->forbiddenResponse('Unauthorized access to this return order');
         }
 
         try {
@@ -69,6 +74,10 @@ class BrandOwnerReturnController extends BaseController
         $return = ReturnOrder::find($returnId);
         if (! $return) {
             return $this->notFoundResponse('Return order not found');
+        }
+
+        if (\Illuminate\Support\Facades\Gate::forUser($owner)->denies('decideEscalation', $return)) {
+            return $this->forbiddenResponse('Unauthorized access to this return order');
         }
 
         try {

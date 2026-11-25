@@ -221,6 +221,10 @@ class PurchaseOrderItem extends Model
 
     public function confirm(?float $quantity = null): void
     {
+        if ($quantity !== null && ($quantity < 0 || $quantity > (float) $this->quantity_ordered + 0.0005)) {
+            throw new \InvalidArgumentException('Confirmed quantity must be between 0 and the ordered quantity');
+        }
+
         $this->quantity_confirmed = $quantity ?? $this->quantity_ordered;
         $this->status = 'confirmed';
         $this->calculateTotalPrice();

@@ -12,7 +12,7 @@ use Modules\RecurringOrder\Http\Controllers\RecurringOrderController;
 |--------------------------------------------------------------------------
 */
 
-Route::middleware(['auth:sanctum'])->prefix('v1/recurring-orders')->group(function () {
+Route::middleware(['auth:sanctum', 'branch.manager', 'purchase.replay.auth', 'asab.idempotency:optional,after-commit,legacy'])->prefix('v1/recurring-orders')->group(function () {
     // 3.1.2.6.1 In Progress List
     Route::get('in-progress', [RecurringOrderController::class, 'indexInProgress'])->name('recurring-orders.in-progress');
     // 3.1.2.6.2 Next Scheduling List
