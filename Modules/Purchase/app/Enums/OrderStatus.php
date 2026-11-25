@@ -271,6 +271,14 @@ enum OrderStatus: string
     /**
      * Check if status is in decision phase
      */
+    /**
+     * Statuses from which the sending branch may decide an Internal Transfer.
+     */
+    public function canDecideInternalTransfer(): bool
+    {
+        return in_array($this, [self::PENDING, self::EMERGENCY], true);
+    }
+
     public function isDecisionPhase(): bool
     {
         return in_array($this, [

@@ -52,21 +52,27 @@ class ReturnManagementService
     }
 
     /**
-     * Brand owner: returns currently escalated (awaiting decision).
+     * Brand owner: returns currently escalated (awaiting decision) within visible branches.
+     *
+     * @param  string[]  $branchIds
      */
-    public function getBrandOwnerInProgressReturns(int $perPage = 15): LengthAwarePaginator
+    public function getBrandOwnerInProgressReturns(array $branchIds, int $perPage = 15): LengthAwarePaginator
     {
         return ReturnOrder::brandOwnerInProgress()
+            ->whereIn('branch_id', $branchIds)
             ->orderBy('escalated_at', 'desc')
             ->paginate($perPage);
     }
 
     /**
-     * Brand owner: returns whose escalation has been resolved or rejected.
+     * Brand owner: returns whose escalation has been resolved or rejected within visible branches.
+     *
+     * @param  string[]  $branchIds
      */
-    public function getBrandOwnerCompletedReturns(int $perPage = 15): LengthAwarePaginator
+    public function getBrandOwnerCompletedReturns(array $branchIds, int $perPage = 15): LengthAwarePaginator
     {
         return ReturnOrder::brandOwnerCompleted()
+            ->whereIn('branch_id', $branchIds)
             ->orderBy('resolved_at', 'desc')
             ->paginate($perPage);
     }

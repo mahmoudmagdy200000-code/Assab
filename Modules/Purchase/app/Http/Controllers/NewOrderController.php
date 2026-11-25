@@ -21,6 +21,7 @@ use Modules\Purchase\Http\Requests\StoreMultipleOrdersRequest;
 use Modules\Purchase\Notifications\PurchaseOrderCreated;
 use Modules\Purchase\Services\OrderDataService;
 use Modules\Purchase\Services\PriceComparisonService;
+use Modules\Purchase\Services\PurchaseAuthorizationService;
 use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\Purchase\Transformers\BranchItemResource;
 use Modules\Purchase\Transformers\OrderSummaryResource;
@@ -33,7 +34,8 @@ class NewOrderController extends BaseController
     public function __construct(
         private readonly PurchaseOrderService $orderService,
         private readonly PriceComparisonService $priceService,
-        private readonly OrderDataService $dataService
+        private readonly OrderDataService $dataService,
+        private readonly PurchaseAuthorizationService $authService
     ) {}
 
     /**
@@ -82,7 +84,14 @@ class NewOrderController extends BaseController
     public function getBranchItems(FilterBranchItemsRequest $request): JsonResponse
     {
         try {
-            $branchId = $request->get('branch_id', auth()->user()->branch_id);
+            $userBranchId = auth()->user()->branch_id;
+            $requestedBranchId = $request->get('branch_id');
+
+            if ($requestedBranchId !== null && $requestedBranchId !== '' && (string) $requestedBranchId !== (string) $userBranchId) {
+                return $this->forbiddenResponse('Unauthorized access to branch items');
+            }
+
+            $branchId = $userBranchId;
 
             if (! $branchId) {
                 return $this->errorResponse('Branch ID is required', 400);
@@ -408,6 +417,39 @@ class NewOrderController extends BaseController
                 $isDraft = $data['is_draft'] ?? false;
                 $isEmergency = ($data['is_emergency'] ?? false) === true;
 
+                // Validate all sources, suppliers, purchasing officers, and item catalogs BEFORE creating any order.
+                foreach ((array) ($data['branches'] ?? []) as $row) {
+                    $fromBranchId = (string) ($row['branch_id'] ?? '');
+                    if (! $this->authService->canAccessPeerBranch($user, $fromBranchId)) {
+                        return $this->forbiddenResponse('Unauthorized source branch for internal transfer');
+                    }
+                    $this->authService->assertItemsAllowedForWrite(
+                        $fromBranchId,
+                        collect($row['items'] ?? [])->pluck('item_id')->all()
+                    );
+                }
+                foreach ((array) ($data['direct_supplier'] ?? []) as $row) {
+                    $supplierId = (string) ($row['supplier_id'] ?? '');
+                    if (! $this->authService->canAccessSupplier($user, $supplierId)) {
+                        return $this->forbiddenResponse('Unauthorized supplier for this branch');
+                    }
+                    $this->authService->assertItemsAllowedForWrite(
+                        (string) $branchId,
+                        collect($row['items'] ?? [])->pluck('item_id')->all(),
+                        $supplierId
+                    );
+                }
+                foreach ((array) ($data['purchase_officer'] ?? []) as $row) {
+                    if (! empty($row['purchasing_officer_id'])
+                        && ! $this->authService->canUsePurchasingOfficer((string) $branchId, (string) $row['purchasing_officer_id'])) {
+                        return $this->forbiddenResponse('Unauthorized purchasing officer for this branch');
+                    }
+                    $this->authService->assertItemsAllowedForWrite(
+                        (string) $branchId,
+                        collect($row['items'] ?? [])->pluck('item_id')->all()
+                    );
+                }
+
                 // Log request details for debugging
                 Log::info('Creating multiple orders', [
                     'user_id' => $requestedBy,
@@ -594,6 +636,8 @@ class NewOrderController extends BaseController
                 new PurchaseOrderResource($order->fresh(['items'])),
                 'Order items updated successfully'
             );
+        } catch (\InvalidArgumentException $e) {
+            return $this->errorResponse($e->getMessage(), 422);
         } catch (\Exception $e) {
             return $this->handleException($e, 'updating order items');
         }
@@ -633,6 +677,10 @@ class NewOrderController extends BaseController
             // Check if from and to branches are different
             if ($fromBranchId === $toBranchId) {
                 return $this->errorResponse('From and to branches cannot be the same', 400);
+            }
+
+            if (! $this->authService->canAccessPeerBranch(auth()->user(), (string) $fromBranchId)) {
+                return $this->forbiddenResponse('Unauthorized access to source branch items');
             }
 
             $result = $this->dataService->getTransferItems($validated, $toBranchId);

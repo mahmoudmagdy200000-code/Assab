@@ -106,6 +106,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'expense.write.delegated' => \App\Http\Middleware\RequireExpenseWriteDelegationMiddleware::class,
             'branch.manager.or.cashier.or.brand.owner' => \App\Http\Middleware\BranchManagerOrCashierOrBrandOwnerMiddleware::class,
             'branch.manager.or.brand.owner' => \App\Http\Middleware\BranchManagerOrBrandOwnerMiddleware::class,
+            'purchase.actor' => \Modules\Purchase\Http\Middleware\EnsurePurchaseActor::class,
+            'purchase.replay.auth' => \Modules\Purchase\Http\Middleware\EnsurePurchaseReplayAuthorized::class,
             'cashier' => \Modules\Cashier\Http\Middleware\CashierMiddleware::class,
             'brand.owner' => \Modules\BrandOwner\Http\Middleware\BrandOwnerMiddleware::class,
             'supplier' => \Modules\Supplier\Http\Middleware\SupplierMiddleware::class,
@@ -118,6 +120,16 @@ return Application::configure(basePath: dirname(__DIR__))
             'overload.shed' => \App\Http\Middleware\OverloadSheddingMiddleware::class,
             'log.throttle' => \App\Http\Middleware\LogThrottledRequestsMiddleware::class,
         ]);
+
+        // Purchase write chains: actor guard -> current-state resource/source authorization
+        // -> idempotency (replay snapshots are only reachable by a currently authorized actor).
+        foreach (['branch', 'receiving_asab', 'supplier_response', 'return_view'] as $purchaseMode) {
+            $middleware->group('purchase.chain.'.$purchaseMode, [
+                'purchase.actor:'.$purchaseMode,
+                'purchase.replay.auth',
+                'asab.idempotency:optional,after-commit,legacy',
+            ]);
+        }
 
         // Laravel's default guest redirect is `route('login')`, and
         // Authenticate::unauthenticated() evaluates it eagerly for every request

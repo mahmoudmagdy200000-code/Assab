@@ -3,80 +3,87 @@
 namespace Modules\Purchase\Policies;
 
 use Illuminate\Auth\Access\HandlesAuthorization;
+use Illuminate\Foundation\Auth\User as Authenticatable;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Purchase\Services\PurchaseAuthorizationService;
 
 class PurchaseOrderPolicy
 {
     use HandlesAuthorization;
 
+    private function authService(): PurchaseAuthorizationService
+    {
+        return app(PurchaseAuthorizationService::class);
+    }
+
     /**
      * Determine whether the user can view any orders.
      */
-    public function viewAny(BranchManager $user): bool
+    public function viewAny(Authenticatable $user): bool
     {
-        return true;
+        return $this->authService()->ensureActiveBranchManager($user) !== null;
     }
 
     /**
      * Determine whether the user can view the order.
      */
-    public function view(BranchManager $user, PurchaseOrder $order): bool
+    public function view(Authenticatable $user, PurchaseOrder $order): bool
     {
-        return $user->branch_id === $order->branch_id ||
-               $user->id === $order->requested_by;
+        return $this->authService()->canAccessPurchaseOrder($user, $order);
     }
 
     /**
      * Determine whether the user can create orders.
      */
-    public function create(BranchManager $user): bool
+    public function create(Authenticatable $user): bool
     {
-        return true;
+        return $this->authService()->ensureActiveBranchManager($user) !== null;
     }
 
     /**
      * Determine whether the user can update the order.
      */
-    public function update(BranchManager $user, PurchaseOrder $order): bool
+    public function update(Authenticatable $user, PurchaseOrder $order): bool
     {
-        return ($user->branch_id === $order->branch_id || $user->id === $order->requested_by)
-               && $order->status->isActive();
+        return $this->authService()->ensureActiveBranchManager($user) !== null
+            && (string) $user->branch_id === (string) $order->branch_id
+            && $order->status->isActive();
     }
 
     /**
      * Determine whether the user can delete the order.
      */
-    public function delete(BranchManager $user, PurchaseOrder $order): bool
+    public function delete(Authenticatable $user, PurchaseOrder $order): bool
     {
-        return $user->id === $order->requested_by && $order->status->value === 'draft';
+        return $this->authService()->ensureActiveBranchManager($user) !== null
+            && (string) $user->branch_id === (string) $order->branch_id
+            && $order->status->value === 'draft';
     }
 
     /**
      * Determine whether the user can submit the order.
      */
-    public function submit(BranchManager $user, PurchaseOrder $order): bool
+    public function submit(Authenticatable $user, PurchaseOrder $order): bool
     {
-        return $user->id === $order->requested_by && $order->status->value === 'draft';
+        return $this->authService()->ensureActiveBranchManager($user) !== null
+            && (string) $user->branch_id === (string) $order->branch_id
+            && $order->status->value === 'draft';
     }
 
     /**
      * Determine whether the user can approve the order.
      */
-    public function approve(BranchManager $user, PurchaseOrder $order): bool
+    public function approve(Authenticatable $user, PurchaseOrder $order): bool
     {
-        // For internal transfers, the receiving branch manager can approve
-        if ($order->order_type->isTransfer()) {
-            return $user->branch_id === $order->from_branch_id;
-        }
-
-        return false;
+        // For internal transfers, only the sending branch (`from_branch_id`) manager can approve
+        return $this->authService()->canDecideInternalTransfer($user, $order);
     }
 
     /**
      * Determine whether the user can reject the order.
      */
-    public function reject(BranchManager $user, PurchaseOrder $order): bool
+    public function reject(Authenticatable $user, PurchaseOrder $order): bool
     {
         return $this->approve($user, $order);
     }
@@ -84,16 +91,18 @@ class PurchaseOrderPolicy
     /**
      * Determine whether the user can cancel the order.
      */
-    public function cancel(BranchManager $user, PurchaseOrder $order): bool
+    public function cancel(Authenticatable $user, PurchaseOrder $order): bool
     {
-        return $user->id === $order->requested_by && $order->status->isActive();
+        return $this->authService()->ensureActiveBranchManager($user) !== null
+            && (string) $user->branch_id === (string) $order->branch_id
+            && $order->status->isActive();
     }
 
     /**
      * Determine whether the user can receive the order.
      */
-    public function receive(BranchManager $user, PurchaseOrder $order): bool
+    public function receive(Authenticatable $user, PurchaseOrder $order): bool
     {
-        return $user->branch_id === $order->branch_id && $order->can_receive;
+        return $this->authService()->canReceivePurchaseOrder($user, $order, false) && $order->can_receive;
     }
 }

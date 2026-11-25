@@ -555,7 +555,7 @@ Route::prefix('v1')->group(function () {
             });
 
             // ---- Procurement (مدير المشتريات; §6.5) ----
-            Route::middleware('asab.role:procurement')->prefix('procurement')->group(function () {
+            Route::middleware(['asab.role:procurement', 'asab.idempotency'])->prefix('procurement')->group(function () {
                 Route::get('overview', [ProcurementController::class, 'overview']);
                 Route::get('orders', [ProcurementController::class, 'orders']);
                 Route::get('orders/{id}', [ProcurementController::class, 'show']);

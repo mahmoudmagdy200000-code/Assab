@@ -112,12 +112,23 @@ class PurchaseOrderItemService
      */
     public function updateItems(PurchaseOrder $order, array $items): void
     {
+        $itemIds = array_values(array_filter(array_map(
+            static fn (array $itemData): ?string => isset($itemData['id']) ? (string) $itemData['id'] : null,
+            $items
+        ), static fn (?string $id): bool => $id !== null));
+        if (count($itemIds) !== count(array_unique($itemIds))) {
+            throw new \InvalidArgumentException('Duplicate order item IDs are not allowed');
+        }
+
         DB::transaction(function () use ($order, $items) {
             foreach ($items as $itemData) {
                 if (! isset($itemData['id'])) {
                     continue;
                 }
-                $item = PurchaseOrderItem::find($itemData['id']);
+                $item = $order->items()->find($itemData['id']);
+                if (! $item) {
+                    throw new \InvalidArgumentException('Item does not belong to this order');
+                }
                 if ($item) {
                     $item->update([
                         'quantity_ordered' => $itemData['quantity'] ?? $item->quantity_ordered,

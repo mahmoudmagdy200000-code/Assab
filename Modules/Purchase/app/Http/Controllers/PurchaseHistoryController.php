@@ -6,6 +6,8 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Modules\Purchase\Http\Requests\FilterPurchaseHistoryRequest;
+use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Purchase\Services\PurchaseAuthorizationService;
 use Modules\Purchase\Services\PurchaseOrderService;
 use Modules\Purchase\Services\TimelineService;
 use Modules\Purchase\Transformers\PurchaseHistoryDetailsResource;
@@ -15,7 +17,8 @@ class PurchaseHistoryController extends BaseController
 {
     public function __construct(
         private readonly PurchaseOrderService $orderService,
-        private readonly TimelineService $timelineService
+        private readonly TimelineService $timelineService,
+        private readonly PurchaseAuthorizationService $authService
     ) {}
 
     /**
@@ -82,6 +85,16 @@ class PurchaseHistoryController extends BaseController
     public function timeline(string $id): JsonResponse
     {
         try {
+            $order = PurchaseOrder::find($id);
+
+            if (! $order) {
+                return $this->notFoundResponse('Order not found');
+            }
+
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('view', $order)) {
+                return $this->forbiddenResponse('Unauthorized access to this purchase order');
+            }
+
             $timeline = $this->orderService->getOrderTimeline($id);
 
             return $this->successResponse(
