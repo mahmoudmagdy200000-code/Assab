@@ -101,6 +101,44 @@ class ReceiptPriceApprovalService
         });
     }
 
+    /**
+     * T3.1 / REG-DEC-05 / REG-DEC-06: Reject price variance, retain approved PO baseline,
+     * and flag awaiting_corrected_document.
+     */
+    public function reject(string $receiptId, AsabUser $actor, string $reason): GoodsReceipt
+    {
+        return DB::transaction(function () use ($receiptId, $actor, $reason) {
+            $receipt = GoodsReceipt::whereKey($receiptId)->lockForUpdate()->firstOrFail();
+            $this->authorize($actor, $receipt);
+            $this->assertSupported($receipt);
+
+            $existing = $this->currentOperation($receipt);
+            if ($existing && ! $existing->trashed() && $existing->status === Operation::STATUS_APPROVED) {
+                $existing->update([
+                    'status' => Operation::STATUS_REJECTED,
+                    'reject_reason' => $reason,
+                    'rejected_by_id' => $actor->id,
+                    'rejected_at' => now(),
+                ]);
+                $this->audit($existing, $actor, 'supersede', $reason);
+            }
+
+            $meta = $receipt->cost_adjustment_meta ?? [];
+            $meta['awaiting_corrected_document'] = true;
+            $meta['price_rejection_reason'] = $reason;
+            $meta['rejected_by_id'] = $actor->id;
+            $meta['rejected_at'] = now()->toISOString();
+            $receipt->update([
+                'cost_adjustment_status' => 'awaiting_corrected_document',
+                'cost_adjustment_meta' => $meta,
+            ]);
+
+            app(GoodsReceiptService::class)->reconcileApprovedInvoice($receipt);
+
+            return $receipt->fresh();
+        });
+    }
+
     /** IDs authorized for this exact immutable invoice/receipt revision; no fallback to older decisions. */
     public function authorizedLines(GoodsReceipt $receipt, PurchaseInvoice $invoice): array
     {
@@ -243,7 +281,7 @@ class ReceiptPriceApprovalService
     }
 
     /** Reuse canonical middleware and hierarchical resolver for both issuing and consuming an approval. */
-    private function authorize(AsabUser $actor, GoodsReceipt $receipt): void
+    public function authorize(AsabUser $actor, GoodsReceipt $receipt): void
     {
         $receipt->loadMissing('purchaseOrder.branch');
         $saved = app(TenantContext::class);

@@ -233,6 +233,7 @@ Route::middleware(['auth:sanctum', 'log.throttle'])->prefix('v1/purchase')->grou
         Route::post('/{id}/submit', [ReturnManagementController::class, 'submit'])->middleware('purchase.chain.branch')->name('purchase.returns.submit');
         Route::post('/{id}/accept-rejection', [ReturnManagementController::class, 'acceptRejection'])->middleware('purchase.chain.branch')->name('purchase.returns.accept-rejection');
         Route::post('/{id}/escalate', [ReturnManagementController::class, 'escalate'])->middleware('purchase.chain.branch')->name('purchase.returns.escalate');
+        Route::post('/{id}/confirm-handover', [ReturnManagementController::class, 'confirmHandover'])->middleware('purchase.chain.branch')->name('purchase.returns.confirm-handover');
 
         // Draft management
         Route::post('/draft', [ReturnManagementController::class, 'saveDraft'])->middleware('purchase.chain.branch')->name('purchase.returns.save-draft');

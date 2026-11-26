@@ -348,6 +348,28 @@ class PurchaseAuthorizationService
     }
 
     /**
+     * T3.5 / PUR-F15: Resolve the default active BrandOwner covering $branchId.
+     */
+    public function resolveDefaultBrandOwner(string $branchId): ?string
+    {
+        $branch = Branch::whereKey($branchId)->first();
+        if ($branch === null) {
+            return null;
+        }
+
+        $activeOwners = BrandOwner::where('status', 'active')
+            ->where('is_active', true)
+            ->get();
+        foreach ($activeOwners as $owner) {
+            if ($this->isValidEscalationRecipient((string) $owner->id, $branchId)) {
+                return (string) $owner->id;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Validate that a purchasing officer belongs to a branch visible to `$branchId`.
      */
     public function canUsePurchasingOfficer(string $branchId, string $officerId): bool

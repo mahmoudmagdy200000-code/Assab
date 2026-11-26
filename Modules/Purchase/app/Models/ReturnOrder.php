@@ -49,6 +49,14 @@ class ReturnOrder extends Model
         'submitted_at',
         'approved_at',
         'closed_at',
+        'handed_over_at',
+        'handed_over_by',
+        'financial_status',
+        'reviewed_by_accountant_id',
+        'reviewed_by_accountant_at',
+        'approved_by_head_id',
+        'approved_by_head_at',
+        'financial_notes',
     ];
 
     protected $casts = [
@@ -66,6 +74,9 @@ class ReturnOrder extends Model
         'submitted_at' => 'datetime',
         'approved_at' => 'datetime',
         'closed_at' => 'datetime',
+        'handed_over_at' => 'datetime',
+        'reviewed_by_accountant_at' => 'datetime',
+        'approved_by_head_at' => 'datetime',
     ];
 
     protected $appends = [
