@@ -6,7 +6,9 @@ use App\Http\Controllers\BaseController;
 use Illuminate\Http\JsonResponse;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\SupplierItem;
+use Modules\Purchase\Services\GoodsReceiptService;
 use Modules\Purchase\Services\TimelineService;
+use Modules\Purchase\Transformers\OrderTrackingResource;
 use Modules\Supplier\Http\Requests\Orders\AcceptOrderRequest;
 use Modules\Supplier\Http\Requests\Orders\RejectOrderRequest;
 use Modules\Supplier\Http\Requests\Orders\RequestModificationRequest;
@@ -17,7 +19,8 @@ class OrderController extends BaseController
 {
     public function __construct(
         private readonly OrderService $orderService,
-        private readonly TimelineService $timelineService
+        private readonly TimelineService $timelineService,
+        private readonly GoodsReceiptService $receiptService
     ) {}
 
     /**
@@ -62,6 +65,30 @@ class OrderController extends BaseController
             );
         } catch (\Exception $e) {
             return $this->handleException($e, 'fetching order details');
+        }
+    }
+
+    /**
+     * Get order tracking stages for the authenticated supplier's order
+     */
+    public function tracking(string $id): JsonResponse
+    {
+        try {
+            $supplier = auth('supplier')->user() ?? auth()->user();
+            $order = $this->orderService->getOrderDetails($id, $supplier);
+
+            if (! $order) {
+                return $this->notFoundResponse('Order not found');
+            }
+
+            $tracking = $this->receiptService->getOrderTracking($id);
+
+            return $this->successResponse(
+                new OrderTrackingResource(['order_id' => $id, ...$tracking]),
+                'Order tracking retrieved successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'fetching order tracking');
         }
     }
 
