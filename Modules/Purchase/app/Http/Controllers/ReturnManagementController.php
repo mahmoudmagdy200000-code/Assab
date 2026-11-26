@@ -267,14 +267,17 @@ class ReturnManagementController extends BaseController
             }
 
             if (empty($escalatedTo)) {
-                $escalatedTo = config('purchase.brand_owner_id') ?? 'brand-owner-uuid';
+                $escalatedTo = config('purchase.brand_owner_id');
+                if (empty($escalatedTo)) {
+                    $escalatedTo = $this->authService->resolveDefaultBrandOwner((string) $return->branch_id);
+                }
             }
 
-            // Validate that we have a valid non-empty string
+            // Validate that we have a valid non-empty string for an authorized brand owner
             if (empty($escalatedTo) || ! is_string($escalatedTo)) {
                 return $this->errorResponse(
-                    'Brand owner ID is required for escalation. Please configure BRAND_OWNER_ID in your .env file or provide escalated_to in the request.',
-                    400
+                    'No authorized brand owner found for escalation on this branch.',
+                    422
                 );
             }
 
@@ -408,6 +411,35 @@ class ReturnManagementController extends BaseController
             );
         } catch (\Exception $e) {
             return $this->handleException($e, 'fetching return timeline');
+        }
+    }
+
+    /**
+     * Confirm physical handover of return items to supplier
+     *
+     * @group Return Management
+     */
+    public function confirmHandover(Request $request, string $id): JsonResponse
+    {
+        try {
+            $return = ReturnOrder::find($id);
+
+            if (! $return) {
+                return $this->notFoundResponse('Return order not found');
+            }
+
+            if (\Illuminate\Support\Facades\Gate::forUser(auth()->user())->denies('mutate', $return)) {
+                return $this->forbiddenResponse('Unauthorized access to this return order');
+            }
+
+            $updatedReturn = $this->returnService->confirmHandover($id, auth()->id());
+
+            return $this->successResponse(
+                new ReturnOrderResource($updatedReturn),
+                'Return handover confirmed successfully'
+            );
+        } catch (\Exception $e) {
+            return $this->handleException($e, 'confirming return handover');
         }
     }
 }

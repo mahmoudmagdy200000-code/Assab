@@ -37,7 +37,8 @@ class PurchaseReturnController extends AsabController
                 ->legacyBranchIds(app(TenantContext::class));
 
             $q = \Modules\Purchase\Models\ReturnOrder::query()
-                ->with(['purchaseOrder:id,order_number'])
+                ->with(['purchaseOrder:id,order_number', 'supplier:id,name'])
+                ->withCount('items')
                 ->orderByDesc('return_date');
 
             // Fail closed: a non-admin caller with no resolvable branch set sees nothing.
@@ -77,7 +78,7 @@ class PurchaseReturnController extends AsabController
                 'returnNumber' => $r->return_number,
                 'orderNumber' => $r->purchaseOrder?->order_number,
                 'supplierId' => $r->supplier_id,
-                'supplierName' => $supplierNames[$r->supplier_id] ?? null,
+                'supplierName' => $r->supplier?->name ?? $supplierNames[$r->supplier_id] ?? null,
                 'branchId' => $r->branch_id,
                 'branchName' => $branchNames[$r->branch_id] ?? null,
                 'returnDate' => optional($r->return_date)->toDateString(),
@@ -85,8 +86,99 @@ class PurchaseReturnController extends AsabController
                 'statusLabelAr' => PurchaseEnums::returnStatusLabelAr($this->statusValue($r->status)),
                 'totalReturnAmountHalalas' => $this->toHalalas($r->total_return_amount),
                 'refundAmountHalalas' => $this->toHalalas($r->refund_amount),
-                'itemCount' => $r->items()->count(),
+                'itemCount' => (int) ($r->items_count ?? 0),
+                'financialStatus' => $r->financial_status ?? 'pending_review',
+                'reviewedByAccountantAt' => optional($r->reviewed_by_accountant_at)->toISOString(),
+                'approvedByHeadAt' => optional($r->approved_by_head_at)->toISOString(),
+                'financialNotes' => $r->financial_notes,
+                'handedOverAt' => optional($r->handed_over_at)->toISOString(),
             ])->all());
+        });
+    }
+
+    /**
+     * T3.5 / PUR-04 / DEC-02: Accountant financial review of purchase return value.
+     */
+    public function review(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $data = $request->validate(['notes' => 'sometimes|nullable|string|max:1000']);
+            $allowed = app(\Modules\Admin\Services\TenantBranchResolver::class)->legacyBranchIds(app(TenantContext::class));
+
+            $q = \Modules\Purchase\Models\ReturnOrder::query()->whereKey($id);
+            if ($allowed !== null) {
+                $q->whereIn('branch_id', $allowed);
+            }
+            $return = $q->firstOrFail();
+
+            $return->update([
+                'financial_status' => 'reviewed_by_accountant',
+                'reviewed_by_accountant_id' => $request->user()->id,
+                'reviewed_by_accountant_at' => now(),
+                'financial_notes' => $data['notes'] ?? $return->financial_notes,
+            ]);
+
+            return $this->ok($return->fresh());
+        });
+    }
+
+    /**
+     * T3.5 / PUR-04 / DEC-02: Head accountant final approval of purchase return.
+     * Enforces strict sequence gate: Head cannot approve before Accountant review (409).
+     */
+    public function finalApprove(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $data = $request->validate(['notes' => 'sometimes|nullable|string|max:1000']);
+            $allowed = app(\Modules\Admin\Services\TenantBranchResolver::class)->legacyBranchIds(app(TenantContext::class));
+
+            $q = \Modules\Purchase\Models\ReturnOrder::query()->whereKey($id);
+            if ($allowed !== null) {
+                $q->whereIn('branch_id', $allowed);
+            }
+            $return = $q->firstOrFail();
+
+            if ($return->financial_status !== 'reviewed_by_accountant') {
+                throw new \Modules\Admin\Exceptions\AsabException(
+                    'FINANCIAL_REVIEW_REQUIRED',
+                    'Head accountant cannot approve return before accountant review.',
+                    'لا يمكن اعتماد المرتجع ماليًا قبل مراجعة المحاسب',
+                    409
+                );
+            }
+
+            $return->update([
+                'financial_status' => 'approved_by_head',
+                'approved_by_head_id' => $request->user()->id,
+                'approved_by_head_at' => now(),
+                'financial_notes' => $data['notes'] ?? $return->financial_notes,
+            ]);
+
+            return $this->ok($return->fresh());
+        });
+    }
+
+    /**
+     * T3.5 / PUR-04: Head accountant sends return back to accountant for review.
+     */
+    public function returnForReview(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $data = $request->validate(['notes' => 'sometimes|nullable|string|max:1000']);
+            $allowed = app(\Modules\Admin\Services\TenantBranchResolver::class)->legacyBranchIds(app(TenantContext::class));
+
+            $q = \Modules\Purchase\Models\ReturnOrder::query()->whereKey($id);
+            if ($allowed !== null) {
+                $q->whereIn('branch_id', $allowed);
+            }
+            $return = $q->firstOrFail();
+
+            $return->update([
+                'financial_status' => 'pending_review',
+                'financial_notes' => $data['notes'] ?? $return->financial_notes,
+            ]);
+
+            return $this->ok($return->fresh());
         });
     }
 

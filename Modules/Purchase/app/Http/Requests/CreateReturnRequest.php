@@ -18,7 +18,7 @@ class CreateReturnRequest extends FormRequest
             'required_action' => ['required', 'string', 'in:replacement,cash_refund,credit_future_order'],
             'additional_notes' => ['nullable', 'string', 'max:2000'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.purchase_order_item_id' => ['required', 'uuid', 'exists:purchase_order_items,id'],
+            'items.*.purchase_order_item_id' => ['required', 'uuid', 'distinct', 'exists:purchase_order_items,id'],
             'items.*.return_quantity' => ['required', 'numeric', 'min:0.001'],
             'items.*.quality_reason' => ['required', 'string', 'in:excellent,normal,poor'],
             'items.*.files' => ['nullable', 'array'],

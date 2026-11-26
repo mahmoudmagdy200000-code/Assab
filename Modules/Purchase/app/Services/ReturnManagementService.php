@@ -4,10 +4,16 @@ namespace Modules\Purchase\Services;
 
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Modules\Admin\Exceptions\AsabException;
+use Modules\Branch\Models\Branch;
+use Modules\Inventory\Models\InventoryStockMovement;
 use Modules\Purchase\Enums\DocumentType;
 use Modules\Purchase\Enums\ReturnStatus;
+use Modules\Purchase\Models\BranchInventory;
+use Modules\Purchase\Models\GoodsReceiptItem;
 use Modules\Purchase\Models\OrderDocument;
 use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Purchase\Models\PurchaseOrderItem;
 use Modules\Purchase\Models\ReturnOrder;
 use Modules\Purchase\Models\ReturnOrderItem;
 use Modules\Purchase\Support\PurchaseFileHelper;
@@ -117,17 +123,13 @@ class ReturnManagementService
      */
     public function addReturnItem(ReturnOrder $returnOrder, array $data, $request = null, int $itemIndex = 0): ReturnOrderItem
     {
-        // Get purchase order item details
-        $purchaseOrderItem = \Modules\Purchase\Models\PurchaseOrderItem::find($data['purchase_order_item_id']);
-
-        if (! $purchaseOrderItem) {
-            throw new \InvalidArgumentException("Purchase order item not found: {$data['purchase_order_item_id']}");
-        }
-
-        // Verify the item belongs to the same purchase order
-        if ($purchaseOrderItem->purchase_order_id !== $returnOrder->purchase_order_id) {
-            throw new \InvalidArgumentException('Purchase order item does not belong to the specified purchase order');
-        }
+        // T3.4 / DEC-02 / S3-CODEX-002: Enforce cumulative net received cap including same-return lines
+        $returnQty = round((float) ($data['return_quantity'] ?? 0), 3);
+        $purchaseOrderItem = $this->assertWithinNetReceivedCap(
+            (string) $data['purchase_order_item_id'],
+            $returnQty,
+            expectedOrderId: (string) $returnOrder->purchase_order_id
+        );
 
         // Calculate return amount using unit price from purchase order item
         $returnAmount = ($data['return_quantity'] ?? 0) * ($purchaseOrderItem->unit_price ?? 0);
@@ -169,6 +171,177 @@ class ReturnManagementService
             'files' => $uploadedFiles ?: null,
             'notes' => null,
         ]);
+    }
+
+    /**
+     * T3.4 / DEC-02 / S3-CODEX-002: Enforce cumulative net received cap across all active
+     * return lines (including same-return lines) with MySQL REPEATABLE-READ locking.
+     */
+    private function assertWithinNetReceivedCap(
+        string $purchaseOrderItemId,
+        float $candidateQty,
+        ?string $expectedOrderId = null,
+        ?string $excludeReturnItemId = null,
+        ?string $excludeReturnOrderId = null
+    ): \Modules\Purchase\Models\PurchaseOrderItem {
+        $purchaseOrderItem = \Modules\Purchase\Models\PurchaseOrderItem::whereKey($purchaseOrderItemId)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $purchaseOrderItem) {
+            throw new \InvalidArgumentException("Purchase order item not found: {$purchaseOrderItemId}");
+        }
+
+        if ($expectedOrderId !== null && $purchaseOrderItem->purchase_order_id !== $expectedOrderId) {
+            throw new \InvalidArgumentException('Purchase order item does not belong to the specified purchase order');
+        }
+
+        $totalReceivedPosted = max(
+            round((float) ($purchaseOrderItem->quantity_received ?? 0), 3),
+            round((float) GoodsReceiptItem::where('purchase_order_item_id', $purchaseOrderItem->id)
+                ->lockForUpdate()
+                ->get(['quantity_available_posted'])
+                ->sum('quantity_available_posted'), 3)
+        );
+
+        $alreadyReturnedQuery = ReturnOrderItem::query()
+            ->join('return_orders', 'return_order_items.return_order_id', '=', 'return_orders.id')
+            ->where('return_order_items.purchase_order_item_id', $purchaseOrderItem->id)
+            ->whereNull('return_orders.deleted_at')
+            ->whereNotIn('return_orders.status', [ReturnStatus::REJECTED->value, 'rejected']);
+
+        if ($excludeReturnItemId !== null) {
+            $alreadyReturnedQuery->where('return_order_items.id', '!=', $excludeReturnItemId);
+        }
+        if ($excludeReturnOrderId !== null) {
+            $alreadyReturnedQuery->where('return_order_items.return_order_id', '!=', $excludeReturnOrderId);
+        }
+
+        $alreadyReturned = round((float) $alreadyReturnedQuery
+            ->lockForUpdate()
+            ->get(['return_order_items.return_quantity'])
+            ->sum('return_quantity'), 3);
+
+        $maxReturnable = max(0.0, round($totalReceivedPosted - $alreadyReturned, 3));
+        if ($candidateQty > $maxReturnable + 0.0005) {
+            throw new AsabException(
+                'RETURN_EXCEEDS_NET_RECEIVED',
+                "Return quantity ({$candidateQty}) exceeds net received quantity ({$maxReturnable}).",
+                status: 422
+            );
+        }
+
+        return $purchaseOrderItem;
+    }
+
+    /**
+     * T3.4 / DEC-02: Confirm physical handover of return items to supplier.
+     * Deducts available inventory once (Idempotent) and records stock movements.
+     */
+    public function confirmHandover(string $returnId, ?string $actorId = null): ReturnOrder
+    {
+        return DB::transaction(function () use ($returnId, $actorId) {
+            $return = ReturnOrder::with(['purchaseOrder.branch'])->whereKey($returnId)->lockForUpdate()->firstOrFail();
+
+            // Idempotent: already handed over
+            if ($return->handed_over_at !== null) {
+                return $return;
+            }
+
+            $items = $return->items()->with('purchaseOrderItem')->lockForUpdate()->get();
+
+            // S3-CODEX-002: Verify cumulative return quantity per PO item before deducting any stock
+            foreach ($items->groupBy('purchase_order_item_id') as $poItemId => $groupedItems) {
+                if (! $poItemId) {
+                    continue;
+                }
+                $sumQty = round((float) $groupedItems->sum('return_quantity'), 3);
+                $this->assertWithinNetReceivedCap(
+                    (string) $poItemId,
+                    $sumQty,
+                    excludeReturnOrderId: (string) $return->id
+                );
+            }
+
+            $order = $return->purchaseOrder;
+            $companyId = (string) ($order?->branch?->asab_company_id ?? Branch::whereKey($return->branch_id)->value('asab_company_id') ?? '');
+            $now = now();
+
+            foreach ($items as $returnItem) {
+                $returnItem->loadMissing('purchaseOrderItem');
+                $itemId = $returnItem->purchaseOrderItem?->item_id;
+                if (! $itemId) {
+                    continue;
+                }
+
+                $qty = round((float) $returnItem->return_quantity, 3);
+                if ($qty <= 0) {
+                    continue;
+                }
+
+                $idemKey = "return_handover:{$return->id}:{$returnItem->id}";
+                if (InventoryStockMovement::where('idempotency_key', $idemKey)->lockForUpdate()->exists()) {
+                    continue;
+                }
+
+                $unitCostHalalas = (int) round(((float) ($returnItem->unit_price ?? 0)) * 100);
+                $totalCostHalalas = (int) round(((float) ($returnItem->return_amount ?? ($qty * (float) $returnItem->unit_price))) * 100);
+
+                // Deduct from BranchInventory
+                $branchInv = BranchInventory::where('branch_id', $return->branch_id)
+                    ->where('item_id', $itemId)
+                    ->lockForUpdate()
+                    ->first();
+                if ($branchInv) {
+                    $branchInv->decrement('available_quantity', $qty);
+                }
+
+                // Deduct from BranchItem pivot if present
+                $branchItem = DB::table('branch_item')
+                    ->where('branch_id', $return->branch_id)
+                    ->where('item_id', $itemId)
+                    ->first();
+                if ($branchItem) {
+                    DB::table('branch_item')
+                        ->where('branch_id', $return->branch_id)
+                        ->where('item_id', $itemId)
+                        ->decrement('quantity', $qty);
+                }
+
+                // Record InventoryStockMovement
+                InventoryStockMovement::create([
+                    'company_id' => $companyId,
+                    'branch_id' => (string) $return->branch_id,
+                    'item_id' => $itemId,
+                    'idempotency_key' => $idemKey,
+                    'movement_type' => 'return',
+                    'qty_delta' => -1 * $qty,
+                    'unit_cost_halalas' => $unitCostHalalas,
+                    'total_cost_halalas' => -1 * $totalCostHalalas,
+                    'source_type' => 'purchase_return_handover',
+                    'source_id' => $return->id,
+                    'revision' => 1,
+                    'cost_source' => 'RETURN_HANDOVER',
+                    'posted_at' => $now,
+                    'created_by_id' => $actorId,
+                    'notes' => 'تسليم مرتجع مشتريات فعلي — '.$return->return_number,
+                    'meta' => [
+                        'return_order_id' => $return->id,
+                        'return_order_item_id' => $returnItem->id,
+                        'purchase_order_id' => $return->purchase_order_id,
+                        'purchase_order_item_id' => $returnItem->purchase_order_item_id,
+                        'return_quantity' => $qty,
+                    ],
+                ]);
+            }
+
+            $return->update([
+                'handed_over_at' => $now,
+                'handed_over_by' => $actorId,
+            ]);
+
+            return $return->fresh(['items.purchaseOrderItem', 'purchaseOrder', 'supplier']);
+        });
     }
 
     /**
@@ -229,6 +402,13 @@ class ReturnManagementService
                                     OrderDocument::find($docId)?->delete();
                                 }
                             }
+
+                            $newQty = round((float) ($itemData['return_quantity'] ?? $item->return_quantity), 3);
+                            $this->assertWithinNetReceivedCap(
+                                (string) $item->purchase_order_item_id,
+                                $newQty,
+                                excludeReturnItemId: (string) $item->id
+                            );
 
                             $item->update([
                                 'return_quantity' => $itemData['return_quantity'] ?? $item->return_quantity,

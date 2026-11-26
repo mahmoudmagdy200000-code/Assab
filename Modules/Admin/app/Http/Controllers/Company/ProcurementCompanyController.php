@@ -210,6 +210,18 @@ class ProcurementCompanyController extends AsabController
                 'brandId' => 'sometimes|nullable|string', 'code' => 'sometimes|nullable|string|max:32',
             ]);
             $price = $this->priceHalalas($data);
+            if ($price !== null && $price > 0) {
+                $ctx = app(\Modules\Admin\Support\TenantContext::class);
+                if ($ctx->roleKey === 'accountant' || ($request->user() && method_exists($request->user(), 'hasRole') && $request->user()->hasRole('accountant'))) {
+                    throw new AsabException('FORBIDDEN_PRICE_EDIT', 'Accountants cannot edit supplier prices.', status: 403);
+                }
+                if (! empty($data['supplierId'])) {
+                    $supplier = AsabSupplier::find($data['supplierId']);
+                    if ($supplier && (! $supplier->is_external || $supplier->user_id !== null)) {
+                        throw new AsabException('SUPPLIER_PRICE_MANAGED_BY_PORTAL', 'Subscribed suppliers manage their own prices via the supplier portal.', status: 403);
+                    }
+                }
+            }
             $item = DB::transaction(function () use ($request, $data, $price) {
                 $item = SupplierItem::create([
                     'company_id' => $request->user()->company_id, 'brand_id' => $data['brandId'] ?? null,
@@ -245,9 +257,23 @@ class ProcurementCompanyController extends AsabController
                 'brandId' => 'sometimes|nullable|string', 'supplierId' => 'sometimes|nullable|string',
             ]);
             $price = $this->priceHalalas($data);
-            DB::transaction(function () use ($item, $data, $price) {
-                // Capture the price change BEFORE the update syncs the model's originals.
-                $priceChanged = $price !== null && $price !== (int) $item->price;
+            $priceChanged = $price !== null && $price !== (int) $item->price;
+
+            if ($priceChanged) {
+                $ctx = app(\Modules\Admin\Support\TenantContext::class);
+                if ($ctx->roleKey === 'accountant' || ($request->user() && method_exists($request->user(), 'hasRole') && $request->user()->hasRole('accountant'))) {
+                    throw new AsabException('FORBIDDEN_PRICE_EDIT', 'Accountants cannot edit supplier prices.', status: 403);
+                }
+                $supId = $data['supplierId'] ?? $item->supplier_id;
+                if ($supId) {
+                    $supplier = AsabSupplier::find($supId);
+                    if ($supplier && (! $supplier->is_external || $supplier->user_id !== null)) {
+                        throw new AsabException('SUPPLIER_PRICE_MANAGED_BY_PORTAL', 'Subscribed suppliers manage their own prices via the supplier portal.', status: 403);
+                    }
+                }
+            }
+
+            DB::transaction(function () use ($item, $data, $price, $priceChanged) {
                 $item->update(array_filter([
                     'name' => $data['name'] ?? null, 'unit' => $data['unit'] ?? null,
                     'price' => $price, 'status' => $data['status'] ?? null,

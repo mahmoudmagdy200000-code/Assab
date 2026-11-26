@@ -122,6 +122,7 @@ class EnsurePurchaseReplayAuthorized
             'purchase.returns.submit',
             'purchase.returns.accept-rejection',
             'purchase.returns.escalate',
+            'purchase.returns.confirm-handover',
         ], true)) {
             $return = $this->findActive(ReturnOrder::class, $p('id'));
 

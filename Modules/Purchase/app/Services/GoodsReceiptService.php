@@ -5,6 +5,7 @@ namespace Modules\Purchase\Services;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Exceptions\AsabException;
+use Modules\Admin\Models\AsabUser;
 use Modules\Branch\Models\Branch;
 use Modules\Inventory\Models\InternalTransferVariance;
 use Modules\Inventory\Models\InventoryStockMovement;
@@ -890,6 +891,180 @@ class GoodsReceiptService
     }
 
     /**
+     * T3.1 / DEC-05 / REG-DEC-02 / REG-DEC-03: Release reserved excess quantity to available stock once.
+     */
+    public function approveExcess(string $receiptId, AsabUser $actor, ?array $lineIds = null): GoodsReceipt
+    {
+        return DB::transaction(function () use ($receiptId, $actor, $lineIds) {
+            $receipt = GoodsReceipt::with(['purchaseOrder.branch'])->whereKey($receiptId)->lockForUpdate()->firstOrFail();
+            $items = $receipt->items()->lockForUpdate()->get();
+            $order = $receipt->purchaseOrder;
+            if ($order?->order_type !== OrderType::VIA_PURCHASING_OFFICER) {
+                throw new AsabException('APPROVAL_ROLE_PENDING', 'DEC-OPEN-01: excess approval unavailable for this order type.', status: 403);
+            }
+
+            app(ReceiptPriceApprovalService::class)->authorize($actor, $receipt);
+
+            $companyId = (string) ($order->branch?->asab_company_id ?? '');
+            $now = now();
+
+            foreach ($items as $item) {
+                if ($lineIds !== null && ! in_array($item->id, $lineIds, true)) {
+                    continue;
+                }
+                if ($item->excess_status === 'approved' || (float) $item->quantity_excess_reserved <= 0) {
+                    continue;
+                }
+
+                $excessQty = round((float) $item->quantity_excess_reserved, 3);
+                if ($excessQty <= 0) {
+                    continue;
+                }
+
+                $idemKey = "excess_release:{$item->id}";
+                if (InventoryStockMovement::where('idempotency_key', $idemKey)->lockForUpdate()->exists()) {
+                    continue;
+                }
+
+                $unitCostHalalas = (int) round(((float) ($item->unit_price ?? 0)) * 100);
+                $totalCostHalalas = (int) round($excessQty * $unitCostHalalas);
+
+                // Release to BranchInventory
+                $branchInv = BranchInventory::where('branch_id', $order->branch_id)
+                    ->where('item_id', $item->item_id)
+                    ->lockForUpdate()
+                    ->first();
+                if ($branchInv) {
+                    $branchInv->increment('available_quantity', $excessQty);
+                } else {
+                    BranchInventory::create([
+                        'branch_id' => $order->branch_id,
+                        'item_id' => $item->item_id,
+                        'available_quantity' => $excessQty,
+                    ]);
+                }
+
+                // Release to BranchItem pivot if present
+                $branchItem = DB::table('branch_item')
+                    ->where('branch_id', $order->branch_id)
+                    ->where('item_id', $item->item_id)
+                    ->first();
+                if ($branchItem) {
+                    DB::table('branch_item')
+                        ->where('branch_id', $order->branch_id)
+                        ->where('item_id', $item->item_id)
+                        ->increment('quantity', $excessQty);
+                }
+
+                // Record InventoryStockMovement
+                InventoryStockMovement::create([
+                    'company_id' => $companyId,
+                    'branch_id' => (string) $order->branch_id,
+                    'item_id' => $item->item_id,
+                    'idempotency_key' => $idemKey,
+                    'movement_type' => 'purchase_in',
+                    'qty_delta' => $excessQty,
+                    'unit_cost_halalas' => $unitCostHalalas,
+                    'total_cost_halalas' => $totalCostHalalas,
+                    'source_type' => 'goods_receipt_excess_release',
+                    'source_id' => $receipt->id,
+                    'revision' => 1,
+                    'cost_source' => 'PO_UNIT_PRICE_PROVISIONAL',
+                    'posted_at' => $now,
+                    'created_by_id' => $actor->id,
+                    'notes' => 'إفراج فائض كمية معتمد — أمر '.$order->order_number,
+                    'meta' => [
+                        'goods_receipt_item_id' => $item->id,
+                        'purchase_order_id' => $order->id,
+                        'purchase_order_item_id' => $item->purchase_order_item_id,
+                        'excess_qty' => $excessQty,
+                    ],
+                ]);
+
+                // Record purchase cost delta for WAC
+                if ($companyId !== '' && $totalCostHalalas > 0) {
+                    $yearMonth = ($receipt->created_at ?? $now)->format('Y-m');
+                    app(\Modules\Admin\Services\MonthlyWeightedCostService::class)->recordPurchaseCostDelta(
+                        $companyId,
+                        (string) $order->branch_id,
+                        $item->item_id,
+                        $yearMonth,
+                        $excessQty,
+                        $totalCostHalalas
+                    );
+                }
+
+                // Update receipt item
+                $item->update([
+                    'quantity_available_posted' => round((float) $item->quantity_available_posted + $excessQty, 3),
+                    'quantity_excess_reserved' => 0,
+                    'excess_status' => 'approved',
+                ]);
+            }
+
+            $this->reconcileApprovedInvoice($receipt);
+
+            return $receipt->fresh(['items', 'purchaseOrder']);
+        });
+    }
+
+    /**
+     * T3.1 / DEC-05 / REG-DEC-04: Reject excess quantity, document return to supplier,
+     * zero reserved excess WITHOUT touching available inventory.
+     */
+    public function rejectExcess(string $receiptId, AsabUser $actor, string $reason, ?array $lineIds = null): GoodsReceipt
+    {
+        return DB::transaction(function () use ($receiptId, $actor, $reason, $lineIds) {
+            $receipt = GoodsReceipt::with(['purchaseOrder.branch'])->whereKey($receiptId)->lockForUpdate()->firstOrFail();
+            $items = $receipt->items()->lockForUpdate()->get();
+            $order = $receipt->purchaseOrder;
+            if ($order?->order_type !== OrderType::VIA_PURCHASING_OFFICER) {
+                throw new AsabException('APPROVAL_ROLE_PENDING', 'DEC-OPEN-01: excess rejection unavailable for this order type.', status: 403);
+            }
+
+            app(ReceiptPriceApprovalService::class)->authorize($actor, $receipt);
+
+            $rejectedCount = 0;
+            foreach ($items as $item) {
+                if ($lineIds !== null && ! in_array($item->id, $lineIds, true)) {
+                    continue;
+                }
+                if ($item->excess_status === 'rejected' || $item->excess_status === 'approved') {
+                    continue;
+                }
+
+                $excessQty = round((float) $item->quantity_excess_reserved, 3);
+                if ($excessQty <= 0) {
+                    continue;
+                }
+
+                // Document return to supplier and zero reserved excess.
+                // STRICT: DO NOT touch available inventory (BranchInventory) because excess never entered available stock.
+                $item->update([
+                    'quantity_excess_reserved' => 0,
+                    'excess_status' => 'rejected',
+                    'notes' => trim(($item->notes ?? '') . " [فائض مرفوض تم توثيق إرجاعه للمورد: {$reason}]"),
+                ]);
+                $rejectedCount++;
+            }
+
+            if ($rejectedCount > 0) {
+                $meta = $receipt->cost_adjustment_meta ?? [];
+                $meta['excess_rejection'] = [
+                    'rejected_by_id' => $actor->id,
+                    'rejected_at' => now()->toISOString(),
+                    'reason' => $reason,
+                ];
+                $receipt->update(['cost_adjustment_meta' => $meta]);
+            }
+
+            $this->reconcileApprovedInvoice($receipt);
+
+            return $receipt->fresh(['items', 'purchaseOrder']);
+        });
+    }
+
+    /**
      * Post value-only cost adjustments (qty_delta = 0) when a pre-VAT supplier invoice amount
      * differs from the provisional PO cost posted at receiving (DEC-07). If the receipt's period
      * is already APPROVED/closed, preserve it untouched and flag pending_period_decision (DEC-OPEN-02).
@@ -1115,18 +1290,23 @@ class GoodsReceiptService
                 'cost_adjustment_meta' => $meta,
             ]);
         } elseif ($pendingPriceMeta !== []) {
+            $status = ($meta['awaiting_corrected_document'] ?? false)
+                ? 'awaiting_corrected_document'
+                : 'pending_price_approval';
             $receipt->update([
-                'cost_adjustment_status' => 'pending_price_approval',
+                'cost_adjustment_status' => $status,
                 'pending_cost_delta_halalas' => $pendingPriceDeltaTotal,
                 'cost_adjustment_meta' => $meta,
             ]);
         } elseif ($appliedCount > 0) {
+            unset($meta['awaiting_corrected_document'], $meta['price_rejection_reason'], $meta['rejected_by_id'], $meta['rejected_at']);
             $receipt->update([
                 'cost_adjustment_status' => 'adjusted',
                 'pending_cost_delta_halalas' => 0,
                 'cost_adjustment_meta' => $meta !== [] ? $meta : null,
             ]);
         } elseif ($receipt->cost_adjustment_status !== 'pending_period_decision') {
+            unset($meta['awaiting_corrected_document'], $meta['price_rejection_reason'], $meta['rejected_by_id'], $meta['rejected_at']);
             $receipt->update([
                 'cost_adjustment_status' => 'synced',
                 'pending_cost_delta_halalas' => 0,
@@ -2241,21 +2421,15 @@ class GoodsReceiptService
         ]);
 
         // Update compensatory order with new_order_id
-        // Note: Check if supplier exists in purchase_suppliers table (legacy constraint)
-        // If not, set to null since foreign key allows null
-        // TODO: Create migration to update foreign key from purchase_suppliers to suppliers
+        // T3.2 / S3-CODEX-001: Check ONLY against authoritative suppliers table (repointed by migration 2026_01_27_140000)
         $reorderSupplierId = null;
         if ($originalOrder->supplier_id) {
-            // Check if supplier exists in purchase_suppliers table (for foreign key constraint)
-            $supplierExists = DB::table('purchase_suppliers')
+            $supplierExists = DB::table('suppliers')
                 ->where('id', $originalOrder->supplier_id)
                 ->exists();
 
             if (! $supplierExists) {
-                // Log warning if supplier doesn't exist in purchase_suppliers
-                // The supplier might be in the new suppliers table, but the FK constraint
-                // still references purchase_suppliers (needs migration fix)
-                \Log::warning('Supplier not found in purchase_suppliers table for compensatory order', [
+                \Log::warning('Supplier not found in suppliers table for compensatory order', [
                     'supplier_id' => $originalOrder->supplier_id,
                     'order_id' => $originalOrder->id,
                     'compensatory_order_id' => $compensatory->id,

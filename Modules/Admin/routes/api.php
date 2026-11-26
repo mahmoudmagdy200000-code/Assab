@@ -323,6 +323,9 @@ Route::prefix('v1')->group(function () {
             Route::patch('operations/{id}/purchase-lines/{rowId}', [AccountantController::class, 'purchaseLineUpdate'])->middleware('asab.role:accountant,head');
             // ACC-3 «المرتجعات» read surface (accountant/head).
             Route::get('purchases/returns', [PurchaseReturnController::class, 'index'])->middleware('asab.role:accountant,head');
+            Route::post('purchases/returns/{id}/review', [PurchaseReturnController::class, 'review'])->middleware('asab.role:accountant,company-admin');
+            Route::post('purchases/returns/{id}/final-approve', [PurchaseReturnController::class, 'finalApprove'])->middleware('asab.role:head,company-admin');
+            Route::post('purchases/returns/{id}/return-for-review', [PurchaseReturnController::class, 'returnForReview'])->middleware('asab.role:head,company-admin');
             // ACC-3 «موديول المشتريات» — the grouped board (عرض حسب المورد /
             // حسب الفرع) + its Excel export + «توثيق» in bulk.
             Route::middleware('asab.role:accountant,head')->group(function () {
@@ -559,6 +562,9 @@ Route::prefix('v1')->group(function () {
                 Route::get('receiving/{receipt}/price-review', [\Modules\Admin\Http\Controllers\Procurement\ReceiptPriceApprovalController::class, 'review']);
                 Route::post('receiving/{receipt}/price-approvals', [\Modules\Admin\Http\Controllers\Procurement\ReceiptPriceApprovalController::class, 'approve']);
                 Route::post('receiving/{receipt}/price-approvals/{decision}/revoke', [\Modules\Admin\Http\Controllers\Procurement\ReceiptPriceApprovalController::class, 'revoke']);
+                Route::post('receiving/{receipt}/price-rejections', [\Modules\Admin\Http\Controllers\Procurement\ReceiptPriceApprovalController::class, 'reject']);
+                Route::post('receiving/{receipt}/excess-approvals', [\Modules\Admin\Http\Controllers\Procurement\ReceiptPriceApprovalController::class, 'approveExcess']);
+                Route::post('receiving/{receipt}/excess-rejections', [\Modules\Admin\Http\Controllers\Procurement\ReceiptPriceApprovalController::class, 'rejectExcess']);
                 Route::get('overview', [ProcurementController::class, 'overview']);
                 Route::get('orders', [ProcurementController::class, 'orders']);
                 Route::get('orders/{id}', [ProcurementController::class, 'show']);
@@ -822,7 +828,6 @@ Route::prefix('v1')->group(function () {
                     // ACC-3.4 purchases: توثيق + line edit (company surface).
                     Route::post('operations/{id}/document', [OperationController::class, 'document']);
                     Route::patch('operations/{id}/purchase-lines/{rowId}', [AccountantController::class, 'purchaseLineUpdate']);
-                    Route::get('purchases/returns', [PurchaseReturnController::class, 'index']);
                     // ACC-3 «موديول المشتريات»: cards by supplier or by branch,
                     // KPI header, per-line آخر سعر وصول + توثيق, Excel export.
                     Route::get('purchases/export', [PurchaseBoardController::class, 'export']);
@@ -968,11 +973,25 @@ Route::prefix('v1')->group(function () {
                     Route::patch('settings', [BranchDashboardController::class, 'updateSettings']);
                 });
 
+                // Purchases returns financial approval flow (accountant review + head final-approve)
+                Route::middleware(['asab.role:accountant,head,company-admin', 'asab.idempotency'])->group(function () {
+                    Route::get('purchases/returns', [PurchaseReturnController::class, 'index']);
+                    Route::post('purchases/returns/{id}/review', [PurchaseReturnController::class, 'review'])->middleware('asab.role:accountant,company-admin');
+                    Route::post('purchases/returns/{id}/final-approve', [PurchaseReturnController::class, 'finalApprove'])->middleware('asab.role:head,company-admin');
+                    Route::post('purchases/returns/{id}/return-for-review', [PurchaseReturnController::class, 'returnForReview'])->middleware('asab.role:head,company-admin');
+                });
+
+                // Item catalog update endpoint alias on company/me (supports accountant price-block check)
+                Route::patch('items/{id}', [ProcurementCompanyController::class, 'updateItem'])->middleware('asab.role:accountant,procurement,company-admin');
+
                 // Procurement (§5.5)
                 Route::middleware(['asab.role:procurement', 'asab.idempotency'])->prefix('procurement')->group(function () {
                     Route::get('receiving/{receipt}/price-review', [\Modules\Admin\Http\Controllers\Procurement\ReceiptPriceApprovalController::class, 'review']);
                 Route::post('receiving/{receipt}/price-approvals', [\Modules\Admin\Http\Controllers\Procurement\ReceiptPriceApprovalController::class, 'approve']);
                 Route::post('receiving/{receipt}/price-approvals/{decision}/revoke', [\Modules\Admin\Http\Controllers\Procurement\ReceiptPriceApprovalController::class, 'revoke']);
+                Route::post('receiving/{receipt}/price-rejections', [\Modules\Admin\Http\Controllers\Procurement\ReceiptPriceApprovalController::class, 'reject']);
+                Route::post('receiving/{receipt}/excess-approvals', [\Modules\Admin\Http\Controllers\Procurement\ReceiptPriceApprovalController::class, 'approveExcess']);
+                Route::post('receiving/{receipt}/excess-rejections', [\Modules\Admin\Http\Controllers\Procurement\ReceiptPriceApprovalController::class, 'rejectExcess']);
                 Route::get('overview', [ProcurementController::class, 'overview']);
                     Route::get('orders/grouped', [ProcurementCompanyController::class, 'grouped']);
                     Route::get('orders/sent', [ProcurementCompanyController::class, 'sent']);
@@ -1022,13 +1041,15 @@ Route::prefix('v1')->group(function () {
                     Route::get('procurement/suppliers', [ProcurementController::class, 'suppliers']);
                     Route::get('procurement/suppliers/export', [CompanyExportController::class, 'suppliersExport']);
                 });
-                Route::middleware(['asab.role:procurement,company-admin', 'asab.idempotency'])->group(function () {
+                Route::middleware(['asab.role:procurement,company-admin,accountant', 'asab.idempotency'])->group(function () {
                     Route::post('suppliers', [ProcurementCompanyController::class, 'storeSupplier']);
+                    Route::post('procurement/suppliers', [ProcurementCompanyController::class, 'storeSupplier']);
+                });
+                Route::middleware(['asab.role:procurement,company-admin', 'asab.idempotency'])->group(function () {
                     Route::patch('suppliers/{id}', [ProcurementCompanyController::class, 'updateSupplier']);
                     Route::post('suppliers/{id}/toggle-active', [ProcurementCompanyController::class, 'toggleSupplier']);
                     // Procurement-prefixed aliases (FE wiring §5.5 — the SPA calls
                     // everything under its own /procurement prefix).
-                    Route::post('procurement/suppliers', [ProcurementCompanyController::class, 'storeSupplier']);
                     Route::patch('procurement/suppliers/{id}', [ProcurementCompanyController::class, 'updateSupplier']);
                     Route::post('procurement/suppliers/{id}/toggle-active', [ProcurementCompanyController::class, 'toggleSupplier']);
                 });
