@@ -35,11 +35,13 @@ class QuickCashExpenseService
             throw new \Exception('Total amount must equal net + VAT');
         }
 
+        $isDraft = filter_var($data['is_draft'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
         $expense = Expense::create([
             'branch_manager_id' => \Modules\Expense\Services\ExpenseActorContext::branchManagerId(),
             'expense_type' => 'quick_cash',
-            'status' => $data['is_draft'] ?? false ? 'draft' : 'pending',
-            'submitted_at' => ($data['is_draft'] ?? false) ? null : now(),
+            'status' => $isDraft ? 'draft' : 'pending',
+            'submitted_at' => $isDraft ? null : now(),
             'total_amount' => round($data['total_amount'], 2),
             'net_amount' => round($netAmount, 2),
             'vat_amount' => round($data['vat_amount'] ?? $vatCalculation['vat_amount'], 2),
@@ -74,15 +76,15 @@ class QuickCashExpenseService
         }
 
         // EXP-02 / EXP-05: a non-draft create is a submission — charge the branch custody once, or refuse it.
-        if (! ($data['is_draft'] ?? false)) {
+        if (! $isDraft) {
             app(ExpenseCustodyService::class)->reserve($expense);
         }
 
-        $this->createTimelineEntry($expense, 'created', $data['is_draft'] ?? false ? 'saved_as_draft' : 'submitted');
+        $this->createTimelineEntry($expense, 'created', $isDraft ? 'saved_as_draft' : 'submitted');
 
         // Non-draft create = submission — fire after all children persist so
         // the ASAB bridge mirrors the complete record.
-        if (! ($data['is_draft'] ?? false)) {
+        if (! $isDraft) {
             event(new \Modules\Expense\Events\ExpenseSubmittedEvent($expense->fresh()));
         }
 
@@ -136,10 +138,11 @@ class QuickCashExpenseService
         }
 
         if (isset($data['is_draft']) && ! $wasRejected) {
+            $isDraft = filter_var($data['is_draft'], FILTER_VALIDATE_BOOLEAN);
 
-            $expenseUpdateData['status'] = $data['is_draft'] ? 'draft' : 'pending';
+            $expenseUpdateData['status'] = $isDraft ? 'draft' : 'pending';
 
-            if (! $data['is_draft'] && ! $expense->submitted_at) {
+            if (! $isDraft && ! $expense->submitted_at) {
                 $expenseUpdateData['submitted_at'] = now();
             }
         }

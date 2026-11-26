@@ -51,7 +51,15 @@ class ShiftReassignHandoverCountTest extends TestCase
         $this->manager = BranchManager::factory()->create(['branch_id' => $this->branch->id, 'is_active' => true, 'status' => 'active']);
         $this->outgoing = Cashier::factory()->create(['branch_id' => $this->branch->id, 'created_by' => $this->manager->id]);
         $this->incoming = Cashier::factory()->create(['branch_id' => $this->branch->id, 'created_by' => $this->manager->id]);
-        $template = Shift::factory()->create(['branch_id' => $this->branch->id, 'is_active' => true]);
+        // The start-eligibility service evaluates wall time in Asia/Riyadh;
+        // use that same timezone so this fixture remains inside its window.
+        $scheduledStart = \Carbon\Carbon::now('Asia/Riyadh')->subMinutes(30);
+        $template = Shift::factory()->create([
+            'branch_id' => $this->branch->id,
+            'is_active' => true,
+            'start_time' => $scheduledStart->format('H:i:s'),
+            'end_time' => $scheduledStart->copy()->addHours(8)->format('H:i:s'),
+        ]);
         $this->shift = CashierShift::create([
             'cashier_id' => $this->outgoing->id, 'shift_id' => $template->id,
             'shift_date' => today()->toDateString(), 'status' => ShiftStatus::NOT_STARTED->value,

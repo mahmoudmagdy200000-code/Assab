@@ -9,6 +9,7 @@ use Modules\Admin\Models\Attachment;
 use Modules\Admin\Models\Operation;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
+use Modules\Custody\Models\CustodyTransaction;
 use Modules\Expense\Models\Expense;
 use Modules\Expense\Models\ExpenseAttachment;
 use Modules\Expense\Models\InvoiceDetail;
@@ -53,7 +54,7 @@ class ExpenseSubmissionBridgeTest extends TestCase
             'expense_date' => now()->toDateString(),
             'expense_name' => 'فاتورة كهرباء',
             'total_amount' => 100.0,
-            'payment_method' => 'cash',
+            'payment_method' => 'supplier',
             'is_draft' => false,
             'items' => [['title' => 'كهرباء', 'amount' => 100.0]],
         ]);
@@ -66,6 +67,7 @@ class ExpenseSubmissionBridgeTest extends TestCase
         $this->assertNotNull($op, 'a pending mobile expense must mint an asab operation without any extra submit call');
         $this->assertSame('expenses', $op->module_key);
         $this->assertSame($this->branch->id, $op->branch_id);
+        $this->assertSame(0, CustodyTransaction::where('related_expense_id', $expense->id)->count());
     }
 
     public function test_bridge_mirrors_attachments_and_keeps_the_real_date(): void

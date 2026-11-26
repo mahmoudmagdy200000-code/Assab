@@ -14,6 +14,7 @@ use Modules\Admin\Models\CompanyUser;
 use Modules\Admin\Models\Employee;
 use Modules\Admin\Models\Operation;
 use Modules\Admin\Services\OperationService;
+use Modules\Admin\Services\OperationSequence;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
@@ -648,6 +649,32 @@ class ShiftCustodyBe02VerificationTest extends TestCase
         ]);
         $op = app(OperationService::class)->approve($op, $this->accountant);
         app(OperationService::class)->finalApprove($op->fresh(), $this->head);
+
+        // FUND-01 requires the canonical manager-day SAL operation to have
+        // both accountant and final-head approvals before its cash is transferable.
+        Operation::create([
+            'public_id' => OperationSequence::next('OPS'),
+            'company_id' => $this->company->id,
+            'branch_id' => $day->branch_id,
+            'module_key' => 'sales',
+            'source_module' => 'shifts',
+            'source_id' => $day->id,
+            'payload' => [
+                'managerShiftId' => (string) $day->id,
+                'pkg6Review' => ['phase' => 'head_review'],
+            ],
+            'amount' => 10000,
+            'match' => 'exact',
+            'origin' => 'mobile',
+            'status' => Operation::STATUS_FINAL,
+            'submitted_by_id' => $this->accountant->id,
+            'submitted_at' => now()->subMinutes(2),
+            'approved_by_id' => $this->accountant->id,
+            'approved_at' => now()->subMinute(),
+            'final_approved_by_id' => $this->head->id,
+            'final_approved_at' => now(),
+            'operation_date' => now(),
+        ]);
 
         // Manager receives 100.00 handover from cashier into personal ledger
         $handover = CashierShiftHandover::create([
