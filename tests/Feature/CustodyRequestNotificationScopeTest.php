@@ -31,7 +31,7 @@ class CustodyRequestNotificationScopeTest extends TestCase
     {
         DB::table('notifications')->delete();
         $this->actingAs($manager, 'sanctum')->postJson('/api/custody/request-cashin', [
-            'requestedAmount' => $amount, 'purpose' => 'branch float', 'preferredReceiptMethod' => 'cash_handover',
+            'requestedAmount' => $amount, 'purpose' => 'branch float', 'preferredReceiptMethod' => 'bank_transfer',
         ])->assertStatus(201);
 
         return DB::table('notifications')->where('data', 'like', '%custody_request_created%')
@@ -67,5 +67,20 @@ class CustodyRequestNotificationScopeTest extends TestCase
         $this->ownerA1->forceFill(['is_active' => false])->save();
 
         $this->assertSame($this->ids($this->ownerA12), $this->raiseAndCollectRecipients($this->bmA1));
+    }
+
+    public function test_cash_handover_request_remains_rejected_until_evidence_is_defined(): void
+    {
+        $requestsBefore = DB::table('custody_requests')->count();
+        $notificationsBefore = DB::table('notifications')->count();
+
+        $this->actingAs($this->bmA1, 'sanctum')->postJson('/api/custody/request-cashin', [
+            'requestedAmount' => 300,
+            'purpose' => 'branch float',
+            'preferredReceiptMethod' => 'cash_handover',
+        ])->assertStatus(422);
+
+        $this->assertSame($requestsBefore, DB::table('custody_requests')->count());
+        $this->assertSame($notificationsBefore, DB::table('notifications')->count());
     }
 }

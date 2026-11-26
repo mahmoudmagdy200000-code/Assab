@@ -227,7 +227,7 @@ class CustodyRequestTenantScopeTest extends TestCase
     public function test_the_branch_managers_own_flow_is_unchanged(): void
     {
         $this->actingAs($this->bmA1, 'sanctum')->postJson('/api/custody/request-cashin', [
-            'requestedAmount' => 300, 'purpose' => 'branch float', 'preferredReceiptMethod' => 'cash_handover',
+            'requestedAmount' => 300, 'purpose' => 'branch float', 'preferredReceiptMethod' => 'bank_transfer',
         ])->assertStatus(201);
 
         $own = $this->request($this->bmA1, ['created_by_brand_owner_id' => $this->ownerA1->id]);

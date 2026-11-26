@@ -217,7 +217,7 @@ class ProcurementCompanyController extends AsabController
                 }
                 if (! empty($data['supplierId'])) {
                     $supplier = AsabSupplier::find($data['supplierId']);
-                    if ($supplier && (! $supplier->is_external || $supplier->user_id !== null)) {
+                    if ($supplier && $supplier->user_id !== null) {
                         throw new AsabException('SUPPLIER_PRICE_MANAGED_BY_PORTAL', 'Subscribed suppliers manage their own prices via the supplier portal.', status: 403);
                     }
                 }
@@ -267,7 +267,7 @@ class ProcurementCompanyController extends AsabController
                 $supId = $data['supplierId'] ?? $item->supplier_id;
                 if ($supId) {
                     $supplier = AsabSupplier::find($supId);
-                    if ($supplier && (! $supplier->is_external || $supplier->user_id !== null)) {
+                    if ($supplier && $supplier->user_id !== null) {
                         throw new AsabException('SUPPLIER_PRICE_MANAGED_BY_PORTAL', 'Subscribed suppliers manage their own prices via the supplier portal.', status: 403);
                     }
                 }

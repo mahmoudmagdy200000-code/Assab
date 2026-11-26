@@ -119,7 +119,7 @@ class SupplierBrandScopeTest extends TestCase
             'total_amount' => 100.0,
             'net_amount' => 100.0,
             'vat_amount' => 0.0,
-            'payment_method' => 'cash',
+            'payment_method' => 'supplier',
             'expense_date' => '2026-07-29',
             'expense_name' => 'مصروف نثري',
             'payment_supplier_id' => $mine->id,

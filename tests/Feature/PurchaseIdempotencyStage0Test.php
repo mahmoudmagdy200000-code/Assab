@@ -18,6 +18,7 @@ use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Models\BranchInventory;
 use Modules\Purchase\Models\BranchItem;
+use Modules\Purchase\Models\GoodsReceiptItem;
 use Modules\Purchase\Models\Item;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderItem;
@@ -225,7 +226,7 @@ class PurchaseIdempotencyStage0Test extends TestCase
         $deliveredOrder = PurchaseOrder::factory()->create([
             'order_number' => 'PO-'.strtoupper(Str::random(8)),
             'order_type' => OrderType::DIRECT_SUPPLIER,
-            'status' => OrderStatus::CLOSED,
+            'status' => OrderStatus::CONFIRMED,
             'branch_id' => $this->branchA1->id,
             'requested_by' => $this->bmA1->id,
             'supplier_id' => $this->supplierA->id,
@@ -239,6 +240,26 @@ class PurchaseIdempotencyStage0Test extends TestCase
             'quantity_confirmed' => 5,
             'unit_price' => 25,
         ]);
+
+        // Record receipt through the production receiving flow so a return is
+        // backed by posted inventory, not only a confirmed order quantity.
+        $receiptResponse = $this->actingAs($this->bmA1, 'sanctum')
+            ->withHeader('Idempotency-Key', (string) Str::uuid())
+            ->postJson("/api/v1/purchase/receiving/orders/{$deliveredOrder->id}/start", [
+                'items' => [[
+                    'item_id' => $deliveredItem->id,
+                    'quantity_received' => 5,
+                    'quality' => 'normal',
+                ]],
+                'document_type' => 'receipt_without_document',
+            ]);
+        $receiptResponse->assertCreated();
+
+        $postedReceiptItem = GoodsReceiptItem::where('purchase_order_item_id', $deliveredItem->id)->firstOrFail();
+        $this->assertSame(5.0, (float) $postedReceiptItem->quantity_available_posted);
+
+        // Return creation is intentionally limited to closed purchase orders.
+        $deliveredOrder->refresh()->update(['status' => OrderStatus::CLOSED]);
 
         $returnKey = (string) Str::uuid();
         $returnPayload = [

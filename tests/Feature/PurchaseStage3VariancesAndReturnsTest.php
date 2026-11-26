@@ -450,6 +450,35 @@ class PurchaseStage3VariancesAndReturnsTest extends TestCase
             ]);
         $responseAccEdit->assertStatus(403);
         $this->assertEquals('FORBIDDEN_PRICE_EDIT', $responseAccEdit->json('error.code'));
+
+        // Procurement remains tenant-scoped even when another company's
+        // supplier item ID is known.
+        $foreignCompany = AsabCompany::create([
+            'name' => 'Foreign Pricing Tenant',
+            'plan' => 'Professional',
+            'status' => 'active',
+        ]);
+        $foreignSupplier = AsabSupplier::withoutGlobalScope('tenant')->create([
+            'company_id' => $foreignCompany->id,
+            'name' => 'Foreign Supplier',
+            'status' => 'active',
+            'is_external' => true,
+        ]);
+        $foreignItem = SupplierItem::create([
+            'company_id' => $foreignCompany->id,
+            'name' => 'Foreign Supplier Item',
+            'unit' => 'kg',
+            'price' => 500,
+            'supplier_id' => $foreignSupplier->id,
+            'status' => 'active',
+        ]);
+
+        $this->actingAs($this->procurementUser, 'sanctum')
+            ->patchJson("/api/v1/company/me/items/{$foreignItem->id}", [
+                'lastPriceSar' => 6.0,
+            ])
+            ->assertNotFound();
+        $this->assertSame(500, (int) $foreignItem->fresh()->price);
     }
 
     /**
