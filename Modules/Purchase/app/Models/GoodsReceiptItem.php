@@ -24,6 +24,9 @@ class GoodsReceiptItem extends Model
         'unit_of_measurement',
         'quantity_ordered',
         'quantity_received',
+        'quantity_available_posted',
+        'quantity_excess_reserved',
+        'excess_status',
         'quantity_variance',
         'quality_ordered',
         'quality_received',
@@ -48,6 +51,8 @@ class GoodsReceiptItem extends Model
         'variance_type' => VarianceType::class,
         'quantity_ordered' => 'decimal:3',
         'quantity_received' => 'decimal:3',
+        'quantity_available_posted' => 'decimal:3',
+        'quantity_excess_reserved' => 'decimal:3',
         'quantity_variance' => 'decimal:3',
         'temperature' => 'decimal:2',
         'expiry_date' => 'date',
@@ -118,8 +123,11 @@ class GoodsReceiptItem extends Model
     public function calculateVariance(): void
     {
         $quantityVariance = $this->quantity_ordered - $this->quantity_received;
-        $hasQualityVariance = $this->quality_ordered && $this->quality_received &&
-                             $this->quality_ordered->value !== $this->quality_received->value;
+        $hasQualityVariance = $this->quality_received !== null && (
+            $this->quality_ordered !== null
+                ? $this->quality_ordered->value !== $this->quality_received->value
+                : $this->quality_received === InspectionQuality::POOR
+        );
 
         $expectedTotal = $this->quantity_ordered * $this->unit_price;
         $receivedTotal = $this->quantity_received * $this->unit_price;

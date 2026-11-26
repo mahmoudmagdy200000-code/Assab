@@ -556,6 +556,9 @@ Route::prefix('v1')->group(function () {
 
             // ---- Procurement (مدير المشتريات; §6.5) ----
             Route::middleware(['asab.role:procurement', 'asab.idempotency'])->prefix('procurement')->group(function () {
+                Route::get('receiving/{receipt}/price-review', [\Modules\Admin\Http\Controllers\Procurement\ReceiptPriceApprovalController::class, 'review']);
+                Route::post('receiving/{receipt}/price-approvals', [\Modules\Admin\Http\Controllers\Procurement\ReceiptPriceApprovalController::class, 'approve']);
+                Route::post('receiving/{receipt}/price-approvals/{decision}/revoke', [\Modules\Admin\Http\Controllers\Procurement\ReceiptPriceApprovalController::class, 'revoke']);
                 Route::get('overview', [ProcurementController::class, 'overview']);
                 Route::get('orders', [ProcurementController::class, 'orders']);
                 Route::get('orders/{id}', [ProcurementController::class, 'show']);
@@ -964,7 +967,10 @@ Route::prefix('v1')->group(function () {
 
                 // Procurement (§5.5)
                 Route::middleware(['asab.role:procurement', 'asab.idempotency'])->prefix('procurement')->group(function () {
-                    Route::get('overview', [ProcurementController::class, 'overview']);
+                    Route::get('receiving/{receipt}/price-review', [\Modules\Admin\Http\Controllers\Procurement\ReceiptPriceApprovalController::class, 'review']);
+                Route::post('receiving/{receipt}/price-approvals', [\Modules\Admin\Http\Controllers\Procurement\ReceiptPriceApprovalController::class, 'approve']);
+                Route::post('receiving/{receipt}/price-approvals/{decision}/revoke', [\Modules\Admin\Http\Controllers\Procurement\ReceiptPriceApprovalController::class, 'revoke']);
+                Route::get('overview', [ProcurementController::class, 'overview']);
                     Route::get('orders/grouped', [ProcurementCompanyController::class, 'grouped']);
                     Route::get('orders/sent', [ProcurementCompanyController::class, 'sent']);
                     Route::get('orders', [ProcurementController::class, 'orders']);

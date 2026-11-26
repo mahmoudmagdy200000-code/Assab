@@ -538,10 +538,22 @@ class PurchaseOrder extends Model
 
     public function calculateTotals(): void
     {
-        $subtotal = $this->items()->sum('total_price');
-        $taxAmount = $subtotal * ($this->tax_rate / 100);
-        $totalAmount = $subtotal + $taxAmount - ($this->discount_amount ?? 0);
-        $totalItems = $this->items()->count();
+        $excludedStatuses = array_merge(
+            OrderItemStatus::cancelledStatusValues(),
+            [OrderItemStatus::REJECTED->value]
+        );
+
+        $activeItemsQuery = $this->items()->whereNotIn('status', $excludedStatuses);
+        $subtotal = round((float) (clone $activeItemsQuery)->sum('total_price'), 2);
+        $discount = min($subtotal, max(0.0, round((float) ($this->discount_amount ?? 0), 2)));
+        $taxableBase = max(0.0, round($subtotal - $discount, 2));
+        $taxRate = $this->tax_rate !== null ? (float) $this->tax_rate : 0.0;
+        if (! in_array($taxRate, [0.0, 15.0], true)) {
+            throw new \InvalidArgumentException('Order tax rate must be 0% or 15%.');
+        }
+        $taxAmount = round($taxableBase * ($taxRate / 100), 2);
+        $totalAmount = round($taxableBase + $taxAmount, 2);
+        $totalItems = (clone $activeItemsQuery)->count();
 
         $this->update([
             'subtotal' => $subtotal,

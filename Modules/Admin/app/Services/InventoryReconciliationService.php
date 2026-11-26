@@ -20,6 +20,7 @@ use Modules\Inventory\Models\InventoryStockMovement;
 use Modules\Inventory\Models\MonthlyInventory;
 use Modules\Purchase\Models\BranchInventory;
 use Modules\Purchase\Models\BranchItem;
+use Modules\Purchase\Models\GoodsReceiptItem;
 
 /**
  * Daily inventory reconciliation snapshot + variance allocation
@@ -346,7 +347,10 @@ class InventoryReconciliationService
                     ->where('posted_at', '>', $countedAt)
                     ->where('posted_at', '<=', $postedAt)
                     ->sum('qty_delta')), 3);
-                $targetStock = max(0.0, round($actual - $postCountWasteQty, 3));
+                // AUD-S1-007: unapproved reserved excess physically present on branch shelves
+                // must never be promoted into available consumable stock by stocktake reconciliation.
+                $pendingReservedQty = $this->pendingReservedExcessQty((string) $op->branch_id, (string) $itemId);
+                $targetStock = max(0.0, round($actual - $postCountWasteQty - $pendingReservedQty, 3));
 
                 $branchItem = BranchItem::where('branch_id', $op->branch_id)->where('item_id', $itemId)->lockForUpdate()->first();
                 $branchInv = BranchInventory::where('branch_id', $op->branch_id)->where('item_id', $itemId)->lockForUpdate()->first();
@@ -514,7 +518,10 @@ class InventoryReconciliationService
                 $matched++;
                 $oldQty = round((float) ($it['actualQty'] ?? $it['actual'] ?? $it['countedQty'] ?? 0), 3);
                 $newQty = round((float) $byId[$itemId]['actualQty'], 3);
-                $delta = round($newQty - $oldQty, 3);
+                $pendingReservedQty = $this->pendingReservedExcessQty((string) $op->branch_id, (string) $itemId);
+                $oldAvailableTarget = max(0.0, round($oldQty - $pendingReservedQty, 3));
+                $newAvailableTarget = max(0.0, round($newQty - $pendingReservedQty, 3));
+                $delta = round($newAvailableTarget - $oldAvailableTarget, 3);
                 $itemReason = $byId[$itemId]['reason'] ?? $reason;
 
                 $it['actualQty'] = $newQty;
@@ -593,6 +600,17 @@ class InventoryReconciliationService
         $snapshot['correctionHistory'] = $result['correctionHistory'];
 
         return $snapshot;
+    }
+
+    private function pendingReservedExcessQty(string $branchId, string $itemId): float
+    {
+        return round((float) GoodsReceiptItem::query()
+            ->join('goods_receipts', 'goods_receipts.id', '=', 'goods_receipt_items.goods_receipt_id')
+            ->whereNull('goods_receipts.deleted_at')
+            ->where('goods_receipts.branch_id', $branchId)
+            ->where('goods_receipt_items.item_id', $itemId)
+            ->where('goods_receipt_items.excess_status', 'reserved_pending_approval')
+            ->sum('goods_receipt_items.quantity_excess_reserved'), 3);
     }
 
     private function inventoryOp(string|array $companyId, string $branchId, string $date): ?Operation

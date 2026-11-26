@@ -37,6 +37,7 @@ class StartReceivingRequest extends FormRequest
         $orderId = $this->route('orderId');
         $orderLineExists = Rule::exists('purchase_order_items', 'id')
             ->where('purchase_order_id', $orderId);
+        $isCompensatoryOrder = $this->input('variance.action') === 'compensatory_order';
 
         return [
             'items' => ['required', 'array', 'min:1'],
@@ -76,10 +77,16 @@ class StartReceivingRequest extends FormRequest
             'variance.note' => ['nullable', 'string', 'max:1000'],
             'variance.photo' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png', 'max:5120'],
 
-            // Items for compensatory order (required if action is compensatory_order)
-            'variance.items' => ['required_if:variance.action,compensatory_order', 'array', 'min:1'],
-            'variance.items.*.item_id' => ['required', 'uuid', $orderLineExists],
-            'variance.items.*.quantity' => ['required', 'numeric', 'min:0.001'],
+            // Items for compensatory order (only validated as compensatory items when action is compensatory_order)
+            'variance.items' => $isCompensatoryOrder
+                ? ['required', 'array', 'min:1']
+                : ['nullable', 'array'],
+            'variance.items.*.item_id' => $isCompensatoryOrder
+                ? ['required', 'uuid', $orderLineExists]
+                : ['sometimes', 'uuid', $orderLineExists],
+            'variance.items.*.quantity' => $isCompensatoryOrder
+                ? ['required', 'numeric', 'min:0.001']
+                : ['sometimes', 'numeric', 'min:0'],
 
             // Deduct from invoice data (optional)
             'variance.deduct_data' => ['nullable', 'array'],

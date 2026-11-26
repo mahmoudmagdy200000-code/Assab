@@ -14,6 +14,9 @@ class GoodsReceiptResource extends JsonResource
             'receipt_number' => $this->receipt_number,
             'status' => $this->status,
             'document_type' => $this->document_type?->value,
+            'cost_adjustment_status' => $this->cost_adjustment_status,
+            'pending_cost_delta_halalas' => $this->pending_cost_delta_halalas,
+            'cost_adjustment_meta' => $this->cost_adjustment_meta,
 
             // Purchase Order
             'purchase_order' => $this->whenLoaded('purchaseOrder', fn () => new PurchaseOrderResource($this->purchaseOrder)),

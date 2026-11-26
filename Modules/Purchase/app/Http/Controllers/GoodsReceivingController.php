@@ -117,15 +117,16 @@ class GoodsReceivingController extends BaseController
                 return $this->errorResponse('Order cannot be received in current status', 400);
             }
 
-            // Close order and all items before starting receiving (close() also sets items to CLOSED)
-            $order->close();
-
             // Get validated data
             $validated = $request->validated();
 
-            // Validate that all item_ids belong to this order
+            // Validate that all item_ids belong to this order before any file upload or DB mutation
             $orderItemIds = $order->items->pluck('id')->toArray();
             $requestItemIds = collect($validated['items'])->pluck('item_id')->toArray();
+
+            if (count($requestItemIds) !== count(array_unique($requestItemIds))) {
+                return $this->validationErrorResponse(['items' => ['Duplicate order item IDs are not allowed in a single receipt.']]);
+            }
 
             // Also collect variance items if present
             if (isset($validated['variance']['items'])) {
@@ -136,6 +137,23 @@ class GoodsReceivingController extends BaseController
             $invalidItems = array_diff($requestItemIds, $orderItemIds);
             if (! empty($invalidItems)) {
                 return $this->errorResponse('Some items do not belong to this order', 400);
+            }
+
+            // Validate unlisted items supplier & catalog permissions before any file upload
+            if (isset($validated['unlisted_items']) && is_array($validated['unlisted_items'])) {
+                foreach ($validated['unlisted_items'] as $unlistedItem) {
+                    if (! empty($unlistedItem['supplier_id'])
+                        && ! $this->authService->canAccessVisibleSupplier($user, (string) $unlistedItem['supplier_id'])) {
+                        return $this->forbiddenResponse('Unauthorized supplier for unlisted item');
+                    }
+                    if (! empty($unlistedItem['item_id'])) {
+                        $this->authService->assertItemsAllowedForWrite(
+                            (string) $order->branch_id,
+                            [(string) $unlistedItem['item_id']],
+                            ! empty($unlistedItem['supplier_id']) ? (string) $unlistedItem['supplier_id'] : null
+                        );
+                    }
+                }
             }
 
             // Handle file uploads for photos
@@ -203,17 +221,6 @@ class GoodsReceivingController extends BaseController
             $unlistedItems = [];
             if (isset($validated['unlisted_items']) && is_array($validated['unlisted_items'])) {
                 foreach ($validated['unlisted_items'] as $index => $unlistedItem) {
-                    if (! empty($unlistedItem['supplier_id'])
-                        && ! $this->authService->canAccessVisibleSupplier($user, (string) $unlistedItem['supplier_id'])) {
-                        return $this->forbiddenResponse('Unauthorized supplier for unlisted item');
-                    }
-                    if (! empty($unlistedItem['item_id'])) {
-                        $this->authService->assertItemsAllowedForWrite(
-                            (string) $order->branch_id,
-                            [(string) $unlistedItem['item_id']],
-                            ! empty($unlistedItem['supplier_id']) ? (string) $unlistedItem['supplier_id'] : null
-                        );
-                    }
                     $itemData = $unlistedItem;
 
                     // Handle photo upload for unlisted item
@@ -240,6 +247,14 @@ class GoodsReceivingController extends BaseController
                 new GoodsReceiptResource($receipt),
                 'Receiving started successfully'
             );
+        } catch (\Modules\Admin\Exceptions\AsabException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'error' => ['code' => $e->errorCode, 'message' => $e->getMessage(), 'messageAr' => $e->messageAr],
+            ], $e->status);
+        } catch (\InvalidArgumentException $e) {
+            return $this->validationErrorResponse(['error' => [$e->getMessage()]], $e->getMessage());
         } catch (\Exception $e) {
             return $this->handleException($e, 'starting receiving');
         }
@@ -391,12 +406,30 @@ class GoodsReceivingController extends BaseController
                 return $this->notFoundResponse('Receipt not found');
             }
 
-            $invoice = $this->receiptService->createInvoice($receipt, $request->validated());
+            $data = $request->validated();
+            if ($request->hasFile('file')) {
+                $file = $request->file('file');
+                $path = $this->streamUpload->storeFromUpload($file, 'invoices', $file->hashName(), 'public');
+                $data['file_path'] = $path;
+                $data['file_name'] = $file->getClientOriginalName();
+                $data['file_type'] = $file->getClientMimeType();
+                $data['file_size'] = $file->getSize();
+            }
+
+            $invoice = $this->receiptService->createInvoice($receipt, $data);
 
             return $this->createdResponse(
                 $invoice,
                 'Invoice created successfully'
             );
+        } catch (\Modules\Admin\Exceptions\AsabException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'error' => ['code' => $e->errorCode, 'message' => $e->getMessage(), 'messageAr' => $e->messageAr],
+            ], $e->status);
+        } catch (\InvalidArgumentException $e) {
+            return $this->validationErrorResponse(['error' => [$e->getMessage()]], $e->getMessage());
         } catch (\Exception $e) {
             return $this->handleException($e, 'creating invoice');
         }
@@ -740,6 +773,14 @@ class GoodsReceivingController extends BaseController
                 new VarianceResource($variance->fresh()),
                 'Variance action processed successfully'
             );
+        } catch (\Modules\Admin\Exceptions\AsabException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'error' => ['code' => $e->errorCode, 'message' => $e->getMessage(), 'messageAr' => $e->messageAr],
+            ], $e->status);
+        } catch (\InvalidArgumentException $e) {
+            return $this->validationErrorResponse(['amount' => [$e->getMessage()]], $e->getMessage());
         } catch (\Exception $e) {
             return $this->handleException($e, 'handling variance');
         }

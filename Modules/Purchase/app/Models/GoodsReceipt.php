@@ -40,12 +40,17 @@ class GoodsReceipt extends Model
         'received_amount',
         'variance_amount',
         'document_type',
+        'cost_adjustment_status',
+        'pending_cost_delta_halalas',
+        'cost_adjustment_meta',
         'inspection_started_at',
         'inspection_completed_at',
     ];
 
     protected $casts = [
         'document_type' => DocumentType::class,
+        'cost_adjustment_meta' => 'array',
+        'pending_cost_delta_halalas' => 'integer',
         'arrival_time' => 'datetime',
         'total_items_expected' => 'integer',
         'total_items_received' => 'integer',

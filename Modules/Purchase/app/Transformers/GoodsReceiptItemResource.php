@@ -18,6 +18,9 @@ class GoodsReceiptItemResource extends JsonResource
             // Quantities
             'quantity_ordered' => (float) $this->quantity_ordered,
             'quantity_received' => (float) $this->quantity_received,
+            'quantity_available_posted' => (float) ($this->quantity_available_posted ?? 0),
+            'quantity_excess_reserved' => (float) ($this->quantity_excess_reserved ?? 0),
+            'excess_status' => $this->excess_status,
             'quantity_variance' => (float) $this->quantity_variance,
 
             // Quality

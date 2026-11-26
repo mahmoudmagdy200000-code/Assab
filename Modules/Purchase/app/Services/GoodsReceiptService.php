@@ -5,11 +5,13 @@ namespace Modules\Purchase\Services;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Exceptions\AsabException;
+use Modules\Branch\Models\Branch;
 use Modules\Inventory\Models\InternalTransferVariance;
 use Modules\Inventory\Models\InventoryStockMovement;
 use Modules\Purchase\Enums\DocumentType;
 use Modules\Purchase\Enums\OrderItemStatus;
 use Modules\Purchase\Enums\OrderStatus;
+use Modules\Purchase\Enums\OrderType;
 use Modules\Purchase\Models\BranchInventory;
 use Modules\Purchase\Models\BranchItem;
 use Modules\Purchase\Models\CompensatoryOrder;
@@ -133,6 +135,21 @@ class GoodsReceiptService
         array $unlistedItems = []
     ): GoodsReceipt {
         return DB::transaction(function () use ($order, $receivedBy, $itemsData, $documentType, $documentData, $varianceData, $unlistedItems) {
+            $order = PurchaseOrder::withoutGlobalScopes()
+                ->with(['items.item', 'branch'])
+                ->whereKey($order->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if (! $order->can_receive) {
+                throw new AsabException(
+                    'ORDER_NOT_RECEIVABLE',
+                    'Order cannot be received in current status.',
+                    'لا يمكن استلام الطلب في حالته الحالية',
+                    409
+                );
+            }
+
             $receipt = GoodsReceipt::create([
                 'purchase_order_id' => $order->id,
                 'branch_id' => $order->branch_id,
@@ -157,10 +174,14 @@ class GoodsReceiptService
             ]);
 
             foreach ($order->items as $orderItem) {
+                if ($itemsData !== [] && ! $receivedItemsMap->has($orderItem->id)) {
+                    continue;
+                }
+
                 $receivedItemData = $receivedItemsMap->get($orderItem->id);
 
                 // Get inspection data if provided, otherwise use defaults
-                $quantityReceived = $receivedItemData['quantity_received'] ?? 0;
+                $quantityReceived = round((float) ($receivedItemData['quantity_received'] ?? 0), 3);
                 $qualityReceived = isset($receivedItemData['quality'])
                     ? \Modules\Purchase\Enums\InspectionQuality::from($receivedItemData['quality'])
                     : null;
@@ -179,8 +200,15 @@ class GoodsReceiptService
                 $receivedTotal = $quantityReceived * $orderItem->unit_price;
 
                 // Use quantity_confirmed if available (for partial confirmation), otherwise use quantity_ordered
-                $expectedQuantity = $orderItem->quantity_confirmed ?? $orderItem->quantity_ordered;
+                $expectedQuantity = round((float) ($orderItem->quantity_confirmed ?? $orderItem->quantity_ordered), 3);
                 $expectedTotal = $expectedQuantity * $orderItem->unit_price;
+
+                // DEC-05 + CORRECTION-03: split actual received into approved-available vs reserved excess
+                $priorPosted = round((float) GoodsReceiptItem::where('purchase_order_item_id', $orderItem->id)
+                    ->sum('quantity_available_posted'), 3);
+                $remainingOrdered = max(0.0, round($expectedQuantity - $priorPosted, 3));
+                $availablePosted = min($quantityReceived, $remainingOrdered);
+                $excessReserved = max(0.0, round($quantityReceived - $availablePosted, 3));
 
                 $receiptItem = GoodsReceiptItem::create([
                     'goods_receipt_id' => $receipt->id,
@@ -191,6 +219,9 @@ class GoodsReceiptService
                     'unit_of_measurement' => $orderItem->unit_of_measurement,
                     'quantity_ordered' => $expectedQuantity, // Use confirmed quantity if available
                     'quantity_received' => $quantityReceived,
+                    'quantity_available_posted' => $availablePosted,
+                    'quantity_excess_reserved' => $excessReserved,
+                    'excess_status' => $excessReserved > 0.0 ? 'reserved_pending_approval' : null,
                     'quality_ordered' => $orderItem->quality_ordered,
                     'quality_received' => $qualityReceived,
                     'temperature' => $temperature,
@@ -204,6 +235,9 @@ class GoodsReceiptService
 
                 // Calculate variance for the item
                 $receiptItem->calculateVariance();
+
+                // T1.2: post only approved/available quantity to BranchInventory, BranchItem & InventoryStockMovement
+                $this->postSupplierReceivingStock($order, $receipt, $receiptItem, $orderItem, $availablePosted, $excessReserved, $receivedBy);
 
                 // Store receipt item in map for variance processing
                 $receiptItemsMap[$orderItem->id] = $receiptItem;
@@ -269,18 +303,76 @@ class GoodsReceiptService
                 }
             }
 
-            // Process variance action if provided (applies to all items with variance)
-            // IMPORTANT: Variances are already created above, so even if action fails, variances will be saved
+            // Handle document type FIRST so createInvoice() exists before deduct_from_invoice runs (PUR-F05).
+            if ($documentType) {
+                $docType = DocumentType::from($documentType);
+                $receipt->setDocumentType($docType);
+
+                match ($documentType) {
+                    'invoice' => $this->createInvoice($receipt, $documentData ?? []),
+                    'delivery_note' => $this->createDeliveryNote($receipt, $documentData ?? []),
+                    'receipt_without_document' => $this->createReceiptWithoutDocument($receipt),
+                };
+
+                $receipt->refresh();
+            }
+
+            // Process variance action if provided (applies to all items with variance).
+            // CORRECTION-04 (PUR-F13): never swallow variance processing exceptions;
+            // any failure must abort and roll back the entire receiving transaction.
             if (! empty($varianceData) && ! empty($variancesMap)) {
                 $action = $varianceData['action'];
                 $varianceNote = $varianceData['note'] ?? null;
                 $variancePhoto = $varianceData['photo'] ?? null;
 
-                // Apply action to all variances
-                // Use try-catch to ensure variance records are saved even if action processing fails
-                foreach ($variancesMap as $variance) {
-                    try {
-                        // Process the action
+                if ($action === 'deduct_from_invoice') {
+                    // AUD-S1-002: deduct_data.amount is a receipt-level aggregate; allocate
+                    // it proportionally across variance lines once while preserving exact sum.
+                    $requestedDeduction = round((float) ($varianceData['deduct_data']['amount'] ?? 0), 2);
+                    if ($requestedDeduction <= 0.0) {
+                        throw new \InvalidArgumentException('Deduction amount must be greater than 0.');
+                    }
+
+                    $deductReason = $varianceData['deduct_data']['reason'] ?? 'short_quantity';
+                    $deductNotes = $varianceData['deduct_data']['notes'] ?? $varianceNote;
+                    $varianceList = array_values($variancesMap);
+                    $totalHalalas = (int) round($requestedDeduction * 100);
+                    $weights = array_map(
+                        fn (PurchaseVariance $v) => max(0.0, (float) $v->variance_amount),
+                        $varianceList
+                    );
+                    $weightSum = array_sum($weights);
+                    $lineCount = count($varianceList);
+                    $allocatedHalalas = 0;
+
+                    foreach ($varianceList as $idx => $variance) {
+                        if ($idx === $lineCount - 1) {
+                            $lineHalalas = $totalHalalas - $allocatedHalalas;
+                        } elseif ($weightSum > 0.0) {
+                            $lineHalalas = (int) round($totalHalalas * ($weights[$idx] / $weightSum));
+                        } else {
+                            $lineHalalas = intdiv($totalHalalas, $lineCount);
+                        }
+                        $allocatedHalalas += $lineHalalas;
+                        $lineAmount = round($lineHalalas / 100, 2);
+
+                        if ($lineAmount > 0.0) {
+                            $this->varianceService->deductFromInvoice(
+                                $variance,
+                                $lineAmount,
+                                $deductReason,
+                                $deductNotes
+                            );
+                        } else {
+                            $variance->deductFromInvoice(0.0, $deductReason, $deductNotes);
+                        }
+
+                        if (! empty($variancePhoto)) {
+                            $this->varianceService->addPhotoEvidence($variance, [$variancePhoto]);
+                        }
+                    }
+                } else {
+                    foreach ($variancesMap as $variance) {
                         match ($action) {
                             'accept' => $this->varianceService->acceptVariance($variance),
                             'compensatory_order' => $this->handleCompensatoryOrder(
@@ -290,32 +382,11 @@ class GoodsReceiptService
                                 $varianceNote,
                                 $variancePhoto
                             ),
-                            'deduct_from_invoice' => $this->varianceService->deductFromInvoice(
-                                $variance,
-                                $varianceData['deduct_data']['amount'] ?? 0,
-                                $varianceData['deduct_data']['reason'] ?? 'short_quantity',
-                                $varianceData['deduct_data']['notes'] ?? $varianceNote
-                            ),
                         };
-                    } catch (\Exception $e) {
-                        // Log error but don't fail the entire transaction
-                        // Variance record is already created and will be saved
-                        \Log::error('Error processing variance action', [
-                            'variance_id' => $variance->id,
-                            'action' => $action,
-                            'error' => $e->getMessage(),
-                            'trace' => $e->getTraceAsString(),
-                        ]);
 
-                        // Update variance status to indicate action failed
-                        // Use DB::table to avoid model events that might cause issues
-                        DB::table('purchase_variances')
-                            ->where('id', $variance->id)
-                            ->update([
-                                'status' => 'pending',
-                                'additional_notes' => ($variance->additional_notes ?? '')."\n[Error processing action: ".$e->getMessage().']',
-                                'updated_at' => now(),
-                            ]);
+                        if ($action === 'accept' && ! empty($variancePhoto)) {
+                            $this->varianceService->addPhotoEvidence($variance, [$variancePhoto]);
+                        }
                     }
                 }
             }
@@ -327,18 +398,6 @@ class GoodsReceiptService
                     'variances_count' => count($variancesMap),
                     'variance_ids' => collect($variancesMap)->pluck('id')->toArray(),
                 ]);
-            }
-
-            // Handle document type if provided
-            if ($documentType) {
-                $docType = DocumentType::from($documentType);
-                $receipt->setDocumentType($docType);
-
-                match ($documentType) {
-                    'invoice' => $this->createInvoice($receipt, $documentData ?? []),
-                    'delivery_note' => $this->createDeliveryNote($receipt, $documentData ?? []),
-                    'receipt_without_document' => $this->createReceiptWithoutDocument($receipt),
-                };
             }
 
             // Update order status based on current status
@@ -363,62 +422,28 @@ class GoodsReceiptService
                 $this->trackingService->saveDeliveredStage($order);
             }
 
-            // Check if receipt should be completed automatically (no variances)
+            // Check if receipt should be completed and whether the PO has received all quantities
             $receipt->refresh();
             $receipt->load('items');
 
-            // If no variances after processing, complete inspection and close order
+            $this->syncOrderItemReceivedQuantities($receipt);
+
             if (! $receipt->hasVariances) {
-                // Complete inspection
                 $receipt->completeInspection();
-
-                // Refresh receipt to get updated status
                 $receipt->refresh();
-
-                // Update order item quantities
-                foreach ($receipt->items as $item) {
-                    if ($item->purchase_order_item_id) {
-                        $item->purchaseOrderItem->markAsReceived(
-                            $item->quantity_received,
-                            $item->quality_received?->value
-                        );
-                    }
-                }
-
-                // Log inspection completed
                 $this->timelineService->logInspectionCompleted($receipt);
 
-                // Refresh order to get latest receipt
                 $order->refresh();
                 $order->load('latestGoodsReceipt');
-
-                // Save order confirmation stage
                 $this->trackingService->saveOrderConfirmationStage($order);
 
-                // Close order
-                $order->close();
-            } else {
-                // When there are variances: still sync quantity_received and quality_received to order items
-                // so that "Order via Supplier" / product details show quality for variance items
-                foreach ($receipt->items as $item) {
-                    if ($item->purchase_order_item_id) {
-                        $item->purchaseOrderItem->markAsReceived(
-                            $item->quantity_received,
-                            $item->quality_received?->value
-                        );
-                    }
-                }
-
-                // The controller pre-closed the order before receiving started;
-                // markAsReceived() above overrides item statuses. Re-sync them.
-                $order->refresh();
-                if ($order->status === OrderStatus::CLOSED) {
-                    $order->items()->update(['status' => OrderItemStatus::CLOSED->value]);
+                if ($this->canCloseOrderAfterReceiving($order)) {
+                    $order->close();
                 }
             }
 
             return $receipt->fresh(['items', 'purchaseOrder', 'variances', 'invoice']);
-        });
+        }, 3);
     }
 
     /**
@@ -439,6 +464,8 @@ class GoodsReceiptService
      */
     public function addUnlistedItem(GoodsReceipt $receipt, array $data): GoodsReceiptItem
     {
+        $qty = round((float) ($data['quantity'] ?? 0), 3);
+
         return GoodsReceiptItem::create([
             'goods_receipt_id' => $receipt->id,
             'item_id' => $data['item_id'] ?? null,
@@ -446,7 +473,10 @@ class GoodsReceiptService
             'item_logo' => $data['item_logo'] ?? null,
             'unit_of_measurement' => $data['unit'] ?? 'kg',
             'quantity_ordered' => 0,
-            'quantity_received' => $data['quantity'],
+            'quantity_received' => $qty,
+            'quantity_available_posted' => 0,
+            'quantity_excess_reserved' => $qty,
+            'excess_status' => $qty > 0.0 ? 'reserved_pending_approval' : null,
             'quality_received' => $data['quality'] ?? 'normal',
             'unit_price' => $data['price_per_unit'] ?? 0,
             'expected_total' => 0,
@@ -487,68 +517,171 @@ class GoodsReceiptService
     }
 
     /**
-     * Create invoice for receipt
+     * Create or update (complete/correct) invoice for an existing receipt without duplicating stock movements (T1.4 / REG-DEC-06).
      */
     public function createInvoice(GoodsReceipt $receipt, array $data): PurchaseInvoice
     {
-        // Calculate amounts from receipt or provided data
-        $amountBeforeTax = isset($data['amount_before_tax']) ? (float) $data['amount_before_tax'] : (float) $receipt->received_amount;
+        return DB::transaction(function () use ($receipt, $data) {
+            $receipt = GoodsReceipt::with('purchaseOrder')->whereKey($receipt->id)->lockForUpdate()->firstOrFail();
 
-        if (! array_key_exists('tax_rate', $data) && ! array_key_exists('vat_rate', $data)) {
-            throw new \InvalidArgumentException('Invoice tax rate is required and cannot be defaulted.');
-        }
+            // Calculate amounts from receipt or provided data
+            $amountBeforeTax = round(
+                isset($data['amount_before_tax']) ? (float) $data['amount_before_tax'] : (float) $receipt->received_amount,
+                2
+            );
 
-        $rawRate = $data['tax_rate'] ?? $data['vat_rate'];
-        if ($rawRate === null || $rawRate === '') {
-            throw new \InvalidArgumentException('Invoice tax rate is required and cannot be defaulted.');
-        }
-        $taxRate = (float) $rawRate;
-        if (! in_array($taxRate, [0.0, 15.0], true)) {
-            throw new \InvalidArgumentException('Invoice tax rate must be 0% or 15%.');
-        }
+            if (! array_key_exists('tax_rate', $data) && ! array_key_exists('vat_rate', $data)) {
+                throw new \InvalidArgumentException('Invoice tax rate is required and cannot be defaulted.');
+            }
 
-        $taxAmount = isset($data['tax_amount']) ? (float) $data['tax_amount'] : $this->calculationService->calculateVAT($amountBeforeTax, $taxRate);
-        $totalAmount = isset($data['total_amount']) ? (float) $data['total_amount'] : ($amountBeforeTax + $taxAmount);
+            if (
+                array_key_exists('tax_rate', $data)
+                && array_key_exists('vat_rate', $data)
+                && $data['tax_rate'] !== null && $data['tax_rate'] !== ''
+                && $data['vat_rate'] !== null && $data['vat_rate'] !== ''
+                && (float) $data['tax_rate'] !== (float) $data['vat_rate']
+            ) {
+                throw new \InvalidArgumentException('Submitted tax_rate and vat_rate do not match.');
+            }
 
-        $invoice = PurchaseInvoice::create([
-            'goods_receipt_id' => $receipt->id,
-            'purchase_order_id' => $receipt->purchase_order_id,
-            'supplier_id' => $receipt->purchaseOrder->supplier_id,
-            'invoice_number' => $data['invoice_number'] ?? null,
-            'invoice_date' => $data['invoice_date'],
-            'due_date' => $data['due_date'] ?? $this->calculationService->calculateDueDate($data['invoice_date']),
-            'payment_terms' => $data['payment_terms'] ?? 'Net 30 days',
-            'amount_before_tax' => $amountBeforeTax,
-            'tax_rate' => $taxRate,
-            'tax_amount' => $taxAmount,
-            'total_amount' => $totalAmount,
-            'final_amount' => $totalAmount,
-            'status' => 'pending',
-        ]);
+            $rawRate = $data['tax_rate'] ?? $data['vat_rate'];
+            if ($rawRate === null || $rawRate === '') {
+                throw new \InvalidArgumentException('Invoice tax rate is required and cannot be defaulted.');
+            }
+            $taxRate = (float) $rawRate;
+            if (! in_array($taxRate, [0.0, 15.0], true)) {
+                throw new \InvalidArgumentException('Invoice tax rate must be 0% or 15%.');
+            }
 
-        // Handle photo upload (photo is already stored as path string)
-        if (! empty($data['photo'])) {
-            // Create document record for the photo
-            OrderDocument::create([
-                'documentable_type' => get_class($invoice),
-                'documentable_id' => $invoice->id,
-                'type' => DocumentType::INVOICE,
-                'file_path' => $data['photo'],
-                'file_name' => basename($data['photo']),
-                'original_name' => basename($data['photo']),
-                'mime_type' => 'image/jpeg', // Default, can be improved
-                'file_size' => 0, // Can be improved by reading file size
-                'title' => 'Invoice Photo',
-                'description' => $data['notes'] ?? null,
-                'uploaded_by' => \Illuminate\Support\Facades\Auth::id(),
-                'uploaded_by_type' => \Illuminate\Support\Facades\Auth::user() ? get_class(\Illuminate\Support\Facades\Auth::user()) : null,
-                'is_active' => true,
-            ]);
-        }
+            // AUD-S1-003: derive authoritative VAT and total; reject contradictory client overrides.
+            $expectedTax = round($this->calculationService->calculateVAT($amountBeforeTax, $taxRate), 2);
+            $expectedTotal = round($amountBeforeTax + $expectedTax, 2);
 
-        $this->timelineService->logInvoiceUploaded($receipt, $invoice);
+            $hasTaxAmount = array_key_exists('tax_amount', $data) && $data['tax_amount'] !== null && $data['tax_amount'] !== '';
+            $hasVatAmount = array_key_exists('vat_amount', $data) && $data['vat_amount'] !== null && $data['vat_amount'] !== '';
 
-        return $invoice;
+            if ($hasTaxAmount && $hasVatAmount && abs((float) $data['tax_amount'] - (float) $data['vat_amount']) > 0.01) {
+                throw new \InvalidArgumentException('Submitted tax_amount and vat_amount do not match.');
+            }
+
+            if ($hasTaxAmount || $hasVatAmount) {
+                $submittedTax = round((float) ($hasTaxAmount ? $data['tax_amount'] : $data['vat_amount']), 2);
+                if (abs($submittedTax - $expectedTax) > 0.01) {
+                    throw new \InvalidArgumentException("Submitted VAT amount ({$submittedTax}) does not match explicit {$taxRate}% VAT ({$expectedTax}).");
+                }
+            }
+
+            if (array_key_exists('total_amount', $data) && $data['total_amount'] !== null && $data['total_amount'] !== '') {
+                $submittedTotal = round((float) $data['total_amount'], 2);
+                if (abs($submittedTotal - $expectedTotal) > 0.01) {
+                    throw new \InvalidArgumentException("Submitted invoice total ({$submittedTotal}) does not match authoritative total ({$expectedTotal}).");
+                }
+            }
+
+            $taxAmount = $expectedTax;
+            $totalAmount = $expectedTotal;
+
+            if ($receipt->document_type !== DocumentType::INVOICE) {
+                $receipt->setDocumentType(DocumentType::INVOICE);
+            }
+
+            $existingInvoice = PurchaseInvoice::where('goods_receipt_id', $receipt->id)->lockForUpdate()->first();
+
+            $priceApprovals = app(ReceiptPriceApprovalService::class);
+            $previousPriceFacts = $existingInvoice ? $priceApprovals->invoiceFacts($existingInvoice) : null;
+
+            if ($existingInvoice) {
+                if ($existingInvoice->status === 'paid') {
+                    throw new AsabException(
+                        'INVOICE_ALREADY_PAID',
+                        'Cannot replace a paid invoice.',
+                        'لا يمكن تعديل فاتورة مدفوعة',
+                        409
+                    );
+                }
+
+                $deduction = round((float) ($existingInvoice->deduction_amount ?? 0), 2);
+                if ($deduction > $totalAmount + 0.001) {
+                    throw new \InvalidArgumentException('Corrected invoice total cannot be lower than existing deductions.');
+                }
+
+                $updatePayload = [
+                    'invoice_number' => $data['invoice_number'] ?? $existingInvoice->invoice_number,
+                    'invoice_date' => $data['invoice_date'] ?? $existingInvoice->invoice_date,
+                    'due_date' => $data['due_date'] ?? $this->calculationService->calculateDueDate($data['invoice_date'] ?? $existingInvoice->invoice_date),
+                    'payment_terms' => $data['payment_terms'] ?? $existingInvoice->payment_terms,
+                    'amount_before_tax' => $amountBeforeTax,
+                    'tax_rate' => $taxRate,
+                    'tax_amount' => $taxAmount,
+                    'total_amount' => $totalAmount,
+                    'final_amount' => round(max(0.0, $totalAmount - $deduction), 2),
+                    'status' => 'pending',
+                ];
+
+                foreach (['file_path', 'file_name', 'file_type', 'file_size'] as $fileKey) {
+                    if (! empty($data[$fileKey])) {
+                        $updatePayload[$fileKey] = $data[$fileKey];
+                    }
+                }
+
+                $existingInvoice->update($updatePayload);
+                $invoice = $existingInvoice->fresh();
+            } else {
+                $invoice = PurchaseInvoice::create([
+                    'goods_receipt_id' => $receipt->id,
+                    'purchase_order_id' => $receipt->purchase_order_id,
+                    'supplier_id' => $receipt->purchaseOrder->supplier_id,
+                    'invoice_number' => $data['invoice_number'] ?? null,
+                    'invoice_date' => $data['invoice_date'],
+                    'due_date' => $data['due_date'] ?? $this->calculationService->calculateDueDate($data['invoice_date']),
+                    'payment_terms' => $data['payment_terms'] ?? 'Net 30 days',
+                    'amount_before_tax' => $amountBeforeTax,
+                    'tax_rate' => $taxRate,
+                    'tax_amount' => $taxAmount,
+                    'total_amount' => $totalAmount,
+                    'final_amount' => $totalAmount,
+                    'file_path' => $data['file_path'] ?? ($data['photo'] ?? null),
+                    'file_name' => $data['file_name'] ?? (! empty($data['photo']) ? basename((string) $data['photo']) : null),
+                    'file_type' => $data['file_type'] ?? null,
+                    'file_size' => $data['file_size'] ?? null,
+                    'status' => 'pending',
+                ]);
+            }
+
+            // Handle photo/file document attachment
+            $docPath = $data['photo'] ?? ($data['file_path'] ?? null);
+            if (! empty($docPath)) {
+                OrderDocument::create([
+                    'documentable_type' => get_class($invoice),
+                    'documentable_id' => $invoice->id,
+                    'type' => DocumentType::INVOICE,
+                    'file_path' => $docPath,
+                    'file_name' => $data['file_name'] ?? basename((string) $docPath),
+                    'original_name' => $data['file_name'] ?? basename((string) $docPath),
+                    'mime_type' => $data['file_type'] ?? 'image/jpeg',
+                    'file_size' => (int) ($data['file_size'] ?? 0),
+                    'title' => 'Invoice Photo',
+                    'description' => $data['notes'] ?? null,
+                    'uploaded_by' => \Illuminate\Support\Facades\Auth::id(),
+                    'uploaded_by_type' => \Illuminate\Support\Facades\Auth::user() ? get_class(\Illuminate\Support\Facades\Auth::user()) : null,
+                    'is_active' => true,
+                ]);
+            }
+
+            if ($previousPriceFacts !== $priceApprovals->invoiceFacts($invoice)) {
+                $meta = $receipt->cost_adjustment_meta ?? [];
+                $meta['invoice_price_revision'] = (int) ($meta['invoice_price_revision'] ?? 0) + 1;
+                $receipt->update(['cost_adjustment_meta' => $meta]);
+            }
+            $this->reconcileInvoiceCostAdjustment($receipt, $invoice);
+
+            $this->timelineService->logInvoiceUploaded($receipt, $invoice);
+            if ($receipt->purchaseOrder) {
+                $this->trackingService->saveDeliveredStage($receipt->purchaseOrder);
+            }
+
+            return $invoice;
+        });
     }
 
     /**
@@ -566,15 +699,8 @@ class GoodsReceiptService
                 }
             }
 
-            // Update order item quantities
-            foreach ($receipt->items as $item) {
-                if ($item->purchase_order_item_id) {
-                    $item->purchaseOrderItem->markAsReceived(
-                        $item->quantity_received,
-                        $item->quality_received?->value
-                    );
-                }
-            }
+            // Update order item quantities cumulatively across all receipts
+            $this->syncOrderItemReceivedQuantities($receipt);
 
             $this->timelineService->logInspectionCompleted($receipt);
 
@@ -586,11 +712,427 @@ class GoodsReceiptService
                 $this->trackingService->saveVarianceLoggedStage($order);
             }
 
-            // Always close order and set all items to CLOSED when inspection is completed (with or without variances)
-            $receipt->purchaseOrder->close();
+            // Close order ONLY when all quantities are received and no variances/excess remain unresolved
+            if (! $receipt->hasVariances && $this->canCloseOrderAfterReceiving($order->fresh('items'))) {
+                $order->close();
+            }
 
             return $receipt->fresh(['items', 'variances', 'invoice']);
         });
+    }
+
+    private function syncOrderItemReceivedQuantities(GoodsReceipt $receipt): void
+    {
+        foreach ($receipt->items as $item) {
+            if (! $item->purchase_order_item_id || ! $item->purchaseOrderItem) {
+                continue;
+            }
+
+            $cumulativeReceived = round((float) GoodsReceiptItem::where('purchase_order_item_id', $item->purchase_order_item_id)
+                ->sum('quantity_received'), 3);
+
+            $item->purchaseOrderItem->markAsReceived(
+                $cumulativeReceived,
+                $item->quality_received?->value
+            );
+        }
+    }
+
+    private function canCloseOrderAfterReceiving(PurchaseOrder $order): bool
+    {
+        $order->loadMissing('items');
+        $cancelledStatuses = OrderItemStatus::cancelledStatusValues();
+
+        foreach ($order->items as $orderItem) {
+            $statusVal = $orderItem->status instanceof OrderItemStatus
+                ? $orderItem->status->value
+                : (string) ($orderItem->status ?? '');
+
+            if (in_array($statusVal, array_merge($cancelledStatuses, [OrderItemStatus::REJECTED->value]), true)) {
+                continue;
+            }
+
+            $expected = round((float) ($orderItem->quantity_confirmed ?? $orderItem->quantity_ordered), 3);
+            $cumulative = round((float) GoodsReceiptItem::where('purchase_order_item_id', $orderItem->id)
+                ->sum('quantity_received'), 3);
+
+            if ($cumulative + 0.0005 < $expected) {
+                return false;
+            }
+
+            if ($cumulative > $expected + 0.0005) {
+                return false;
+            }
+        }
+
+        $hasOpenVariances = PurchaseVariance::where('purchase_order_id', $order->id)
+            ->whereNotIn('status', ['resolved', 'closed'])
+            ->exists();
+
+        if ($hasOpenVariances) {
+            return false;
+        }
+
+        $hasPendingExcess = GoodsReceiptItem::whereHas('goodsReceipt', fn ($q) => $q->where('purchase_order_id', $order->id))
+            ->where('excess_status', 'reserved_pending_approval')
+            ->where('quantity_excess_reserved', '>', 0)
+            ->exists();
+
+        return ! $hasPendingExcess;
+    }
+
+    private function postSupplierReceivingStock(
+        PurchaseOrder $order,
+        GoodsReceipt $receipt,
+        GoodsReceiptItem $receiptItem,
+        \Modules\Purchase\Models\PurchaseOrderItem $orderItem,
+        float $availablePosted,
+        float $excessReserved,
+        string $receivedBy
+    ): void {
+        if ($availablePosted <= 0.0 || empty($orderItem->item_id)) {
+            return;
+        }
+
+        $itemId = (string) $orderItem->item_id;
+        $now = now();
+        $idemKey = 'purchase_receipt:'.$receiptItem->id;
+
+        if (InventoryStockMovement::where('idempotency_key', $idemKey)->exists()) {
+            return;
+        }
+
+        $branchInv = BranchInventory::where('branch_id', $order->branch_id)
+            ->where('item_id', $itemId)
+            ->lockForUpdate()
+            ->first();
+
+        if ($branchInv) {
+            $branchInv->update([
+                'available_quantity' => max(0.0, round((float) $branchInv->available_quantity + $availablePosted, 3)),
+                'last_inventory_update' => $now,
+            ]);
+        } else {
+            BranchInventory::create([
+                'branch_id' => $order->branch_id,
+                'item_id' => $itemId,
+                'available_quantity' => $availablePosted,
+                'reserved_quantity' => 0,
+                'last_inventory_update' => $now,
+            ]);
+        }
+
+        $branchItem = BranchItem::where('branch_id', $order->branch_id)
+            ->where('item_id', $itemId)
+            ->lockForUpdate()
+            ->first();
+        if ($branchItem) {
+            $branchItem->update([
+                'quantity' => max(0.0, round((float) $branchItem->quantity + $availablePosted, 3)),
+            ]);
+        }
+
+        $companyId = (string) ($order->branch?->asab_company_id ?? Branch::whereKey($order->branch_id)->value('asab_company_id') ?? '');
+        $unitCostHalalas = (int) round(((float) $orderItem->unit_price) * 100);
+        $totalCostHalalas = (int) round($availablePosted * $unitCostHalalas);
+
+        InventoryStockMovement::create([
+            'idempotency_key' => $idemKey,
+            'company_id' => $companyId,
+            'branch_id' => $order->branch_id,
+            'item_id' => $itemId,
+            'movement_type' => 'purchase_in',
+            'qty_delta' => $availablePosted,
+            'unit_cost_halalas' => $unitCostHalalas,
+            'total_cost_halalas' => $totalCostHalalas,
+            'source_type' => 'goods_receipt',
+            'source_id' => $receipt->id,
+            'revision' => 1,
+            'cost_source' => 'PO_UNIT_PRICE_PROVISIONAL',
+            'posted_at' => $now,
+            'created_by_id' => $receivedBy,
+            'notes' => 'استلام مشتريات مورد — '.$order->order_number,
+            'meta' => [
+                'goods_receipt_item_id' => $receiptItem->id,
+                'purchase_order_id' => $order->id,
+                'purchase_order_item_id' => $orderItem->id,
+                'excess_reserved_qty' => $excessReserved,
+            ],
+        ]);
+
+        if ($companyId !== '' && $totalCostHalalas > 0) {
+            $yearMonth = ($receipt->created_at ?? $now)->format('Y-m');
+            $monthlyResult = app(\Modules\Admin\Services\MonthlyWeightedCostService::class)
+                ->recordPurchaseCostDelta(
+                    $companyId,
+                    (string) $order->branch_id,
+                    $itemId,
+                    $yearMonth,
+                    $availablePosted,
+                    $totalCostHalalas
+                );
+
+            if ($monthlyResult['status'] === 'pending_period_decision') {
+                $existingMeta = is_array($receipt->cost_adjustment_meta) ? $receipt->cost_adjustment_meta : [];
+                $existingMeta['closed_period_items'][] = [
+                    'item_id' => $itemId,
+                    'year_month' => $yearMonth,
+                    'qty' => $availablePosted,
+                    'delta_halalas' => $totalCostHalalas,
+                ];
+                $receipt->update([
+                    'cost_adjustment_status' => 'pending_period_decision',
+                    'pending_cost_delta_halalas' => (int) ($receipt->pending_cost_delta_halalas ?? 0) + $totalCostHalalas,
+                    'cost_adjustment_meta' => $existingMeta,
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Post value-only cost adjustments (qty_delta = 0) when a pre-VAT supplier invoice amount
+     * differs from the provisional PO cost posted at receiving (DEC-07). If the receipt's period
+     * is already APPROVED/closed, preserve it untouched and flag pending_period_decision (DEC-OPEN-02).
+     */
+    public function reconcileApprovedInvoice(GoodsReceipt $receipt): void
+    {
+        DB::transaction(function () use ($receipt) {
+            $locked = GoodsReceipt::whereKey($receipt->id)->lockForUpdate()->firstOrFail();
+            $invoice = PurchaseInvoice::where('goods_receipt_id', $locked->id)->lockForUpdate()->first();
+            if ($invoice) {
+                $this->reconcileInvoiceCostAdjustment($locked, $invoice);
+            }
+        });
+    }
+    private function reconcileInvoiceCostAdjustment(GoodsReceipt $receipt, PurchaseInvoice $invoice): void
+    {
+        $receipt->loadMissing(['items', 'purchaseOrder.branch']);
+        $order = $receipt->purchaseOrder;
+        if (! $order) {
+            return;
+        }
+
+        $companyId = (string) ($order->branch?->asab_company_id ?? Branch::whereKey($order->branch_id)->value('asab_company_id') ?? '');
+        if ($companyId === '') {
+            return;
+        }
+
+        $allItems = $receipt->items
+            ->filter(fn ($it) => (float) $it->quantity_received > 0)
+            ->sortBy('id')
+            ->values();
+
+        if ($allItems->isEmpty()) {
+            return;
+        }
+
+        // AUD-S1-005: allocate invoice value across ALL receipt lines (including reserved excess
+        // and unlisted items) so reserved units never inflate approved available inventory cost.
+        $authorizedPriceLines = app(ReceiptPriceApprovalService::class)->authorizedLines($receipt, $invoice);
+        $previousApprovedTargets = app(ReceiptPriceApprovalService::class)->previousApprovedTargets($receipt, $invoice);
+        $targetTotalHalalas = (int) round(((float) $invoice->amount_before_tax) * 100);
+        $weights = $allItems->map(fn ($it) => max(0.01, ((float) $it->quantity_received) * max(0.01, (float) $it->unit_price)));
+        $weightSum = (float) $weights->sum();
+
+        $receiptMovements = InventoryStockMovement::where('source_type', 'goods_receipt')
+            ->where('source_id', $receipt->id)
+            ->whereIn('movement_type', ['purchase_in', 'purchase_cost_adjustment'])
+            ->get(['id', 'item_id', 'movement_type', 'total_cost_halalas', 'revision', 'meta']);
+
+
+
+        $yearMonth = ($receipt->created_at ?? now())->format('Y-m');
+        $monthlyCostService = app(\Modules\Admin\Services\MonthlyWeightedCostService::class);
+        $allocatedInvoiceTotal = 0;
+        $pendingClosedDeltaTotal = 0;
+        $reservedExcessTotal = 0;
+        $pendingPriceDeltaTotal = 0;
+        $closedMeta = [];
+        $reservedMeta = [];
+        $pendingPriceMeta = [];
+        $appliedCount = 0;
+        $now = now();
+        $lastIdx = $allItems->count() - 1;
+
+        foreach ($allItems as $idx => $receiptItem) {
+            $itemInvoiceHalalas = ($idx === $lastIdx)
+                ? ($targetTotalHalalas - $allocatedInvoiceTotal)
+                : (int) round($targetTotalHalalas * ((float) $weights[$idx] / max(0.01, $weightSum)));
+            $allocatedInvoiceTotal += $itemInvoiceHalalas;
+
+            $availablePosted = max(0.0, (float) ($receiptItem->quantity_available_posted ?? $receiptItem->quantity_received));
+            $excessReserved = max(0.0, (float) ($receiptItem->quantity_excess_reserved ?? 0.0));
+            $hasPendingExcess = $receiptItem->excess_status === 'reserved_pending_approval' || $excessReserved > 0.0;
+
+            if (! $hasPendingExcess) {
+                $invoiceAvailableShare = $itemInvoiceHalalas;
+                $itemReservedTarget = 0;
+            } elseif ($availablePosted <= 0.0) {
+                $invoiceAvailableShare = 0;
+                $itemReservedTarget = $itemInvoiceHalalas;
+            } else {
+                $qtyDenominator = max(0.001, $availablePosted + $excessReserved);
+                $invoiceAvailableShare = (int) round($itemInvoiceHalalas * ($availablePosted / $qtyDenominator));
+                $itemReservedTarget = $itemInvoiceHalalas - $invoiceAvailableShare;
+            }
+
+            // Only the dedicated, authenticated and revision-bound procurement decision may release price differences.
+
+            $approvedBaselineHalalas = (int) round($availablePosted * (float) $receiptItem->unit_price * 100);
+            $approvedBaselineHalalas = (int) ($previousApprovedTargets[$receiptItem->id] ?? $approvedBaselineHalalas);
+            $itemApprovedTarget = in_array((string) $receiptItem->id, $authorizedPriceLines, true)
+                ? $invoiceAvailableShare : $approvedBaselineHalalas;
+            $linePendingPriceDelta = $availablePosted > 0.0
+                ? ($invoiceAvailableShare - $itemApprovedTarget)
+                : 0;
+            if ($linePendingPriceDelta !== 0) {
+                $pendingPriceDeltaTotal += $linePendingPriceDelta;
+                $pendingPriceMeta[] = [
+                    'receipt_item_id' => $receiptItem->id,
+                    'item_id' => $receiptItem->item_id,
+                    'available_qty' => $availablePosted,
+                    'approved_unit_price' => round((float) $receiptItem->unit_price, 2),
+                    'approved_baseline_halalas' => $approvedBaselineHalalas,
+                    'invoice_available_halalas' => $invoiceAvailableShare,
+                    'pending_price_delta_halalas' => $linePendingPriceDelta,
+                    'status' => 'pending_approval',
+                ];
+            }
+
+            if ($itemReservedTarget !== 0) {
+                $reservedExcessTotal += $itemReservedTarget;
+                $reservedMeta[] = [
+                    'receipt_item_id' => $receiptItem->id,
+                    'item_id' => $receiptItem->item_id,
+                    'excess_qty' => $excessReserved,
+                    'reserved_value_halalas' => $itemReservedTarget,
+                    'excess_status' => $receiptItem->excess_status ?? 'reserved_pending_approval',
+                ];
+            }
+
+            if ($availablePosted <= 0.0 || empty($receiptItem->item_id)) {
+                continue;
+            }
+
+            $itemId = (string) $receiptItem->item_id;
+            $itemMovements = $receiptMovements->filter(
+                fn ($m) => (string) ($m->meta['goods_receipt_item_id'] ?? '') === (string) $receiptItem->id
+            );
+            $itemPostedTotal = (int) $itemMovements->sum('total_cost_halalas');
+            $itemDelta = $itemApprovedTarget - $itemPostedTotal;
+
+            if ($itemDelta === 0) {
+                continue;
+            }
+
+            // AUD-S1-004: use monotonic per-receipt-item transition revision so A->B->A->B
+            // value revisions are never suppressed while replayed identical amounts hit delta=0 above.
+            $nextRevision = max(2, ((int) $itemMovements->max('revision')) + 1);
+            $idemKey = "purchase_cost_adj:{$receipt->id}:{$receiptItem->id}:rev:{$nextRevision}";
+
+            if (InventoryStockMovement::where('idempotency_key', $idemKey)->exists()) {
+                continue;
+            }
+
+            $monthlyResult = $monthlyCostService->recordPurchaseCostDelta(
+                $companyId,
+                (string) $order->branch_id,
+                $itemId,
+                $yearMonth,
+                0.0,
+                $itemDelta
+            );
+
+            if ($monthlyResult['status'] === 'pending_period_decision') {
+                $pendingClosedDeltaTotal += $itemDelta;
+                $closedMeta[] = [
+                    'receipt_item_id' => $receiptItem->id,
+                    'item_id' => $itemId,
+                    'year_month' => $yearMonth,
+                    'delta_halalas' => $itemDelta,
+                    'invoice_id' => $invoice->id,
+                ];
+
+                continue;
+            }
+
+            InventoryStockMovement::create([
+                'idempotency_key' => $idemKey,
+                'company_id' => $companyId,
+                'branch_id' => $order->branch_id,
+                'item_id' => $itemId,
+                'movement_type' => 'purchase_cost_adjustment',
+                'qty_delta' => 0.0,
+                'unit_cost_halalas' => 0,
+                'total_cost_halalas' => $itemDelta,
+                'source_type' => 'goods_receipt',
+                'source_id' => $receipt->id,
+                'revision' => $nextRevision,
+                'cost_source' => 'INVOICE_VALUE_ADJUSTMENT',
+                'posted_at' => $now,
+                'created_by_id' => \Illuminate\Support\Facades\Auth::id() ?? $receipt->received_by,
+                'notes' => 'تعديل قيمة تكلفة المشتريات بالفاتورة — '.$invoice->invoice_number,
+                'meta' => [
+                    'goods_receipt_item_id' => $receiptItem->id,
+                    'purchase_invoice_id' => $invoice->id,
+                    'target_pre_vat_halalas' => $targetTotalHalalas,
+                    'approved_item_target_halalas' => $itemApprovedTarget,
+                    'reserved_item_target_halalas' => $itemReservedTarget,
+                ],
+            ]);
+            $appliedCount++;
+        }
+
+        $meta = is_array($receipt->cost_adjustment_meta) ? $receipt->cost_adjustment_meta : [];
+        if ($reservedMeta !== []) {
+            $meta['reserved_excess_items'] = $reservedMeta;
+        } else {
+            unset($meta['reserved_excess_items']);
+        }
+        if ($pendingPriceMeta !== []) {
+            $meta['pending_price_deltas'] = $pendingPriceMeta;
+        } else {
+            unset($meta['pending_price_deltas']);
+        }
+
+        if ($closedMeta !== []) {
+            $meta['pending_period_decision'] = $closedMeta;
+            $receipt->update([
+                'cost_adjustment_status' => 'pending_period_decision',
+                'pending_cost_delta_halalas' => $pendingClosedDeltaTotal + $reservedExcessTotal + $pendingPriceDeltaTotal,
+                'cost_adjustment_meta' => $meta,
+            ]);
+        } elseif ($reservedMeta !== [] && $pendingPriceMeta !== []) {
+            $receipt->update([
+                'cost_adjustment_status' => 'pending_excess_and_price_approval',
+                'pending_cost_delta_halalas' => $reservedExcessTotal + $pendingPriceDeltaTotal,
+                'cost_adjustment_meta' => $meta,
+            ]);
+        } elseif ($reservedMeta !== []) {
+            $receipt->update([
+                'cost_adjustment_status' => 'pending_excess_approval',
+                'pending_cost_delta_halalas' => $reservedExcessTotal,
+                'cost_adjustment_meta' => $meta,
+            ]);
+        } elseif ($pendingPriceMeta !== []) {
+            $receipt->update([
+                'cost_adjustment_status' => 'pending_price_approval',
+                'pending_cost_delta_halalas' => $pendingPriceDeltaTotal,
+                'cost_adjustment_meta' => $meta,
+            ]);
+        } elseif ($appliedCount > 0) {
+            $receipt->update([
+                'cost_adjustment_status' => 'adjusted',
+                'pending_cost_delta_halalas' => 0,
+                'cost_adjustment_meta' => $meta !== [] ? $meta : null,
+            ]);
+        } elseif ($receipt->cost_adjustment_status !== 'pending_period_decision') {
+            $receipt->update([
+                'cost_adjustment_status' => 'synced',
+                'pending_cost_delta_halalas' => 0,
+                'cost_adjustment_meta' => $meta !== [] ? $meta : null,
+            ]);
+        }
     }
 
     /**
