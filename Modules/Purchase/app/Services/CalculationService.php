@@ -3,6 +3,7 @@
 namespace Modules\Purchase\Services;
 
 use Carbon\Carbon;
+use Modules\Purchase\Enums\OrderItemStatus;
 
 class CalculationService
 {
@@ -21,7 +22,14 @@ class CalculationService
      */
     public function calculateVAT(float $amount, ?float $rate = null): float
     {
-        $vatRate = $rate ?? self::VAT_RATE;
+        if ($rate === null) {
+            throw new \InvalidArgumentException('VAT rate is required (0% or 15%) and cannot be defaulted.');
+        }
+
+        $vatRate = (float) $rate;
+        if (! in_array($vatRate, [0.0, 15.0], true)) {
+            throw new \InvalidArgumentException('VAT rate must be 0% or 15%.');
+        }
 
         return round($amount * ($vatRate / 100), 2);
     }
@@ -32,13 +40,13 @@ class CalculationService
     public function calculateTotalWithVAT(float $amount, ?float $rate = null): array
     {
         $vatAmount = $this->calculateVAT($amount, $rate);
-        $total = $amount + $vatAmount;
+        $total = round($amount + $vatAmount, 2);
 
         return [
             'amount_before_tax' => round($amount, 2),
-            'vat_rate' => $rate ?? self::VAT_RATE,
+            'vat_rate' => (float) $rate,
             'vat_amount' => $vatAmount,
-            'total_amount' => round($total, 2),
+            'total_amount' => $total,
         ];
     }
 
@@ -76,27 +84,53 @@ class CalculationService
      */
     public function calculateOrderTotals(array $items, float $discountAmount = 0, ?float $taxRate = null): array
     {
-        $subtotal = 0;
-
-        foreach ($items as $item) {
-            $quantity = $item['quantity'] ?? $item['quantity_ordered'] ?? 0;
-            $unitPrice = $item['unit_price'] ?? 0;
-            $itemDiscount = $item['discount'] ?? 0;
-
-            $subtotal += ($quantity * $unitPrice) - $itemDiscount;
+        if ($taxRate === null) {
+            throw new \InvalidArgumentException('Order tax rate is required (0% or 15%) and cannot be defaulted.');
         }
 
-        $rate = $taxRate ?? self::VAT_RATE;
-        $taxAmount = $this->calculateVAT($subtotal, $rate);
-        $total = $subtotal + $taxAmount - $discountAmount;
+        $rate = (float) $taxRate;
+        if (! in_array($rate, [0.0, 15.0], true)) {
+            throw new \InvalidArgumentException('Order tax rate must be 0% or 15%.');
+        }
+
+        $excludedStatuses = array_merge(
+            OrderItemStatus::cancelledStatusValues(),
+            [OrderItemStatus::REJECTED->value]
+        );
+
+        $subtotal = 0.0;
+        $activeCount = 0;
+
+        foreach ($items as $item) {
+            $status = $item['status'] ?? null;
+            if ($status instanceof OrderItemStatus) {
+                $status = $status->value;
+            }
+            if ($status !== null && in_array((string) $status, $excludedStatuses, true)) {
+                continue;
+            }
+
+            $quantity = (float) ($item['quantity'] ?? $item['quantity_ordered'] ?? 0);
+            $unitPrice = (float) ($item['unit_price'] ?? 0);
+            $itemDiscount = (float) ($item['discount'] ?? 0);
+
+            $subtotal += round(($quantity * $unitPrice) - $itemDiscount, 2);
+            $activeCount++;
+        }
+
+        $subtotal = round($subtotal, 2);
+        $effectiveDiscount = min($subtotal, max(0.0, round($discountAmount, 2)));
+        $taxableBase = max(0.0, round($subtotal - $effectiveDiscount, 2));
+        $taxAmount = $this->calculateVAT($taxableBase, $rate);
+        $total = round($taxableBase + $taxAmount, 2);
 
         return [
-            'subtotal' => round($subtotal, 2),
+            'subtotal' => $subtotal,
             'tax_rate' => $rate,
             'tax_amount' => $taxAmount,
-            'discount_amount' => round($discountAmount, 2),
-            'total_amount' => round($total, 2),
-            'total_items' => count($items),
+            'discount_amount' => $effectiveDiscount,
+            'total_amount' => $total,
+            'total_items' => $activeCount,
         ];
     }
 

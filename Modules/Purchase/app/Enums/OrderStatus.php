@@ -119,7 +119,7 @@ enum OrderStatus: string
             self::DRAFT => [self::PENDING, self::EMERGENCY, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
             self::PENDING => [self::CONFIRMED, self::REJECTED, self::EMERGENCY, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
             self::EMERGENCY => [self::CONFIRMED, self::REJECTED, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
-            self::CONFIRMED => [self::PREPARING, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
+            self::CONFIRMED => [self::PREPARING, self::DELIVERED, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
             // Meeting 2026-07-30: a rejected order must be editable + resendable
             // for re-approval (accounting reject loop), or cancellable.
             self::REJECTED => [self::PENDING, self::CANCELED],
@@ -128,7 +128,7 @@ enum OrderStatus: string
             self::CANCELLED_BY_SUPPLIER => [],
 
             // Execution Phase Transitions
-            self::PREPARING => [self::ON_THE_WAY, self::DELAYED, self::CANCELED],
+            self::PREPARING => [self::ON_THE_WAY, self::DELIVERED, self::DELAYED, self::CANCELED],
             self::ON_THE_WAY => [self::DELIVERED, self::DELAYED],
             self::DELAYED => [self::DELAYED_APPROVED, self::DELAYED_CONFIRMED, self::DELAYED_CANCELED, self::PREPARING, self::ON_THE_WAY, self::CANCELED],
             self::DELAYED_APPROVED => [self::PREPARING, self::ON_THE_WAY, self::DELIVERED],
@@ -141,10 +141,10 @@ enum OrderStatus: string
             // Deprecated Statuses (for backward compatibility - allow transitions to new statuses)
             self::PENDING_CONFIRMATION => [self::CONFIRMED, self::REJECTED, self::CANCELED],
             self::PENDING_APPROVAL => [self::CONFIRMED, self::REJECTED, self::CANCELED],
-            self::PARTIAL_CONFIRMATION => [self::CONFIRMED, self::REJECTED, self::CANCELED],
-            self::FULLY_APPROVED => [self::CONFIRMED, self::PREPARING, self::CANCELED],
-            self::PARTIAL_APPROVED => [self::CONFIRMED, self::PREPARING, self::CANCELED],
-            self::PARTIAL_CONFIRMED => [self::CONFIRMED, self::PREPARING, self::CANCELED],
+            self::PARTIAL_CONFIRMATION => [self::CONFIRMED, self::DELIVERED, self::REJECTED, self::CANCELED],
+            self::FULLY_APPROVED => [self::CONFIRMED, self::PREPARING, self::DELIVERED, self::CANCELED],
+            self::PARTIAL_APPROVED => [self::CONFIRMED, self::PREPARING, self::DELIVERED, self::CANCELED],
+            self::PARTIAL_CONFIRMED => [self::CONFIRMED, self::PREPARING, self::DELIVERED, self::CANCELED],
         };
 
         return in_array($newStatus, $allowedTransitions);

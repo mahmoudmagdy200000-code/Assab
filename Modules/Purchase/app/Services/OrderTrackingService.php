@@ -971,7 +971,18 @@ class OrderTrackingService
         }
 
         if ($amountToUse !== null && $amountToUse > 0) {
-            $financialData = $calculationService->calculateTotalWithVAT($amountToUse);
+            if ($order->tax_rate === null) {
+                return [
+                    'invoice_number' => $order->order_number ?? $latestReceipt?->receipt_number ?? null,
+                    'invoice_date' => $latestReceipt?->inspection_completed_at?->format('Y-m-d') ?? $order->closed_at?->format('Y-m-d'),
+                    'supplier_name' => $order->supplier?->name,
+                    'amount_before_tax' => $amountToUse,
+                    'vat' => null,
+                    'total_amount' => null,
+                ];
+            }
+
+            $financialData = $calculationService->calculateTotalWithVAT($amountToUse, (float) $order->tax_rate);
 
             return [
                 'invoice_number' => $order->order_number ?? $latestReceipt?->receipt_number ?? null,

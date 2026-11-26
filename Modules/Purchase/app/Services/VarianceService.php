@@ -92,24 +92,32 @@ class VarianceService
      */
     public function deductFromInvoice(PurchaseVariance $variance, float $amount, string $reason, ?string $notes = null): void
     {
-        DB::transaction(function () use ($variance, $amount, $reason, $notes) {
-            $variance->deductFromInvoice($amount, $reason, $notes);
+        $deduction = round($amount, 2);
+        if ($deduction <= 0.0) {
+            throw new \InvalidArgumentException('Deduction amount must be greater than 0.');
+        }
 
-            // Update the invoice if it exists
-            $invoice = $variance->goodsReceipt->invoice;
+        DB::transaction(function () use ($variance, $deduction, $reason, $notes) {
+            $variance->deductFromInvoice($deduction, $reason, $notes);
+
+            // Lock and update the invoice if it exists
+            $invoice = \Modules\Purchase\Models\PurchaseInvoice::where('goods_receipt_id', $variance->goods_receipt_id)
+                ->lockForUpdate()
+                ->first();
+
             if ($invoice) {
                 $invoice->applyDeduction(
-                    $amount,
+                    $deduction,
                     $reason,
                     [
                         'variance_id' => $variance->id,
                         'item_name' => $variance->item_name,
-                        'variance_type' => $variance->variance_type->value,
+                        'variance_type' => $variance->variance_type?->value,
                     ]
                 );
             }
 
-            $this->timelineService->logInvoiceDeducted($variance, $amount);
+            $this->timelineService->logInvoiceDeducted($variance, $deduction);
         });
     }
 

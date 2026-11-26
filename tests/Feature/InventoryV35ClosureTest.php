@@ -810,8 +810,8 @@ class InventoryV35ClosureTest extends TestCase
             0,
             0,
             0,
-            InventoryMonthlyCost::STATUS_APPROVED,
-            $this->accountant->id
+            InventoryMonthlyCost::STATUS_PROVISIONAL,
+            null
         );
 
         $wasteOp = Operation::create([

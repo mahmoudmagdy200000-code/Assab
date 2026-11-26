@@ -190,16 +190,22 @@ class PurchaseBoardService
      */
     private function kpis($ops, array $filters): array
     {
-        $suppliers = $ops->map(fn (Operation $op) => $op->payload['supplierId'] ?? $op->payload['supplierName'] ?? null)
+        $activeOps = $ops->reject(fn (Operation $op) => in_array($op->status, [
+            Operation::STATUS_REJECTED,
+            'cancelled',
+            'canceled',
+        ], true));
+
+        $suppliers = $activeOps->map(fn (Operation $op) => $op->payload['supplierId'] ?? $op->payload['supplierName'] ?? null)
             ->filter()->unique();
 
         return [
-            'totalPurchasesHalalas' => (int) $ops->sum('amount'),
-            'totalPurchasesSar' => round((int) $ops->sum('amount') / 100, 2),
-            'pendingInvoices' => $ops->where('status', Operation::STATUS_PENDING)->count(),
-            'diffInvoices' => $ops->where('match', 'diff')->count(),
+            'totalPurchasesHalalas' => (int) $activeOps->sum('amount'),
+            'totalPurchasesSar' => round((int) $activeOps->sum('amount') / 100, 2),
+            'pendingInvoices' => $activeOps->where('status', Operation::STATUS_PENDING)->count(),
+            'diffInvoices' => $activeOps->where('match', 'diff')->count(),
             'activeSuppliers' => $suppliers->count(),
-            'invoices' => $ops->count(),
+            'invoices' => $activeOps->count(),
             'period' => [
                 'from' => $filters['dateFrom'] ?? null,
                 'to' => $filters['dateTo'] ?? null,
@@ -214,7 +220,12 @@ class PurchaseBoardService
      */
     private function card(string $key, $ops, string $groupBy, array $branchNames, array $supplierNames, array $filters): array
     {
-        $total = (int) $ops->sum('amount');
+        $activeOps = $ops->reject(fn (Operation $op) => in_array($op->status, [
+            Operation::STATUS_REJECTED,
+            'cancelled',
+            'canceled',
+        ], true));
+        $total = (int) $activeOps->sum('amount');
         $first = $ops->first();
         $payload = $first->payload ?? [];
 
@@ -224,7 +235,7 @@ class PurchaseBoardService
 
         // The card's secondary chips: the OTHER axis, with its own subtotal
         // («3 فروع» on a supplier card, «2 مورد» on a branch card).
-        $chips = $ops->groupBy(fn (Operation $op) => $groupBy === 'branch'
+        $chips = $activeOps->groupBy(fn (Operation $op) => $groupBy === 'branch'
             ? ((string) ($op->payload['supplierId'] ?? $op->payload['supplierName'] ?? 'unknown'))
             : ((string) ($op->branch_id ?? 'unknown')))
             ->map(fn ($rows, $chipKey) => [
@@ -249,13 +260,13 @@ class PurchaseBoardService
             'title' => $groupBy === 'branch'
                 ? ($branchNames[$key] ?? '—')
                 : ($supplierNames[$key] ?? $payload['supplierName'] ?? '—'),
-            'invoiceCount' => $ops->count(),
+            'invoiceCount' => $activeOps->count(),
             'counterpartCount' => count($chips),
             'totalHalalas' => $total,
             'totalSar' => round($total / 100, 2),
-            'diffCount' => $ops->where('match', 'diff')->count(),
-            'pendingCount' => $ops->where('status', Operation::STATUS_PENDING)->count(),
-            'documentedCount' => $ops->filter(fn (Operation $op) => $this->isDocumented($op))->count(),
+            'diffCount' => $activeOps->where('match', 'diff')->count(),
+            'pendingCount' => $activeOps->where('status', Operation::STATUS_PENDING)->count(),
+            'documentedCount' => $activeOps->filter(fn (Operation $op) => $this->isDocumented($op))->count(),
             'dailyAverageHalalas' => $this->dailyAverage($total, $ops, $filters),
             'counterparts' => $chips,
             // Legacy-friendly aliases so a card renders without branching on groupBy.

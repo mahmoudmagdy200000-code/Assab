@@ -172,10 +172,34 @@ class PurchaseInvoice extends Model
 
     public function applyDeduction(float $amount, string $reason, ?array $details = null): void
     {
+        $deduction = round($amount, 2);
+        if ($deduction <= 0.0) {
+            throw new \InvalidArgumentException('Deduction amount must be greater than 0.');
+        }
+
+        $currentTotal = round((float) ($this->deduction_amount ?? 0), 2);
+        $newTotal = round($currentTotal + $deduction, 2);
+        $invoiceTotal = round((float) $this->total_amount, 2);
+
+        if ($newTotal > $invoiceTotal + 0.001) {
+            throw new \InvalidArgumentException('Total deduction amount cannot exceed invoice total amount.');
+        }
+
+        $existingDetails = $this->deduction_details;
+        $history = [];
+        if (is_array($existingDetails) && $existingDetails !== []) {
+            $history = array_is_list($existingDetails) ? $existingDetails : [$existingDetails];
+        }
+        $history[] = array_filter([
+            'amount' => $deduction,
+            'reason' => $reason,
+            'applied_at' => now()->toIso8601String(),
+        ] + ($details ?? []), fn ($v) => $v !== null);
+
         $this->update([
-            'deduction_amount' => $amount,
+            'deduction_amount' => $newTotal,
             'deduction_reason' => $reason,
-            'deduction_details' => $details,
+            'deduction_details' => $history,
         ]);
 
         $this->calculateAmounts();

@@ -544,7 +544,10 @@ class OperationController extends AsabController
         if ($request->query('moduleKey') === 'purchases') {
             $today = now()->toDateString();
             $summary['purchases'] = [
-                'todayTotalHalalas' => (int) (clone $base)->whereDate('operation_date', $today)->sum('amount'),
+                'todayTotalHalalas' => (int) (clone $base)
+                    ->whereDate('operation_date', $today)
+                    ->whereNotIn('status', [Operation::STATUS_REJECTED, 'cancelled', 'canceled'])
+                    ->sum('amount'),
                 'pendingReview' => $summary['pending'],
                 'qtyDiscrepancies' => (clone $base)->whereIn('status', [Operation::STATUS_PENDING, Operation::STATUS_APPROVED])
                     ->where('match', 'diff')->count(),
