@@ -43,6 +43,7 @@ Route::middleware(['auth:sanctum', \Modules\Supplier\Http\Middleware\SupplierMid
     Route::get('/orders/dashboard', [OrderController::class, 'dashboard']);
     Route::get('/orders/supplier-items', [OrderController::class, 'getSupplierItems']);
     Route::get('/orders/{id}', [OrderController::class, 'show']);
+    Route::get('/orders/{id}/tracking', [OrderController::class, 'tracking']);
     Route::post('/orders/{id}/accept', [OrderController::class, 'accept'])->middleware('throttle:purchase-write');
     Route::post('/orders/{id}/reject', [OrderController::class, 'reject'])->middleware('throttle:purchase-write');
     Route::post('/orders/{id}/request-modification', [OrderController::class, 'requestModification'])->middleware('throttle:purchase-write');

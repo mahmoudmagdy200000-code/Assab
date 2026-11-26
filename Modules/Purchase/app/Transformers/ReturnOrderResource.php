@@ -63,6 +63,7 @@ class ReturnOrderResource extends JsonResource
             // Timestamps
             'submitted_at' => $this->submitted_at?->format('Y-m-d H:i:s'),
             'approved_at' => $this->approved_at?->format('Y-m-d H:i:s'),
+            'handed_over_at' => $this->handed_over_at?->format('Y-m-d H:i:s'),
             'closed_at' => $this->closed_at?->format('Y-m-d H:i:s'),
             'created_at' => $this->created_at?->format('Y-m-d H:i:s'),
 
