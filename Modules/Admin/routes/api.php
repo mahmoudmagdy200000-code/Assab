@@ -594,6 +594,7 @@ Route::prefix('v1')->group(function () {
                 Route::post('purchase-orders/{id}/approve', [ProcurementPurchaseOrderController::class, 'approve']);
                 Route::post('purchase-orders/{id}/partial-approve', [ProcurementPurchaseOrderController::class, 'partialApprove']);
                 Route::post('purchase-orders/{id}/reject', [ProcurementPurchaseOrderController::class, 'reject']);
+                Route::post('purchase-orders/{id}/manual-supplier-response', [ProcurementPurchaseOrderController::class, 'manualSupplierResponse']);
             });
 
             // ---- Supplier (المورد; §6.6) ----
@@ -610,6 +611,8 @@ Route::prefix('v1')->group(function () {
                 Route::get('orders', [SupplierController::class, 'orders']);
                 Route::post('orders/{id}/accept', [SupplierController::class, 'accept']);
                 Route::post('orders/{id}/reject', [SupplierController::class, 'reject']);
+                Route::post('orders/{id}/prepare', [SupplierController::class, 'prepare']);
+                Route::post('orders/{id}/dispatch', [SupplierController::class, 'dispatch']);
                 Route::post('orders/{id}/mark-delivered', [SupplierController::class, 'markDelivered']);
                 // Literal paths before items/{id} — «export/template/import» must
                 // not be swallowed by the parameterised routes below.
@@ -1008,6 +1011,7 @@ Route::prefix('v1')->group(function () {
                     Route::post('purchase-orders/{id}/approve', [ProcurementPurchaseOrderController::class, 'approve']);
                     Route::post('purchase-orders/{id}/partial-approve', [ProcurementPurchaseOrderController::class, 'partialApprove']);
                     Route::post('purchase-orders/{id}/reject', [ProcurementPurchaseOrderController::class, 'reject']);
+                    Route::post('purchase-orders/{id}/manual-supplier-response', [ProcurementPurchaseOrderController::class, 'manualSupplierResponse']);
                 });
 
                 // Suppliers — read for all roles; write for procurement/company-admin; rate for procurement/branch

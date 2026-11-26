@@ -35,7 +35,7 @@ class AsabSupplier extends Model
 
     protected $fillable = [
         'company_id', 'brand_id', 'name', 'code', 'category', 'contact_name', 'contact_phone',
-        'contact_email', 'commercial_reg', 'payment_terms', 'user_id', 'rating', 'status', 'is_external',
+        'contact_email', 'commercial_reg', 'payment_terms', 'user_id', 'legacy_supplier_id', 'rating', 'status', 'is_external',
     ];
 
     protected $casts = ['rating' => 'integer', 'is_external' => 'boolean'];

@@ -29,10 +29,10 @@ final class SupplierOrderStatus
      * excludes `delivered`: they are separate SUP-1.3 tabs.
      */
     public const SYNONYMS = [
-        'pending' => ['pending'],
-        'accepted' => ['accepted', 'confirmed', 'approved', 'final-approved'],
-        'delivered' => ['delivered'],
-        'rejected' => ['rejected'],
+        'pending' => ['pending', 'emergency', 'sent_awaiting_response'],
+        'accepted' => ['accepted', 'confirmed', 'preparing', 'on_the_way', 'approved', 'final-approved'],
+        'delivered' => ['delivered', 'closed'],
+        'rejected' => ['rejected', 'cancelled_by_supplier'],
     ];
 
     /** Raw op status → canonical supplier key (falls back to the raw value). */
@@ -89,5 +89,56 @@ final class SupplierOrderStatus
             array_keys(self::LABELS),
             array_values(self::LABELS),
         );
+    }
+
+    /**
+     * Scope a PurchaseOrder query to orders legitimately visible to a supplier user:
+     *  - direct_supplier orders (submitted, not draft)
+     *  - via_purchasing_officer / multiple_sources orders already dispatched in a group
+     *  - strictly isolated to each owned supplier's company_id (or cross-company when company_id is null)
+     */
+    public static function scopePurchaseOrdersForUser(\Illuminate\Database\Eloquent\Builder $q, string $userId): \Illuminate\Database\Eloquent\Builder
+    {
+        $rows = \Modules\Admin\Models\AsabSupplier::withoutGlobalScopes()
+            ->where('user_id', $userId)
+            ->get(['id', 'legacy_supplier_id', 'company_id']);
+
+        $pairs = [];
+        foreach ($rows as $row) {
+            $legacyId = $row->legacy_supplier_id;
+            if (! $legacyId && \Modules\Supplier\Models\Supplier::whereKey($row->id)->exists()) {
+                $legacyId = $row->id;
+            }
+            if ($legacyId) {
+                $pairs[] = [$legacyId, $row->company_id];
+            }
+        }
+
+        if ($pairs === []) {
+            return $q->whereRaw('1 = 0');
+        }
+
+        return $q
+            ->where(function (\Illuminate\Database\Eloquent\Builder $outer) use ($pairs) {
+                foreach ($pairs as [$legacyId, $companyId]) {
+                    $outer->orWhere(function (\Illuminate\Database\Eloquent\Builder $w) use ($legacyId, $companyId) {
+                        $w->where('supplier_id', $legacyId);
+                        if ($companyId !== null) {
+                            $w->whereHas('branch', fn (\Illuminate\Database\Eloquent\Builder $b) => $b->where('asab_company_id', $companyId));
+                        }
+                    });
+                }
+            })
+            ->where(function (\Illuminate\Database\Eloquent\Builder $lifecycle) {
+                $lifecycle->where(function (\Illuminate\Database\Eloquent\Builder $direct) {
+                    $direct->where('order_type', \Modules\Purchase\Enums\OrderType::DIRECT_SUPPLIER->value)
+                        ->where('status', '!=', \Modules\Purchase\Enums\OrderStatus::DRAFT->value);
+                })->orWhere(function (\Illuminate\Database\Eloquent\Builder $proc) {
+                    $proc->whereIn('order_type', [
+                        \Modules\Purchase\Enums\OrderType::VIA_PURCHASING_OFFICER->value,
+                        \Modules\Purchase\Enums\OrderType::MULTIPLE_SOURCES->value,
+                    ])->whereNotNull('group_id');
+                });
+            });
     }
 }

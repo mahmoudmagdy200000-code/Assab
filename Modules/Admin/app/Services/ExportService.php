@@ -770,28 +770,26 @@ class ExportService
      *
      * @param  string[]|null  $supplierIds  restrict to these asab_suppliers ids (null = unrestricted)
      */
-    public function supplierOrders(string $format, ?string $status, ?array $supplierIds = null): BinaryFileResponse
+    public function supplierOrders(string $format, ?string $status, ?string $supplierUserId = null): BinaryFileResponse
     {
-        $q = Operation::where('module_key', 'purchases');
-        if ($supplierIds !== null) {
-            $q->whereIn('payload->supplierId', $supplierIds);
+        $q = \Modules\Purchase\Models\PurchaseOrder::query()->with('branch:id,name');
+        if ($supplierUserId !== null) {
+            \Modules\Admin\Support\SupplierOrderStatus::scopePurchaseOrdersForUser($q, $supplierUserId);
+        } else {
+            $q->whereRaw('1 = 0');
         }
-        // Same canonical vocabulary as the JSON list (SupplierOrderStatus): the
-        // `accepted` filter folds accepted/confirmed/approved/final-approved so
-        // the export never diverges from the on-screen separate lists.
         if ($synonyms = \Modules\Admin\Support\SupplierOrderStatus::synonyms($status)) {
             $q->whereIn('status', $synonyms);
         }
-        $ops = $q->orderByDesc('operation_date')->limit(10000)->get();
-        $branchNames = $this->branchNames($ops->pluck('branch_id'));
+        $orders = $q->orderByDesc('submitted_at')->orderByDesc('created_at')->limit(10000)->get();
 
         $headings = ['رقم الطلب', 'الفرع', 'الإجمالي (ر.س)', 'الحالة', 'التاريخ'];
-        $rows = $ops->map(fn (Operation $o) => [
-            $o->public_id,
-            $branchNames[$o->branch_id] ?? '—',
-            $this->sar($o->amount),
-            $o->status,
-            optional($o->operation_date)->toDateString() ?? '',
+        $rows = $orders->map(fn (\Modules\Purchase\Models\PurchaseOrder $o) => [
+            $o->order_number,
+            $o->branch?->name ?? '—',
+            number_format((float) $o->total_amount, 2, '.', ''),
+            $o->status?->value ?? '',
+            optional($o->submitted_at ?? $o->created_at)->toDateString() ?? '',
         ])->all();
 
         return $this->make($format, 'supplier-orders', $headings, $rows);

@@ -77,7 +77,7 @@ class ProcurementItemConsolidationTest extends TestCase
     {
         $order = PurchaseOrder::factory()->create([
             'order_number' => 'PO-'.strtoupper(Str::random(8)),
-            'order_type' => OrderType::DIRECT_SUPPLIER,
+            'order_type' => OrderType::VIA_PURCHASING_OFFICER,
             'status' => OrderStatus::CONFIRMED,
             'branch_id' => ($branch ?? $this->branch)->id,
             'supplier_id' => $this->supplier->id,
@@ -157,6 +157,7 @@ class ProcurementItemConsolidationTest extends TestCase
 
         $send = $this->as()->postJson('/api/v1/procurement/purchase-orders/grouped/send', [
             'supplierId' => $this->supplier->id,
+            'expectedDeliveryDate' => '2026-08-01',
         ]);
         $send->assertCreated();
         $this->assertEquals(1600, $send->json('savings'));
@@ -189,10 +190,9 @@ class ProcurementItemConsolidationTest extends TestCase
         $this->confirmedOrder(30, null, 45, '2026-09-10');
         $this->confirmedOrder(20, null, 45, '2026-08-15');
 
-        $send = $this->as()->postJson('/api/v1/procurement/purchase-orders/grouped/send', [
-            'supplierId' => $this->supplier->id,
-        ]);
-        $send->assertCreated()->assertJsonPath('eta', '2026-08-15');
+        $group = app(\Modules\Purchase\Services\OrderConsolidationService::class)
+            ->send($this->supplier->id, null, $this->manager->id, [$this->branch->id], null);
+        $this->assertSame('2026-08-15', optional($group->expected_delivery_date)->toDateString());
     }
 
     // ---- T11.10 sent vs supplier-confirmed ----
@@ -204,13 +204,14 @@ class ProcurementItemConsolidationTest extends TestCase
 
         $send = $this->as()->postJson('/api/v1/procurement/purchase-orders/grouped/send', [
             'supplierId' => $this->supplier->id,
+            'expectedDeliveryDate' => '2026-08-01',
         ]);
         $groupId = $send->json('groupId');
 
         $sent = $this->as()->getJson('/api/v1/procurement/purchase-orders/sent');
         $row = collect($sent->json('data'))->firstWhere('groupId', $groupId);
-        $this->assertSame('sent', $row['status'], 'freshly-sent batch awaits the supplier — status sent, not confirmed');
-        $this->assertSame('أُرسل للمورد', $row['statusLabel']);
+        $this->assertSame('sent_awaiting_response', $row['status'], 'freshly-sent batch awaits the supplier — status sent_awaiting_response, not confirmed');
+        $this->assertSame('أُرسل — بانتظار الرد', $row['statusLabel']);
 
         $b->fresh()->transitionTo(OrderStatus::PREPARING);
         $sent2 = $this->as()->getJson('/api/v1/procurement/purchase-orders/sent');

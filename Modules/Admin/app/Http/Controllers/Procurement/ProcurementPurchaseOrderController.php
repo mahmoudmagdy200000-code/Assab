@@ -2,15 +2,24 @@
 
 namespace Modules\Admin\Http\Controllers\Procurement;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Modules\Admin\Http\Controllers\AsabController;
+use Modules\Admin\Models\AsabSupplier;
+use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Services\Notifications\SupplierDispatch;
 use Modules\Admin\Services\Notifications\SupplierOrderNotifier;
 use Modules\Admin\Services\TenantBranchResolver;
 use Modules\Admin\Support\TenantContext;
+use Modules\Purchase\Enums\OrderItemStatus;
+use Modules\Purchase\Enums\OrderStatus;
+use Modules\Purchase\Enums\OrderType;
+use Modules\Purchase\Enums\TimelineEventType;
 use Modules\Purchase\Exceptions\PurchaseOrderException;
+use Modules\Purchase\Models\OrderTimeline;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderGroup;
 use Modules\Purchase\Models\PurchaseOrderItem;
@@ -31,7 +40,7 @@ class ProcurementPurchaseOrderController extends AsabController
     private const INCOMING = ['pending', 'emergency', 'variance'];
 
     /** Statuses a client may filter by (draft excluded: unsubmitted branch data). */
-    private const FILTERABLE = ['pending', 'emergency', 'variance', 'confirmed', 'rejected',
+    private const FILTERABLE = ['pending', 'emergency', 'variance', 'confirmed', 'sent_awaiting_response', 'rejected',
         'cancelled', 'cancelled_by_branch', 'cancelled_by_supplier', 'preparing', 'on_the_way',
         'delivered', 'closed'];
 
@@ -204,7 +213,7 @@ class ProcurementPurchaseOrderController extends AsabController
         });
     }
 
-    /** POST .../purchase-orders/grouped/send {supplierId, orderIds?, expectedDeliveryDate?} — "إرسال للمورد". */
+    /** POST .../purchase-orders/grouped/send {supplierId, orderIds?, expectedDeliveryDate} — "إرسال للمورد". */
     public function sendGroup(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
@@ -212,13 +221,14 @@ class ProcurementPurchaseOrderController extends AsabController
                 'supplierId' => 'required|string',
                 'orderIds' => 'sometimes|array|min:1',
                 'orderIds.*' => 'string',
-                'expectedDeliveryDate' => 'sometimes|nullable|date',
+                'expectedDeliveryDate' => 'required|date',
             ]);
 
             try {
                 $group = $this->consolidation->send(
                     $data['supplierId'], $data['orderIds'] ?? null, $request->user()->id,
                     $this->branches->legacyBranchIds($this->tenant), $data['expectedDeliveryDate'] ?? null,
+                    $this->tenant->companyId,
                 );
             } catch (PurchaseOrderException $e) {
                 return $this->fail('CONSOLIDATION_FAILED', $e->getMessage(), 'تعذّر تجميع الطلبات وإرسالها', [], 409);
@@ -253,6 +263,161 @@ class ProcurementPurchaseOrderController extends AsabController
         return $this->run(fn () => $this->ok(
             $this->consolidation->groupDetails($groupId, $this->branches->legacyBranchIds($this->tenant)),
         ));
+    }
+
+    /**
+     * DEC-06: Record a manual supplier response (WhatsApp / phone) for a
+     * non-subscribed supplier on a dispatched purchase order.
+     */
+    public function manualSupplierResponse(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $data = $request->validate([
+                'decision' => 'required|string|in:accepted,rejected',
+                'source' => 'required|string|in:whatsapp,phone',
+                'respondedAt' => 'required|date',
+                'reason' => 'required_if:decision,rejected|nullable|string|max:500',
+                'note' => 'nullable|string|max:500',
+            ]);
+
+            return DB::transaction(function () use ($request, $id, $data) {
+                $order = $this->scoped()
+                    ->where(fn ($q) => $q->where('id', $id)->orWhere('order_number', $id))
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                if (! $order->supplier_id) {
+                    return $this->fail('SUPPLIER_REQUIRED', 'Order has no assigned supplier', 'الطلب غير مرتبط بمورد', [], 422);
+                }
+
+                $supplierRows = AsabSupplier::withoutGlobalScopes()
+                    ->where('legacy_supplier_id', $order->supplier_id)
+                    ->get();
+
+                $companyId = $this->tenant->companyId;
+                if ($companyId !== null && $supplierRows->isNotEmpty()) {
+                    $inScope = $supplierRows->contains(
+                        fn (AsabSupplier $s) => $s->company_id === null || $s->company_id === $companyId
+                    );
+                    if (! $inScope) {
+                        return $this->fail('SUPPLIER_OUT_OF_SCOPE', 'Supplier is outside tenant scope', 'المورد خارج نطاق الشركة', [], 404);
+                    }
+                }
+
+                $isSubscribed = $supplierRows->contains(
+                    fn (AsabSupplier $s) => ! $s->is_external && $s->user_id !== null
+                );
+                if ($isSubscribed) {
+                    return $this->fail(
+                        'SUPPLIER_IS_SUBSCRIBED',
+                        'Subscribed suppliers must respond through the Supplier Portal',
+                        'المورد المشترك يسجل رده عبر بوابة الموردين فقط',
+                        [],
+                        422,
+                    );
+                }
+
+                $awaiting = $order->status === OrderStatus::SENT_AWAITING_RESPONSE
+                    || ($order->order_type === OrderType::DIRECT_SUPPLIER && in_array($order->status, [
+                        OrderStatus::PENDING,
+                        OrderStatus::EMERGENCY,
+                    ], true));
+
+                if (! $awaiting) {
+                    return $this->fail(
+                        'ORDER_NOT_AWAITING_RESPONSE',
+                        'Order is not awaiting supplier response',
+                        'الطلب ليس في حالة انتظار رد المورد',
+                        [],
+                        409,
+                    );
+                }
+
+                $alreadyRecorded = OrderTimeline::where('timelineable_type', PurchaseOrder::class)
+                    ->where('timelineable_id', $order->id)
+                    ->where('title', 'Manual supplier response recorded')
+                    ->exists();
+                if ($alreadyRecorded) {
+                    return $this->fail(
+                        'SUPPLIER_RESPONSE_ALREADY_RECORDED',
+                        'Supplier response has already been recorded for this order',
+                        'تم تسجيل رد المورد مسبقًا لهذا الطلب',
+                        [],
+                        409,
+                    );
+                }
+
+                $oldStatus = $order->status->value;
+                $respondedAt = Carbon::parse($data['respondedAt']);
+                $note = $data['note'] ?? $data['reason'] ?? null;
+                $targetStatus = $data['decision'] === 'accepted'
+                    ? OrderStatus::CONFIRMED
+                    : OrderStatus::REJECTED;
+
+                if (! $order->transitionTo($targetStatus)) {
+                    return $this->fail(
+                        'ORDER_TRANSITION_REJECTED',
+                        'Order status transition is not allowed',
+                        'لا يمكن تغيير حالة الطلب من حالته الحالية',
+                        [],
+                        409,
+                    );
+                }
+
+                if ($targetStatus === OrderStatus::CONFIRMED) {
+                    foreach ($order->items()->where('status', OrderItemStatus::PENDING->value)->get() as $item) {
+                        $item->confirm((float) $item->quantity_ordered);
+                    }
+                } else {
+                    $order->forceFill([
+                        'rejection_reason' => $data['reason'] ?? $data['note'] ?? 'Rejected by supplier',
+                    ])->save();
+                    $order->items()
+                        ->where('status', OrderItemStatus::PENDING->value)
+                        ->update([
+                            'status' => OrderItemStatus::REJECTED->value,
+                            'quantity_confirmed' => 0,
+                        ]);
+                }
+
+                $timeline = OrderTimeline::create([
+                    'timelineable_type' => PurchaseOrder::class,
+                    'timelineable_id' => $order->id,
+                    'event_type' => $data['decision'] === 'accepted'
+                        ? TimelineEventType::ORDER_CONFIRMED
+                        : TimelineEventType::ORDER_REJECTED,
+                    'old_status' => $oldStatus,
+                    'new_status' => $order->fresh()->status->value,
+                    'actor_id' => $request->user()->id,
+                    'actor_type' => AsabUser::class,
+                    'actor_name' => $request->user()->name,
+                    'actor_role' => 'procurement',
+                    'title' => 'Manual supplier response recorded',
+                    'description' => $note,
+                    'metadata' => [
+                        'manual_supplier_response' => true,
+                        'response_decision' => $data['decision'],
+                        'response_source' => $data['source'],
+                        'responded_at' => $respondedAt->toIso8601String(),
+                        'recorded_by_user_id' => $request->user()->id,
+                        'note' => $note,
+                    ],
+                    'occurred_at' => $respondedAt,
+                ]);
+
+                return $this->ok($this->present($order->fresh()) + [
+                    'manualResponse' => [
+                        'decision' => $data['decision'],
+                        'source' => $data['source'],
+                        'respondedAt' => $respondedAt->toIso8601String(),
+                        'recordedByUserId' => $request->user()->id,
+                        'recordedByName' => $request->user()->name,
+                        'note' => $note,
+                        'timelineId' => $timeline->id,
+                    ],
+                ]);
+            });
+        });
     }
 
     /**

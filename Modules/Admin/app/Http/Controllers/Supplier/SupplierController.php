@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Http\Controllers\Supplier;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -11,14 +12,19 @@ use Illuminate\Support\Facades\DB;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabSupplier;
-use Modules\Admin\Models\Operation;
+use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\SupplierItem;
 use Modules\Admin\Services\ExportService;
 use Modules\Admin\Services\ProcurementCatalogBridgeService;
-use Modules\Admin\Services\PurchasePresenterService;
 use Modules\Admin\Services\SupplierItemImportService;
 use Modules\Admin\Support\SupplierOrderStatus;
-use Modules\Branch\Models\Branch;
+use Modules\Purchase\Enums\OrderItemStatus;
+use Modules\Purchase\Enums\OrderStatus;
+use Modules\Purchase\Enums\OrderType;
+use Modules\Purchase\Enums\TimelineEventType;
+use Modules\Purchase\Models\OrderTimeline;
+use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Supplier\Models\Supplier;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 /**
@@ -31,7 +37,6 @@ class SupplierController extends AsabController
 {
     public function __construct(
         private readonly ExportService $exports,
-        private readonly PurchasePresenterService $purchases,
         private readonly ProcurementCatalogBridgeService $bridge,
     ) {}
 
@@ -41,11 +46,15 @@ class SupplierController extends AsabController
             $base = $this->ownOrders($request);
             $userId = $request->user()->id;
 
-            $recent = (clone $base)->orderByDesc('operation_date')->limit(8)->get();
+            $recent = (clone $base)
+                ->orderByDesc('submitted_at')
+                ->orderByDesc('created_at')
+                ->limit(8)
+                ->get();
 
             return $this->ok([
                 'kpis' => [
-                    'newOrders' => (clone $base)->where('status', 'pending')->count(),
+                    'newOrders' => (clone $base)->whereIn('status', SupplierOrderStatus::synonyms('pending'))->count(),
                     'acceptedThisMonth' => $this->acceptedThisMonth($base),
                     'totalSalesThisMonth' => $this->salesForMonth($base, now()->month, now()->year),
                     'totalSalesTrendPct' => $this->salesTrendPct($base),
@@ -62,13 +71,12 @@ class SupplierController extends AsabController
         return $this->run(function () use ($request) {
             $perPage = min((int) $request->query('pageSize', 20), 100);
             $q = $this->ownOrders($request);
-            // Filter on the canonical status key: `?status=accepted` matches every
-            // accepted-synonym raw status (accepted/confirmed/approved/final-approved),
-            // mirroring the export so the SUP-1.3 separate lists never miss a row.
             if ($status = $request->query('status')) {
                 $q->whereIn('status', SupplierOrderStatus::synonyms($status));
             }
-            $p = $q->orderByDesc('operation_date')->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
+            $p = $q->orderByDesc('submitted_at')
+                ->orderByDesc('created_at')
+                ->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
             return $this->paginated($p, $this->presentMany(collect($p->items())));
         });
@@ -77,51 +85,198 @@ class SupplierController extends AsabController
     public function accept(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $data = $request->validate(['deliveryDate' => 'nullable|date', 'note' => 'nullable|string']);
-            $op = $this->find($request, $id);
-            $this->assertStatusIn($op, SupplierOrderStatus::synonyms('pending'),
-                'ORDER_NOT_PENDING', 'Order is not pending', 'لا يمكن قبول طلب ليس في انتظار الرد');
-            DB::transaction(function () use ($op, $data) {
-                $payload = $op->payload ?? [];
-                $payload['supplierResponse'] = ['accepted' => true, 'deliveryDate' => $data['deliveryDate'] ?? null, 'note' => $data['note'] ?? null];
-                $op->update(['status' => 'accepted', 'payload' => $payload]);
+            $data = $request->validate(['deliveryDate' => 'nullable|date', 'note' => 'nullable|string|max:500']);
+
+            $order = DB::transaction(function () use ($request, $id, $data) {
+                $order = $this->find($request, $id, true);
+                $this->assertStatusIn($order, SupplierOrderStatus::synonyms('pending'),
+                    'ORDER_NOT_PENDING', 'Order is not pending', 'لا يمكن قبول طلب ليس في انتظار الرد');
+
+                $oldStatus = $order->status->value;
+                if (! empty($data['deliveryDate'])) {
+                    $order->forceFill(['expected_delivery_at' => Carbon::parse($data['deliveryDate'])])->save();
+                }
+                foreach ($order->items()->where('status', OrderItemStatus::PENDING->value)->get() as $item) {
+                    $item->confirm((float) $item->quantity_ordered);
+                }
+                if (! $order->transitionTo(OrderStatus::CONFIRMED)) {
+                    throw new AsabException('ORDER_TRANSITION_REJECTED', 'Order status transition is not allowed', 'لا يمكن قبول الطلب في حالته الحالية', 409);
+                }
+
+                OrderTimeline::create([
+                    'timelineable_type' => PurchaseOrder::class,
+                    'timelineable_id' => $order->id,
+                    'event_type' => TimelineEventType::ORDER_CONFIRMED,
+                    'old_status' => $oldStatus,
+                    'new_status' => OrderStatus::CONFIRMED->value,
+                    'actor_id' => $request->user()->id,
+                    'actor_type' => AsabUser::class,
+                    'actor_name' => $request->user()->name,
+                    'actor_role' => 'supplier',
+                    'title' => 'Supplier accepted order',
+                    'description' => $data['note'] ?? null,
+                    'metadata' => [
+                        'deliveryDate' => $data['deliveryDate'] ?? null,
+                        'note' => $data['note'] ?? null,
+                    ],
+                    'occurred_at' => now(),
+                ]);
+
+                return $order->fresh(['branch:id,name', 'items', 'group:id,group_number,expected_delivery_date']);
             });
 
-            return $this->ok($this->presentOne($op->fresh()));
+            return $this->ok($this->present($order));
         });
     }
 
     public function reject(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $data = $request->validate(['reason' => 'required|string|max:500', 'note' => 'nullable|string']);
-            $op = $this->find($request, $id);
-            $this->assertStatusIn($op, SupplierOrderStatus::synonyms('pending'),
-                'ORDER_NOT_PENDING', 'Order is not pending', 'لا يمكن رفض طلب ليس في انتظار الرد');
-            DB::transaction(function () use ($op, $data) {
-                $payload = $op->payload ?? [];
-                $payload['supplierResponse'] = ['accepted' => false, 'reason' => $data['reason'], 'note' => $data['note'] ?? null];
-                $op->update(['status' => 'rejected', 'reject_reason' => $data['reason'], 'payload' => $payload]);
+            $data = $request->validate(['reason' => 'required|string|max:500', 'note' => 'nullable|string|max:500']);
+
+            $order = DB::transaction(function () use ($request, $id, $data) {
+                $order = $this->find($request, $id, true);
+                $this->assertStatusIn($order, SupplierOrderStatus::synonyms('pending'),
+                    'ORDER_NOT_PENDING', 'Order is not pending', 'لا يمكن رفض طلب ليس في انتظار الرد');
+
+                $oldStatus = $order->status->value;
+                $order->forceFill(['rejection_reason' => $data['reason']])->save();
+                $order->transitionTo(OrderStatus::REJECTED);
+
+                OrderTimeline::create([
+                    'timelineable_type' => PurchaseOrder::class,
+                    'timelineable_id' => $order->id,
+                    'event_type' => TimelineEventType::ORDER_REJECTED,
+                    'old_status' => $oldStatus,
+                    'new_status' => OrderStatus::REJECTED->value,
+                    'actor_id' => $request->user()->id,
+                    'actor_type' => AsabUser::class,
+                    'actor_name' => $request->user()->name,
+                    'actor_role' => 'supplier',
+                    'title' => 'Supplier rejected order',
+                    'description' => $data['reason'],
+                    'metadata' => [
+                        'reason' => $data['reason'],
+                        'note' => $data['note'] ?? null,
+                    ],
+                    'occurred_at' => now(),
+                ]);
+
+                return $order->fresh(['branch:id,name', 'items', 'group:id,group_number,expected_delivery_date']);
             });
 
-            return $this->ok($this->presentOne($op->fresh()));
+            return $this->ok($this->present($order));
+        });
+    }
+
+    public function prepare(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $order = DB::transaction(function () use ($request, $id) {
+                $order = $this->find($request, $id, true);
+                $this->assertStatusIn($order, [OrderStatus::CONFIRMED->value],
+                    'ORDER_NOT_CONFIRMED', 'Order is not confirmed', 'لا يمكن بدء التحضير لطلب غير مؤكد');
+
+                $oldStatus = $order->status->value;
+                $order->transitionTo(OrderStatus::PREPARING);
+
+                OrderTimeline::create([
+                    'timelineable_type' => PurchaseOrder::class,
+                    'timelineable_id' => $order->id,
+                    'event_type' => TimelineEventType::PREPARATION_STARTED,
+                    'old_status' => $oldStatus,
+                    'new_status' => OrderStatus::PREPARING->value,
+                    'actor_id' => $request->user()->id,
+                    'actor_type' => AsabUser::class,
+                    'actor_name' => $request->user()->name,
+                    'actor_role' => 'supplier',
+                    'title' => 'Supplier started preparation',
+                    'occurred_at' => now(),
+                ]);
+
+                return $order->fresh(['branch:id,name', 'items', 'group:id,group_number,expected_delivery_date']);
+            });
+
+            return $this->ok($this->present($order));
+        });
+    }
+
+    public function dispatch(Request $request, string $id): JsonResponse
+    {
+        return $this->run(function () use ($request, $id) {
+            $order = DB::transaction(function () use ($request, $id) {
+                $order = $this->find($request, $id, true);
+                $this->assertStatusIn($order, [OrderStatus::CONFIRMED->value, OrderStatus::PREPARING->value],
+                    'ORDER_NOT_READY_FOR_DISPATCH', 'Order cannot be dispatched in its current status', 'لا يمكن شحن الطلب في حالته الحالية');
+
+                $oldStatus = $order->status->value;
+                $order->transitionTo(OrderStatus::ON_THE_WAY);
+
+                OrderTimeline::create([
+                    'timelineable_type' => PurchaseOrder::class,
+                    'timelineable_id' => $order->id,
+                    'event_type' => TimelineEventType::OUT_FOR_DELIVERY,
+                    'old_status' => $oldStatus,
+                    'new_status' => OrderStatus::ON_THE_WAY->value,
+                    'actor_id' => $request->user()->id,
+                    'actor_type' => AsabUser::class,
+                    'actor_name' => $request->user()->name,
+                    'actor_role' => 'supplier',
+                    'title' => 'Supplier dispatched order',
+                    'occurred_at' => now(),
+                ]);
+
+                return $order->fresh(['branch:id,name', 'items', 'group:id,group_number,expected_delivery_date']);
+            });
+
+            return $this->ok($this->present($order));
         });
     }
 
     public function markDelivered(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $data = $request->validate(['deliveredAt' => 'nullable|date', 'deliveryNote' => 'nullable|string']);
-            $op = $this->find($request, $id);
-            $this->assertStatusIn($op, SupplierOrderStatus::synonyms('accepted'),
-                'ORDER_NOT_ACCEPTED', 'Order is not accepted', 'لا يمكن تسليم طلب غير مقبول');
-            DB::transaction(function () use ($op, $data) {
-                $payload = $op->payload ?? [];
-                $payload['delivery'] = ['deliveredAt' => $data['deliveredAt'] ?? now()->toIso8601String(), 'note' => $data['deliveryNote'] ?? null];
-                $op->update(['status' => 'delivered', 'payload' => $payload]);
+            $data = $request->validate(['deliveredAt' => 'nullable|date', 'deliveryNote' => 'nullable|string|max:500']);
+
+            $order = DB::transaction(function () use ($request, $id, $data) {
+                $order = $this->find($request, $id, true);
+                $this->assertStatusIn($order, [
+                    OrderStatus::CONFIRMED->value,
+                    OrderStatus::PREPARING->value,
+                    OrderStatus::ON_THE_WAY->value,
+                ], 'ORDER_NOT_ACCEPTED', 'Order is not accepted', 'لا يمكن تسليم طلب غير مقبول');
+
+                $oldStatus = $order->status->value;
+                // PORTAL-01: Supplier delivery declaration only — does NOT create GoodsReceipt or InventoryStockMovement.
+                $order->transitionTo(OrderStatus::DELIVERED);
+                if (! empty($data['deliveredAt'])) {
+                    $order->forceFill(['actual_delivery_at' => Carbon::parse($data['deliveredAt'])])->save();
+                }
+
+                OrderTimeline::create([
+                    'timelineable_type' => PurchaseOrder::class,
+                    'timelineable_id' => $order->id,
+                    'event_type' => TimelineEventType::DELIVERED,
+                    'old_status' => $oldStatus,
+                    'new_status' => OrderStatus::DELIVERED->value,
+                    'actor_id' => $request->user()->id,
+                    'actor_type' => AsabUser::class,
+                    'actor_name' => $request->user()->name,
+                    'actor_role' => 'supplier',
+                    'title' => 'Supplier declared delivery',
+                    'description' => $data['deliveryNote'] ?? null,
+                    'metadata' => [
+                        'supplier_delivery_declaration' => true,
+                        'deliveredAt' => $data['deliveredAt'] ?? now()->toIso8601String(),
+                        'note' => $data['deliveryNote'] ?? null,
+                    ],
+                    'occurred_at' => now(),
+                ]);
+
+                return $order->fresh(['branch:id,name', 'items', 'group:id,group_number,expected_delivery_date']);
             });
 
-            return $this->ok($this->presentOne($op->fresh()));
+            return $this->ok($this->present($order));
         });
     }
 
@@ -427,54 +582,45 @@ class SupplierController extends AsabController
     {
         $format = $request->query('format', 'xlsx') === 'csv' ? 'csv' : 'xlsx';
 
-        return $this->exports->supplierOrders($format, $request->query('status'), $this->ownSupplierIds($request));
+        return $this->exports->supplierOrders($format, $request->query('status'), $request->user()->id);
     }
 
     public function reports(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            // Revenue counts fulfilled sales only (accepted + delivered); a rejected
-            // or still-pending order is not a sale. SUP-3 breakdowns (topItems/
-            // topBranches/monthly) are DEFERRED — the keys are omitted rather than
-            // shipped as permanently-empty placeholders (dead-code rule).
             $base = $this->ownOrders($request)->whereIn('status', SupplierOrderStatus::fulfilled());
+            $count = (clone $base)->count();
+            $totalHalalas = (int) round(((float) (clone $base)->sum('total_amount')) * 100);
 
             return $this->ok([
-                'totalRevenue' => (int) (clone $base)->sum('amount'),
-                'orderCount' => (clone $base)->count(),
-                'averageOrderValue' => (int) round((clone $base)->avg('amount') ?? 0),
+                'totalRevenue' => $totalHalalas,
+                'orderCount' => $count,
+                'averageOrderValue' => $count > 0 ? (int) round($totalHalalas / $count) : 0,
             ]);
         });
     }
 
-    /** Supplier records owned by the logged-in dashboard user. @return string[] */
-    private function ownSupplierIds(Request $request): array
-    {
-        return AsabSupplier::where('user_id', $request->user()->id)->pluck('id')->all();
-    }
-
-    /** Purchase operations assigned to this user's suppliers only. */
+    /** Purchase orders assigned to this user's suppliers (tenant-isolated, direct or dispatched group). */
     private function ownOrders(Request $request): Builder
     {
-        return Operation::where('module_key', 'purchases')
-            ->whereIn('payload->supplierId', $this->ownSupplierIds($request));
+        return SupplierOrderStatus::scopePurchaseOrdersForUser(
+            PurchaseOrder::query()->with(['branch:id,name', 'items', 'group:id,group_number,expected_delivery_date']),
+            $request->user()->id,
+        );
     }
 
-    private function find(Request $request, string $id): Operation
+    private function find(Request $request, string $id, bool $lock = false): PurchaseOrder
     {
-        return $this->ownOrders($request)
-            ->where(fn ($q) => $q->where('id', $id)->orWhere('public_id', $id))->firstOrFail();
+        $q = $this->ownOrders($request)
+            ->where(fn ($q) => $q->where('id', $id)->orWhere('order_number', $id));
+
+        if ($lock) {
+            $q->lockForUpdate();
+        }
+
+        return $q->firstOrFail();
     }
 
-    /**
-     * SUP-1.4 «مقبولة هذا الشهر» — orders accepted this calendar month.
-     *
-     * Counts the fulfilled set (accepted + delivered): an order accepted and then
-     * delivered in the same month has moved to `delivered`, but the supplier still
-     * accepted it this month, so it must count. `updated_at` is a proxy for the
-     * missing accepted-at timestamp — good enough for the KPI card; a dedicated
-     * `acceptedAt` would remove the cross-month edge if the metric ever hardens.
-     */
     private function acceptedThisMonth(Builder $base): int
     {
         return (clone $base)
@@ -487,11 +633,11 @@ class SupplierController extends AsabController
     /** Fulfilled-sale revenue for a given month/year (halalas). */
     private function salesForMonth(Builder $base, int $month, int $year): int
     {
-        return (int) (clone $base)
+        return (int) round(((float) (clone $base)
             ->whereIn('status', SupplierOrderStatus::fulfilled())
-            ->whereMonth('operation_date', $month)
-            ->whereYear('operation_date', $year)
-            ->sum('amount');
+            ->whereMonth('created_at', $month)
+            ->whereYear('created_at', $year)
+            ->sum('total_amount')) * 100);
     }
 
     /** This-month vs last-month sales change, percent (1 dp). */
@@ -509,80 +655,59 @@ class SupplierController extends AsabController
         return $this_ > 0 ? 100.0 : 0.0;
     }
 
-    /** Guard a state transition: throw a 409 domain error when the op is off-state. */
-    private function assertStatusIn(Operation $op, array $allowed, string $code, string $en, string $ar): void
+    /** Guard a state transition: throw a 409 domain error when the order is off-state. */
+    private function assertStatusIn(PurchaseOrder $order, array $allowed, string $code, string $en, string $ar): void
     {
-        if (! in_array($op->status, $allowed, true)) {
+        if (! in_array($order->status?->value, $allowed, true)) {
             throw new AsabException($code, $en, $ar, 409);
         }
     }
 
-    /** Bulk-resolve branch names for a set of ops (no N+1). @return array<string,string> */
-    private function branchNames(Collection $branchIds): array
+    /** @param  Collection<int,PurchaseOrder>  $orders */
+    private function presentMany(Collection $orders): array
     {
-        $ids = $branchIds->filter()->unique()->values()->all();
-
-        return $ids === [] ? [] : Branch::whereIn('id', $ids)->pluck('name', 'id')->all();
+        return $orders->map(fn (PurchaseOrder $o) => $this->present($o))->all();
     }
 
-    /** @param  Collection<int,Operation>  $ops */
-    private function presentMany(Collection $ops): array
+    private function present(PurchaseOrder $o): array
     {
-        $branchNames = $this->branchNames($ops->pluck('branch_id'));
-
-        return $ops->map(fn (Operation $o) => $this->present($o, $branchNames))->all();
-    }
-
-    private function presentOne(Operation $o): array
-    {
-        return $this->present($o, $this->branchNames(collect([$o->branch_id])));
-    }
-
-    /**
-     * SUP-1.1 order row: who it came from (branch vs procurement), the items
-     * text, order + delivery dates, and the canonical status key/label.
-     *
-     * @param  array<string,string>  $branchNames  pre-fetched branch_id → name map
-     */
-    private function present(Operation $o, array $branchNames = []): array
-    {
-        $payload = $o->payload ?? [];
-        $isBranchRequest = ($payload['kind'] ?? null) === 'branch_request';
-        $from = $isBranchRequest ? ($branchNames[$o->branch_id] ?? 'فرع') : 'مدير المشتريات';
-        $status = SupplierOrderStatus::present($o->status);
+        $rawStatus = $o->status?->value;
+        $status = SupplierOrderStatus::present($rawStatus);
+        $from = $o->order_type === OrderType::DIRECT_SUPPLIER
+            ? ($o->branch?->name ?? 'فرع')
+            : 'مدير المشتريات';
 
         return [
             'id' => $o->id,
-            'publicId' => $o->public_id,
-            'total' => $o->amount,
-            'status' => $o->status,
+            'publicId' => $o->order_number,
+            'groupNumber' => $o->group?->group_number,
+            'total' => (int) round(((float) $o->total_amount) * 100),
+            'status' => $rawStatus,
             'statusKey' => $status['key'],
             'statusLabel' => $status['label'],
             'from' => $from,
             'itemsText' => $this->itemsText($o),
-            'orderDate' => optional($o->operation_date)->toIso8601String(),
-            'deliveryDate' => $payload['supplierResponse']['deliveryDate'] ?? $payload['deliveryDate'] ?? null,
+            'orderDate' => optional($o->submitted_at ?? $o->created_at)->toIso8601String(),
+            'deliveryDate' => optional($o->expected_delivery_at ?? $o->group?->expected_delivery_date ?? $o->preferred_delivery_date)->toDateString(),
         ];
     }
 
-    /** Human-readable item summary across all payload shapes (reuses the purchases presenter). */
-    private function itemsText(Operation $o): ?string
+    private function itemsText(PurchaseOrder $o): ?string
     {
-        $lines = $this->purchases->lines($o);
         $parts = [];
-        foreach ($lines as $line) {
-            if (($line['item'] ?? null) === null) {
+        foreach ($o->items as $line) {
+            if (! $line->item_name) {
                 continue;
             }
-            $qty = $this->num((float) ($line['ordQty'] ?? 0));
-            $unit = $line['unit'] ?? null;
-            $parts[] = trim($line['item'].' ×'.$qty.($unit ? ' '.$unit : ''));
+            $qty = $this->num((float) ($line->quantity_confirmed ?? $line->quantity_ordered));
+            $unit = $line->unit_of_measurement;
+            $parts[] = trim($line->item_name.' ×'.$qty.($unit ? ' '.$unit : ''));
         }
         if ($parts !== []) {
             return implode('، ', $parts);
         }
 
-        $count = count($lines);
+        $count = $o->items->count();
 
         return $count > 0 ? $count.' صنف' : null;
     }

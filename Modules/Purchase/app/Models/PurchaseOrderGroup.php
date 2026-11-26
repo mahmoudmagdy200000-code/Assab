@@ -31,9 +31,10 @@ class PurchaseOrderGroup extends Model
         'expected_delivery_date' => 'date',
     ];
 
-    /** Derived tracking-status → Arabic label (PRC-2.3). */
+    /** Derived tracking-status → Arabic label (PRC-2.3 / DEC-06). */
     public const STATUS_LABELS = [
         'sent' => 'أُرسل للمورد',
+        'sent_awaiting_response' => 'أُرسل — بانتظار الرد',
         'confirmed' => 'مؤكد',
         'preparing' => 'قيد التحضير',
         'on_the_way' => 'في الطريق',
@@ -86,6 +87,12 @@ class PurchaseOrderGroup extends Model
         }
         if ($statuses->contains(OrderStatus::PREPARING)) {
             return OrderStatus::PREPARING->value;
+        }
+        if ($statuses->contains(OrderStatus::SENT_AWAITING_RESPONSE)) {
+            return OrderStatus::SENT_AWAITING_RESPONSE->value;
+        }
+        if ($statuses->every(fn ($s) => $s === OrderStatus::CONFIRMED)) {
+            return OrderStatus::CONFIRMED->value;
         }
 
         return 'sent';
