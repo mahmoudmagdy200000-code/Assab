@@ -13,6 +13,10 @@ if (PHP_SAPI === 'cli' && ($argv[1] ?? '') === '--pkg67-worker') {
         throw new \LogicException('Worker refuses any shared/non-disposable database.');
     }
     $in = json_decode($argv[2], true, 512, JSON_THROW_ON_ERROR);
+    if (isset($in['test_now'])) {
+        // The worker is a separate PHP process; explicitly use the parent's frozen instant.
+        \Carbon\Carbon::setTestNow(\Carbon\Carbon::parse($in['test_now'])->setTimezone(config('app.timezone')));
+    }
     $touch = fn (string $suffix) => file_put_contents($in['barrier'].'.'.$suffix, (string) microtime(true));
     $wait = function (string $suffix, float $seconds = 20.0) use ($in) {
         $deadline = microtime(true) + $seconds;
@@ -210,6 +214,8 @@ class Pkg67MariaDbCompositionTest extends TestCase
 
     private array $barriers = [];
 
+    private ?\Carbon\Carbon $pkg67TestNow = null;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -226,20 +232,28 @@ class Pkg67MariaDbCompositionTest extends TestCase
             self::$migrated = true;
         }
         $this->assertSame(0, DB::transactionLevel(), 'Workers must see committed fixtures.');
+        // A deterministic end-of-day clock makes today's no-work assignments eligible
+        // without depending on when the CI job (or its child workers) starts.
+        $this->pkg67TestNow = \Carbon\Carbon::now(config('app.timezone'))->endOfDay();
+        \Carbon\Carbon::setTestNow($this->pkg67TestNow);
     }
 
     protected function tearDown(): void
     {
-        foreach ($this->barriers as $path) {
-            @file_put_contents($path.'.go', 'go');
-            @file_put_contents($path.'.marked', 'x');
-        }
-        foreach ($this->workers as $worker) {
-            if ($worker->isRunning()) {
-                $worker->stop(1);
+        try {
+            foreach ($this->barriers as $path) {
+                @file_put_contents($path.'.go', 'go');
+                @file_put_contents($path.'.marked', 'x');
             }
+            foreach ($this->workers as $worker) {
+                if ($worker->isRunning()) {
+                    $worker->stop(1);
+                }
+            }
+        } finally {
+            \Carbon\Carbon::setTestNow();
+            parent::tearDown();
         }
-        parent::tearDown();
     }
 
     /** A committed scope: one submitted report A (today) and one untouched assignment B of the SAME cashier (yesterday). */
@@ -314,8 +328,13 @@ class Pkg67MariaDbCompositionTest extends TestCase
 
     private function launch(array $input): array
     {
+        if (! $this->pkg67TestNow) {
+            throw new \LogicException('MariaDB worker clock was not initialized.');
+        }
+        $input['test_now'] = $this->pkg67TestNow->toISOString();
         $config = DB::connection()->getConfig();
-        $environment = ['APP_ENV' => 'testing', 'DB_CONNECTION' => 'mysql', 'DB_HOST' => $config['host'],
+        $environment = ['APP_ENV' => 'testing', 'APP_TIMEZONE' => config('app.timezone'),
+            'DB_CONNECTION' => 'mysql', 'DB_HOST' => $config['host'],
             'DB_PORT' => (string) ($config['port'] ?? 3306), 'DB_DATABASE' => $config['database'],
             'DB_USERNAME' => $config['username'], 'DB_PASSWORD' => $config['password'] ?? '',
             'CACHE_STORE' => 'array', 'QUEUE_CONNECTION' => 'sync', 'SESSION_DRIVER' => 'array'];
