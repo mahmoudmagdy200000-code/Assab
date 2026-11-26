@@ -487,7 +487,7 @@ class ExportService
     public function purchaseBoard(string $format, array $groups, string $groupBy = 'supplier'): BinaryFileResponse
     {
         $headings = [
-            'المورد', 'الفرع', 'رقم الفاتورة', 'التاريخ', 'الحالة', 'المطابقة',
+            'المورد', 'الفرع', 'رقم الفاتورة', 'معرف الاستلام', 'التاريخ', 'الحالة', 'المطابقة',
             'اسم الصنف', 'الوحدة', 'سعر الوحدة (ر.س)', 'آخر سعر وصول (ر.س)', 'الفرق (ر.س)',
             'الكمية', 'الإجمالي (ر.س)', 'موثّق',
         ];
@@ -495,12 +495,13 @@ class ExportService
         $rows = [];
         foreach ($groups as $group) {
             foreach ($group['invoices'] ?? [] as $invoice) {
+                $receiptRef = $invoice['receiptId'] ?? $invoice['publicId'] ?? '—';
                 $lines = $invoice['lines'] ?? [];
                 if ($lines === []) {
                     // An invoice with no mapped lines still belongs on the sheet.
                     $rows[] = [
                         $invoice['supplierName'] ?? '—', $invoice['branchName'] ?? '—',
-                        $invoice['invoiceNumber'] ?? '—', $invoice['date'] ?? '—',
+                        $invoice['invoiceNumber'] ?? '—', $receiptRef, $invoice['date'] ?? '—',
                         $invoice['statusLabelAr'] ?? '—', $invoice['matchLabelAr'] ?? '—',
                         '—', '—', '', '', '', '', $this->sar($invoice['totalHalalas'] ?? 0),
                         ($invoice['isDocumented'] ?? false) ? 'نعم' : 'لا',
@@ -513,6 +514,7 @@ class ExportService
                         $invoice['supplierName'] ?? '—',
                         $invoice['branchName'] ?? '—',
                         $invoice['invoiceNumber'] ?? '—',
+                        $receiptRef,
                         $invoice['date'] ?? '—',
                         $invoice['statusLabelAr'] ?? '—',
                         $invoice['matchLabelAr'] ?? '—',
