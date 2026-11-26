@@ -9,6 +9,7 @@ enum OrderStatus: string
     case PENDING = 'pending';
     case EMERGENCY = 'emergency';
     case CONFIRMED = 'confirmed';
+    case SENT_AWAITING_RESPONSE = 'sent_awaiting_response';
     case REJECTED = 'rejected';
     case CANCELED = 'cancelled';
     case CANCELLED_BY_BRANCH = 'cancelled_by_branch';
@@ -43,6 +44,7 @@ enum OrderStatus: string
             self::PENDING => 'Pending',
             self::EMERGENCY => 'Emergency',
             self::CONFIRMED => 'Confirmed',
+            self::SENT_AWAITING_RESPONSE => 'Sent — Awaiting Response',
             self::REJECTED => 'Rejected',
             self::CANCELED => 'Canceled',
             self::CANCELLED_BY_BRANCH => 'Cancelled by Branch',
@@ -81,6 +83,7 @@ enum OrderStatus: string
             self::PENDING => '#F59E0B',
             self::EMERGENCY => '#DC2626',
             self::CONFIRMED => '#10B981',
+            self::SENT_AWAITING_RESPONSE => '#8B5CF6',
             self::REJECTED => '#DC2626',
             self::CANCELED => '#EF4444',
             self::CANCELLED_BY_BRANCH => '#EF4444',
@@ -119,7 +122,8 @@ enum OrderStatus: string
             self::DRAFT => [self::PENDING, self::EMERGENCY, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
             self::PENDING => [self::CONFIRMED, self::REJECTED, self::EMERGENCY, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
             self::EMERGENCY => [self::CONFIRMED, self::REJECTED, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
-            self::CONFIRMED => [self::PREPARING, self::DELIVERED, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
+            self::CONFIRMED => [self::SENT_AWAITING_RESPONSE, self::PREPARING, self::ON_THE_WAY, self::DELIVERED, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
+            self::SENT_AWAITING_RESPONSE => [self::CONFIRMED, self::PREPARING, self::ON_THE_WAY, self::DELIVERED, self::REJECTED, self::CANCELED, self::CANCELLED_BY_BRANCH, self::CANCELLED_BY_SUPPLIER],
             // Meeting 2026-07-30: a rejected order must be editable + resendable
             // for re-approval (accounting reject loop), or cancellable.
             self::REJECTED => [self::PENDING, self::CANCELED],

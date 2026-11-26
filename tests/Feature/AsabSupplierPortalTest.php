@@ -9,9 +9,15 @@ use Modules\Admin\Models\AsabSupplier;
 use Modules\Admin\Models\AsabUser;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Models\CompanyUser;
-use Modules\Admin\Models\Operation;
 use Modules\Admin\Models\SupplierItem;
 use Modules\Branch\Models\Branch;
+use Modules\BranchManagers\Models\BranchManager;
+use Modules\Purchase\Enums\OrderStatus;
+use Modules\Purchase\Enums\OrderType;
+use Modules\Purchase\Models\PurchaseOrder;
+use Modules\Purchase\Models\PurchaseOrderGroup;
+use Modules\Purchase\Models\PurchaseOrderItem;
+use Modules\Supplier\Models\Supplier;
 use Tests\TestCase;
 
 /**
@@ -36,7 +42,13 @@ class AsabSupplierPortalTest extends TestCase
 
     private AsabSupplier $supB;
 
+    private Supplier $legacySupA;
+
+    private Supplier $legacySupB;
+
     private Branch $branch;
+
+    private BranchManager $branchManager;
 
     /** Force the portal flag ON before the framework loads config/routes. */
     public function createApplication()
@@ -55,10 +67,37 @@ class AsabSupplierPortalTest extends TestCase
         $this->company = AsabCompany::create(['name' => 'Sup Co', 'plan' => 'Professional', 'status' => 'active']);
         $this->supplierA = $this->makeSupplierUser('a@sup.test');
         $this->supplierB = $this->makeSupplierUser('b@sup.test');
+        $this->legacySupA = Supplier::create([
+            'name' => 'مورد أ',
+            'email' => 'legacy-a@sup.test',
+            'password' => bcrypt('secret-password'),
+            'is_active' => true,
+            'status' => 'online',
+        ]);
+        $this->legacySupB = Supplier::create([
+            'name' => 'مورد ب',
+            'email' => 'legacy-b@sup.test',
+            'password' => bcrypt('secret-password'),
+            'is_active' => true,
+            'status' => 'online',
+        ]);
         // Both suppliers live in the SAME company — proves per-supplier isolation, not just per-tenant.
-        $this->supA = AsabSupplier::create(['company_id' => $this->company->id, 'name' => 'مورد أ', 'user_id' => $this->supplierA->id, 'status' => 'active']);
-        $this->supB = AsabSupplier::create(['company_id' => $this->company->id, 'name' => 'مورد ب', 'user_id' => $this->supplierB->id, 'status' => 'active']);
+        $this->supA = AsabSupplier::create([
+            'company_id' => $this->company->id,
+            'name' => 'مورد أ',
+            'user_id' => $this->supplierA->id,
+            'legacy_supplier_id' => $this->legacySupA->id,
+            'status' => 'active',
+        ]);
+        $this->supB = AsabSupplier::create([
+            'company_id' => $this->company->id,
+            'name' => 'مورد ب',
+            'user_id' => $this->supplierB->id,
+            'legacy_supplier_id' => $this->legacySupB->id,
+            'status' => 'active',
+        ]);
         $this->branch = Branch::factory()->create(['asab_company_id' => $this->company->id, 'name' => 'فرع الملز']);
+        $this->branchManager = BranchManager::factory()->create(['branch_id' => $this->branch->id]);
     }
 
     private function makeSupplierUser(string $email, ?string $companyId = null): AsabUser
@@ -87,21 +126,65 @@ class AsabSupplierPortalTest extends TestCase
         return $this->actingAs($user ?? $this->supplierA, 'sanctum');
     }
 
-    /** Create a purchases Operation owned (by default) by supplier A. */
-    private function op(array $payload = [], array $attrs = []): Operation
+    /** Create a PurchaseOrder owned (by default) by supplier A. */
+    private function op(array $payload = [], array $attrs = []): PurchaseOrder
     {
-        return Operation::create(array_merge([
-            'public_id' => 'PUR-'.Str::upper(Str::random(6)),
-            'company_id' => $this->company->id,
-            'branch_id' => $this->branch->id,
-            'module_key' => 'purchases',
-            'payload' => array_merge(['supplierId' => $this->supA->id], $payload),
-            'amount' => 1000,
-            'match' => 'exact',
-            'origin' => 'procurement',
-            'status' => 'pending',
-            'operation_date' => now(),
-        ], $attrs));
+        $rawStatus = $attrs['status'] ?? 'pending';
+        $mappedStatus = match ($rawStatus) {
+            'accepted', 'approved', 'final-approved' => OrderStatus::CONFIRMED,
+            'delivered' => OrderStatus::DELIVERED,
+            'rejected' => OrderStatus::REJECTED,
+            default => OrderStatus::PENDING,
+        };
+        $isBranch = ($payload['kind'] ?? null) === 'branch_request';
+        $supplierId = array_key_exists('supplierId', $payload)
+            ? match ($payload['supplierId']) {
+                $this->supA->id => $this->legacySupA->id,
+                $this->supB->id => $this->legacySupB->id,
+                default => $payload['supplierId'],
+            }
+            : $this->legacySupA->id;
+
+        $groupId = null;
+        if (! $isBranch && $supplierId !== null) {
+            $group = PurchaseOrderGroup::create([
+                'supplier_id' => $supplierId,
+                'created_by_asab_user_id' => $this->supplierA->id,
+                'sent_at' => now(),
+                'expected_delivery_date' => '2026-08-01',
+            ]);
+            $groupId = $group->id;
+        }
+
+        $amountSar = isset($attrs['amount']) ? round(((int) $attrs['amount']) / 100, 2) : 10.00;
+        $order = PurchaseOrder::create([
+            'order_type' => $isBranch ? OrderType::DIRECT_SUPPLIER : OrderType::VIA_PURCHASING_OFFICER,
+            'status' => $mappedStatus,
+            'branch_id' => $attrs['branch_id'] ?? $this->branch->id,
+            'requested_by' => $this->branchManager->id,
+            'sourceable_type' => Supplier::class,
+            'sourceable_id' => $supplierId ?? $this->legacySupA->id,
+            'supplier_id' => $supplierId,
+            'group_id' => $groupId,
+            'subtotal' => $amountSar,
+            'tax_amount' => 0,
+            'total_amount' => $amountSar,
+            'total_items' => 1,
+            'submitted_at' => $attrs['operation_date'] ?? now(),
+        ]);
+
+        if (isset($payload['item'])) {
+            PurchaseOrderItem::create([
+                'purchase_order_id' => $order->id,
+                'item_name' => $payload['item'],
+                'unit_of_measurement' => $payload['unit'] ?? 'كجم',
+                'quantity_ordered' => $payload['qty'] ?? 1,
+                'unit_price' => $amountSar,
+                'total_price' => $amountSar,
+            ]);
+        }
+
+        return $order;
     }
 
     private function item(array $attrs = []): SupplierItem
@@ -115,9 +198,9 @@ class AsabSupplierPortalTest extends TestCase
         ], $attrs));
     }
 
-    private static function raw(string $id): Operation
+    private static function raw(string $id): PurchaseOrder
     {
-        return Operation::withoutGlobalScopes()->findOrFail($id);
+        return PurchaseOrder::findOrFail($id);
     }
 
     // ---- Overview KPIs (T13.2) ----
@@ -195,9 +278,8 @@ class AsabSupplierPortalTest extends TestCase
             ->assertJsonPath('deliveryDate', '2026-08-01'); // response-facing supplierResponse.deliveryDate resolution
 
         $fresh = self::raw($op->id);
-        $this->assertSame('accepted', $fresh->status);
-        $this->assertTrue($fresh->payload['supplierResponse']['accepted']);
-        $this->assertSame('2026-08-01', $fresh->payload['supplierResponse']['deliveryDate']);
+        $this->assertSame(OrderStatus::CONFIRMED, $fresh->status);
+        $this->assertSame('2026-08-01', optional($fresh->expected_delivery_at)->toDateString());
     }
 
     public function test_accept_on_delivered_order_is_409(): void
@@ -218,8 +300,8 @@ class AsabSupplierPortalTest extends TestCase
             ->assertOk()->assertJsonPath('statusKey', 'rejected');
 
         $fresh = self::raw($op->id);
-        $this->assertSame('rejected', $fresh->status);
-        $this->assertSame('سعر مرتفع', $fresh->reject_reason);
+        $this->assertSame(OrderStatus::REJECTED, $fresh->status);
+        $this->assertSame('سعر مرتفع', $fresh->rejection_reason);
     }
 
     public function test_reject_on_non_pending_order_is_409(): void
@@ -228,7 +310,7 @@ class AsabSupplierPortalTest extends TestCase
 
         $this->as()->postJson('/api/v1/asab/supplier/orders/'.$op->id.'/reject', ['reason' => 'x'])
             ->assertStatus(409)->assertJsonPath('error.code', 'ORDER_NOT_PENDING');
-        $this->assertSame('accepted', self::raw($op->id)->status); // guard left the order untouched
+        $this->assertSame(OrderStatus::CONFIRMED, self::raw($op->id)->status); // guard left the order untouched
     }
 
     public function test_mark_delivered_only_from_accepted(): void
@@ -240,7 +322,7 @@ class AsabSupplierPortalTest extends TestCase
         $accepted = $this->op([], ['status' => 'accepted']);
         $this->as()->postJson('/api/v1/asab/supplier/orders/'.$accepted->id.'/mark-delivered')
             ->assertOk()->assertJsonPath('statusKey', 'delivered');
-        $this->assertSame('delivered', self::raw($accepted->id)->status);
+        $this->assertSame(OrderStatus::DELIVERED, self::raw($accepted->id)->status);
     }
 
     // ---- Items CRUD (T13.5) ----
@@ -327,15 +409,18 @@ class AsabSupplierPortalTest extends TestCase
     public function test_supplier_a_cannot_see_cross_tenant_op_even_with_colliding_supplier_id(): void
     {
         $otherCompany = AsabCompany::create(['name' => 'Other Co', 'plan' => 'Professional', 'status' => 'active']);
-        // Company B op that references supplier A's id (a cross-tenant collision attempt).
-        $leak = Operation::create([
-            'public_id' => 'PUR-LEAK', 'company_id' => $otherCompany->id, 'branch_id' => $this->branch->id,
-            'module_key' => 'purchases', 'payload' => ['supplierId' => $this->supA->id], 'amount' => 1000,
-            'status' => 'pending', 'operation_date' => now(),
+        $otherBranch = Branch::factory()->create(['asab_company_id' => $otherCompany->id, 'name' => 'فرع آخر']);
+        $otherSup = Supplier::create([
+            'name' => 'مورد أجنبي',
+            'email' => 'foreign@sup.test',
+            'password' => bcrypt('secret-password'),
+            'is_active' => true,
+            'status' => 'online',
         ]);
+        $leak = $this->op(['supplierId' => $otherSup->id], ['branch_id' => $otherBranch->id, 'status' => 'pending']);
 
         $ids = collect($this->as()->getJson('/api/v1/asab/supplier/orders')->json('data'))->pluck('id');
-        $this->assertFalse($ids->contains($leak->id), 'tenant scope must exclude the other company op');
+        $this->assertFalse($ids->contains($leak->id), 'supplier scope must exclude another supplier order');
     }
 
     // ---- Role denial ----

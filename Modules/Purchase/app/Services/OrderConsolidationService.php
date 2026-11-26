@@ -5,10 +5,15 @@ namespace Modules\Purchase\Services;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Modules\Admin\Exceptions\AsabException;
+use Modules\Admin\Models\AsabSupplier;
+use Modules\Admin\Models\AsabUser;
 use Modules\Purchase\Enums\OrderItemStatus;
 use Modules\Purchase\Enums\OrderStatus;
 use Modules\Purchase\Enums\Priority;
+use Modules\Purchase\Enums\TimelineEventType;
 use Modules\Purchase\Exceptions\PurchaseOrderException;
+use Modules\Purchase\Models\OrderTimeline;
 use Modules\Purchase\Models\PurchaseOrder;
 use Modules\Purchase\Models\PurchaseOrderGroup;
 use Modules\Supplier\Models\Supplier;
@@ -25,6 +30,9 @@ class OrderConsolidationService
 {
     /** Order types routed to suppliers (internal transfers are branch-side). */
     private const SUPPLIER_BOUND = ['direct_supplier', 'via_purchasing_officer', 'multiple_sources'];
+
+    /** Order types eligible for procurement consolidation (direct_supplier stays direct). */
+    private const CONSOLIDATABLE_TYPES = ['via_purchasing_officer', 'multiple_sources'];
 
     /** Item-line statuses that count toward supplier quantities. */
     private const COUNTED_ITEM_STATUSES = [
@@ -191,9 +199,24 @@ class OrderConsolidationService
      * @param  string[]|null  $orderIds  explicit subset; null = all consolidatable for the supplier
      * @param  string[]|null  $branchIds  tenant scope
      */
-    public function send(string $supplierId, ?array $orderIds, string $asabUserId, ?array $branchIds, ?string $expectedDeliveryDate = null): PurchaseOrderGroup
+    public function send(string $supplierId, ?array $orderIds, string $asabUserId, ?array $branchIds, ?string $expectedDeliveryDate = null, ?string $companyId = null): PurchaseOrderGroup
     {
         Supplier::findOrFail($supplierId);
+
+        if ($companyId !== null) {
+            $asabSuppliers = AsabSupplier::withoutGlobalScopes()
+                ->where('legacy_supplier_id', $supplierId)
+                ->get(['id', 'company_id']);
+
+            if ($asabSuppliers->isNotEmpty()) {
+                $inScope = $asabSuppliers->contains(
+                    fn (AsabSupplier $s) => $s->company_id === null || $s->company_id === $companyId
+                );
+                if (! $inScope) {
+                    throw new AsabException('SUPPLIER_OUT_OF_SCOPE', 'Supplier is outside tenant scope', 'المورد خارج نطاق الشركة', 422);
+                }
+            }
+        }
 
         return DB::transaction(function () use ($supplierId, $orderIds, $asabUserId, $branchIds, $expectedDeliveryDate) {
             $q = $this->consolidatable($branchIds)->lockForUpdate();
@@ -228,6 +251,24 @@ class OrderConsolidationService
 
             foreach ($orders as $order) {
                 $order->update(['group_id' => $group->id, 'supplier_id' => $supplierId]);
+                $order->transitionTo(OrderStatus::SENT_AWAITING_RESPONSE);
+                OrderTimeline::create([
+                    'timelineable_type' => PurchaseOrder::class,
+                    'timelineable_id' => $order->id,
+                    'event_type' => TimelineEventType::ORDER_SUBMITTED,
+                    'old_status' => OrderStatus::CONFIRMED->value,
+                    'new_status' => OrderStatus::SENT_AWAITING_RESPONSE->value,
+                    'actor_id' => $asabUserId,
+                    'actor_type' => AsabUser::class,
+                    'actor_role' => 'procurement',
+                    'title' => 'Sent to supplier — awaiting response',
+                    'metadata' => [
+                        'group_id' => $group->id,
+                        'group_number' => $group->group_number,
+                        'expected_delivery_date' => optional($group->expected_delivery_date)->toDateString(),
+                    ],
+                    'occurred_at' => now(),
+                ]);
             }
 
             return $group->load('orders');
@@ -242,7 +283,10 @@ class OrderConsolidationService
      */
     public function sentGroups(?array $branchIds): array
     {
-        return PurchaseOrderGroup::with(['orders', 'supplier:id,name'])
+        return PurchaseOrderGroup::with([
+            'orders' => fn ($o) => $o->when($branchIds !== null, fn ($q) => $q->whereIn('branch_id', $branchIds)),
+            'supplier:id,name',
+        ])
             ->when($branchIds !== null, fn ($q) => $q->whereHas('orders', fn ($o) => $o->whereIn('branch_id', $branchIds)))
             ->orderByDesc('sent_at')
             ->limit(100)
@@ -271,15 +315,27 @@ class OrderConsolidationService
      */
     public function groupDetails(string $groupId, ?array $branchIds): array
     {
-        $group = PurchaseOrderGroup::with(['orders.branch:id,name,city', 'orders.items', 'supplier:id,name'])
+        $group = PurchaseOrderGroup::with([
+            'orders' => fn ($o) => $o
+                ->when($branchIds !== null, fn ($q) => $q->whereIn('branch_id', $branchIds))
+                ->with(['branch:id,name,city', 'items', 'timelines']),
+            'supplier:id,name',
+        ])
             ->when($branchIds !== null, fn ($q) => $q->whereHas('orders', fn ($o) => $o->whereIn('branch_id', $branchIds)))
             ->findOrFail($groupId);
+
+        $isSubscribedSupplier = AsabSupplier::withoutGlobalScopes()
+            ->where('legacy_supplier_id', $group->supplier_id)
+            ->where('is_external', false)
+            ->whereNotNull('user_id')
+            ->exists();
 
         return [
             'groupId' => $group->id,
             'groupNumber' => $group->group_number,
             'supplierId' => $group->supplier_id,
             'supplierName' => $group->supplier?->name ?? '—',
+            'isSubscribedSupplier' => $isSubscribedSupplier,
             'status' => $group->deriveStatus(),
             'statusLabel' => PurchaseOrderGroup::STATUS_LABELS[$group->deriveStatus()] ?? $group->deriveStatus(),
             'savings' => $group->savings_amount !== null ? (float) $group->savings_amount : null,
@@ -288,25 +344,40 @@ class OrderConsolidationService
             'sentAt' => optional($group->sent_at)->toIso8601String(),
             'totalAmount' => (float) $group->orders->sum('total_amount'),
             'items' => $this->aggregateItems($group->orders, $group->supplier_id),
-            'orders' => $group->orders->map(fn (PurchaseOrder $o) => [
-                'id' => $o->id,
-                'orderNumber' => $o->order_number,
-                'branchId' => $o->branch_id,
-                'branchName' => $o->branch?->name,
-                'city' => $o->branch?->city,
-                'status' => $o->status?->value,
-                'statusLabel' => $o->status_label,
-                'totalAmount' => (float) $o->total_amount,
-            ])->values()->all(),
+            'orders' => $group->orders->map(function (PurchaseOrder $o) {
+                $manual = $o->timelines
+                    ->filter(fn (OrderTimeline $tl) => (bool) ($tl->metadata['manual_supplier_response'] ?? false))
+                    ->sortByDesc('occurred_at')
+                    ->first();
+
+                return [
+                    'id' => $o->id,
+                    'orderNumber' => $o->order_number,
+                    'branchId' => $o->branch_id,
+                    'branchName' => $o->branch?->name,
+                    'city' => $o->branch?->city,
+                    'status' => $o->status?->value,
+                    'statusLabel' => $o->status_label,
+                    'totalAmount' => (float) $o->total_amount,
+                    'manualResponse' => $manual ? [
+                        'decision' => $manual->metadata['response_decision'] ?? null,
+                        'source' => $manual->metadata['response_source'] ?? null,
+                        'respondedAt' => $manual->metadata['responded_at'] ?? optional($manual->occurred_at)->toIso8601String(),
+                        'recordedByUserId' => $manual->metadata['recorded_by_user_id'] ?? $manual->actor_id,
+                        'recordedByName' => $manual->actor_name,
+                        'note' => $manual->metadata['note'] ?? $manual->description,
+                    ] : null,
+                ];
+            })->values()->all(),
         ];
     }
 
-    /** Confirmed, ungrouped, supplier-bound orders inside the tenant scope. */
+    /** Confirmed, ungrouped, procurement-routed orders inside the tenant scope. */
     private function consolidatable(?array $branchIds): Builder
     {
         return PurchaseOrder::query()
             ->with(['branch:id,name,city', 'items'])
-            ->whereIn('order_type', self::SUPPLIER_BOUND)
+            ->whereIn('order_type', self::CONSOLIDATABLE_TYPES)
             ->where('status', OrderStatus::CONFIRMED)
             ->whereNull('group_id')
             ->when($branchIds !== null, fn ($q) => $q->whereIn('branch_id', $branchIds));
@@ -449,7 +520,7 @@ class OrderConsolidationService
         $incoming = $bound(PurchaseOrder::query())->whereIn('status', self::INCOMING_STATUSES)->count();
         $readyToSend = $this->consolidatable($branchIds)->count();
         $sentAwaiting = $bound(PurchaseOrder::query())
-            ->whereNotNull('group_id')->where('status', OrderStatus::CONFIRMED)->count();
+            ->whereNotNull('group_id')->whereIn('status', [OrderStatus::CONFIRMED, OrderStatus::SENT_AWAITING_RESPONSE])->count();
 
         $monthStart = now()->startOfMonth();
         $prevStart = (clone $monthStart)->subMonthNoOverflow();

@@ -77,7 +77,7 @@ class ProcurementConsolidationTest extends TestCase
     {
         $order = PurchaseOrder::factory()->create([
             'order_number' => 'PO-'.strtoupper(Str::random(8)),
-            'order_type' => OrderType::DIRECT_SUPPLIER,
+            'order_type' => OrderType::VIA_PURCHASING_OFFICER,
             'status' => OrderStatus::CONFIRMED,
             'branch_id' => ($branch ?? $this->branch)->id,
             'supplier_id' => ($supplier ?? $this->supplier)->id,
@@ -158,6 +158,7 @@ class ProcurementConsolidationTest extends TestCase
 
         $send = $this->asManager()->postJson('/api/v1/procurement/purchase-orders/grouped/send', [
             'supplierId' => $this->supplier->id,
+            'expectedDeliveryDate' => '2026-08-01',
         ]);
 
         $send->assertCreated()->assertJsonPath('ordersCount', 2);
@@ -222,6 +223,7 @@ class ProcurementConsolidationTest extends TestCase
 
         $send = $this->asManager()->postJson('/api/v1/procurement/purchase-orders/grouped/send', [
             'supplierId' => $phoneless->id,
+            'expectedDeliveryDate' => '2026-08-01',
         ]);
 
         $send->assertCreated()
@@ -238,6 +240,7 @@ class ProcurementConsolidationTest extends TestCase
         $res = $this->asManager()->postJson('/api/v1/procurement/purchase-orders/grouped/send', [
             'supplierId' => $this->supplier->id,
             'orderIds' => [$foreign->id],
+            'expectedDeliveryDate' => '2026-08-01',
         ]);
 
         $res->assertStatus(409);
