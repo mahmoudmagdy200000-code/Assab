@@ -8,6 +8,7 @@ use Laravel\Sanctum\PersonalAccessToken;
 use Modules\Branch\Models\Branch;
 use Modules\BranchManagers\Models\BranchManager;
 use Modules\Cashier\Models\Cashier;
+use Modules\Cashier\Services\CashierAuthService;
 use Tests\TestCase;
 
 /**
@@ -44,7 +45,7 @@ class CashierFirstLoginTest extends TestCase
 
     // ── step 1: first-login ─────────────────────────────────────────────────
 
-    public function test_first_login_returns_a_first_login_token_and_activates_the_account(): void
+    public function test_admin_issued_pending_cashier_requires_password_rotation_even_when_policy_is_off(): void
     {
         $cashier = $this->cashier();
 
@@ -61,12 +62,14 @@ class CashierFirstLoginTest extends TestCase
             'the token must be the one the shared activation resolver recognises',
         );
 
-        // Policy off (default): the sign-in itself completes activation, so the
-        // app must NOT route to «activate Account».
-        $this->assertFalse($res->json('data.requires_password_reset'));
+        $this->assertTrue($res->json('data.requires_password_reset'));
         $cashier->refresh();
-        $this->assertSame('active', $cashier->status);
-        $this->assertNotNull($cashier->activated_at);
+        $this->assertSame('pending', $cashier->status);
+        $this->assertNull($cashier->activated_at);
+
+        $this->postJson('/api/v1/cashier/auth/login', [
+            'identifier' => 'cashier@chain.test', 'password' => self::DEFAULT_PASSWORD,
+        ])->assertForbidden();
     }
 
     public function test_first_login_by_phone_works_too(): void
@@ -137,9 +140,25 @@ class CashierFirstLoginTest extends TestCase
                 'password_confirmation' => self::NEW_PASSWORD,
             ])->assertStatus(200);
 
+        $this->assertSame(0, $cashier->tokens()->count());
+
         $cashier->refresh();
         $this->assertSame('active', $cashier->status);
         $this->assertTrue(Hash::check(self::NEW_PASSWORD, $cashier->password));
+    }
+
+    public function test_cashier_password_change_hashes_hash_shaped_input_and_revokes_temporary_session(): void
+    {
+        $cashier = $this->cashier();
+        $token = $cashier->createToken('first-login-token');
+        $submitted = '$2y$12$'.str_repeat('f', 53);
+
+        app(CashierAuthService::class)->setFirstLoginPassword($cashier, $submitted);
+
+        $stored = $cashier->fresh()->password;
+        $this->assertNotSame($submitted, $stored);
+        $this->assertTrue(Hash::check($submitted, $stored));
+        $this->assertDatabaseMissing('personal_access_tokens', ['id' => $token->accessToken->id]);
     }
 
     public function test_the_shipped_activate_screen_shape_still_works_unchanged(): void

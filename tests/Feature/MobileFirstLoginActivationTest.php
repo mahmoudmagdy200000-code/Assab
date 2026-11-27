@@ -172,24 +172,44 @@ class MobileFirstLoginActivationTest extends TestCase
         $this->assertTrue(Hash::check('default_password', $supplier->refresh()->password));
     }
 
-    /** The first sign-in with the issued password activates the account itself. */
-    public function test_first_login_completes_activation_and_opens_the_normal_login(): void
+    /** Admin-issued credentials require rotation even when the optional flag is off. */
+    public function test_admin_issued_first_login_stays_restricted_when_optional_policy_is_off(): void
     {
         $supplier = $this->supplier();
+        config(['features.mobile_force_first_login_reset' => false]);
 
         $this->postJson('/api/v1/supplier/auth/first-login', [
             'email' => $supplier->email,
             'password' => 'default_password',
-        ])->assertStatus(200)->assertJsonPath('data.requires_password_reset', false);
+        ])->assertStatus(200)->assertJsonPath('data.requires_password_reset', true);
 
-        $this->assertFalse((bool) $supplier->refresh()->is_first_login);
+        $this->assertTrue((bool) $supplier->refresh()->is_first_login);
 
-        // The normal login used to answer "Please complete first login setup"
-        // forever, because the activation screen could not clear the flag.
         $this->postJson('/api/v1/supplier/auth/login', [
             'email' => $supplier->email,
             'password' => 'default_password',
-        ])->assertStatus(200);
+        ])->assertStatus(403);
+    }
+
+    public function test_first_login_token_cannot_access_supplier_api_and_is_revoked_after_rotation(): void
+    {
+        config(['features.mobile_force_first_login_reset' => false]);
+        $supplier = $this->supplier();
+        $token = $this->firstLoginToken($supplier);
+
+        $this->withHeader('Authorization', 'Bearer '.$token)
+            ->getJson('/api/v1/supplier/auth/me')
+            ->assertForbidden()->assertJsonPath('code', 'FIRST_LOGIN_SESSION_RESTRICTED');
+
+        $this->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/v1/supplier/auth/password/reset/first-login', [
+                'password' => 'ChangedPass123', 'password_confirmation' => 'ChangedPass123',
+            ])->assertOk();
+
+        $this->assertSame(0, $supplier->tokens()->count());
+        $this->postJson('/api/v1/supplier/auth/login', [
+            'email' => $supplier->email, 'password' => 'ChangedPass123',
+        ])->assertOk();
     }
 
     public function test_an_inactive_supplier_cannot_activate(): void

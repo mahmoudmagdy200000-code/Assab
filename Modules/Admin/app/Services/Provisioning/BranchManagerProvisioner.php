@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Services\Provisioning;
 
+use Illuminate\Support\Facades\Hash;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Models\AsabIdentityMap;
 use Modules\Admin\Models\AsabUser;
@@ -156,7 +157,7 @@ class BranchManagerProvisioner implements LegacyProvisioner
     {
         $attributes = [
             'name' => $user->name,
-            'password' => $temporaryPassword, // hashed by the model's 'hashed' cast
+            'password' => Hash::make($temporaryPassword),
             'branch_id' => $branchId,
             'status' => 'active',
             'is_active' => true,

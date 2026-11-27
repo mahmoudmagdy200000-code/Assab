@@ -4,6 +4,7 @@ namespace Modules\Admin\Http\Controllers\Company;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
@@ -117,7 +118,7 @@ class OnboardController extends AsabController
                     'company_id' => $inv->company_id, 'name' => $data['name'], 'avatar' => mb_substr($data['name'], 0, 1),
                     'phone' => $data['phone'] ?? null, 'status' => 'active',
                     'default_page' => $this->defaultPageFor($inv->role_key),
-                ], $preservePassword ? [] : ['password' => $data['password']]));
+                ], $preservePassword ? [] : ['password' => Hash::make($data['password'])]));
                 $isBranch = $inv->role_key === 'branch' || (bool) $inv->branch_id;
                 AsabUserRole::updateOrCreate(['user_id' => $user->id, 'role_key' => $inv->role_key], [
                     'scope' => $isBranch ? 'branch' : ($inv->brand_id ? 'brand' : 'all'),

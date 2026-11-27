@@ -664,6 +664,7 @@ class AuthService
             'avatar' => $user->avatar,
             'companyId' => $user->company_id,
             'defaultPage' => $user->default_page,
+            'mustChangePassword' => (bool) $user->must_change_password,
             'roles' => $user->roleAssignments->map(fn ($r) => [
                 'key' => $r->role_key,
                 'scope' => $r->scope,
@@ -981,7 +982,14 @@ class AuthService
                 throw new AsabException('INVALID_PASSWORD', 'Current password is incorrect', 'كلمة المرور الحالية غير صحيحة', 422);
             }
 
-            $lockedUser->forceFill(['password' => $new])->save();
+            if (Hash::check($new, $lockedUser->password)) {
+                throw new AsabException('PASSWORD_REUSE', 'Choose a password different from your temporary password.', 'يجب اختيار كلمة مرور مختلفة عن المؤقتة.', 422);
+            }
+
+            $lockedUser->forceFill([
+                'password' => Hash::make($new),
+                'must_change_password' => false,
+            ])->save();
 
             // Lock 2: Ordered Sessions
             $sessions = AdminSession::where('user_id', $lockedUser->id)
@@ -1098,7 +1106,7 @@ class AuthService
                 throw new AsabException('INVALID_TOKEN', 'Reset token is invalid or expired', 'رمز إعادة التعيين غير صالح أو منتهي', 422);
             }
 
-            $lockedUser->forceFill(['password' => $newPassword])->save();
+            $lockedUser->forceFill(['password' => Hash::make($newPassword)])->save();
 
             // Lock 3: Ordered Sessions
             $sessions = AdminSession::where('user_id', $lockedUser->id)

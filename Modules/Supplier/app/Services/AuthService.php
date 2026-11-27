@@ -36,7 +36,8 @@ class AuthService
         // `is_first_login` kept the normal login closed, so the supplier was
         // locked out for good. Idempotent: calling this again behaves like a
         // normal login instead of erroring.
-        if (! $this->firstLoginPolicy->forcesReset()) {
+        $requiresPasswordReset = $this->firstLoginPolicy->forcesReset() || $supplier->isFirstLogin();
+        if (! $requiresPasswordReset) {
             $this->completeActivation($supplier);
         }
 
@@ -45,7 +46,7 @@ class AuthService
         return [
             'supplier' => $supplier,
             'token' => $token,
-            'requiresPasswordReset' => $this->firstLoginPolicy->forcesReset(),
+            'requiresPasswordReset' => $requiresPasswordReset,
         ];
     }
 
@@ -71,6 +72,7 @@ class AuthService
         // first mobile login — exactly where the dashboard credential would
         // otherwise start diverging.
         SupplierPasswordChanged::dispatch($supplier);
+        $supplier->tokens()->delete();
 
         return $supplier;
     }
@@ -119,12 +121,8 @@ class AuthService
         // A correct password on THIS endpoint activates the account too, rather
         // than bouncing the user to a screen that cannot complete (2026-07-26) —
         // unless the forced flow is on, where activation is the only way in.
-        if ($this->firstLoginPolicy->forcesReset()) {
-            if ($supplier->isFirstLogin()) {
-                throw new FirstLoginRequiredException;
-            }
-        } else {
-            $this->completeActivation($supplier);
+        if ($supplier->isFirstLogin()) {
+            throw new FirstLoginRequiredException;
         }
 
         // Update last seen

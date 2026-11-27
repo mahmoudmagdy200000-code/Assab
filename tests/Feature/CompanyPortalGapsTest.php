@@ -202,6 +202,27 @@ class CompanyPortalGapsTest extends TestCase
         $this->assertTrue(Hash::check('password123', $manager->password), 'the same accepted password must open the mobile app');
     }
 
+    public function test_hash_shaped_invite_password_is_treated_as_plaintext_for_both_credentials(): void
+    {
+        $inv = CompanyInvitation::create([
+            'company_id' => $this->company->id, 'email' => 'bm-hash-invite@x.test', 'role_key' => 'branch',
+            'branch_id' => $this->branch->id, 'token' => Str::random(64),
+            'status' => 'pending', 'expires_at' => now()->addDays(7), 'created_at' => now(),
+        ]);
+        $submittedPassword = '$2y$12$'.str_repeat('d', 53);
+
+        $this->postJson('/api/v1/company/invitations/accept', [
+            'token' => $inv->token, 'name' => 'Hash Invited Manager', 'password' => $submittedPassword,
+        ])->assertOk();
+
+        $dashboardUser = AsabUser::where('email', 'bm-hash-invite@x.test')->firstOrFail();
+        $manager = BranchManager::where('email', 'bm-hash-invite@x.test')->firstOrFail();
+        $this->assertNotSame($submittedPassword, $dashboardUser->password);
+        $this->assertNotSame($submittedPassword, $manager->password);
+        $this->assertTrue(Hash::check($submittedPassword, $dashboardUser->password));
+        $this->assertTrue(Hash::check($submittedPassword, $manager->password));
+    }
+
     public function test_accepting_a_dashboard_only_role_invite_creates_no_mobile_login(): void
     {
         // head/accountant/company-admin/procurement have no mobile counterpart —

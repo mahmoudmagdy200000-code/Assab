@@ -105,6 +105,53 @@ class SupplierCredentialSyncTest extends TestCase
         $this->assertTrue($legacy->is_first_login, 'an admin-issued password must force a reset on the app');
     }
 
+    public function test_manual_supplier_creation_syncs_the_temporary_password_and_mobile_first_login(): void
+    {
+        Notification::fake();
+        $supplier = $this->asabSupplier('manual-vendor@sup.test');
+        $password = '$2y$12$'.str_repeat('c', 53);
+
+        $this->actingAs($this->admin, 'sanctum')->postJson('/api/v1/admin/users', [
+            'name' => 'Manual Supplier Login',
+            'email' => 'manual-vendor@sup.test',
+            'role' => 'supplier',
+            'companyId' => $this->company->id,
+            'supplierId' => $supplier->id,
+            'credentialMode' => 'manual',
+            'password' => $password,
+            'passwordConfirmation' => $password,
+        ])->assertCreated()->assertJsonPath('credentialMode', 'manual')->assertJsonPath('emailSent', null);
+
+        $user = AsabUser::where('email', 'manual-vendor@sup.test')->firstOrFail();
+        $legacy = LegacySupplier::find($supplier->fresh()->legacy_supplier_id);
+        $this->assertTrue(Hash::check($password, $user->password));
+        $this->assertTrue(Hash::check($password, $legacy->password));
+        $this->assertNotSame($password, $user->password);
+        $this->assertNotSame($password, $legacy->password);
+        $this->assertTrue($legacy->is_first_login);
+        $this->assertTrue((bool) $user->must_change_password);
+        Notification::assertNothingSent();
+    }
+
+    public function test_manual_supplier_reset_syncs_password_to_flutter_and_forces_first_login_change(): void
+    {
+        Notification::fake();
+        $supplier = $this->asabSupplier('manual-reset@sup.test');
+        $this->createSupplierUser('manual-reset@sup.test', $supplier)->assertCreated();
+        $user = AsabUser::where('email', 'manual-reset@sup.test')->firstOrFail();
+        $legacy = LegacySupplier::find($supplier->fresh()->legacy_supplier_id);
+        $password = 'Manual-Reset-Mobile-47!';
+
+        $this->actingAs($this->admin, 'sanctum')->postJson("/api/v1/admin/users/{$user->id}/reset-password", [
+            'mode' => 'manual', 'password' => $password, 'passwordConfirmation' => $password,
+        ])->assertOk()->assertJsonPath('emailSent', null);
+
+        $this->assertTrue(Hash::check($password, $user->fresh()->password));
+        $this->assertTrue(Hash::check($password, $legacy->fresh()->password));
+        $this->assertTrue($legacy->fresh()->is_first_login);
+        $this->assertTrue((bool) $user->fresh()->must_change_password);
+    }
+
     public function test_deleting_the_dashboard_user_revokes_the_mobile_login(): void
     {
         Notification::fake();

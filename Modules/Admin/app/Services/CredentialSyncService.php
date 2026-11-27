@@ -121,7 +121,10 @@ class CredentialSyncService
                 return false;
             }
 
-            $user->forceFill(['password' => $legacyRow->password])->save();
+            $user->forceFill([
+                'password' => $legacyRow->password,
+                'must_change_password' => false,
+            ])->save();
 
             // Revoke active admin sessions under lock
             AdminSession::where('user_id', $user->id)

@@ -6,12 +6,14 @@ use App\Support\TemporaryPassword;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Http\Controllers\AsabController;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabRestaurant;
 use Modules\Admin\Models\AsabUser;
+use Modules\Admin\Models\AdminSession;
 use Modules\Admin\Models\AsabUserRole;
 use Modules\Admin\Notifications\UserPasswordResetNotification;
 use Modules\Admin\Services\AccountantModuleService;
@@ -104,6 +106,9 @@ class UserController extends AsabController
                 // client and a permanently unresolvable head reference.
                 'reportsTo' => ['nullable', 'uuid', Rule::exists('asab_users', 'id')->whereNull('deleted_at')],
                 'status' => 'nullable|in:active,inactive',
+                'credentialMode' => 'sometimes|in:manual,email',
+                'password' => 'required_if:credentialMode,manual|nullable|string|min:8|max:128',
+                'passwordConfirmation' => 'required_if:credentialMode,manual|nullable|string|same:password',
                 'sendLoginEmail' => 'sometimes|boolean',
             ];
             // Per-role assignment rules (client meeting): a branch manager runs
@@ -153,7 +158,10 @@ class UserController extends AsabController
 
             // One temporary password: used for the account and (optionally) emailed
             // so the user can sign in (Admin dashboard batch 1, Part B).
-            $temporaryPassword = TemporaryPassword::generate();
+            $credentialMode = $data['credentialMode'] ?? 'email';
+            $temporaryPassword = $credentialMode === 'manual'
+                ? $data['password']
+                : TemporaryPassword::generate();
 
             $user = DB::transaction(function () use ($data, $temporaryPassword) {
                 $user = AsabUser::create([
@@ -161,7 +169,8 @@ class UserController extends AsabController
                     'name' => $data['name'],
                     'email' => $data['email'],
                     'phone' => $data['phone'] ?? null,
-                    'password' => $temporaryPassword, // hashed by the model's 'hashed' cast
+                    'password' => Hash::make($temporaryPassword),
+                    'must_change_password' => true,
                     'avatar' => mb_substr($data['name'], 0, 1),
                     'status' => $data['status'] ?? 'active',
                     'reports_to_id' => $data['reportsTo'] ?? null,
@@ -184,11 +193,14 @@ class UserController extends AsabController
 
             // Delivery defaults ON (BACKEND_API_SPEC.md §users.store): an account
             // whose password was never sent is unusable until an admin resets it.
-            $emailSent = ($data['sendLoginEmail'] ?? true)
+            $emailSent = ($data['credentialMode'] ?? 'email') === 'email' && ($data['sendLoginEmail'] ?? true)
                 ? $this->emailTemporaryPassword($user, $temporaryPassword)
-                : false;
+                : (($data['credentialMode'] ?? 'email') === 'manual' ? null : false);
 
-            return $this->created($this->present($user->load(['roleAssignments', 'reportsTo:id,name'])) + ['emailSent' => $emailSent]);
+            return $this->created($this->present($user->load(['roleAssignments', 'reportsTo:id,name'])) + [
+                'credentialMode' => $credentialMode,
+                'emailSent' => $emailSent,
+            ]);
         });
     }
 
@@ -200,23 +212,43 @@ class UserController extends AsabController
     public function resetPassword(Request $request, string $id): JsonResponse
     {
         return $this->run(function () use ($request, $id) {
-            $data = $request->validate(['sendEmail' => 'sometimes|boolean']);
+            $data = $request->validate([
+                'mode' => 'sometimes|in:manual,email',
+                'sendEmail' => 'sometimes|boolean',
+                'password' => 'required_if:mode,manual|nullable|string|min:8|max:128',
+                'passwordConfirmation' => 'required_if:mode,manual|nullable|string|same:password',
+            ]);
+            $mode = $data['mode'] ?? 'email';
             $user = AsabUser::findOrFail($id);
-            $temporaryPassword = TemporaryPassword::generate();
+            $temporaryPassword = $mode === 'manual'
+                ? $data['password']
+                : TemporaryPassword::generate();
 
             DB::transaction(function () use ($user, $temporaryPassword) {
-                $user->forceFill(['password' => $temporaryPassword])->save();
-                $user->tokens()->delete();
+                $lockedUser = AsabUser::whereKey($user->id)->lockForUpdate()->firstOrFail();
+                $lockedUser->forceFill([
+                    'password' => Hash::make($temporaryPassword),
+                    'must_change_password' => true,
+                ])->save();
+
+                AdminSession::where('user_id', $lockedUser->id)
+                    ->whereNull('revoked_at')
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get()
+                    ->each(fn (AdminSession $session) => $session->forceFill(['revoked_at' => now()])->save());
+
+                $lockedUser->tokens()->orderBy('id')->lockForUpdate()->get()->each->delete();
                 // No-op unless this user has a linked mobile account; when they
                 // do, the emailed password must open both worlds.
-                $this->credentials->pushToMobile($user, forceReset: true);
+                $this->credentials->pushToMobile($lockedUser, forceReset: true);
             });
 
-            $emailSent = ($data['sendEmail'] ?? true)
+            $emailSent = $mode === 'email' && ($data['sendEmail'] ?? true)
                 ? $this->emailTemporaryPassword($user, $temporaryPassword)
-                : false;
+                : ($mode === 'manual' ? null : false);
 
-            return $this->ok(['ok' => true, 'emailSent' => $emailSent]);
+            return $this->ok(['ok' => true, 'mode' => $mode, 'emailSent' => $emailSent]);
         });
     }
 
@@ -337,7 +369,7 @@ class UserController extends AsabController
                     'name' => $name,
                     'email' => $email,
                     'phone' => $data['phone'] ?? null,
-                    'password' => $temporaryPassword, // hashed by the model's 'hashed' cast
+                    'password' => Hash::make($temporaryPassword),
                     'avatar' => mb_substr($name, 0, 1),
                     'status' => 'active',
                 ]);

@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Modules\Admin\Models\AsabBrand;
 use Modules\Admin\Models\AsabCompany;
@@ -134,6 +136,277 @@ class AdminDashboardBatch1Test extends TestCase
         $this->assertArrayNotHasKey('tempPassword', $res->json());
         $this->assertArrayNotHasKey('password', $res->json());
         Notification::assertSentTo($user, UserPasswordResetNotification::class);
+    }
+
+    public function test_a3_manual_reset_sets_confirmed_password_without_email_and_requires_change(): void
+    {
+        Notification::fake();
+        $user = AsabUser::create([
+            'name' => 'Manual Target', 'email' => 'manual-target@asab.test',
+            'password' => 'old-password', 'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $user->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        $user->createToken('existing');
+
+        $password = 'Temp-Reset-Pass-42!';
+        $res = $this->actingAs($this->admin, 'sanctum')
+            ->postJson("/api/v1/admin/users/{$user->id}/reset-password", [
+                'mode' => 'manual', 'password' => $password, 'passwordConfirmation' => $password,
+            ]);
+
+        $res->assertOk()->assertJsonPath('ok', true)->assertJsonPath('mode', 'manual')
+            ->assertJsonPath('emailSent', null);
+        $this->assertTrue(\Illuminate\Support\Facades\Hash::check($password, $user->fresh()->password));
+        $this->assertTrue((bool) $user->fresh()->must_change_password);
+        $this->assertDatabaseMissing('personal_access_tokens', ['tokenable_id' => $user->id, 'name' => 'existing']);
+        $session = \Modules\Admin\Models\AdminSession::create([
+            'user_id' => $user->id, 'expires_at' => now()->addHour(),
+        ]);
+        $this->actingAs($this->admin, 'sanctum')->postJson("/api/v1/admin/users/{$user->id}/reset-password", [
+            'mode' => 'manual', 'password' => $password, 'passwordConfirmation' => $password,
+        ])->assertOk();
+        $this->assertNotNull($session->fresh()->revoked_at);
+        $auditContent = AuditLog::where('action', 'post.users')->get()->toJson();
+        $this->assertGreaterThan(0, AuditLog::where('action', 'post.users')->count());
+        $this->assertStringNotContainsString($password, $auditContent);
+        $this->assertArrayNotHasKey('password', $res->json());
+        $this->assertArrayNotHasKey('tempPassword', $res->json());
+        Notification::assertNothingSent();
+    }
+
+    public function test_manual_reset_hashes_hash_shaped_plaintext_instead_of_treating_it_as_a_hash(): void
+    {
+        $user = AsabUser::create([
+            'name' => 'Hash Shaped Input', 'email' => 'hash-shaped@asab.test',
+            'password' => 'old-password', 'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $user->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        $submitted = '$2y$12$'.str_repeat('a', 53);
+
+        $this->actingAs($this->admin, 'sanctum')->postJson("/api/v1/admin/users/{$user->id}/reset-password", [
+            'mode' => 'manual', 'password' => $submitted, 'passwordConfirmation' => $submitted,
+        ])->assertOk();
+
+        $stored = $user->fresh()->password;
+        $this->assertNotSame($submitted, $stored);
+        $this->assertTrue(Hash::check($submitted, $stored));
+    }
+
+    public function test_manual_user_creation_hashes_hash_shaped_plaintext(): void
+    {
+        $submitted = '$2y$12$'.str_repeat('b', 53);
+
+        $this->actingAs($this->admin, 'sanctum')->postJson('/api/v1/admin/users', [
+            'name' => 'Hash Shaped Create', 'email' => 'hash-shaped-create@asab.test', 'role' => 'procurement',
+            'credentialMode' => 'manual', 'password' => $submitted, 'passwordConfirmation' => $submitted,
+        ])->assertCreated();
+
+        $stored = AsabUser::where('email', 'hash-shaped-create@asab.test')->firstOrFail()->password;
+        $this->assertNotSame($submitted, $stored);
+        $this->assertTrue(Hash::check($submitted, $stored));
+    }
+
+    public function test_a3_manual_reset_requires_matching_valid_password_confirmation(): void
+    {
+        $user = AsabUser::create([
+            'name' => 'Invalid Target', 'email' => 'invalid-target@asab.test',
+            'password' => 'old-password', 'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $user->id, 'role_key' => 'accountant', 'scope' => 'all']);
+
+        $this->actingAs($this->admin, 'sanctum')
+            ->postJson("/api/v1/admin/users/{$user->id}/reset-password", [
+                'mode' => 'manual', 'password' => 'short', 'passwordConfirmation' => 'different',
+            ])->assertUnprocessable();
+
+        $this->assertFalse((bool) $user->fresh()->must_change_password);
+        $this->assertTrue(\Illuminate\Support\Facades\Hash::check('old-password', $user->fresh()->password));
+    }
+
+    public function test_a3_admin_reset_enforces_change_until_user_changes_password(): void
+    {
+        $user = AsabUser::create([
+            'name' => 'Forced Change', 'email' => 'forced-change@asab.test',
+            'password' => 'old-password', 'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $user->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        $password = 'Forced-Reset-Pass-43!';
+
+        $this->actingAs($this->admin, 'sanctum')
+            ->postJson("/api/v1/admin/users/{$user->id}/reset-password", [
+                'mode' => 'manual', 'password' => $password, 'passwordConfirmation' => $password,
+            ])->assertOk();
+
+        $this->actingAs($user->fresh(), 'sanctum')
+            ->getJson('/api/v1/admin/users')
+            ->assertForbidden()->assertJsonPath('code', 'PASSWORD_CHANGE_REQUIRED');
+        $this->getJson('/api/v1/auth/me')->assertOk()->assertJsonPath('mustChangePassword', true);
+        $this->postJson('/api/v1/auth/change-password', [
+            'currentPassword' => $password, 'newPassword' => 'User-Chosen-Pass-44!',
+        ])->assertNoContent();
+
+        $this->assertFalse((bool) $user->fresh()->must_change_password);
+    }
+
+    public function test_password_change_rejects_reuse_of_the_admin_issued_temporary_password(): void
+    {
+        $user = AsabUser::create([
+            'name' => 'Reuse Target', 'email' => 'reuse-target@asab.test',
+            'password' => 'old-password', 'status' => 'active', 'must_change_password' => true,
+        ]);
+        $temporary = 'Temporary-Password-55!';
+        $user->forceFill(['password' => Hash::make($temporary)])->save();
+
+        $this->actingAs($user, 'sanctum')->postJson('/api/v1/auth/change-password', [
+            'currentPassword' => $temporary, 'newPassword' => $temporary,
+        ])->assertUnprocessable()->assertJsonPath('error.code', 'PASSWORD_REUSE');
+
+        $this->assertTrue((bool) $user->fresh()->must_change_password);
+        $this->assertTrue(Hash::check($temporary, $user->fresh()->password));
+    }
+
+    public function test_user_password_change_hashes_hash_shaped_plaintext(): void
+    {
+        $user = AsabUser::create([
+            'name' => 'Hash Change', 'email' => 'hash-change@asab.test',
+            'password' => 'current-password', 'status' => 'active',
+        ]);
+        $submitted = '$2y$12$'.str_repeat('e', 53);
+
+        $this->actingAs($user, 'sanctum')->postJson('/api/v1/auth/change-password', [
+            'currentPassword' => 'current-password', 'newPassword' => $submitted,
+        ])->assertNoContent();
+
+        $stored = $user->fresh()->password;
+        $this->assertNotSame($submitted, $stored);
+        $this->assertTrue(Hash::check($submitted, $stored));
+    }
+
+    public function test_password_change_gate_covers_a_protected_route_outside_admin_module(): void
+    {
+        $user = AsabUser::create([
+            'name' => 'Cross Module Gate', 'email' => 'cross-module-gate@asab.test',
+            'password' => 'temporary-password', 'status' => 'active', 'must_change_password' => true,
+        ]);
+
+        $this->actingAs($user, 'sanctum')->getJson('/api/v1/branches')
+            ->assertForbidden()->assertJsonPath('code', 'PASSWORD_CHANGE_REQUIRED');
+    }
+
+    public function test_a3_reset_reports_suppressed_credential_email_as_not_sent(): void
+    {
+        Config::set('mail.default', 'log');
+        $user = AsabUser::create([
+            'name' => 'Mail Failure', 'email' => 'mail-failure@asab.test',
+            'password' => 'old-password', 'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $user->id, 'role_key' => 'accountant', 'scope' => 'all']);
+
+        $this->actingAs($this->admin, 'sanctum')
+            ->postJson("/api/v1/admin/users/{$user->id}/reset-password", ['mode' => 'email'])
+            ->assertOk()->assertJsonPath('emailSent', false)->assertJsonPath('mode', 'email');
+    }
+
+    public function test_nested_mail_failover_that_reaches_log_reports_email_not_sent(): void
+    {
+        Config::set('mail.default', 'primary');
+        Config::set('mail.mailers', [
+            'primary' => ['transport' => 'failover', 'mailers' => ['smtp', 'secondary']],
+            'smtp' => ['transport' => 'smtp'],
+            'secondary' => ['transport' => 'failover', 'mailers' => ['log']],
+            'log' => ['transport' => 'log'],
+        ]);
+        $user = AsabUser::create([
+            'name' => 'Nested Mail Failure', 'email' => 'nested-mail-failure@asab.test',
+            'password' => 'old-password', 'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $user->id, 'role_key' => 'accountant', 'scope' => 'all']);
+
+        $this->actingAs($this->admin, 'sanctum')
+            ->postJson("/api/v1/admin/users/{$user->id}/reset-password", ['mode' => 'email'])
+            ->assertOk()->assertJsonPath('emailSent', false);
+    }
+
+    public function test_existing_accounts_default_to_not_requiring_password_change(): void
+    {
+        $user = AsabUser::create([
+            'name' => 'Existing User', 'email' => 'existing-user@asab.test',
+            'password' => 'old-password', 'status' => 'active',
+        ]);
+
+        $this->assertFalse((bool) $user->fresh()->must_change_password);
+    }
+
+    public function test_admin_can_create_user_with_manual_temporary_password_without_email(): void
+    {
+        Notification::fake();
+        $password = 'Create-Manual-Pass-45!';
+
+        $res = $this->actingAs($this->admin, 'sanctum')->postJson('/api/v1/admin/users', [
+            'name' => 'Manual Create', 'email' => 'manual-create@asab.test', 'role' => 'procurement',
+            'credentialMode' => 'manual', 'password' => $password, 'passwordConfirmation' => $password,
+        ]);
+
+        $res->assertCreated()->assertJsonPath('credentialMode', 'manual')->assertJsonPath('emailSent', null);
+        $user = AsabUser::where('email', 'manual-create@asab.test')->firstOrFail();
+        $this->assertTrue(\Illuminate\Support\Facades\Hash::check($password, $user->password));
+        $this->assertTrue((bool) $user->must_change_password);
+        $this->assertArrayNotHasKey('password', $res->json());
+        Notification::assertNothingSent();
+    }
+
+    public function test_admin_can_create_user_with_generated_password_email_and_first_login_change(): void
+    {
+        Notification::fake();
+
+        $res = $this->actingAs($this->admin, 'sanctum')->postJson('/api/v1/admin/users', [
+            'name' => 'Emailed Create', 'email' => 'emailed-create@asab.test', 'role' => 'procurement',
+            'credentialMode' => 'email',
+        ]);
+
+        $res->assertCreated()->assertJsonPath('credentialMode', 'email')->assertJsonPath('emailSent', true);
+        $user = AsabUser::where('email', 'emailed-create@asab.test')->firstOrFail();
+        $this->assertTrue((bool) $user->must_change_password);
+        $this->assertArrayNotHasKey('password', $res->json());
+        Notification::assertSentTo($user, UserPasswordResetNotification::class);
+    }
+
+    public function test_admin_user_creation_reports_suppressed_credential_email_as_not_sent(): void
+    {
+        Config::set('mail.default', 'log');
+
+        $res = $this->actingAs($this->admin, 'sanctum')->postJson('/api/v1/admin/users', [
+            'name' => 'Undelivered Create', 'email' => 'undelivered-create@asab.test', 'role' => 'procurement',
+            'credentialMode' => 'email',
+        ]);
+
+        $res->assertCreated()->assertJsonPath('credentialMode', 'email')->assertJsonPath('emailSent', false);
+        $user = AsabUser::where('email', 'undelivered-create@asab.test')->firstOrFail();
+        $this->assertTrue((bool) $user->must_change_password);
+    }
+
+    public function test_only_system_admin_can_create_or_reset_accounts(): void
+    {
+        $accountant = AsabUser::create([
+            'name' => 'Accountant Actor', 'email' => 'accountant-actor@asab.test',
+            'password' => 'old-password', 'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $accountant->id, 'role_key' => 'accountant', 'scope' => 'all']);
+        $target = AsabUser::create([
+            'name' => 'No Reset', 'email' => 'no-reset@asab.test',
+            'password' => 'old-password', 'status' => 'active',
+        ]);
+        AsabUserRole::create(['user_id' => $target->id, 'role_key' => 'accountant', 'scope' => 'all']);
+
+        $this->actingAs($accountant, 'sanctum')
+            ->postJson("/api/v1/admin/users/{$target->id}/reset-password", ['mode' => 'email'])
+            ->assertForbidden();
+        $this->postJson('/api/v1/admin/users', [
+            'name' => 'Unauthorized Create', 'email' => 'unauthorized-create@asab.test', 'role' => 'procurement',
+        ])->assertForbidden();
+
+        $this->assertDatabaseMissing('asab_users', ['email' => 'unauthorized-create@asab.test']);
+        $this->assertFalse((bool) $target->fresh()->must_change_password);
     }
 
     // ---- A4 / A5 subscriptions ----
