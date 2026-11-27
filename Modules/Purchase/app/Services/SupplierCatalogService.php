@@ -73,4 +73,69 @@ class SupplierCatalogService
 
         return $this->supplierCountsForItems([$itemId], $branchId)[$itemId] ?? 0;
     }
+
+    /**
+     * Lowest positive active orderable supplier price per item for zero-price
+     * seeded branch items, without touching inventory valuation.
+     *
+     * @param  string[]  $itemIds
+     * @return array<string, float> item_id => unit_price
+     */
+    public function estimatedPricesForItems(array $itemIds, ?string $branchId, ?string $preferredSupplierId = null): array
+    {
+        $itemIds = array_values(array_filter(array_unique($itemIds)));
+        if ($itemIds === []) {
+            return [];
+        }
+
+        $orderableIds = $this->brandScope->orderableSupplierIds($branchId);
+        if ($orderableIds === []) {
+            return [];
+        }
+
+        if ($preferredSupplierId !== null && $preferredSupplierId !== '') {
+            $orderableIds = in_array($preferredSupplierId, $orderableIds, true)
+                ? [$preferredSupplierId]
+                : [];
+            if ($orderableIds === []) {
+                return [];
+            }
+        }
+
+        $byItemSupplier = [];
+
+        $legacyRows = SupplierItem::query()
+            ->whereIn('item_id', $itemIds)
+            ->whereIn('supplier_id', $orderableIds)
+            ->available()
+            ->where('unit_price', '>', 0)
+            ->whereHas('supplier', fn ($q) => $q->active())
+            ->get(['item_id', 'supplier_id', 'unit_price']);
+
+        foreach ($legacyRows as $row) {
+            $byItemSupplier[$row->item_id][$row->supplier_id] = (float) $row->unit_price;
+        }
+
+        // SupplierProduct wins on (item_id, supplier_id) conflict.
+        $portalRows = SupplierProduct::query()
+            ->whereIn('item_id', $itemIds)
+            ->whereIn('supplier_id', $orderableIds)
+            ->available()
+            ->where('unit_price', '>', 0)
+            ->whereHas('supplier', fn ($q) => $q->active())
+            ->get(['item_id', 'supplier_id', 'unit_price']);
+
+        foreach ($portalRows as $row) {
+            $byItemSupplier[$row->item_id][$row->supplier_id] = (float) $row->unit_price;
+        }
+
+        $out = [];
+        foreach ($byItemSupplier as $itemId => $pricesBySupplier) {
+            if ($pricesBySupplier !== []) {
+                $out[$itemId] = round((float) min($pricesBySupplier), 2);
+            }
+        }
+
+        return $out;
+    }
 }

@@ -23,6 +23,10 @@ class BranchItemResource extends JsonResource
                 $request->user()?->branch_id ?? $this->branch_id,
             );
 
+        $effectivePrice = ((float) $this->item_price) > 0
+            ? (float) $this->item_price
+            : (float) ($this->resource->estimated_price ?? 0.0);
+
         return [
             'id' => $this->id,
             'item_name' => $this->item_name,
@@ -34,8 +38,8 @@ class BranchItemResource extends JsonResource
             'item_code' => $this->item_code ?? '',
             // `?:` — a blank unit falls back, it does not render as «(Kg)».
             'item_unit' => $this->item_unit ?: 'kg',
-            'rate' => (float) $this->item_price, // Cost per unit
-            'item_price' => (float) $this->item_price,
+            'rate' => $effectivePrice, // Cost per unit (falls back to supplier estimate when branch_item.price is 0)
+            'item_price' => $effectivePrice,
             'item_quantity' => (float) $this->item_quantity,
             'category' => $this->category ?? '',
             'subcategory' => $this->subcategory ?? '',

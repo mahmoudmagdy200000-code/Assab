@@ -121,6 +121,22 @@ class UploadController extends AsabController
                 'uploaded_at' => now(),
             ]);
 
+            if ($request->input('ownerType') === 'operation' && $request->filled('ownerId')) {
+                $op = Operation::withoutGlobalScopes()->find($request->input('ownerId'));
+                if ($op !== null) {
+                    $payload = $op->payload ?? [];
+                    if ($request->input('label') === 'invoice') {
+                        $payload['hasInvoice'] = true;
+                    }
+                    $op->update([
+                        'payload' => $payload,
+                        'attachment_count' => Attachment::where('owner_type', 'operation')
+                            ->where('owner_id', $op->id)
+                            ->count(),
+                    ]);
+                }
+            }
+
             return $this->created($this->present($attachment));
         });
     }

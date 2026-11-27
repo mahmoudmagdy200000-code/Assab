@@ -11,6 +11,13 @@ class RejectReturnRequest extends FormRequest
         return true;
     }
 
+    protected function prepareForValidation(): void
+    {
+        if (! $this->filled('reason') && $this->filled('rejection_reason')) {
+            $this->merge(['reason' => $this->input('rejection_reason')]);
+        }
+    }
+
     public function rules(): array
     {
         return [

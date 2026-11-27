@@ -201,7 +201,25 @@ class OrderConsolidationService
      */
     public function send(string $supplierId, ?array $orderIds, string $asabUserId, ?array $branchIds, ?string $expectedDeliveryDate = null, ?string $companyId = null): PurchaseOrderGroup
     {
-        Supplier::findOrFail($supplierId);
+        $resolvedSupplier = Supplier::find($supplierId);
+        if ($resolvedSupplier === null) {
+            $asabMatch = AsabSupplier::withoutGlobalScopes()
+                ->where('id', $supplierId)
+                ->first(['id', 'company_id', 'legacy_supplier_id']);
+
+            if ($asabMatch !== null) {
+                if ($companyId !== null && $asabMatch->company_id !== null && $asabMatch->company_id !== $companyId) {
+                    throw new AsabException('SUPPLIER_OUT_OF_SCOPE', 'Supplier is outside tenant scope', 'المورد خارج نطاق الشركة', 422);
+                }
+                if ($asabMatch->legacy_supplier_id !== null) {
+                    $supplierId = $asabMatch->legacy_supplier_id;
+                    $resolvedSupplier = Supplier::find($supplierId);
+                }
+            }
+        }
+        if ($resolvedSupplier === null) {
+            Supplier::findOrFail($supplierId);
+        }
 
         if ($companyId !== null) {
             $asabSuppliers = AsabSupplier::withoutGlobalScopes()

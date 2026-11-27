@@ -799,9 +799,18 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
             $itemId = BranchItem::whereKey($itemId)->value('item_id') ?? $itemId;
         }
 
+        $orderableIds = $branchId !== null
+            ? app(\Modules\Expense\Services\SupplierBrandScopeService::class)->orderableSupplierIds($branchId)
+            : null;
+
+        if ($orderableIds === []) {
+            return collect();
+        }
+
         $query = SupplierItem::with('supplier')
             ->byItem($itemId)
             ->available()
+            ->when($orderableIds !== null, fn ($q) => $q->whereIn('supplier_id', $orderableIds))
             ->whereHas('supplier', fn ($q) => $q->active());
 
         // Filter by supplier status (Supplier model has no scopeByStatus; filter by column)
@@ -838,6 +847,7 @@ class PriceComparisonService implements \Modules\Purchase\Services\Contracts\Pri
         $fromSupplierProducts = SupplierProduct::with('supplier')
             ->where('item_id', $itemId)
             ->available()
+            ->when($orderableIds !== null, fn ($q) => $q->whereIn('supplier_id', $orderableIds))
             ->whereHas('supplier', fn ($q) => $q->active())
             ->when(! empty($filters['max_delivery_hours']), fn ($q) => $q->where('delivery_hours', '<=', $filters['max_delivery_hours']))
             ->when(! empty($filters['search']), function ($q) use ($filters) {

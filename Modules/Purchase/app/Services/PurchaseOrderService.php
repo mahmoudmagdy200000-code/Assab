@@ -76,14 +76,26 @@ class PurchaseOrderService implements \Modules\Purchase\Services\Contracts\Purch
 
         // Resolve the supplier counts for the whole page in one pass — the
         // resource would otherwise have to ask per row (N+1).
-        $counts = $this->supplierCatalog->supplierCountsForItems(
-            $branchItems->getCollection()->pluck('item_id')->all(),
-            $branchId
-        );
+        $itemIds = $branchItems->getCollection()->pluck('item_id')->all();
+        $counts = $this->supplierCatalog->supplierCountsForItems($itemIds, $branchId);
+        $zeroPriceItemIds = $branchItems->getCollection()
+            ->filter(fn ($bi) => (float) ($bi->price ?? 0) <= 0)
+            ->pluck('item_id')
+            ->all();
+        $estimatedPrices = $zeroPriceItemIds !== []
+            ? $this->supplierCatalog->estimatedPricesForItems(
+                $zeroPriceItemIds,
+                $branchId,
+                $filters['supplier_id'] ?? null,
+            )
+            : [];
 
-        $branchItems->getCollection()->each(
-            fn ($branchItem) => $branchItem->setAttribute('suppliers_count', $counts[$branchItem->item_id] ?? 0)
-        );
+        $branchItems->getCollection()->each(function ($branchItem) use ($counts, $estimatedPrices) {
+            $branchItem->setAttribute('suppliers_count', $counts[$branchItem->item_id] ?? 0);
+            if ((float) ($branchItem->price ?? 0) <= 0 && isset($estimatedPrices[$branchItem->item_id])) {
+                $branchItem->setAttribute('estimated_price', $estimatedPrices[$branchItem->item_id]);
+            }
+        });
 
         return $branchItems;
     }
