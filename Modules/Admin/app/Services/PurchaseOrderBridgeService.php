@@ -141,6 +141,124 @@ class PurchaseOrderBridgeService
         return $op;
     }
 
+    /**
+     * Sync goods-receipt, document-type, and invoice facts onto the bridged
+     * `purchases` Operation so the Accountant board displays the real receipt ID,
+     * invoice number, authoritative VAT total, document-type guard, and attachments.
+     */
+    public function syncReceivingState(
+        PurchaseOrder $order,
+        ?\Modules\Purchase\Models\GoodsReceipt $receipt = null,
+        ?\Modules\Purchase\Models\PurchaseInvoice $invoice = null,
+    ): ?Operation {
+        $op = Operation::withoutGlobalScopes()
+            ->whereNull('deleted_at')
+            ->where('source_module', self::SOURCE)
+            ->where('source_id', $order->id)
+            ->latest('created_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($op === null) {
+            return null;
+        }
+
+        $payload = $op->payload ?? [];
+        $updates = [];
+
+        if ($receipt !== null) {
+            $payload['goodsReceiptId'] = $receipt->id;
+            $payload['receiptNumber'] = $receipt->receipt_number;
+            $payload['documentType'] = $receipt->document_type?->value;
+
+            if ($invoice === null && class_exists(\Modules\Purchase\Models\PurchaseInvoice::class)) {
+                $invoice = \Modules\Purchase\Models\PurchaseInvoice::where('goods_receipt_id', $receipt->id)
+                    ->latest('created_at')
+                    ->first();
+            }
+
+            if (class_exists(\Modules\Purchase\Models\OrderDocument::class)) {
+                $docs = \Modules\Purchase\Models\OrderDocument::where('documentable_type', \Modules\Purchase\Models\GoodsReceipt::class)
+                    ->where('documentable_id', $receipt->id)
+                    ->get();
+                foreach ($docs as $doc) {
+                    if (! empty($doc->file_path)) {
+                        $this->mirrorAttachment(
+                            $op,
+                            (string) $doc->file_path,
+                            (string) ($doc->file_name ?: basename((string) $doc->file_path)),
+                            (string) ($doc->mime_type ?: 'application/octet-stream'),
+                            (int) ($doc->file_size ?: 0),
+                            (string) ($doc->type?->value ?? $doc->type ?? 'delivery_note'),
+                        );
+                    }
+                }
+            }
+        }
+
+        if ($invoice !== null) {
+            $payload['invoiceId'] = $invoice->id;
+            if ($invoice->invoice_number) {
+                $payload['invoiceNumber'] = $invoice->invoice_number;
+            }
+            $payload['invoiceDate'] = $invoice->invoice_date?->toDateString();
+            $payload['hasInvoice'] = true;
+            $payload['taxRate'] = (float) $invoice->tax_rate;
+            $payload['taxAmountHalalas'] = (int) round(((float) $invoice->tax_amount) * 100);
+            $updates['amount'] = (int) round(((float) $invoice->total_amount) * 100);
+
+            if (! empty($invoice->file_path)) {
+                $this->mirrorAttachment(
+                    $op,
+                    (string) $invoice->file_path,
+                    (string) ($invoice->file_name ?: basename((string) $invoice->file_path)),
+                    (string) ($invoice->file_type ?: 'application/octet-stream'),
+                    (int) ($invoice->file_size ?: 0),
+                    'invoice',
+                );
+            }
+        }
+
+        $updates['payload'] = $payload;
+        $updates['attachment_count'] = \Modules\Admin\Models\Attachment::where('owner_type', 'operation')
+            ->where('owner_id', $op->id)
+            ->count();
+
+        $op->update($updates);
+
+        return $op->fresh();
+    }
+
+    private function mirrorAttachment(
+        Operation $op,
+        string $storageKey,
+        string $filename,
+        string $mimeType,
+        int $size,
+        string $label,
+    ): void {
+        $exists = \Modules\Admin\Models\Attachment::where('owner_type', 'operation')
+            ->where('owner_id', $op->id)
+            ->where('storage_key', $storageKey)
+            ->exists();
+
+        if ($exists) {
+            return;
+        }
+
+        \Modules\Admin\Models\Attachment::create([
+            'owner_type' => 'operation',
+            'owner_id' => $op->id,
+            'filename' => basename($filename),
+            'mime_type' => $mimeType ?: 'application/octet-stream',
+            'size' => max(1, $size),
+            'storage_key' => $storageKey,
+            'public_url' => \App\Support\PublicUrl::for($storageKey),
+            'label' => $label,
+            'uploaded_at' => now(),
+        ]);
+    }
+
     /** Canonical purchases payload — the shape PurchasePresenterService reads. */
     private function payload(PurchaseOrder $order): array
     {

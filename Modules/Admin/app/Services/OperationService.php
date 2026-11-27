@@ -38,6 +38,31 @@ class OperationService
             $this->assertDecisionAuthorized($op);
             $this->assertStatus($op, Operation::STATUS_PENDING);
 
+            if ($op->module_key === 'purchases') {
+                $docType = $op->payload['documentType'] ?? null;
+                $hasInvoice = ! empty($op->payload['hasInvoice'])
+                    || \Modules\Admin\Models\Attachment::where('owner_type', 'operation')
+                        ->where('owner_id', $op->id)
+                        ->where('label', 'invoice')
+                        ->exists();
+                if ($docType === 'receipt_without_document' && ! $hasInvoice) {
+                    throw new \Modules\Admin\Exceptions\AsabException(
+                        'EVIDENCE_REQUIRED',
+                        'Cannot approve a purchase received without document until a valid invoice attachment is uploaded.',
+                        'لا يمكن اعتماد عملية شراء بدون مستند قبل رفع الفاتورة الضريبية.',
+                        422
+                    );
+                }
+                if ($docType === 'delivery_note' && ! $hasInvoice) {
+                    throw new \Modules\Admin\Exceptions\AsabException(
+                        'INVOICE_REQUIRED',
+                        'Cannot approve a delivery-note purchase until the tax invoice is uploaded.',
+                        'لا يمكن اعتماد عملية شراء بسند تسليم قبل رفع الفاتورة الضريبية.',
+                        422
+                    );
+                }
+            }
+
             app(\Modules\Shift\Services\ShiftReportReviewService::class)->authorizeReview($op, $actor, 'accountant');
             $reviews = app(\Modules\Shift\Services\ShiftReportReviewService::class);
             $openQuestions = $reviews->managerSource($op) !== null

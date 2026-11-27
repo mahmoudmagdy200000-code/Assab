@@ -243,6 +243,10 @@ class GoodsReceivingController extends BaseController
                 $unlistedItems
             );
 
+            if (class_exists(\Modules\Admin\Services\PurchaseOrderBridgeService::class)) {
+                app(\Modules\Admin\Services\PurchaseOrderBridgeService::class)->syncReceivingState($order, $receipt);
+            }
+
             return $this->createdResponse(
                 new GoodsReceiptResource($receipt),
                 'Receiving started successfully'
@@ -417,6 +421,14 @@ class GoodsReceivingController extends BaseController
             }
 
             $invoice = $this->receiptService->createInvoice($receipt, $data);
+
+            if (class_exists(\Modules\Admin\Services\PurchaseOrderBridgeService::class) && $receipt->purchaseOrder) {
+                app(\Modules\Admin\Services\PurchaseOrderBridgeService::class)->syncReceivingState(
+                    $receipt->purchaseOrder,
+                    $receipt->fresh(),
+                    $invoice,
+                );
+            }
 
             return $this->createdResponse(
                 $invoice,

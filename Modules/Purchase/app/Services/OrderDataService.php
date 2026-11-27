@@ -310,9 +310,15 @@ class OrderDataService
             'search' => $validated['search'] ?? null,
         ];
 
+        $orderableIds = app(\Modules\Expense\Services\SupplierBrandScopeService::class)->orderableSupplierIds($branchId);
+        if ($orderableIds === []) {
+            return ['data' => []];
+        }
+
         // Get all supplier products for this item (new system) or supplier items (legacy)
         // Try SupplierProduct first (new system in Supplier module)
         $supplierProducts = SupplierProduct::where('item_id', $itemId)
+            ->whereIn('supplier_id', $orderableIds)
             ->with('supplier')
             ->available()
             ->whereHas('supplier', fn ($q) => $q->active());
@@ -337,6 +343,7 @@ class OrderDataService
         // If no products found, try legacy SupplierItem
         if ($supplierProducts->isEmpty()) {
             $query = SupplierItem::where('item_id', $itemId)
+                ->whereIn('supplier_id', $orderableIds)
                 ->with('supplier')
                 ->available()
                 ->whereHas('supplier', fn ($q) => $q->active());
@@ -438,7 +445,7 @@ class OrderDataService
                 'supplier' => (new SupplierResource($supplier))->toArray(request()),
                 // Item Details
                 'item_id' => $itemId,
-                'item_price' => round((float) ($branchItem?->item_price ?? $supplierItem->unit_price ?? 0), 2),
+                'item_price' => round($unitPrice > 0 ? $unitPrice : (float) ($branchItem?->item_price ?? 0), 2),
                 'item_unit' => $branchItem?->item_unit ?? $item?->unit ?? 'kg',
 
                 'item_title' => $branchItem?->item_name ?? $item?->name ?? '',

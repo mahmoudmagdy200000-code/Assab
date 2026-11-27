@@ -53,7 +53,22 @@ class PurchaseOrderItemService
             throw new \InvalidArgumentException("Item with ID {$data['item_id']} not found");
         }
 
-        $unitPrice = is_numeric($data['unit_price'] ?? null) ? (float) $data['unit_price'] : (float) ($branchItem?->price ?? 0);
+        if (is_numeric($data['unit_price'] ?? null)) {
+            $unitPrice = (float) $data['unit_price'];
+        } else {
+            $supplierPrice = null;
+            if ($order->supplier_id) {
+                $supplierPrice = \Modules\Supplier\Models\SupplierProduct::where('supplier_id', $order->supplier_id)
+                    ->where('item_id', $item->id)
+                    ->where('unit_price', '>', 0)
+                    ->value('unit_price')
+                    ?? \Modules\Purchase\Models\SupplierItem::where('supplier_id', $order->supplier_id)
+                        ->where('item_id', $item->id)
+                        ->where('unit_price', '>', 0)
+                        ->value('unit_price');
+            }
+            $unitPrice = $supplierPrice !== null ? (float) $supplierPrice : (float) ($branchItem?->price ?? 0);
+        }
         $quantity = is_numeric($data['quantity']) ? (float) $data['quantity'] : 0;
         $discount = isset($data['discount']) && is_numeric($data['discount']) ? (float) $data['discount'] : 0;
         $totalPrice = ($quantity * $unitPrice) - $discount;

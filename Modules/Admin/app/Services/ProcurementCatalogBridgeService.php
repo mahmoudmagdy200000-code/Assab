@@ -386,6 +386,27 @@ class ProcurementCatalogBridgeService
                 'delivery_hours' => $item->lead_time_days !== null ? $item->lead_time_days * 24 : null,
             ],
         );
+
+        // Keep supplier_products in sync too when the supplier has a mobile
+        // portal catalog row, since PriceComparisonService prefers it on conflict.
+        if (class_exists(\Modules\Supplier\Models\SupplierProduct::class)) {
+            $spUpdates = [
+                'unit_price' => $this->riyals($item->price),
+                'is_available' => $item->status !== 'inactive' && $item->available !== false,
+            ];
+            if ($item->min_qty !== null) {
+                $spUpdates['min_order_quantity'] = $item->min_qty;
+            }
+            if ($item->max_qty !== null) {
+                $spUpdates['max_order_quantity'] = $item->max_qty;
+            }
+            if ($item->lead_time_days !== null) {
+                $spUpdates['delivery_hours'] = $item->lead_time_days * 24;
+            }
+            \Modules\Supplier\Models\SupplierProduct::where('supplier_id', $legacySupplierId)
+                ->where('item_id', $mobile->id)
+                ->update($spUpdates);
+        }
     }
 
     /**

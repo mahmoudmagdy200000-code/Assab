@@ -312,7 +312,9 @@ class PurchaseBoardService
         return [
             'id' => $op->id,
             'publicId' => $op->public_id,
-            'receiptId' => $payload['goodsReceiptId'] ?? $payload['receiptId'] ?? null,
+            'receiptId' => $payload['receiptNumber'] ?? $payload['goodsReceiptId'] ?? $payload['receiptId'] ?? null,
+            'documentType' => $payload['documentType'] ?? null,
+            'hasInvoice' => (bool) ($payload['hasInvoice'] ?? false),
             // «رقم الفاتورة» — the branch/supplier document number when present.
             'invoiceNumber' => $payload['invoiceNumber'] ?? $payload['orderNumber'] ?? $op->public_id,
             'branchId' => $op->branch_id,

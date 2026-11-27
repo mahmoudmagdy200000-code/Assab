@@ -689,6 +689,7 @@ class SupplierController extends AsabController
             'itemsText' => $this->itemsText($o),
             'orderDate' => optional($o->submitted_at ?? $o->created_at)->toIso8601String(),
             'deliveryDate' => optional($o->expected_delivery_at ?? $o->group?->expected_delivery_date ?? $o->preferred_delivery_date)->toDateString(),
+            'rejectionReason' => $o->rejection_reason,
         ];
     }
 
