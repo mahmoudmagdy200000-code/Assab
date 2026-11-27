@@ -256,6 +256,7 @@ class AdminCredentialRevocationTest extends TestCase
 
     public function test_mobile_credential_pull_revokes_active_admin_sessions(): void
     {
+        $this->user->forceFill(['must_change_password' => true])->save();
         $family = $this->auth->issueSessionFamily($this->user);
         $sessionId = $family['sessionId'];
 
@@ -279,6 +280,7 @@ class AdminCredentialRevocationTest extends TestCase
 
         $this->user->refresh();
         $this->assertTrue(Hash::check('MobileNewPassword789!', $this->user->password));
+        $this->assertFalse((bool) $this->user->must_change_password);
 
         // Active admin session must be revoked
         $session = AdminSession::find($sessionId);

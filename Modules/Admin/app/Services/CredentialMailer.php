@@ -23,7 +23,7 @@ use Psr\Log\LoggerInterface;
  */
 class CredentialMailer
 {
-    private const UNDELIVERABLE_MAILERS = ['log'];
+    private const DELIVERABLE_TRANSPORTS = ['smtp', 'mailgun', 'ses', 'ses-v2', 'postmark', 'resend', 'sendmail', 'failover', 'roundrobin'];
 
     public function __construct(
         private readonly Repository $config,
@@ -33,7 +33,47 @@ class CredentialMailer
     /** Whether the configured mailer can carry a credential off this machine. */
     public function deliverable(): bool
     {
-        return ! in_array($this->config->get('mail.default'), self::UNDELIVERABLE_MAILERS, true);
+        $mailer = $this->config->get('mail.default');
+        $mailers = $this->config->get('mail.mailers', []);
+
+        if (! is_string($mailer) || ! is_array($mailers)) {
+            return false;
+        }
+
+        return $this->containsUnsafeTransport($mailer, $mailers, []);
+    }
+
+    private function containsUnsafeTransport(string $mailer, array $mailers, array $visited): bool
+    {
+        if (in_array($mailer, $visited, true)) {
+            return false;
+        }
+
+        $visited[] = $mailer;
+        $config = $mailers[$mailer] ?? null;
+        if (! is_array($config)) {
+            return false;
+        }
+
+        $transport = $config['transport'] ?? null;
+        $testArrayTransport = $transport === 'array' && $this->config->get('app.env') === 'testing';
+        if (! $testArrayTransport && ! in_array($transport, self::DELIVERABLE_TRANSPORTS, true)) {
+            return false;
+        }
+
+        $fallbacks = $config['mailers'] ?? [];
+        if (! is_array($fallbacks)
+            || (in_array($transport, ['failover', 'roundrobin'], true) && $fallbacks === [])) {
+            return false;
+        }
+
+        foreach ($fallbacks as $fallback) {
+            if (! $this->containsUnsafeTransport((string) $fallback, $mailers, $visited)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
@@ -46,8 +86,7 @@ class CredentialMailer
     public function send($notifiable, Notification $notification): bool
     {
         if (! $this->deliverable()) {
-            $this->logger->warning('Credential email suppressed: MAIL_MAILER is '.
-                $this->config->get('mail.default').', which would write the password to the log. Configure a real mailer.');
+            $this->logger->warning('Credential email suppressed: configured mailer is not eligible for credential delivery.');
 
             return false;
         }
@@ -57,7 +96,9 @@ class CredentialMailer
 
             return true;
         } catch (\Throwable $e) {
-            $this->logger->warning('Credential email failed: '.$e->getMessage());
+            // Mail transport exceptions may include rendered message bodies,
+            // SMTP transcripts, addresses, or credentials. Keep logs content-free.
+            $this->logger->warning('Credential email delivery failed.');
 
             return false;
         }

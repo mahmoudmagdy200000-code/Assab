@@ -43,7 +43,8 @@ class AuthService
         // password, and `is_first_login` kept the normal login closed — the
         // account was locked out for good. Idempotent, so a repeat call behaves
         // like a normal login.
-        if (! $this->firstLoginPolicy->forcesReset()) {
+        $requiresPasswordReset = $this->firstLoginPolicy->forcesReset() || $manager->isFirstLogin();
+        if (! $requiresPasswordReset) {
             $this->completeActivation($manager);
         }
 
@@ -52,7 +53,7 @@ class AuthService
         return [
             'manager' => $manager,
             'token' => $token,
-            'requiresPasswordReset' => $this->firstLoginPolicy->forcesReset(),
+            'requiresPasswordReset' => $requiresPasswordReset,
         ];
     }
 
@@ -78,6 +79,7 @@ class AuthService
         // first mobile login — exactly where the dashboard credential would
         // otherwise start diverging.
         PasswordChangedEvent::dispatch($manager);
+        $manager->tokens()->delete();
 
         return $manager;
     }
@@ -127,12 +129,8 @@ class AuthService
         // bouncing the user to a screen that cannot complete (2026-07-26) —
         // unless the forced flow is on, in which case activation is the only way
         // in and this refuses with 403 rather than the old opaque message.
-        if ($this->firstLoginPolicy->forcesReset()) {
-            if ($manager->isFirstLogin()) {
-                throw new FirstLoginRequiredException;
-            }
-        } else {
-            $this->completeActivation($manager);
+        if ($manager->isFirstLogin()) {
+            throw new FirstLoginRequiredException;
         }
 
         // Create token for API authentication

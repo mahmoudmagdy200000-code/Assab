@@ -6,7 +6,7 @@ use Modules\Notification\Http\Controllers\NotificationAlertSettingController;
 use Modules\Notification\Http\Controllers\NotificationController;
 use Modules\Notification\Http\Controllers\NotificationPreferenceController;
 
-Route::middleware(['auth:sanctum'])->group(function () {
+Route::middleware(['auth:sanctum', 'asab.password-change'])->group(function () {
     /*
      | «Notifications & alerts» — every mobile role, not just the brand owner.
      | The app used to call /brand-owner/settings/notifications for everyone and

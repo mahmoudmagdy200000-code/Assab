@@ -2,6 +2,7 @@
 
 namespace Modules\Admin\Services\Provisioning;
 
+use Illuminate\Support\Facades\Hash;
 use Modules\Admin\Exceptions\AsabException;
 use Modules\Admin\Models\AsabIdentityMap;
 use Modules\Admin\Models\AsabSupplier;
@@ -207,7 +208,7 @@ class SupplierUserProvisioner implements LegacyProvisioner
         }
 
         $legacy->forceFill([
-            'password' => $temporaryPassword, // hashed by the model's 'hashed' cast
+            'password' => Hash::make($temporaryPassword),
             'is_first_login' => true,
             'is_active' => true,
         ])->save();

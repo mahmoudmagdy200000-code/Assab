@@ -4,12 +4,15 @@ namespace Modules\Admin\Services;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Contracts\Config\Repository;
 use JsonException;
 use RuntimeException;
 
 /** Builds a stable digest for an authenticated mutation's semantic input. */
 class CanonicalRequestPayload
 {
+    public function __construct(private readonly ?Repository $config = null) {}
+
     public function hash(Request $request): string
     {
         $contentType = strtolower((string) $request->header('Content-Type'));
@@ -26,11 +29,16 @@ class CanonicalRequestPayload
 
         $files = $this->canonicalFiles($request->allFiles());
 
-        return hash('sha256', json_encode([
+        $key = (string) ($this->config?->get('app.key') ?? config('app.key'));
+        if (trim($key) === '') {
+            throw new RuntimeException('The application key is required for idempotency payload hashing.');
+        }
+
+        return hash_hmac('sha256', json_encode([
             'body' => $body,
             'query' => $this->canonicalValue($request->query->all()),
             'files' => $files,
-        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR), $key);
     }
 
     private function looksLikeJson(string $raw): bool

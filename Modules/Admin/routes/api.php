@@ -96,7 +96,7 @@ Route::prefix('v1')->group(function () {
     // SSO sign-in callback — public (FE completion request §3.2)
     Route::post('auth/sso/{provider}/callback', [AuthSsoController::class, 'callback']);
 
-    Route::middleware(['asab.access', 'auth:sanctum'])->group(function () {
+    Route::middleware(['auth:sanctum', 'asab.password-change', 'asab.access'])->group(function () {
         Route::get('auth/me', [AuthController::class, 'me']);
         Route::post('auth/change-password', [AuthController::class, 'changePassword']);
         Route::get('auth/sessions', [AuthController::class, 'sessions']);

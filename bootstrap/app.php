@@ -15,7 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withBroadcasting(
         __DIR__.'/../routes/channels.php',
-        ['middleware' => ['auth:sanctum,asab']],
+        ['middleware' => ['auth:sanctum,asab', 'asab.password-change']],
     )
     ->withSchedule(function (Schedule $schedule) {
         // Send shift reminders 15 minutes before shift starts
@@ -92,6 +92,8 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->api(prepend: [
             \App\Http\Middleware\ParseMultipartFormDataMiddleware::class,
+        ], append: [
+            \Modules\Admin\Http\Middleware\RequirePasswordChange::class,
         ]);
 
         $middleware->alias([
@@ -114,6 +116,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'asab.tenant' => \Modules\Admin\Http\Middleware\ResolveTenant::class,
             'asab.role' => \Modules\Admin\Http\Middleware\EnsureAsabRole::class,
             'asab.access' => \Modules\Admin\Http\Middleware\EnsureAdminAccessToken::class,
+            'asab.password-change' => \Modules\Admin\Http\Middleware\RequirePasswordChange::class,
             'asab.idempotency' => \Modules\Admin\Http\Middleware\IdempotencyKey::class,
             'asab.audit' => \Modules\Admin\Http\Middleware\AuditMutations::class,
             'asab.apikey' => \Modules\Admin\Http\Middleware\AuthenticateApiKey::class,

@@ -52,7 +52,8 @@ class CashierAuthService
             throw new AuthorizationException('Your account is not active. Please contact your manager.');
         }
 
-        if (! $this->firstLoginPolicy->forcesReset()) {
+        $requiresPasswordReset = $this->firstLoginPolicy->forcesReset() || $cashier->isPending();
+        if (! $requiresPasswordReset) {
             $this->completeActivation($cashier);
             $cashier->save();
         }
@@ -60,7 +61,7 @@ class CashierAuthService
         return [
             'cashier' => $cashier,
             'token' => $cashier->createToken(FirstLoginActivationResolver::FIRST_LOGIN_TOKEN_NAME)->plainTextToken,
-            'requiresPasswordReset' => $this->firstLoginPolicy->forcesReset(),
+            'requiresPasswordReset' => $requiresPasswordReset,
         ];
     }
 
@@ -68,15 +69,15 @@ class CashierAuthService
      * Set the password the «activate Account» screen collected, and make sure
      * the account is usable afterwards.
      *
-     * `password` is assigned in the clear on purpose — the model's `hashed`
-     * cast owns the hashing (and passes an already-hashed value through), so
-     * there is exactly one hashing path.
+     * Hash at the user-input boundary so hash-shaped plaintext is never
+     * accepted as an already-hashed credential by the model cast.
      */
     public function setFirstLoginPassword(Cashier $cashier, string $newPassword): Cashier
     {
-        $cashier->forceFill(['password' => $newPassword]);
+        $cashier->forceFill(['password' => $this->hasher->make($newPassword)]);
         $this->completeActivation($cashier);
         $cashier->save();
+        $cashier->tokens()->delete();
 
         return $cashier;
     }

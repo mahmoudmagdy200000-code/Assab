@@ -23,6 +23,7 @@ class AsabUser extends Authenticatable
     protected $fillable = [
         'company_id', 'name', 'email', 'phone', 'password', 'avatar',
         'status', 'reports_to_id', 'default_page', 'last_login_at',
+        'must_change_password',
         'two_factor_method', 'two_factor_secret', 'two_factor_backup_codes', 'two_factor_confirmed_at',
     ];
 
@@ -31,6 +32,7 @@ class AsabUser extends Authenticatable
     protected $casts = [
         'password' => 'hashed',
         'last_login_at' => 'datetime',
+        'must_change_password' => 'boolean',
         'two_factor_secret' => 'encrypted',
         'two_factor_backup_codes' => 'encrypted:array',
         'two_factor_confirmed_at' => 'datetime',

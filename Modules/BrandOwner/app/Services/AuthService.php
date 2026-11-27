@@ -40,7 +40,8 @@ class AuthService
         // password, and `is_first_login` kept the normal login closed — the
         // account was locked out for good. Idempotent, so a repeat call behaves
         // like a normal login.
-        if (! $this->firstLoginPolicy->forcesReset()) {
+        $requiresPasswordReset = $this->firstLoginPolicy->forcesReset() || $owner->isFirstLogin();
+        if (! $requiresPasswordReset) {
             $this->completeActivation($owner);
         }
 
@@ -49,7 +50,7 @@ class AuthService
         return [
             'owner' => $owner,
             'token' => $token,
-            'requiresPasswordReset' => $this->firstLoginPolicy->forcesReset(),
+            'requiresPasswordReset' => $requiresPasswordReset,
         ];
     }
 
@@ -72,6 +73,7 @@ class AuthService
         ]);
 
         BrandOwnerPasswordChanged::dispatch($owner);
+        $owner->tokens()->delete();
 
         return $owner;
     }
@@ -96,12 +98,8 @@ class AuthService
         // A correct password here activates the account too, rather than
         // bouncing the user to a screen that cannot complete (2026-07-26) —
         // unless the forced flow is on, where activation is the only way in.
-        if ($this->firstLoginPolicy->forcesReset()) {
-            if ($owner->isFirstLogin()) {
-                throw new FirstLoginRequiredException;
-            }
-        } else {
-            $this->completeActivation($owner);
+        if ($owner->isFirstLogin()) {
+            throw new FirstLoginRequiredException;
         }
 
         $token = $owner->createToken('brand-owner-token')->plainTextToken;
